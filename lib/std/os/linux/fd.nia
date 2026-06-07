@@ -2,7 +2,19 @@ import std.os.linux.syscall;
 import std.os.linux.stat;
 import std.os.linux.types;
 
-using types::{Errno, FileDescriptor, FileMetadata, OpenMode, SeekWhence};
+using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence};
+
+comptime let linux_dirent64_reclen_offset: usize = 16usize;
+comptime let linux_dirent64_type_offset: usize = 18usize;
+comptime let linux_dirent64_name_offset: usize = 19usize;
+comptime let dirent_type_unknown: u8 = 0u8;
+comptime let dirent_type_fifo: u8 = 1u8;
+comptime let dirent_type_chr: u8 = 2u8;
+comptime let dirent_type_dir: u8 = 4u8;
+comptime let dirent_type_blk: u8 = 6u8;
+comptime let dirent_type_reg: u8 = 8u8;
+comptime let dirent_type_lnk: u8 = 10u8;
+comptime let dirent_type_sock: u8 = 12u8;
 
 extend FileDescriptor {
     pub fn write_some(&self, bytes: &[u8]) Errno!usize {
@@ -77,6 +89,23 @@ extend FileDescriptor {
 
     pub fn metadata(&self) Errno!FileMetadata {
         stat::metadata_fd(FileDescriptor::init(self.fd))
+    }
+
+    pub fn read_dir_entries(&self, buffer: &mut [u8]) Errno!usize {
+        if buffer.len() == 0 {
+            return Errno::Invalid!;
+        }
+        let ret = syscall::syscall3(
+            syscall::getdents64,
+            self.fd as usize,
+            buffer.get_ptr() as usize,
+            buffer.len(),
+        );
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !(ret as usize)
+        }
     }
 }
 
@@ -196,4 +225,71 @@ pub fn rename_at(
 
 pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
     stat::metadata_at(dir, path, follow_symlinks)
+}
+
+pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
+    if offset >= buffer.len() {
+        return null;
+    }
+    let remaining = buffer.len() - offset;
+    if remaining < linux_dirent64_name_offset + 1usize {
+        return null;
+    }
+
+    let reclen = dirent_reclen(buffer, offset);
+    if reclen <= linux_dirent64_name_offset or reclen > remaining {
+        return null;
+    }
+
+    let name_len = dirent_name_len(buffer, offset, reclen);
+    ?DirectoryEntry::init(
+        dirent_kind(buffer[offset + linux_dirent64_type_offset]),
+        & buffer[(offset + linux_dirent64_name_offset)..(offset + linux_dirent64_name_offset + name_len)],
+    )
+}
+
+pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
+    if offset >= buffer.len() {
+        return null;
+    }
+    let remaining = buffer.len() - offset;
+    if remaining < linux_dirent64_name_offset + 1usize {
+        return null;
+    }
+
+    let reclen = dirent_reclen(buffer, offset);
+    if reclen <= linux_dirent64_name_offset or reclen > remaining {
+        null
+    } else {
+        ?(offset + reclen)
+    }
+}
+
+fn dirent_reclen(buffer: &[u8], offset: usize) usize {
+    (buffer[offset + linux_dirent64_reclen_offset] as usize)
+        | ((buffer[offset + linux_dirent64_reclen_offset + 1usize] as usize) << 8usize)
+}
+
+fn dirent_name_len(buffer: &[u8], offset: usize, reclen: usize) usize {
+    let start = offset + linux_dirent64_name_offset;
+    let end = offset + reclen;
+    var len = 0usize;
+    while start + len < end and buffer[start + len] != 0u8 {
+        len += 1usize;
+    }
+    len
+}
+
+fn dirent_kind(value: u8) FileKind {
+    switch value {
+        dirent_type_fifo => FileKind::NamedPipe,
+        dirent_type_chr => FileKind::CharacterDevice,
+        dirent_type_dir => FileKind::Directory,
+        dirent_type_blk => FileKind::BlockDevice,
+        dirent_type_reg => FileKind::File,
+        dirent_type_lnk => FileKind::Symlink,
+        dirent_type_sock => FileKind::UnixSocket,
+        dirent_type_unknown => FileKind::Unknown,
+        _ => FileKind::Unknown,
+    }
 }

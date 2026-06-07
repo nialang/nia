@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{FunctionSignature, ModuleCodegen};
+use crate::type_equiv::TypeEquivalence;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
     BackendUnionInstance,
@@ -1025,11 +1026,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(left, right)| self.same_type(*left, *right))
+        self.same_type_args_for_equiv(left, right)
     }
 
     pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
@@ -1039,146 +1036,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(cached) = self.same_type_cache.borrow().get(&(left, right)) {
             return *cached;
         }
-        let same = self.compute_same_type(left, right);
+        let same = self.compute_same_type_for_equiv(left, right);
         let mut cache = self.same_type_cache.borrow_mut();
         cache.insert((left, right), same);
         cache.insert((right, left), same);
         same
-    }
-
-    fn compute_same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
-        match (self.ty_kind(left), self.ty_kind(right)) {
-            (Some(TyKind::Error), Some(TyKind::Error)) => true,
-            (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
-            (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
-            (
-                Some(TyKind::Pointer {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Pointer {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            )
-            | (
-                Some(TyKind::Slice {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Slice {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            ) => left_const == right_const && self.same_type(*left_elem, *right_elem),
-            (
-                Some(TyKind::Array {
-                    len: left_len,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Array {
-                    len: right_len,
-                    elem: right_elem,
-                }),
-            ) => {
-                self.same_array_len(left_len, right_len) && self.same_type(*left_elem, *right_elem)
-            }
-            (
-                Some(TyKind::FunctionPointer {
-                    params: left_params,
-                    return_type: left_return,
-                    is_variadic: left_variadic,
-                }),
-                Some(TyKind::FunctionPointer {
-                    params: right_params,
-                    return_type: right_return,
-                    is_variadic: right_variadic,
-                }),
-            ) => {
-                left_variadic == right_variadic
-                    && self.same_type_args(left_params, right_params)
-                    && self.same_type(*left_return, *right_return)
-            }
-            (
-                Some(TyKind::Nominal {
-                    def_id: left_def,
-                    args: left_args,
-                }),
-                Some(TyKind::Nominal {
-                    def_id: right_def,
-                    args: right_args,
-                }),
-            ) => left_def == right_def && self.same_type_args(left_args, right_args),
-            (
-                Some(TyKind::BuiltinTrait {
-                    trait_id: left_trait,
-                    args: left_args,
-                }),
-                Some(TyKind::BuiltinTrait {
-                    trait_id: right_trait,
-                    args: right_args,
-                }),
-            ) => left_trait == right_trait && self.same_type_args(left_args, right_args),
-            (
-                Some(TyKind::TraitObject {
-                    is_readonly: left_const,
-                    trait_id: left_trait,
-                    trait_args: left_args,
-                    associated_type_bindings: left_bindings,
-                }),
-                Some(TyKind::TraitObject {
-                    is_readonly: right_const,
-                    trait_id: right_trait,
-                    trait_args: right_args,
-                    associated_type_bindings: right_bindings,
-                }),
-            ) => {
-                left_const == right_const
-                    && left_trait == right_trait
-                    && self.same_type_args(left_args, right_args)
-                    && left_bindings.len() == right_bindings.len()
-                    && left_bindings.iter().all(|left_binding| {
-                        right_bindings
-                            .iter()
-                            .find(|right_binding| {
-                                self.same_associated_type_binding_key(left_binding, right_binding)
-                            })
-                            .is_some_and(|right_binding| {
-                                self.same_type(left_binding.ty, right_binding.ty)
-                            })
-                    })
-            }
-            (
-                Some(TyKind::Projection {
-                    self_ty: left_self,
-                    trait_id: left_trait,
-                    trait_args: left_args,
-                    name: left_name,
-                }),
-                Some(TyKind::Projection {
-                    self_ty: right_self,
-                    trait_id: right_trait,
-                    trait_args: right_args,
-                    name: right_name,
-                }),
-            ) => {
-                left_trait == right_trait
-                    && left_name == right_name
-                    && self.same_type(*left_self, *right_self)
-                    && self.same_type_args(left_args, right_args)
-            }
-            _ => false,
-        }
-    }
-
-    fn same_associated_type_binding_key(
-        &self,
-        left: &nia_ty::AssociatedTypeBindingTy,
-        right: &nia_ty::AssociatedTypeBindingTy,
-    ) -> bool {
-        left.name == right.name
-            && left.trait_id == right.trait_id
-            && self.same_type_args(&left.trait_args, &right.trait_args)
     }
 
     fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
@@ -1232,5 +1094,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             | Some(TyKind::Slice { elem, .. }) => Ok(*elem),
             _ => Err(self.error(span, "index base is not an array, pointer, or slice")),
         }
+    }
+}
+
+impl TypeEquivalence for ModuleCodegen<'_, '_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.ty_kind(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        self.same_array_len(left, right)
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        self.same_type(left, right)
     }
 }

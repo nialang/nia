@@ -59,6 +59,11 @@ pub enum FileKind: i32 {
     _,
 }
 
+pub struct DirectoryEntry {
+    kind: FileKind,
+    name: &[u8],
+}
+
 pub struct Timestamp {
     seconds: i64,
     nanos: u32,
@@ -105,6 +110,20 @@ extend FileDescriptor {
 
     pub fn raw(&self) i32 {
         self.fd
+    }
+}
+
+extend DirectoryEntry {
+    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
+        { kind: kind, name: name }
+    }
+
+    pub fn kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fn name(&self) &[u8] {
+        self.name
     }
 }
 

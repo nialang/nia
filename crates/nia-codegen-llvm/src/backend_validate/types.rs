@@ -9,6 +9,7 @@ use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, RangeTyKind, TyKind};
 
 use super::{BackendValidator, align_to, primitive_layout};
+use crate::type_equiv::TypeEquivalence;
 
 impl BackendValidator<'_> {
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
@@ -377,11 +378,7 @@ impl BackendValidator<'_> {
     }
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(left, right)| self.same_type(*left, *right))
+        self.same_type_args_for_equiv(left, right)
     }
 
     pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
@@ -391,60 +388,11 @@ impl BackendValidator<'_> {
         if let Some(cached) = self.same_type_cache.borrow().get(&(left, right)) {
             return *cached;
         }
-        let same = self.compute_same_type(left, right);
+        let same = self.compute_same_type_for_equiv(left, right);
         let mut cache = self.same_type_cache.borrow_mut();
         cache.insert((left, right), same);
         cache.insert((right, left), same);
         same
-    }
-
-    fn compute_same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
-        match (self.ty_kind(left), self.ty_kind(right)) {
-            (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
-            (
-                Some(TyKind::Pointer {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Pointer {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            )
-            | (
-                Some(TyKind::Slice {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Slice {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            ) => left_const == right_const && self.same_type(*left_elem, *right_elem),
-            (
-                Some(TyKind::Array {
-                    len: left_len,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Array {
-                    len: right_len,
-                    elem: right_elem,
-                }),
-            ) => {
-                self.same_array_len(left_len, right_len) && self.same_type(*left_elem, *right_elem)
-            }
-            (
-                Some(TyKind::Nominal {
-                    def_id: left_def,
-                    args: left_args,
-                }),
-                Some(TyKind::Nominal {
-                    def_id: right_def,
-                    args: right_args,
-                }),
-            ) => left_def == right_def && self.same_type_args(left_args, right_args),
-            _ => false,
-        }
     }
 
     fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
@@ -478,6 +426,20 @@ impl BackendValidator<'_> {
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.index.module(ty.interner_id)?.interner.get(ty)
+    }
+}
+
+impl TypeEquivalence for BackendValidator<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.ty_kind(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        self.same_array_len(left, right)
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        self.same_type(left, right)
     }
 }
 
