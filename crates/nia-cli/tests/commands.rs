@@ -1726,6 +1726,134 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_io_buffered_writer_flushes_partial_writes() {
+    let root = temp_dir("emit_exe_std_io_buffered_writer_flushes_partial_writes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+struct PartialWriter {
+    inner: io::FixedBufferWriter,
+}
+
+extend PartialWriter {
+    fn init(buffer: &mut [u8]) PartialWriter {
+        { inner: io::FixedBufferWriter::init(buffer) }
+    }
+
+    fn len(&self) usize {
+        self.inner.len()
+    }
+
+    fn written(&self) &[u8] {
+        self.inner.written()
+    }
+}
+
+extend PartialWriter : io::Writer {
+    type Error = io::BufferError;
+
+    fn short_write(&self) Error {
+        io::BufferError::ShortWrite
+    }
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        var count = bytes.len();
+        if count > 2usize {
+            count = 2usize;
+        }
+        self.inner.write(&bytes[0..count])
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var storage: [16]u8 = [0; 16];
+    var backing = PartialWriter::init(&mut storage[..]);
+    var buffer_storage: [8]u8 = [0; 8];
+    var writer = io::BufferedWriter[PartialWriter]::init(
+        &mut backing,
+        &mut buffer_storage[..],
+    );
+
+    switch writer.write_all(b"abcdef") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if writer.len() != 6 or backing.len() != 0 {
+        return process::ExitCode::init(2)!;
+    }
+
+    switch writer.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    if writer.len() != 0 or backing.len() != 6 {
+        return process::ExitCode::init(4)!;
+    }
+
+    let expected = b"abcdef";
+    let written = backing.written();
+    var index = 0usize;
+    while index < expected.len() {
+        if written[index] != expected[index] {
+            return process::ExitCode::init(5)!;
+        }
+        index += 1usize;
+    }
+
+    var direct_storage: [16]u8 = [0; 16];
+    var direct_backing = PartialWriter::init(&mut direct_storage[..]);
+    var direct_buffer_storage: [4]u8 = [0; 4];
+    var direct_writer = io::BufferedWriter[PartialWriter]::init(
+        &mut direct_backing,
+        &mut direct_buffer_storage[..],
+    );
+    switch direct_writer.write_all(b"ghijkl") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+    if direct_writer.len() != 0 or direct_backing.len() != 6 {
+        return process::ExitCode::init(7)!;
+    }
+    let direct_expected = b"ghijkl";
+    let direct_written = direct_backing.written();
+    index = 0usize;
+    while index < direct_expected.len() {
+        if direct_written[index] != direct_expected[index] {
+            return process::ExitCode::init(8)!;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_use_std_io_buffered_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_buffered_reader");
     let main = root.join("main.nia");
@@ -1797,6 +1925,93 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if n != 0 {
         return process::ExitCode::init(13)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_io_read_exact_handles_partial_reads() {
+    let root = temp_dir("emit_exe_std_io_read_exact_handles_partial_reads");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+struct PartialReader {
+    inner: io::FixedBufferReader,
+}
+
+extend PartialReader {
+    fn init(bytes: &[u8]) PartialReader {
+        { inner: io::FixedBufferReader::init(bytes) }
+    }
+}
+
+extend PartialReader : io::Reader {
+    type Error = io::BufferError;
+
+    fn end_of_stream(&self) Error {
+        io::BufferError::EndOfStream
+    }
+
+    fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        var count = bytes.len();
+        if count > 2usize {
+            count = 2usize;
+        }
+        self.inner.read(&mut bytes[0..count])
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var source = PartialReader::init(b"abcdef");
+    var bytes: [6]u8 = [0; 6];
+    switch source.read_exact(&mut bytes[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    let expected = b"abcdef";
+    var index = 0usize;
+    while index < expected.len() {
+        if bytes[index] != expected[index] {
+            return process::ExitCode::init(2)!;
+        }
+        index += 1usize;
+    }
+
+    var short = PartialReader::init(b"xy");
+    var too_many: [3]u8 = [0; 3];
+    switch short.read_exact(&mut too_many[..]) {
+        !ok => {
+            _ = ok;
+            return process::ExitCode::init(3)!;
+        },
+        error! => {},
     }
     !{}
 }
@@ -2084,6 +2299,76 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_fs_can_delete_files() {
+    let root = temp_dir("emit_exe_std_fs_can_delete_files");
+    let data_path = root.join("delete-me.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var cwd = fs::Dir::cwd();
+    var file: fs::File;
+    switch cwd.create_file(fs::Path::init("delete-me.txt"), fs::CreateOptions::init()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch cwd.delete_file(fs::Path::init("delete-me.txt")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    switch cwd.open_file(fs::Path::init("delete-me.txt"), fs::OpenOptions::read_only()) {
+        !file => {
+            _ = file;
+            return process::ExitCode::init(4)!;
+        },
+        error! => {},
+    }
+
+    switch cwd.delete_file(fs::Path::init("bad\0path")) {
+        !ok => {
+            _ = ok;
+            return process::ExitCode::init(5)!;
+        },
+        error! => {},
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+    assert!(!data_path.exists());
 }
 
 #[test]
@@ -3895,6 +4180,7 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
         std::process::id(),
         std::thread::current().id()
     ));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }

@@ -143,11 +143,7 @@ where W: Writer
             !{}
         } else if bytes.len() > self.buffer.len() {
             self.flush().?;
-            let n = self.writer.write(bytes).?;
-            if n != bytes.len() {
-                return self.short_write()!;
-            }
-            !{}
+            self.writer.write_all(bytes)
         } else {
             let available = self.buffer.len() - self.len;
             if bytes.len() > available {
@@ -160,10 +156,7 @@ where W: Writer
 
     pub fn flush(&mut self) Error!void {
         if self.len != 0 {
-            let n = self.writer.write(& self.buffer[0..self.len]).?;
-            if n != self.len {
-                return self.short_write()!;
-            }
+            self.writer.write_all(& self.buffer[0..self.len]).?;
             self.len = 0;
         }
         self.writer.flush()

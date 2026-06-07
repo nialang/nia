@@ -30,6 +30,10 @@ pub fn open_at(
     platform::open_at(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
+pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
+    platform::delete_file_at(dir, path)
+}
+
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
     platform::map_pages(len, align)
 }

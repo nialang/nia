@@ -91,3 +91,12 @@ pub fn open_at(
         !FileDescriptor::init(ret as i32)
     }
 }
+
+pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
+    let ret = syscall::syscall3(263, dir.raw() as usize, path as usize, 0);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}

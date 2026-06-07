@@ -27,6 +27,12 @@ extend Dir {
         self.create_encoded_file(encoded, options)
     }
 
+    pub fn delete_file(&self, path: Path) Error!void {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.delete_encoded_file(encoded)
+    }
+
     pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
         let handle = os::open_at(
             self.handle,
@@ -51,6 +57,10 @@ extend Dir {
             options.permissions(),
         ).map_err[Error](&os::Error::as_fs_error).?;
         !File::init(handle)
+    }
+
+    pub fn delete_encoded_file(&self, path: EncodedPath) Error!void {
+        os::delete_file_at(self.handle, path.ptr()).map_err[Error](&os::Error::as_fs_error)
     }
 }
 
