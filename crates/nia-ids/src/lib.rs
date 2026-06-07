@@ -73,6 +73,7 @@ pub enum BuiltinTrait {
     Eq,
     Ord,
     Sized,
+    Unsized,
     DerefRead,
     Deref,
     IndexRead,
@@ -406,7 +407,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -423,6 +424,7 @@ impl BuiltinTrait {
         Self::Eq,
         Self::Ord,
         Self::Sized,
+        Self::Unsized,
         Self::DerefRead,
         Self::Deref,
         Self::IndexRead,
@@ -451,6 +453,7 @@ impl BuiltinTrait {
             "Eq" => Some(Self::Eq),
             "Ord" => Some(Self::Ord),
             "Sized" => Some(Self::Sized),
+            "Unsized" => Some(Self::Unsized),
             "DerefRead" => Some(Self::DerefRead),
             "Deref" => Some(Self::Deref),
             "IndexRead" => Some(Self::IndexRead),
@@ -481,6 +484,7 @@ impl BuiltinTrait {
             Self::Eq => "Eq",
             Self::Ord => "Ord",
             Self::Sized => "Sized",
+            Self::Unsized => "Unsized",
             Self::DerefRead => "DerefRead",
             Self::Deref => "Deref",
             Self::IndexRead => "IndexRead",
@@ -514,6 +518,7 @@ impl BuiltinTrait {
             | Self::Not
             | Self::BitNot
             | Self::Sized
+            | Self::Unsized
             | Self::DerefRead
             | Self::Deref
             | Self::GetPtrRead
@@ -548,7 +553,7 @@ impl BuiltinTrait {
             Self::DerefRead | Self::Deref | Self::GetPtrRead | Self::GetPtr => {
                 &Self::TARGET_ASSOC_TYPES
             }
-            Self::Not | Self::Eq | Self::Ord | Self::Sized => &Self::NO_ASSOC_TYPES,
+            Self::Not | Self::Eq | Self::Ord | Self::Sized | Self::Unsized => &Self::NO_ASSOC_TYPES,
         }
     }
 
@@ -570,6 +575,7 @@ impl BuiltinTrait {
             Self::Eq => &Self::EQ_METHODS,
             Self::Ord => &Self::ORD_METHODS,
             Self::Sized => &Self::NO_METHODS,
+            Self::Unsized => &Self::NO_METHODS,
             Self::DerefRead => &Self::DEREF_READ_METHODS,
             Self::Deref => &Self::DEREF_METHODS,
             Self::IndexRead => &Self::INDEX_READ_METHODS,

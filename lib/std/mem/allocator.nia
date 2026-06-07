@@ -43,9 +43,7 @@ pub trait Allocator {
     }
 }
 
-extend[A] A
-where A: Allocator
-{
+extend Allocator {
     pub fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
     where T: Sized
     {

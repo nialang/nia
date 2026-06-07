@@ -189,6 +189,7 @@ where
                     && (self.can_be_numeric(self_ty) || self.can_be_char(self_ty))
             }
             BuiltinTrait::Sized => self.can_have_known_layout(self_ty),
+            BuiltinTrait::Unsized => self.can_be_compiler_classified_type(self_ty),
             BuiltinTrait::DerefRead => self.can_be_non_void_pointer(self_ty, false),
             BuiltinTrait::Deref => self.can_be_non_void_pointer(self_ty, true),
             BuiltinTrait::IndexRead => {
@@ -357,6 +358,13 @@ where
         !matches!(
             self.interner.get(self.normalize(ty)),
             Some(TyKind::Error | TyKind::Primitive(PrimitiveTy::Never)) | None
+        )
+    }
+
+    fn can_be_compiler_classified_type(&self, ty: InternedTyId) -> bool {
+        !matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::Error) | None
         )
     }
 
@@ -583,6 +591,7 @@ where
                     && (self.is_numeric(self_ty) || self.is_char(self_ty))
             }
             BuiltinTrait::Sized => goal.trait_args.is_empty() && self.layout_of(self_ty),
+            BuiltinTrait::Unsized => goal.trait_args.is_empty() && self.is_generic_param(self_ty),
             BuiltinTrait::DerefRead => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, false).is_some()
@@ -1405,6 +1414,10 @@ where
     fn layout_of(&self, ty: InternedTyId) -> bool {
         self.layouts
             .is_some_and(|layouts| layouts.types.contains_key(&self.normalize(ty)))
+    }
+
+    fn is_generic_param(&self, ty: InternedTyId) -> bool {
+        matches!(self.kind(ty), Some(TyKind::GenericParam(_)))
     }
 
     fn bool(&self) -> InternedTyId {

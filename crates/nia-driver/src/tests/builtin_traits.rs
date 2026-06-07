@@ -912,3 +912,30 @@ fn main() i32 { 0 }
         program.diagnostics
     );
 }
+
+#[test]
+fn builtin_unsized_trait_cannot_be_implemented_manually() {
+    let root = temp_dir("builtin_unsized_trait_cannot_be_implemented_manually");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number : Unsized {}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("overlaps a compiler-proven implementation")),
+        "{:?}",
+        program.diagnostics
+    );
+}

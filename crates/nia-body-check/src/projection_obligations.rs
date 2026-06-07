@@ -453,6 +453,30 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             DefKind::Method => {
+                if let Some(TyKind::TraitObject {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                    ..
+                }) = self
+                    .method_owner_trait_object_type(def_id)
+                    .and_then(|ty| self.interner.get(self.normalization.normalize(ty)).cloned())
+                {
+                    return Some(TraitObligation {
+                        self_ty: self
+                            .interner
+                            .intern(TyKind::GenericParam("Self".to_string())),
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings: associated_type_bindings
+                            .iter()
+                            .map(|binding| TraitObligationAssociatedTypeBinding {
+                                name: binding.name.clone(),
+                                ty: binding.ty,
+                            })
+                            .collect(),
+                    });
+                }
                 let method_id = self.global_def_id(def_id);
                 let target_ty = self.method_owner_type(def_id)?;
                 let impl_signature = self.trait_impl_signature_for_method(method_id)?.clone();

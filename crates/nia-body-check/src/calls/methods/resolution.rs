@@ -59,9 +59,6 @@ impl<'a> BodyChecker<'a> {
     ) -> Vec<MethodCandidate> {
         let mut receiver_ty = self.normalization.normalize(receiver_ty);
         loop {
-            if self.receiver_is_or_points_to_trait_object(receiver_ty) {
-                return Vec::new();
-            }
             let candidates = self
                 .extensions
                 .all_methods_named(name)
@@ -69,13 +66,20 @@ impl<'a> BodyChecker<'a> {
                 .filter_map(|(target_ty, method)| {
                     let target_ty = self.normalization.normalize(target_ty);
                     let mut substitutions = HashMap::new();
-                    (self.match_type_pattern(target_ty, receiver_ty, &mut substitutions)
-                        && self.extension_method_where_predicates_hold(&method, &substitutions))
+                    (self.match_extension_receiver_target(
+                        target_ty,
+                        method.def_id,
+                        receiver_ty,
+                        &mut substitutions,
+                    ) && self.extension_method_where_predicates_hold(&method, &substitutions))
                     .then_some(MethodCandidate { target_ty, method })
                 })
                 .collect::<Vec<_>>();
             if !candidates.is_empty() {
                 return candidates;
+            }
+            if self.receiver_is_trait_object(receiver_ty) {
+                return Vec::new();
             }
             match self.interner.get(receiver_ty) {
                 Some(TyKind::Pointer { elem, .. }) => {
@@ -86,16 +90,141 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn receiver_is_or_points_to_trait_object(&mut self, receiver_ty: InternedTyId) -> bool {
+    fn receiver_is_trait_object(&mut self, receiver_ty: InternedTyId) -> bool {
         let receiver_ty = self.normalization.normalize(receiver_ty);
-        match self.interner.get(receiver_ty).cloned() {
-            Some(TyKind::TraitObject { .. }) => true,
-            Some(TyKind::Pointer { elem, .. }) => {
-                let elem = self.normalization.normalize(elem);
-                matches!(self.interner.get(elem), Some(TyKind::TraitObject { .. }))
-            }
-            _ => false,
+        matches!(
+            self.interner.get(receiver_ty),
+            Some(TyKind::TraitObject { .. })
+        )
+    }
+
+    fn receiver_candidate_target_ty(
+        &mut self,
+        target_ty: InternedTyId,
+        method_id: GlobalDefId,
+    ) -> InternedTyId {
+        let Some(TyKind::TraitObject { .. }) = self.interner.get(target_ty) else {
+            return target_ty;
+        };
+        self.resolved_function_signature(method_id)
+            .and_then(|resolved| {
+                resolved
+                    .signature
+                    .params
+                    .first()
+                    .and_then(|param| param.receiver)
+            })
+            .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
+            .unwrap_or(target_ty)
+    }
+
+    fn match_extension_receiver_target(
+        &mut self,
+        target_ty: InternedTyId,
+        method_id: GlobalDefId,
+        receiver_ty: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        let candidate_target_ty = self.receiver_candidate_target_ty(target_ty, method_id);
+        if self.match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
+            return true;
         }
+        if self
+            .trait_object_extension_target_matches_object_receiver(candidate_target_ty, receiver_ty)
+        {
+            return true;
+        }
+        if self.trait_object_extension_target_matches_receiver(
+            candidate_target_ty,
+            receiver_ty,
+            substitutions,
+        ) {
+            return true;
+        }
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        if let Some(TyKind::Pointer { elem, .. }) = self.interner.get(receiver_ty) {
+            return self.match_extension_receiver_target(
+                target_ty,
+                method_id,
+                *elem,
+                substitutions,
+            );
+        }
+        false
+    }
+
+    fn trait_object_extension_target_matches_object_receiver(
+        &mut self,
+        target_ty: InternedTyId,
+        receiver_ty: InternedTyId,
+    ) -> bool {
+        let (
+            Some(TyKind::TraitObject {
+                is_readonly: target_readonly,
+                trait_id: target_trait,
+                trait_args: target_args,
+                associated_type_bindings: target_bindings,
+            }),
+            Some(TyKind::TraitObject {
+                is_readonly: receiver_readonly,
+                trait_id: receiver_trait,
+                trait_args: receiver_args,
+                associated_type_bindings: receiver_bindings,
+            }),
+        ) = (
+            self.interner.get(target_ty).cloned(),
+            self.interner
+                .get(self.normalization.normalize(receiver_ty))
+                .cloned(),
+        )
+        else {
+            return false;
+        };
+        target_trait == receiver_trait
+            && target_args == receiver_args
+            && target_bindings == receiver_bindings
+            && (target_readonly || !receiver_readonly)
+    }
+
+    fn trait_object_extension_target_matches_receiver(
+        &mut self,
+        target_ty: InternedTyId,
+        receiver_ty: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        let Some(TyKind::TraitObject {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+            ..
+        }) = self.interner.get(target_ty).cloned()
+        else {
+            return false;
+        };
+        if !associated_type_bindings.is_empty() {
+            return false;
+        }
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let self_ty = match self.interner.get(receiver_ty).cloned() {
+            Some(TyKind::Pointer { elem, .. }) => self.normalization.normalize(elem),
+            _ => receiver_ty,
+        };
+        let mut concrete_trait_args = Vec::new();
+        for trait_arg in trait_args {
+            let trait_arg = self.substitute_generics(trait_arg, substitutions);
+            if matches!(
+                self.interner.get(self.normalization.normalize(trait_arg)),
+                Some(TyKind::GenericParam(_))
+            ) {
+                return false;
+            }
+            concrete_trait_args.push(trait_arg);
+        }
+        if !self.current_context_proves_trait_obligation(self_ty, trait_id, concrete_trait_args) {
+            return false;
+        }
+        substitutions.entry("Self".to_string()).or_insert(self_ty);
+        true
     }
 
     pub(in crate::calls::methods) fn trait_method_candidates_for_receiver(
@@ -722,7 +851,7 @@ impl<'a> BodyChecker<'a> {
             return Some(HashMap::new());
         };
         let mut substitutions = HashMap::new();
-        self.match_receiver_target(target_ty, receiver_ty, &mut substitutions)
+        self.match_extension_receiver_target(target_ty, method_id, receiver_ty, &mut substitutions)
             .then_some(substitutions)
     }
 
@@ -780,24 +909,6 @@ impl<'a> BodyChecker<'a> {
                     .any(|method| method.def_id == method_id)
             })
             .map(|target| target.target_ty)
-    }
-
-    fn match_receiver_target(
-        &self,
-        target_ty: InternedTyId,
-        receiver_ty: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
-    ) -> bool {
-        let receiver_ty = self.normalization.normalize(receiver_ty);
-        if self.match_type_pattern(target_ty, receiver_ty, substitutions) {
-            return true;
-        }
-        match self.interner.get(receiver_ty) {
-            Some(TyKind::Pointer { elem, .. }) => {
-                self.match_receiver_target(target_ty, *elem, substitutions)
-            }
-            _ => false,
-        }
     }
 
     pub(crate) fn match_type_pattern(

@@ -215,22 +215,19 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<InternedTyId> {
+        let dynamic_candidates =
+            self.dynamic_trait_method_candidates_for_receiver(call.receiver_ty, call.name);
+        if !dynamic_candidates.is_empty() {
+            return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
+        }
         let candidates = self.method_candidates_for_receiver(call.receiver_ty, call.name);
         let trait_candidates = if candidates.is_empty() {
             self.trait_method_candidates_for_receiver(call.receiver_ty, call.name)
         } else {
             Vec::new()
         };
-        let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
-            self.dynamic_trait_method_candidates_for_receiver(call.receiver_ty, call.name)
-        } else {
-            Vec::new()
-        };
         if candidates.is_empty() && !trait_candidates.is_empty() {
             return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
-        }
-        if candidates.is_empty() && !dynamic_candidates.is_empty() {
-            return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
         }
         if candidates.is_empty()
             && let Some(return_ty) = self.check_builtin_trait_method_call_with_receiver_ty(&call)

@@ -37,17 +37,13 @@ impl<'a> BodyChecker<'a> {
         }
         let self_nominal = self.method_owner_type(def_id)?;
         let receiver = signature.params.first()?.receiver?;
-        Some(match receiver {
-            ReceiverKind::Value => self_nominal,
-            ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
-                is_readonly: true,
-                elem: self_nominal,
-            }),
-            ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
-                is_readonly: false,
-                elem: self_nominal,
-            }),
-        })
+        if self.method_owner_trait_object_type(def_id).is_some() {
+            let self_generic = self
+                .interner
+                .intern(TyKind::GenericParam("Self".to_string()));
+            return Some(self.receiver_ty_for_target(self_generic, receiver));
+        }
+        Some(self.receiver_ty_for_target(self_nominal, receiver))
     }
 
     pub(crate) fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
@@ -60,8 +56,58 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
+    pub(crate) fn method_owner_trait_object_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
+        let owner_ty = self.method_owner_type(def_id)?;
+        matches!(
+            self.interner.get(self.normalization.normalize(owner_ty)),
+            Some(TyKind::TraitObject { .. })
+        )
+        .then_some(owner_ty)
+    }
+
     pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {
         self.receiver_base_type_inner(ty, false, false)
+    }
+
+    pub(crate) fn receiver_ty_for_target(
+        &mut self,
+        target_ty: InternedTyId,
+        receiver: ReceiverKind,
+    ) -> InternedTyId {
+        if let Some(TyKind::TraitObject {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+            ..
+        }) = self.interner.get(target_ty).cloned()
+        {
+            return match receiver {
+                ReceiverKind::Value => target_ty,
+                ReceiverKind::RefReadOnly => self.interner.intern(TyKind::TraitObject {
+                    is_readonly: true,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }),
+                ReceiverKind::Ref => self.interner.intern(TyKind::TraitObject {
+                    is_readonly: false,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }),
+            };
+        }
+        match receiver {
+            ReceiverKind::Value => target_ty,
+            ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: target_ty,
+            }),
+            ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem: target_ty,
+            }),
+        }
     }
 
     fn receiver_base_type_inner(
