@@ -1,15 +1,172 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    io::Read,
+    process::{Command, ExitStatus, Output, Stdio},
+    sync::{
+        Condvar, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static COMMAND_LIMIT: CommandLimit = CommandLimit::new(4);
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+
+struct CommandLimit {
+    state: Mutex<usize>,
+    available: Condvar,
+    max: usize,
+}
+
+struct CommandPermit<'a> {
+    limit: &'a CommandLimit,
+}
+
+impl CommandLimit {
+    const fn new(max: usize) -> Self {
+        Self {
+            state: Mutex::new(0),
+            available: Condvar::new(),
+            max,
+        }
+    }
+
+    fn acquire(&self) -> CommandPermit<'_> {
+        let mut running = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        while *running >= self.max {
+            running = self
+                .available
+                .wait(running)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        *running += 1;
+        CommandPermit { limit: self }
+    }
+}
+
+impl Drop for CommandPermit<'_> {
+    fn drop(&mut self) {
+        let mut running = self
+            .limit
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *running -= 1;
+        self.limit.available.notify_one();
+    }
+}
+
+trait CommandExt {
+    fn output_timeout(&mut self, context: &str) -> Output;
+    fn status_timeout(&mut self, context: &str) -> ExitStatus;
+}
+
+impl CommandExt for Command {
+    fn output_timeout(&mut self, context: &str) -> Output {
+        let _permit = COMMAND_LIMIT.acquire();
+        self.stdout(Stdio::piped()).stderr(Stdio::piped());
+        prepare_command(self);
+        let mut child = self
+            .spawn()
+            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+        let stdout = child
+            .stdout
+            .take()
+            .expect("stdout pipe was configured before spawn");
+        let stderr = child
+            .stderr
+            .take()
+            .expect("stderr pipe was configured before spawn");
+        let stdout_reader = thread::spawn(move || {
+            let mut stdout = stdout;
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).map(|_| bytes)
+        });
+        let stderr_reader = thread::spawn(move || {
+            let mut stderr = stderr;
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).map(|_| bytes)
+        });
+        let status = wait_child_timeout(&mut child, context);
+        let stdout = stdout_reader
+            .join()
+            .unwrap_or_else(|_| panic!("{context}: stdout reader panicked"))
+            .unwrap_or_else(|error| panic!("{context}: failed to read stdout: {error}"));
+        let stderr = stderr_reader
+            .join()
+            .unwrap_or_else(|_| panic!("{context}: stderr reader panicked"))
+            .unwrap_or_else(|error| panic!("{context}: failed to read stderr: {error}"));
+        Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+
+    fn status_timeout(&mut self, context: &str) -> ExitStatus {
+        let _permit = COMMAND_LIMIT.acquire();
+        prepare_command(self);
+        let mut child = self
+            .spawn()
+            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+        wait_child_timeout(&mut child, context)
+    }
+}
+
+fn prepare_command(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+}
+
+fn wait_child_timeout(child: &mut std::process::Child, context: &str) -> ExitStatus {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status,
+            Ok(None) if start.elapsed() >= COMMAND_TIMEOUT => {
+                terminate_child(child);
+                let _ = child.wait();
+                panic!("{context}: command timed out after {COMMAND_TIMEOUT:?}");
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(error) => panic!("{context}: failed to wait for command: {error}"),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn terminate_child(child: &mut std::process::Child) {
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(format!("-{}", child.id()))
+        .status();
+    thread::sleep(Duration::from_millis(100));
+    if matches!(child.try_wait(), Ok(None)) {
+        let _ = Command::new("kill")
+            .arg("-KILL")
+            .arg(format!("-{}", child.id()))
+            .status();
+    }
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
 
 #[test]
 fn help_and_version_use_nia_command_name() {
     let help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--help")
-        .output()
-        .expect("run nia --help");
+        .output_timeout("run nia --help");
     assert!(
         help.status.success(),
         "stderr:\n{}",
@@ -32,8 +189,7 @@ fn help_and_version_use_nia_command_name() {
     let check_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("check")
-        .output()
-        .expect("run nia help check");
+        .output_timeout("run nia help check");
     assert!(
         check_help.status.success(),
         "stderr:\n{}",
@@ -53,8 +209,7 @@ fn help_and_version_use_nia_command_name() {
     let emit_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
-        .output()
-        .expect("run nia help emit");
+        .output_timeout("run nia help emit");
     assert!(
         emit_help.status.success(),
         "stderr:\n{}",
@@ -67,8 +222,7 @@ fn help_and_version_use_nia_command_name() {
         .arg("help")
         .arg("emit")
         .arg("backend")
-        .output()
-        .expect("run nia help emit backend");
+        .output_timeout("run nia help emit backend");
     assert!(
         emit_backend_help.status.success(),
         "stderr:\n{}",
@@ -93,8 +247,7 @@ fn help_and_version_use_nia_command_name() {
         .arg("help")
         .arg("emit")
         .arg("llvm")
-        .output()
-        .expect("run nia help emit llvm");
+        .output_timeout("run nia help emit llvm");
     assert!(
         emit_llvm_help.status.success(),
         "stderr:\n{}",
@@ -115,8 +268,7 @@ fn help_and_version_use_nia_command_name() {
         .arg("help")
         .arg("emit")
         .arg("obj")
-        .output()
-        .expect("run nia help emit obj");
+        .output_timeout("run nia help emit obj");
     assert!(
         emit_obj_help.status.success(),
         "stderr:\n{}",
@@ -143,8 +295,7 @@ fn help_and_version_use_nia_command_name() {
         .arg("help")
         .arg("emit")
         .arg("exe")
-        .output()
-        .expect("run nia help emit exe");
+        .output_timeout("run nia help emit exe");
     assert!(
         emit_exe_help.status.success(),
         "stderr:\n{}",
@@ -166,8 +317,7 @@ fn help_and_version_use_nia_command_name() {
 
     let version = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--version")
-        .output()
-        .expect("run nia --version");
+        .output_timeout("run nia --version");
     assert!(
         version.status.success(),
         "stderr:\n{}",
@@ -196,8 +346,7 @@ fn main() i32 {
         .arg("emit")
         .arg("llvm")
         .arg(&main)
-        .output()
-        .expect("run nia -O2 emit llvm");
+        .output_timeout("run nia -O2 emit llvm");
 
     assert!(
         output.status.success(),
@@ -227,8 +376,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-Oz")
         .arg("--opt-report")
-        .output()
-        .expect("run nia check main.nia -Oz --opt-report");
+        .output_timeout("run nia check main.nia -Oz --opt-report");
 
     assert!(
         output.status.success(),
@@ -260,8 +408,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia -O check --opt-report");
+        .output_timeout("run nia -O check --opt-report");
 
     assert!(
         output.status.success(),
@@ -282,8 +429,7 @@ fn invalid_optimization_option_reports_expected_levels() {
         .arg("-O9")
         .arg("check")
         .arg("main.nia")
-        .output()
-        .expect("run nia with invalid optimization option");
+        .output_timeout("run nia with invalid optimization option");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -323,8 +469,7 @@ pub comptime let answer: i32 = 42;
         .arg(&main)
         .arg("-M")
         .arg(format!("share={}", mapped.display()))
-        .output()
-        .expect("run nia check with trailing -M");
+        .output_timeout("run nia check with trailing -M");
 
     assert!(
         output.status.success(),
@@ -344,8 +489,7 @@ fn module_map_rejects_compiler_reserved_root() {
         .arg(&main)
         .arg("-M")
         .arg(format!("root={}", main.display()))
-        .output()
-        .expect("run nia check with reserved root module map");
+        .output_timeout("run nia check with reserved root module map");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -374,8 +518,7 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
         .arg(&main)
-        .output()
-        .expect("run nia check with default std");
+        .output_timeout("run nia check with default std");
 
     assert!(
         output.status.success(),
@@ -406,8 +549,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia check --opt-report");
+        .output_timeout("run nia check --opt-report");
 
     assert!(
         output.status.success(),
@@ -444,8 +586,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia -O0 check --opt-report");
+        .output_timeout("run nia -O0 check --opt-report");
 
     assert!(
         o0.status.success(),
@@ -469,8 +610,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia -O3 check --opt-report");
+        .output_timeout("run nia -O3 check --opt-report");
 
     assert!(
         o3.status.success(),
@@ -496,8 +636,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia -Oz check --opt-report");
+        .output_timeout("run nia -Oz check --opt-report");
 
     assert!(
         oz.status.success(),
@@ -519,8 +658,7 @@ fn main() i32 {
         .arg("check")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia -Os check --opt-report");
+        .output_timeout("run nia -Os check --opt-report");
 
     assert!(
         os.status.success(),
@@ -556,8 +694,7 @@ fn main() i32 {
         .arg("emit")
         .arg("backend")
         .arg(&main)
-        .output()
-        .expect("run nia emit backend");
+        .output_timeout("run nia emit backend");
 
     assert!(
         output.status.success(),
@@ -594,8 +731,7 @@ fn main() i32 {
         .arg("backend")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia emit backend --opt-report");
+        .output_timeout("run nia emit backend --opt-report");
 
     assert!(
         output.status.success(),
@@ -635,8 +771,7 @@ fn main() i32 {
         .arg("emit")
         .arg("llvm")
         .arg(&main)
-        .output()
-        .expect("run nia emit llvm");
+        .output_timeout("run nia emit llvm");
 
     assert!(
         output.status.success(),
@@ -672,8 +807,7 @@ fn main() i32 {
         .arg("llvm")
         .arg(&main)
         .arg("--opt-report")
-        .output()
-        .expect("run nia emit llvm --opt-report");
+        .output_timeout("run nia emit llvm --opt-report");
 
     assert!(
         output.status.success(),
@@ -717,8 +851,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-o")
         .arg(&object)
-        .output()
-        .expect("run nia emit obj");
+        .output_timeout("run nia emit obj");
 
     assert!(
         output.status.success(),
@@ -745,6 +878,7 @@ fn main() i32 {
 
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
         let object = root.join(format!("main_{}.o", level.trim_start_matches('-')));
+        let output_context = format!("run nia {level} emit obj");
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
@@ -752,8 +886,7 @@ fn main() i32 {
             .arg(&main)
             .arg("-o")
             .arg(&object)
-            .output()
-            .unwrap_or_else(|error| panic!("run nia {level} emit obj: {error}"));
+            .output_timeout(&output_context);
 
         assert!(
             output.status.success(),
@@ -787,8 +920,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-o")
         .arg("-Oartifact.o")
-        .output()
-        .expect("run nia emit obj -o -Oartifact.o");
+        .output_timeout("run nia emit obj -o -Oartifact.o");
 
     assert!(
         output.status.success(),
@@ -805,8 +937,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-o")
         .arg("--opt-report")
-        .output()
-        .expect("run nia emit obj -o --opt-report");
+        .output_timeout("run nia emit obj -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -827,8 +958,7 @@ fn main() i32 {
         .arg(&main)
         .arg("--out-dir")
         .arg("-Oobjects")
-        .output()
-        .expect("run nia emit obj --out-dir -Oobjects");
+        .output_timeout("run nia emit obj --out-dir -Oobjects");
 
     assert!(
         output.status.success(),
@@ -872,8 +1002,7 @@ fn main() i32 {
         .arg("-o")
         .arg(&object)
         .arg("--opt-report")
-        .output()
-        .expect("run nia emit obj --opt-report");
+        .output_timeout("run nia emit obj --opt-report");
 
     assert!(
         output.status.success(),
@@ -899,8 +1028,7 @@ fn main() i32 {
         .arg(&main)
         .arg("-o")
         .arg(&object_before_source)
-        .output()
-        .expect("run nia emit obj --opt-report before source");
+        .output_timeout("run nia emit obj --opt-report before source");
 
     assert!(
         output.status.success(),
@@ -920,8 +1048,7 @@ fn main() i32 {
         .arg("--opt-report")
         .arg("-o")
         .arg(&object_before_output_flag)
-        .output()
-        .expect("run nia emit obj --opt-report before -o");
+        .output_timeout("run nia emit obj --opt-report before -o");
 
     assert!(
         output.status.success(),
@@ -959,8 +1086,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -968,7 +1094,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(7));
 }
 
@@ -1004,8 +1130,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1013,7 +1138,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1093,8 +1218,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1102,7 +1226,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1159,8 +1283,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1171,8 +1294,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
     let status = Command::new(&exe)
         .arg("nia")
         .arg("lang")
-        .status()
-        .expect("run emitted executable");
+        .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1226,8 +1348,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1237,8 +1358,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let status = Command::new(&exe)
         .env("NIA_TEST_ENV", "ok")
-        .status()
-        .expect("run emitted executable");
+        .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1289,8 +1409,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1298,7 +1417,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(7));
 }
 
@@ -1334,8 +1453,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1343,7 +1461,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output().expect("run emitted executable");
+    let run = Command::new(&exe).output_timeout("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "nia\n");
 }
@@ -1382,8 +1500,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1391,7 +1508,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let run = Command::new(&exe).output().expect("run emitted executable");
+    let run = Command::new(&exe).output_timeout("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&run.stdout), "A¢€😀, λ\n");
 }
@@ -1440,8 +1557,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1449,7 +1565,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1511,8 +1627,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1520,7 +1635,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1598,8 +1713,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1607,7 +1721,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1696,8 +1810,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1705,7 +1818,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1781,8 +1894,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1792,8 +1904,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe)
         .current_dir(&root)
-        .status()
-        .expect("run emitted executable");
+        .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
     assert_eq!(
         std::fs::read(&data_path).expect("read data file"),
@@ -1848,8 +1959,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1859,8 +1969,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe)
         .current_dir(&root)
-        .status()
-        .expect("run emitted executable");
+        .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
     assert_eq!(std::fs::read(&data_path).expect("read data file"), b"ok");
 }
@@ -1904,8 +2013,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1915,8 +2023,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe)
         .current_dir(&root)
-        .status()
-        .expect("run emitted executable");
+        .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -1967,8 +2074,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -1976,7 +2082,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2025,8 +2131,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2034,7 +2139,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2087,8 +2192,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2096,7 +2200,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2136,8 +2240,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2145,7 +2248,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2185,8 +2288,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2194,7 +2296,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2243,8 +2345,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2252,7 +2353,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2333,8 +2434,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2342,7 +2442,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2458,8 +2558,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2467,7 +2566,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2534,8 +2633,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2543,7 +2641,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2585,8 +2683,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2594,7 +2691,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2636,8 +2733,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2645,7 +2741,63 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_block_as_slice_handles_zero_sized_element_type() {
+    let root = temp_dir("emit_exe_std_mem_block_as_slice_handles_zero_sized_element_type");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var layout: mem::Layout;
+    switch mem::Layout::array[void](8) {
+        !value => layout = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var block: mem::Block;
+    switch allocator.alloc(layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+    var items = block.as_slice[void]();
+    if items.len() != 0 {
+        return process::ExitCode::init(3)!;
+    }
+    switch allocator.free(block) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2683,6 +2835,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::ExitCode::init(3)!;
     }
 
+    var short_to: [2]u8 = [0, 0];
+    let long_from: [4]u8 = [5, 6, 7, 8];
+    mem::copy_forwards[u8](&mut short_to[..], &long_from[..]);
+    let expected_short_to: [2]u8 = [5, 6];
+    if not mem::equal[u8](&short_to[..], &expected_short_to[..]) {
+        return process::ExitCode::init(8)!;
+    }
+
+    var short_backward: [2]u8 = [0, 0];
+    mem::copy_backwards[u8](&mut short_backward[..], &long_from[..]);
+    if not mem::equal[u8](&short_backward[..], &expected_short_to[..]) {
+        return process::ExitCode::init(9)!;
+    }
+
     let low: [2]u8 = [1, 2];
     let high: [2]u8 = [1, 3];
     if mem::order[u8](&low[..], &high[..]) != mem::Order::Less {
@@ -2710,8 +2876,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2719,7 +2884,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2750,10 +2915,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::ExitCode::init(4)!;
     }
 
+    var narrow: [4]u8 = [0, 0, 77, 88];
+    let long: [4]u8 = [10, 20, 30, 40];
+    @memcpy(&mut narrow[0..2], &long[..]);
+    if narrow[0] != 10 or narrow[1] != 20 or narrow[2] != 77 or narrow[3] != 88 {
+        return process::ExitCode::init(5)!;
+    }
+
     var overlap: [5]u8 = [1, 2, 3, 4, 5];
     @memmove(&mut overlap[1..], &overlap[0..4]);
     if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
         return process::ExitCode::init(2)!;
+    }
+
+    var short_move: [4]u8 = [9, 8, 7, 6];
+    @memmove(&mut short_move[0..2], &short_move[1..4]);
+    if short_move[0] != 8 or short_move[1] != 7 or short_move[2] != 7 or short_move[3] != 6 {
+        return process::ExitCode::init(6)!;
     }
 
     var bytes: [4]u8 = [1, 2, 3, 4];
@@ -2774,8 +2952,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2783,7 +2960,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -2832,8 +3009,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(format!("helper={}", helper.display()))
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -2841,7 +3017,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -3149,8 +3325,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -3158,7 +3333,184 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse() {
+    let root = temp_dir("emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.array_list;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    let page = &mut allocator;
+    var list = array_list::ArrayList[i32]::init();
+    switch list.push(page, 10) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch list.push(page, 20) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch list.shrink_to_capacity(page, 0) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    if list.len() != 0 or list.capacity() != 0 {
+        return process::ExitCode::init(4)!;
+    }
+
+    switch list.push(page, 30) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch list.push(page, 40) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+    let expected: [2]i32 = [30, 40];
+    if not mem::equal[i32](list.as_slice(), &expected[..]) {
+        return process::ExitCode::init(7)!;
+    }
+    switch list.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(8)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_array_list_owned_slice_and_clone() {
+    let root = temp_dir("emit_exe_std_array_list_owned_slice_and_clone");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.array_list;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    let page = &mut allocator;
+
+    var source = array_list::ArrayList[i32]::init();
+    switch source.push(page, 1) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch source.push(page, 2) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+
+    var cloned: array_list::ArrayList[i32];
+    switch source.clone(page) {
+        !value => cloned = value,
+        error! => return process::ExitCode::init(3)!,
+    }
+    var source_items = source.as_mut_slice();
+    source_items[0] = 9;
+    let expected_source: [2]i32 = [9, 2];
+    let expected_clone: [2]i32 = [1, 2];
+    if not mem::equal[i32](source.as_slice(), &expected_source[..]) {
+        return process::ExitCode::init(4)!;
+    }
+    if not mem::equal[i32](cloned.as_slice(), &expected_clone[..]) {
+        return process::ExitCode::init(5)!;
+    }
+
+    var owned: &mut [i32];
+    switch source.into_owned_slice(page) {
+        !value => owned = value,
+        error! => return process::ExitCode::init(6)!,
+    }
+    if source.len() != 0 or source.capacity() != 0 {
+        return process::ExitCode::init(7)!;
+    }
+    if not mem::equal[i32](owned, &expected_source[..]) {
+        return process::ExitCode::init(8)!;
+    }
+    switch page.free_slice[i32](owned) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(9)!,
+    }
+
+    var external: &mut [i32];
+    switch page.alloc_slice[i32](3) {
+        !items => external = items,
+        error! => return process::ExitCode::init(10)!,
+    }
+    external[0] = 4;
+    external[1] = 5;
+    external[2] = 6;
+    var adopted = array_list::ArrayList[i32]::from_owned_slice(external);
+    let expected_adopted: [3]i32 = [4, 5, 6];
+    if adopted.capacity() != 3 or not mem::equal[i32](adopted.as_slice(), &expected_adopted[..]) {
+        return process::ExitCode::init(11)!;
+    }
+    switch adopted.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(12)!,
+    }
+    switch cloned.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(13)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -3222,8 +3574,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -3231,7 +3582,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -3256,8 +3607,7 @@ fn main(init: process::Init) process::ExitCode!void {
         .arg("emit")
         .arg("exe")
         .arg(&main)
-        .output()
-        .expect("run nia emit exe");
+        .output_timeout("run nia emit exe");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -3346,8 +3696,7 @@ pub fn mymain() i32 {
         .arg(format!("std={}", std_root.display()))
         .arg("-o")
         .arg(&exe)
-        .output()
-        .expect("run nia emit exe with custom std start");
+        .output_timeout("run nia emit exe with custom std start");
 
     assert!(
         output.status.success(),
@@ -3355,7 +3704,7 @@ pub fn mymain() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(11));
 }
 
@@ -3385,8 +3734,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe_name)
-        .output()
-        .expect("run nia emit exe -o -Orunnable");
+        .output_timeout("run nia emit exe -o -Orunnable");
 
     assert!(
         output.status.success(),
@@ -3394,7 +3742,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(9));
 
     let report_name = format!("--opt-report{}", std::env::consts::EXE_SUFFIX);
@@ -3406,8 +3754,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&report_name)
-        .output()
-        .expect("run nia emit exe -o --opt-report");
+        .output_timeout("run nia emit exe -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -3419,9 +3766,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(!stderr.contains("backend optimization report:"), "{stderr}");
 
-    let status = Command::new(&report_path)
-        .status()
-        .expect("run emitted executable named --opt-report");
+    let status =
+        Command::new(&report_path).status_timeout("run emitted executable named --opt-report");
     assert_eq!(status.code(), Some(9));
 }
 
@@ -3451,8 +3797,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg("-o")
         .arg(&exe)
         .arg("--opt-report")
-        .output()
-        .expect("run nia emit exe --opt-report");
+        .output_timeout("run nia emit exe --opt-report");
 
     assert!(
         output.status.success(),
@@ -3468,7 +3813,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
     assert!(stderr.contains("llvm_size=tiny"), "{stderr}");
 
-    let status = Command::new(&exe).status().expect("run emitted executable");
+    let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(5));
 }
 
@@ -3520,6 +3865,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             std::env::consts::EXE_SUFFIX
         );
         let exe = root.join(exe_name);
+        let output_context = format!("run nia {level} emit exe");
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
@@ -3527,8 +3873,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             .arg(&main)
             .arg("-o")
             .arg(&exe)
-            .output()
-            .unwrap_or_else(|error| panic!("run nia {level} emit exe: {error}"));
+            .output_timeout(&output_context);
 
         assert!(
             output.status.success(),
@@ -3536,9 +3881,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        let status = Command::new(&exe)
-            .status()
-            .unwrap_or_else(|error| panic!("run emitted executable for {level}: {error}"));
+        let run_context = format!("run emitted executable for {level}");
+        let status = Command::new(&exe).status_timeout(&run_context);
         assert_eq!(status.code(), Some(42), "{level}");
     }
 }

@@ -150,6 +150,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
             .iter()
             .any(|input| function_expr_contains_builtin_eq(&input.value)),
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)

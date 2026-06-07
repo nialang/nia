@@ -221,6 +221,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(
                     self.instantiate_builtin_value(value, substitutions),
                 ),
+                FunctionExprKind::Trap => FunctionExprKind::Trap,
                 FunctionExprKind::Range(range) => {
                     FunctionExprKind::Range(self.instantiate_range(range, substitutions))
                 }

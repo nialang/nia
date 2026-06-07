@@ -218,6 +218,7 @@ impl<'a> ModuleLowerer<'a> {
             ty: expr.ty,
             kind: match expr.kind {
                 FunctionExprKind::Error => FunctionExprKind::Error,
+                FunctionExprKind::Trap => FunctionExprKind::Trap,
                 FunctionExprKind::Integer(text) => FunctionExprKind::Integer(text),
                 FunctionExprKind::Float(text) => FunctionExprKind::Float(text),
                 FunctionExprKind::String(scalars) => FunctionExprKind::String(scalars),

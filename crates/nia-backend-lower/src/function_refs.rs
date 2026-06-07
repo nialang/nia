@@ -248,7 +248,8 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::EnumVariant(_)
-        | FunctionExprKind::BuiltinValue(_) => {}
+        | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::Trap => {}
     }
 }
 

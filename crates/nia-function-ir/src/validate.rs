@@ -363,7 +363,8 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
-            | FunctionExprKind::BuiltinValue(_) => {}
+            | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::Trap => {}
         }
         Ok(())
     }

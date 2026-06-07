@@ -5,8 +5,9 @@ using types::Order;
 pub fn copy_forwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
+    let count = copy_count[T](to, from);
     var index = 0usize;
-    while index < from.len() {
+    while index < count {
         to[index] = from[index];
         index += 1usize;
     }
@@ -15,10 +16,20 @@ where T: Sized
 pub fn copy_backwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
-    var index = from.len();
+    var index = copy_count[T](to, from);
     while index > 0usize {
         index -= 1usize;
         to[index] = from[index];
+    }
+}
+
+fn copy_count[T](to: &mut [T], from: &[T]) usize
+where T: Sized
+{
+    if to.len() < from.len() {
+        to.len()
+    } else {
+        from.len()
     }
 }
 

@@ -331,6 +331,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::RangeBound { range, bound } => {
                 self.emit_range_bound(expr.span, range, *bound)
             }
+            FunctionExprKind::Trap => {
+                self.emit_trap(expr.span)?;
+                Err(self.error(expr.span, "trap does not produce a value"))
+            }
             FunctionExprKind::InlineAsm(asm) => {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
@@ -796,6 +800,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .get_insert_block()
             .is_some_and(|block| block.get_terminator().is_some())
+    }
+
+    fn emit_trap(&mut self, span: Span) -> Result<(), Diagnostic> {
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
+        let intrinsic = nia_llvm::intrinsics::Intrinsic::find("llvm.trap")
+            .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[]))
+            .ok_or_else(|| self.error(span, "failed to declare trap intrinsic"))?;
+        self.builder
+            .build_call(intrinsic, &[], "trap")
+            .map_err(|_| self.error(span, "failed to build trap call"))?;
+        if !self.current_block_has_terminator() {
+            self.builder
+                .build_unreachable()
+                .map_err(|_| self.error(span, "failed to build trap terminator"))?;
+        }
+        Ok(())
     }
 
     fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {

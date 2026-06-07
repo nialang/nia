@@ -774,7 +774,8 @@ impl FunctionLowerer {
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }
                 | TypedExprKind::EnumVariant(_)
-                | TypedExprKind::BuiltinValue(_) => {}
+                | TypedExprKind::BuiltinValue(_)
+                | TypedExprKind::Trap => {}
             }
         }
 

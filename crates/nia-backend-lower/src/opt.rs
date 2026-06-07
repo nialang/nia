@@ -409,6 +409,7 @@ fn is_pure_expr_op(op: &FunctionOp) -> bool {
 fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
     match &expr.kind {
         FunctionExprKind::Error => false,
+        FunctionExprKind::Trap => false,
         FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -960,6 +961,7 @@ fn rewrite_local_copies_in_expr(
                 | rewrite_local_copies_in_slice_range(range, copies)
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -1265,6 +1267,7 @@ fn rewrite_local_constants_in_expr(
                 | rewrite_local_constants_in_slice_range(range, constants)
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -1516,6 +1519,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
             }
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -1732,6 +1736,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
             collect_place_locals_in_slice_range(range, locals);
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -1947,6 +1952,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
             collect_read_locals_in_slice_range(range, locals);
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -2179,6 +2185,7 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
             collect_referenced_locals_in_slice_range(range, refs);
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -2374,6 +2381,7 @@ fn simplify_same_type_casts_in_expr(expr: &mut FunctionExpr) -> bool {
 fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
     match &mut expr.kind {
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -2612,6 +2620,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         }
         FunctionExprKind::EnumVariant(def_id) => Some(SwitchConstantValue::EnumVariant(*def_id)),
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
         | FunctionExprKind::ByteString(_)

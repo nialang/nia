@@ -265,6 +265,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             FunctionExprKind::Error
+            | FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)

@@ -98,6 +98,11 @@ extend Block {
     where T: Sized
     {
         var ptr = self.ptr as &mut T;
-        &mut ptr[0..(self.size() / @size[T]())]
+        let elem_size = @size[T]();
+        if elem_size == 0usize {
+            &mut ptr[0..0]
+        } else {
+            &mut ptr[0..(self.size() / elem_size)]
+        }
     }
 }

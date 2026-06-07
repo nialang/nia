@@ -385,6 +385,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             FunctionExprKind::Error
+            | FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -806,6 +807,7 @@ fn substitute_inline_locals(
             }
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -936,6 +938,7 @@ fn small_pure_inline_expr_cost_with_local(
                 + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Local(_)
         | FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::CStringPointer { .. }

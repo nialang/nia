@@ -193,6 +193,7 @@ impl FunctionLowerer {
             TypedExprKind::BuiltinValue(value) => {
                 FunctionExprKind::BuiltinValue(Self::lower_builtin_value(value))
             }
+            TypedExprKind::Trap => FunctionExprKind::Trap,
         };
         FunctionExpr {
             span: expr.span,

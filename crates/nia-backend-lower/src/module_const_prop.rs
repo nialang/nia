@@ -481,6 +481,7 @@ fn propagate_cross_function_constants_in_expr(
             }
         }
         FunctionExprKind::Error
+        | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)

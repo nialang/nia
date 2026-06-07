@@ -49,6 +49,7 @@ pub enum ValueNameResolution {
 pub enum BuiltinResolution {
     Builtin,
     ComptimeError,
+    Trap,
     SizeOf,
     AlignOf,
     Asm,
@@ -724,6 +725,7 @@ impl<'a> ValueResolver<'a> {
         match name {
             "builtin" => BuiltinResolution::Builtin,
             "error" => BuiltinResolution::ComptimeError,
+            "trap" => BuiltinResolution::Trap,
             "size" => BuiltinResolution::SizeOf,
             "align" => BuiltinResolution::AlignOf,
             "asm" => BuiltinResolution::Asm,
@@ -906,6 +908,7 @@ fn main() usize {
     var b = @align[usize]();
     var c = @unknown[usize]();
     comptime let d: usize = @error("bad");
+    @trap();
     a + b + c
 }
 "#,
@@ -930,6 +933,12 @@ fn main() usize {
                 .node_builtins
                 .values()
                 .any(|builtin| matches!(builtin, BuiltinResolution::AlignOf))
+        );
+        assert!(
+            resolved
+                .node_builtins
+                .values()
+                .any(|builtin| matches!(builtin, BuiltinResolution::Trap))
         );
         assert!(
             resolved
