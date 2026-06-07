@@ -2818,6 +2818,40 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(37)!,
     }
 
+    var alias = array_list::ArrayList[i32]::init();
+    switch alias.reserve_exact(page, 2) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(38)!,
+    }
+    switch alias.push(page, 1) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(39)!,
+    }
+    switch alias.push(page, 2) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(40)!,
+    }
+    switch alias.append_slice(page, alias.as_slice()) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(41)!,
+    }
+    let expected_alias_append: [4]i32 = [1, 2, 1, 2];
+    if not mem::equal[i32](alias.as_slice(), &expected_alias_append[..]) {
+        return process::ExitCode::init(42)!;
+    }
+    switch alias.insert_slice(page, 1, alias.as_slice()) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(43)!,
+    }
+    let expected_alias_insert: [8]i32 = [1, 1, 2, 1, 2, 2, 1, 2];
+    if not mem::equal[i32](alias.as_slice(), &expected_alias_insert[..]) {
+        return process::ExitCode::init(44)!;
+    }
+    switch alias.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(45)!,
+    }
+
     var list = array_list::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return process::ExitCode::init(4)!;

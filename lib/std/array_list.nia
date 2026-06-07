@@ -139,9 +139,31 @@ where T: Sized
         if index > self.len() {
             return mem::Error::Invalid!;
         }
-        self.ensure_unused_capacity(allocator, values.len()).?;
+        if self.slice_points_into_allocation(values) {
+            let copy_layout = mem::Layout::array[T](values.len()).?;
+            let copy_block = allocator.alloc(copy_layout).?;
+            var copy = copy_block.as_slice[T]();
+            mem::copy_forwards[T](copy, values);
+            switch self.insert_stable_slice(allocator, index, & copy[..]) {
+                !ok => _ = ok,
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => _ = ok,
+                        error! => {},
+                    }
+                    return err!;
+                },
+            }
+            allocator.free(copy_block).?;
+            return !{};
+        }
 
+        self.insert_stable_slice(allocator, index, values)
+    }
+
+    fn insert_stable_slice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!void {
         let len = self.len();
+        self.ensure_unused_capacity(allocator, values.len()).?;
         let new_len = len + values.len();
         var items = self.allocated_items();
         if values.len() != 0usize {
@@ -193,6 +215,29 @@ where T: Sized
     }
 
     pub fn append_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
+        if self.slice_points_into_allocation(items) {
+            let copy_layout = mem::Layout::array[T](items.len()).?;
+            let copy_block = allocator.alloc(copy_layout).?;
+            var copy = copy_block.as_slice[T]();
+            mem::copy_forwards[T](copy, items);
+            switch self.append_stable_slice(allocator, & copy[..]) {
+                !ok => _ = ok,
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => _ = ok,
+                        error! => {},
+                    }
+                    return err!;
+                },
+            }
+            allocator.free(copy_block).?;
+            return !{};
+        }
+
+        self.append_stable_slice(allocator, items)
+    }
+
+    fn append_stable_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
         let out = self.add_many_as_slice(allocator, items.len()).?;
         mem::copy_forwards[T](out, items);
         !{}
@@ -302,6 +347,27 @@ where T: Sized
         var items = block_items[T](block, capacity);
         self.items = &mut items[0..len];
         self.capacity = capacity;
+    }
+
+    fn slice_points_into_allocation(&self, items: &[T]) bool {
+        if items.len() == 0usize or self.capacity == 0usize or @size[T]() == 0usize {
+            return false;
+        }
+
+        let item_size = @size[T]();
+        let base = self.items.get_ptr() as usize;
+        let ptr = items.get_ptr_read() as usize;
+        if ptr < base {
+            return false;
+        }
+
+        let byte_offset = ptr - base;
+        let alloc_bytes = self.capacity * item_size;
+        let item_bytes = items.len() * item_size;
+        if byte_offset > alloc_bytes {
+            return false;
+        }
+        item_bytes <= alloc_bytes - byte_offset
     }
 }
 
