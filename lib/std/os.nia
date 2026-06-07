@@ -30,8 +30,25 @@ pub fn open_at(
     platform::open_at(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
+pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
+    platform::create_dir_at(dir, path, permissions)
+}
+
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
     platform::delete_file_at(dir, path)
+}
+
+pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Error!void {
+    platform::delete_dir_at(dir, path)
+}
+
+pub fn rename_at(
+    old_dir: FileDescriptor,
+    old_path: &u8,
+    new_dir: FileDescriptor,
+    new_path: &u8,
+) Error!void {
+    platform::rename_at(old_dir, old_path, new_dir, new_path)
 }
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {

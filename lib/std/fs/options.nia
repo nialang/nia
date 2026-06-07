@@ -1,7 +1,7 @@
 import std.fs.types;
 import std.os;
 
-using types::{CreateOptions, OpenMode, OpenOptions};
+using types::{CreateDirOptions, CreateOptions, OpenMode, OpenOptions};
 
 extend OpenOptions {
     pub fn read_only() OpenOptions {
@@ -65,5 +65,15 @@ extend CreateOptions {
         } else {
             os::OpenMode::WriteOnly
         }
+    }
+}
+
+extend CreateDirOptions {
+    pub fn init() CreateDirOptions {
+        { permissions: 0o777 }
+    }
+
+    pub fn permissions(&self) u32 {
+        self.permissions
     }
 }

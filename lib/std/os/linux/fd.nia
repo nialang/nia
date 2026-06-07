@@ -26,7 +26,7 @@ extend FileDescriptor {
 
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
         let ptr = bytes.get_ptr_read();
-        let ret = syscall::syscall3(1, self.fd as usize, ptr as usize, bytes.len());
+        let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
             ret.syscall_error()!
         } else {
@@ -36,7 +36,7 @@ extend FileDescriptor {
 
     pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
         let ptr = bytes.get_ptr();
-        let ret = syscall::syscall3(0, self.fd as usize, ptr as usize, bytes.len());
+        let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
             ret.syscall_error()!
         } else {
@@ -45,7 +45,7 @@ extend FileDescriptor {
     }
 
     pub fn close(&self) Error!void {
-        let ret = syscall::syscall1(3, self.fd as usize);
+        let ret = syscall::syscall1(syscall::close, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
@@ -55,7 +55,7 @@ extend FileDescriptor {
 }
 
 pub fn cwd() FileDescriptor {
-    FileDescriptor::init(-100)
+    FileDescriptor::init(types::at_fdcwd)
 }
 
 pub fn open_at(
@@ -69,17 +69,17 @@ pub fn open_at(
 ) Error!FileDescriptor {
     var flags = mode as i32;
     if create {
-        flags = flags + 0o100;
+        flags = flags + types::open_create;
     }
     if exclusive {
-        flags = flags + 0o200;
+        flags = flags + types::open_exclusive;
     }
     if truncate {
-        flags = flags + 0o1000;
+        flags = flags + types::open_truncate;
     }
 
     let ret = syscall::syscall4(
-        257,
+        syscall::openat,
         dir.raw() as usize,
         path as usize,
         flags as usize,
@@ -92,8 +92,56 @@ pub fn open_at(
     }
 }
 
+pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
+    let ret = syscall::syscall3(
+        syscall::mkdirat,
+        dir.raw() as usize,
+        path as usize,
+        permissions as usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
-    let ret = syscall::syscall3(263, dir.raw() as usize, path as usize, 0);
+    let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
+pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Error!void {
+    let ret = syscall::syscall3(
+        syscall::unlinkat,
+        dir.raw() as usize,
+        path as usize,
+        types::at_removedir,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
+pub fn rename_at(
+    old_dir: FileDescriptor,
+    old_path: &u8,
+    new_dir: FileDescriptor,
+    new_path: &u8,
+) Error!void {
+    let ret = syscall::syscall4(
+        syscall::renameat,
+        old_dir.raw() as usize,
+        old_path as usize,
+        new_dir.raw() as usize,
+        new_path as usize,
+    );
     if ret < 0 {
         ret.syscall_error()!
     } else {

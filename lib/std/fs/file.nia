@@ -4,7 +4,7 @@ import std.fs.types;
 import std.os;
 import std.result;
 
-using types::{CreateOptions, Dir, EncodedPath, Error, File, OpenOptions, Path};
+using types::{CreateDirOptions, CreateOptions, Dir, EncodedPath, Error, File, OpenOptions, Path};
 
 extend Dir {
     pub fn init(handle: os::FileDescriptor) Dir {
@@ -27,10 +27,34 @@ extend Dir {
         self.create_encoded_file(encoded, options)
     }
 
+    pub fn create_dir(&self, path: Path, options: CreateDirOptions) Error!void {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.create_encoded_dir(encoded, options)
+    }
+
     pub fn delete_file(&self, path: Path) Error!void {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.delete_encoded_file(encoded)
+    }
+
+    pub fn delete_dir(&self, path: Path) Error!void {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.delete_encoded_dir(encoded)
+    }
+
+    pub fn rename(&self, old_path: Path, new_path: Path) Error!void {
+        self.rename_to(old_path, self, new_path)
+    }
+
+    pub fn rename_to(&self, old_path: Path, new_dir: &Dir, new_path: Path) Error!void {
+        var old_storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        var new_storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let old_encoded = old_path.encode(&mut old_storage[..]).?;
+        let new_encoded = new_path.encode(&mut new_storage[..]).?;
+        self.rename_encoded_to(old_encoded, new_dir, new_encoded)
     }
 
     pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
@@ -59,8 +83,29 @@ extend Dir {
         !File::init(handle)
     }
 
+    pub fn create_encoded_dir(&self, path: EncodedPath, options: CreateDirOptions) Error!void {
+        os::create_dir_at(
+            self.handle,
+            path.ptr(),
+            options.permissions(),
+        ).map_err[Error](&os::Error::as_fs_error)
+    }
+
     pub fn delete_encoded_file(&self, path: EncodedPath) Error!void {
         os::delete_file_at(self.handle, path.ptr()).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn delete_encoded_dir(&self, path: EncodedPath) Error!void {
+        os::delete_dir_at(self.handle, path.ptr()).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn rename_encoded_to(&self, old_path: EncodedPath, new_dir: &Dir, new_path: EncodedPath) Error!void {
+        os::rename_at(
+            self.handle,
+            old_path.ptr(),
+            new_dir.handle,
+            new_path.ptr(),
+        ).map_err[Error](&os::Error::as_fs_error)
     }
 }
 
