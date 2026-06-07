@@ -516,7 +516,7 @@ impl<'a> BodyChecker<'a> {
                     is_readonly: actual_const,
                     elem: actual_elem,
                 }) = self.interner.get(actual).cloned()
-                    && pattern_const == actual_const
+                    && (pattern_const == actual_const || pattern_const && !actual_const)
                 {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }
@@ -529,7 +529,7 @@ impl<'a> BodyChecker<'a> {
                     is_readonly: actual_const,
                     elem: actual_elem,
                 }) = self.interner.get(actual).cloned()
-                    && pattern_const == actual_const
+                    && (pattern_const == actual_const || pattern_const && !actual_const)
                 {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }

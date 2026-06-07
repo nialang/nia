@@ -259,6 +259,10 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, coerced);
             return;
         }
+        if let Some(coerced) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
         if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
             self.record_expr_node_type(expr, coerced);
             return;
@@ -384,6 +388,41 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
+    }
+
+    pub(crate) fn coerce_mutable_pointer_to_readonly(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        match (
+            self.interner.get(expected).cloned(),
+            self.interner.get(actual).cloned(),
+        ) {
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: false,
+                    elem: actual_elem,
+                }),
+            ) if self.types_match(expected_elem, actual_elem) => Some(expected),
+            (
+                Some(TyKind::Slice {
+                    is_readonly: true,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: false,
+                    elem: actual_elem,
+                }),
+            ) if self.types_match(expected_elem, actual_elem) => Some(expected),
+            _ => None,
+        }
     }
 
     pub(crate) fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
