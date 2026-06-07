@@ -2480,6 +2480,99 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_can_open_dirs_as_capabilities() {
+    let root = temp_dir("emit_exe_std_fs_can_open_dirs_as_capabilities");
+    let data_path = root.join("subdir").join("inside.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var cwd = fs::Dir::cwd();
+    switch cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+
+    var subdir: fs::Dir;
+    switch cwd.open_dir(fs::Path::init("subdir"), fs::OpenDirOptions::init()) {
+        !value => subdir = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+
+    var file: fs::File;
+    switch subdir.create_file(fs::Path::init("inside.txt"), fs::CreateOptions::init()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(3)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+
+    switch subdir.open_file(fs::Path::init("inside.txt"), fs::OpenOptions::read_only()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+
+    switch subdir.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(7)!,
+    }
+
+    switch cwd.open_dir(fs::Path::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
+        !value => {
+            _ = value;
+            return process::ExitCode::init(8)!;
+        },
+        error! => {},
+    }
+
+    switch cwd.delete_file(fs::Path::init("subdir/inside.txt")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(9)!,
+    }
+    switch cwd.delete_dir(fs::Path::init("subdir")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(10)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+    assert!(!data_path.exists());
+}
+
+#[test]
 fn emit_exe_can_allocate_with_std_mem_page_allocator() {
     let root = temp_dir("emit_exe_can_allocate_with_std_mem_page_allocator");
     let main = root.join("main.nia");

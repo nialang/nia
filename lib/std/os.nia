@@ -30,6 +30,10 @@ pub fn open_at(
     platform::open_at(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
+pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileDescriptor {
+    platform::open_dir_at(dir, path, follow_symlinks)
+}
+
 pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
     platform::create_dir_at(dir, path, permissions)
 }

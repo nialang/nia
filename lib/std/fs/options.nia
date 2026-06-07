@@ -1,7 +1,7 @@
 import std.fs.types;
 import std.os;
 
-using types::{CreateDirOptions, CreateOptions, OpenMode, OpenOptions};
+using types::{CreateDirOptions, CreateOptions, OpenDirOptions, OpenMode, OpenOptions};
 
 extend OpenOptions {
     pub fn read_only() OpenOptions {
@@ -27,6 +27,20 @@ extend OpenOptions {
             OpenMode::ReadWrite => os::OpenMode::ReadWrite,
             _ => os::OpenMode::ReadOnly,
         }
+    }
+}
+
+extend OpenDirOptions {
+    pub fn init() OpenDirOptions {
+        { follow_symlinks: true }
+    }
+
+    pub fn no_follow() OpenDirOptions {
+        { follow_symlinks: false }
+    }
+
+    pub fn follow_symlinks(&self) bool {
+        self.follow_symlinks
     }
 }
 

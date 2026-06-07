@@ -10,6 +10,7 @@ pub using types::{
     EncodedPath,
     Error,
     File,
+    OpenDirOptions,
     OpenMode,
     OpenOptions,
     Path,

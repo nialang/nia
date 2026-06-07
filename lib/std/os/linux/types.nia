@@ -4,6 +4,9 @@ pub comptime let at_removedir: usize = 0x200usize;
 pub comptime let open_create: i32 = 0o100;
 pub comptime let open_exclusive: i32 = 0o200;
 pub comptime let open_truncate: i32 = 0o1000;
+pub comptime let open_directory: i32 = 0o200000;
+pub comptime let open_no_follow: i32 = 0o400000;
+pub comptime let open_close_on_exec: i32 = 0o2000000;
 
 pub enum Error: i32 {
     PermissionDenied = 1,

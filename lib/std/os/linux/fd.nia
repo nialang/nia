@@ -92,6 +92,25 @@ pub fn open_at(
     }
 }
 
+pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileDescriptor {
+    var flags = (OpenMode::ReadOnly as i32) + types::open_directory + types::open_close_on_exec;
+    if not follow_symlinks {
+        flags = flags + types::open_no_follow;
+    }
+    let ret = syscall::syscall4(
+        syscall::openat,
+        dir.raw() as usize,
+        path as usize,
+        flags as usize,
+        0,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !FileDescriptor::init(ret as i32)
+    }
+}
+
 pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
     let ret = syscall::syscall3(
         syscall::mkdirat,
