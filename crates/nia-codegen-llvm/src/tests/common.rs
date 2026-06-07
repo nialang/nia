@@ -23,6 +23,9 @@ pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 pub(super) fn has_internal_diagnostic(diagnostics: &[Diagnostic], code: &str, text: &str) -> bool {
     diagnostics.iter().any(|diagnostic| {
@@ -302,8 +305,12 @@ pub(super) fn write_smoke_case(root: &std::path::Path, case: &EmitSmokeCase) {
 
 pub(super) fn temp_dir(name: &str) -> std::path::PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("nia_codegen_llvm_{name}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    dir.push(format!(
+        "nia_codegen_llvm_{name}_{}_{:?}_{id}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
