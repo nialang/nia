@@ -8,7 +8,7 @@ pub comptime let open_directory: i32 = 0o200000;
 pub comptime let open_no_follow: i32 = 0o400000;
 pub comptime let open_close_on_exec: i32 = 0o2000000;
 
-pub enum Error: i32 {
+pub enum Errno: i32 {
     PermissionDenied = 1,
     NoEntry = 2,
     Interrupted = 4,
@@ -80,9 +80,9 @@ pub struct FileDescriptor {
     fd: i32,
 }
 
-extend Error {
-    pub fn from_code(code: i32) Error {
-        code as Error
+extend Errno {
+    pub fn from_code(code: i32) Errno {
+        code as Errno
     }
 }
 
@@ -185,7 +185,7 @@ extend FileMetadata {
 }
 
 extend isize {
-    pub fn syscall_error(self) Error {
-        Error::from_code((0isize - self) as i32)
+    pub fn syscall_error(self) Errno {
+        Errno::from_code((0isize - self) as i32)
     }
 }

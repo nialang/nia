@@ -2408,10 +2408,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
             if metadata.size() != 8u64 {
                 return process::ExitCode::init(5)!;
             }
-            if metadata.nlink() == 0u32 {
-                return process::ExitCode::init(6)!;
+            switch metadata.link_count() {
+                ?value => {
+                    if value == 0u32 {
+                        return process::ExitCode::init(6)!;
+                    }
+                },
+                null => {},
             }
-            if metadata.block_size() == 0u32 {
+            if metadata.preferred_block_size() == 0u32 {
                 return process::ExitCode::init(7)!;
             }
         },
@@ -2431,15 +2436,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
             if metadata.size() != 8u64 {
                 return process::ExitCode::init(11)!;
             }
-            switch metadata.atime() {
+            switch metadata.accessed() {
                 ?time => {
                     _ = time.seconds();
                     _ = time.nanos();
                 },
                 null => {},
             }
-            _ = metadata.mtime().seconds();
-            _ = metadata.ctime().nanos();
+            _ = metadata.modified().seconds();
+            switch metadata.status_changed() {
+                ?time => _ = time.nanos(),
+                null => {},
+            }
         },
         error! => return process::ExitCode::init(12)!,
     }

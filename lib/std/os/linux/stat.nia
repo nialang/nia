@@ -1,7 +1,7 @@
 import std.os.linux.syscall;
 import std.os.linux.types;
 
-using types::{Error, FileDescriptor, FileKind, FileMetadata, Timestamp};
+using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 
 comptime let at_symlink_no_follow: usize = 0x100usize;
 comptime let at_no_automount: usize = 0x800usize;
@@ -68,11 +68,11 @@ pub extern struct Statx {
     spare3: [8]u64,
 }
 
-pub fn metadata_fd(fd: FileDescriptor) Error!FileMetadata {
+pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
     statx_at(fd, c"", at_empty_path, statx_request_basic)
 }
 
-pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
     var flags = at_no_automount;
     if not follow_symlinks {
         flags = flags | at_symlink_no_follow;
@@ -80,7 +80,7 @@ pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!
     statx_at(dir, path, flags, statx_request_basic)
 }
 
-fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Error!FileMetadata {
+fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
     var stx: Statx;
     var bytes = &mut ((&mut stx as &mut u8)[0..@size[Statx]()]);
     @memset(bytes, 0);
@@ -123,9 +123,9 @@ extend Statx {
         }
     }
 
-    pub fn as_metadata(&self) Error!FileMetadata {
+    pub fn as_metadata(&self) Errno!FileMetadata {
         if not self.has_required_basic() {
-            return Error::Invalid!;
+            return Errno::Invalid!;
         }
         var atime: ?Timestamp = null;
         if (self.mask & statx_atime) == statx_atime {

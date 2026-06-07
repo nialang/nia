@@ -2,71 +2,395 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-pub using platform::{Error, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
+import std.result;
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
+
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
+    System = 255,
+    _,
+}
+
+pub enum OpenMode: i32 {
+    ReadOnly = 0,
+    WriteOnly = 1,
+    ReadWrite = 2,
+    _,
+}
+
+pub enum SeekWhence: usize {
+    Start = 0,
+    Current = 1,
+    End = 2,
+    _,
+}
+
+pub enum FileKind: i32 {
+    BlockDevice = 1,
+    CharacterDevice = 2,
+    Directory = 3,
+    NamedPipe = 4,
+    Symlink = 5,
+    File = 6,
+    UnixSocket = 7,
+    Unknown = 255,
+    _,
+}
+
+pub struct Timestamp {
+    seconds: i64,
+    nanos: u32,
+}
+
+pub struct FileMetadata {
+    kind: FileKind,
+    file_id: ?u64,
+    link_count: ?u32,
+    size: u64,
+    permissions: u32,
+    preferred_block_size: u32,
+    accessed: ?Timestamp,
+    modified: Timestamp,
+    status_changed: ?Timestamp,
+}
+
+pub struct FileHandle {
+    platform: platform::FileDescriptor,
+}
 
 pub fn page_size() usize {
     platform::page_size()
 }
 
 pub fn page_aligned_len(len: usize) Error!usize {
-    platform::page_aligned_len(len)
+    platform::page_aligned_len(len).map_err[Error](&platform::Errno::as_os_error)
 }
 
-pub fn cwd() FileDescriptor {
-    platform::cwd()
+pub fn cwd() FileHandle {
+    FileHandle::from_platform(platform::cwd())
 }
 
 pub fn open_at(
-    dir: FileDescriptor,
+    dir: FileHandle,
     path: &u8,
     mode: OpenMode,
     create: bool,
     truncate: bool,
     exclusive: bool,
     permissions: u32,
-) Error!FileDescriptor {
-    platform::open_at(dir, path, mode, create, truncate, exclusive, permissions)
+) Error!FileHandle {
+    let handle = platform::open_at(
+        dir.platform(),
+        path,
+        mode.as_platform_open_mode(),
+        create,
+        truncate,
+        exclusive,
+        permissions,
+    ).map_err[Error](&platform::Errno::as_os_error).?;
+    !FileHandle::from_platform(handle)
 }
 
-pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileDescriptor {
-    platform::open_dir_at(dir, path, follow_symlinks)
+pub fn open_dir_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!FileHandle {
+    let handle = platform::open_dir_at(
+        dir.platform(),
+        path,
+        follow_symlinks,
+    ).map_err[Error](&platform::Errno::as_os_error).?;
+    !FileHandle::from_platform(handle)
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
-    platform::create_dir_at(dir, path, permissions)
+pub fn create_dir_at(dir: FileHandle, path: &u8, permissions: u32) Error!void {
+    platform::create_dir_at(dir.platform(), path, permissions).map_err[Error](&platform::Errno::as_os_error)
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
-    platform::delete_file_at(dir, path)
+pub fn delete_file_at(dir: FileHandle, path: &u8) Error!void {
+    platform::delete_file_at(dir.platform(), path).map_err[Error](&platform::Errno::as_os_error)
 }
 
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Error!void {
-    platform::delete_dir_at(dir, path)
+pub fn delete_dir_at(dir: FileHandle, path: &u8) Error!void {
+    platform::delete_dir_at(dir.platform(), path).map_err[Error](&platform::Errno::as_os_error)
 }
 
 pub fn rename_at(
-    old_dir: FileDescriptor,
+    old_dir: FileHandle,
     old_path: &u8,
-    new_dir: FileDescriptor,
+    new_dir: FileHandle,
     new_path: &u8,
 ) Error!void {
-    platform::rename_at(old_dir, old_path, new_dir, new_path)
+    platform::rename_at(
+        old_dir.platform(),
+        old_path,
+        new_dir.platform(),
+        new_path,
+    ).map_err[Error](&platform::Errno::as_os_error)
 }
 
-pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
-    platform::metadata_at(dir, path, follow_symlinks)
+pub fn metadata_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+    let metadata = platform::metadata_at(
+        dir.platform(),
+        path,
+        follow_symlinks,
+    ).map_err[Error](&platform::Errno::as_os_error).?;
+    !metadata.as_os_metadata()
 }
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
-    platform::map_pages(len, align)
+    platform::map_pages(len, align).map_err[Error](&platform::Errno::as_os_error)
 }
 
 pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
-    platform::unmap_pages(ptr, len)
+    platform::unmap_pages(ptr, len).map_err[Error](&platform::Errno::as_os_error)
 }
 
 pub fn exit(code: i32) void {
     platform::exit(code);
+}
+
+extend platform::Errno {
+    fn as_os_error(self) Error {
+        switch self {
+            platform::Errno::PermissionDenied => Error::PermissionDenied,
+            platform::Errno::NoEntry => Error::NotFound,
+            platform::Errno::Interrupted => Error::Interrupted,
+            platform::Errno::Io => Error::Io,
+            platform::Errno::BadFd => Error::BadFd,
+            platform::Errno::Again => Error::Again,
+            platform::Errno::NoMemory => Error::OutOfMemory,
+            platform::Errno::Access => Error::Access,
+            platform::Errno::Fault => Error::Fault,
+            platform::Errno::Busy => Error::Busy,
+            platform::Errno::Exists => Error::AlreadyExists,
+            platform::Errno::CrossDevice => Error::CrossDevice,
+            platform::Errno::NotDir => Error::NotDir,
+            platform::Errno::IsDir => Error::IsDir,
+            platform::Errno::Invalid => Error::Invalid,
+            platform::Errno::NoSpace => Error::NoSpace,
+            platform::Errno::ReadOnly => Error::ReadOnly,
+            platform::Errno::BrokenPipe => Error::BrokenPipe,
+            platform::Errno::OutOfRange => Error::OutOfRange,
+            platform::Errno::TooLong => Error::TooLong,
+            platform::Errno::NotEmpty => Error::NotEmpty,
+            _ => Error::System,
+        }
+    }
+}
+
+extend OpenMode {
+    fn as_platform_open_mode(self) platform::OpenMode {
+        switch self {
+            OpenMode::ReadOnly => platform::OpenMode::ReadOnly,
+            OpenMode::WriteOnly => platform::OpenMode::WriteOnly,
+            OpenMode::ReadWrite => platform::OpenMode::ReadWrite,
+            _ => platform::OpenMode::ReadOnly,
+        }
+    }
+}
+
+extend SeekWhence {
+    fn as_platform_seek_whence(self) platform::SeekWhence {
+        switch self {
+            SeekWhence::Start => platform::SeekWhence::Start,
+            SeekWhence::Current => platform::SeekWhence::Current,
+            SeekWhence::End => platform::SeekWhence::End,
+            _ => platform::SeekWhence::Start,
+        }
+    }
+}
+
+extend platform::FileKind {
+    fn as_os_file_kind(self) FileKind {
+        switch self {
+            platform::FileKind::BlockDevice => FileKind::BlockDevice,
+            platform::FileKind::CharacterDevice => FileKind::CharacterDevice,
+            platform::FileKind::Directory => FileKind::Directory,
+            platform::FileKind::NamedPipe => FileKind::NamedPipe,
+            platform::FileKind::Symlink => FileKind::Symlink,
+            platform::FileKind::File => FileKind::File,
+            platform::FileKind::UnixSocket => FileKind::UnixSocket,
+            _ => FileKind::Unknown,
+        }
+    }
+}
+
+extend platform::Timestamp {
+    fn as_os_timestamp(&self) Timestamp {
+        Timestamp::init(self.seconds(), self.nanos())
+    }
+}
+
+extend platform::FileMetadata {
+    fn as_os_metadata(&self) FileMetadata {
+        var accessed: ?Timestamp = null;
+        switch self.atime() {
+            ?value => accessed = ?value.as_os_timestamp(),
+            null => {},
+        }
+        FileMetadata::init(
+            self.kind().as_os_file_kind(),
+            ?self.inode(),
+            ?self.nlink(),
+            self.size(),
+            self.mode() & 0o7777u32,
+            self.block_size(),
+            accessed,
+            self.mtime().as_os_timestamp(),
+            ?self.ctime().as_os_timestamp(),
+        )
+    }
+}
+
+extend Timestamp {
+    pub fn init(seconds: i64, nanos: u32) Timestamp {
+        { seconds: seconds, nanos: nanos }
+    }
+
+    pub fn seconds(&self) i64 {
+        self.seconds
+    }
+
+    pub fn nanos(&self) u32 {
+        self.nanos
+    }
+}
+
+extend FileMetadata {
+    pub fn init(
+        kind: FileKind,
+        file_id: ?u64,
+        link_count: ?u32,
+        size: u64,
+        permissions: u32,
+        preferred_block_size: u32,
+        accessed: ?Timestamp,
+        modified: Timestamp,
+        status_changed: ?Timestamp,
+    ) FileMetadata {
+        {
+            kind: kind,
+            file_id: file_id,
+            link_count: link_count,
+            size: size,
+            permissions: permissions,
+            preferred_block_size: preferred_block_size,
+            accessed: accessed,
+            modified: modified,
+            status_changed: status_changed,
+        }
+    }
+
+    pub fn kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fn file_id(&self) ?u64 {
+        self.file_id
+    }
+
+    pub fn link_count(&self) ?u32 {
+        self.link_count
+    }
+
+    pub fn size(&self) u64 {
+        self.size
+    }
+
+    pub fn permissions(&self) u32 {
+        self.permissions
+    }
+
+    pub fn preferred_block_size(&self) u32 {
+        self.preferred_block_size
+    }
+
+    pub fn accessed(&self) ?Timestamp {
+        self.accessed
+    }
+
+    pub fn modified(&self) Timestamp {
+        self.modified
+    }
+
+    pub fn status_changed(&self) ?Timestamp {
+        self.status_changed
+    }
+}
+
+extend FileHandle {
+    fn from_platform(platform: platform::FileDescriptor) FileHandle {
+        { platform: platform }
+    }
+
+    fn platform(&self) platform::FileDescriptor {
+        self.platform
+    }
+
+    pub fn stdin() FileHandle {
+        FileHandle::from_platform(platform::FileDescriptor::stdin())
+    }
+
+    pub fn stdout() FileHandle {
+        FileHandle::from_platform(platform::FileDescriptor::stdout())
+    }
+
+    pub fn stderr() FileHandle {
+        FileHandle::from_platform(platform::FileDescriptor::stderr())
+    }
+
+    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+        self.platform().write_some(bytes).map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+        self.platform().read_some(bytes).map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn close(&self) Error!void {
+        self.platform().close().map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+        self.platform().seek(
+            offset,
+            whence.as_platform_seek_whence(),
+        ).map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn truncate(&self, len: u64) Error!void {
+        self.platform().truncate(len).map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn sync(&self) Error!void {
+        self.platform().sync().map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn sync_data(&self) Error!void {
+        self.platform().sync_data().map_err[Error](&platform::Errno::as_os_error)
+    }
+
+    pub fn metadata(&self) Error!FileMetadata {
+        let metadata = self.platform().metadata().map_err[Error](&platform::Errno::as_os_error).?;
+        !metadata.as_os_metadata()
+    }
 }

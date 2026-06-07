@@ -2,10 +2,10 @@ import std.os.linux.syscall;
 import std.os.linux.stat;
 import std.os.linux.types;
 
-using types::{Error, FileDescriptor, FileMetadata, OpenMode, SeekWhence};
+using types::{Errno, FileDescriptor, FileMetadata, OpenMode, SeekWhence};
 
 extend FileDescriptor {
-    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+    pub fn write_some(&self, bytes: &[u8]) Errno!usize {
         let ptr = bytes.get_ptr_read();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -15,7 +15,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+    pub fn read_some(&self, bytes: &mut [u8]) Errno!usize {
         let ptr = bytes.get_ptr();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -25,7 +25,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn close(&self) Error!void {
+    pub fn close(&self) Errno!void {
         let ret = syscall::syscall1(syscall::close, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
@@ -34,7 +34,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
         let ret = syscall::syscall3(
             syscall::lseek,
             self.fd as usize,
@@ -48,7 +48,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn truncate(&self, len: u64) Error!void {
+    pub fn truncate(&self, len: u64) Errno!void {
         let ret = syscall::syscall2(syscall::ftruncate, self.fd as usize, len as usize);
         if ret < 0 {
             ret.syscall_error()!
@@ -57,7 +57,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn sync(&self) Error!void {
+    pub fn sync(&self) Errno!void {
         let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
@@ -66,7 +66,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn sync_data(&self) Error!void {
+    pub fn sync_data(&self) Errno!void {
         let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
@@ -75,7 +75,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn metadata(&self) Error!FileMetadata {
+    pub fn metadata(&self) Errno!FileMetadata {
         stat::metadata_fd(FileDescriptor::init(self.fd))
     }
 }
@@ -92,7 +92,7 @@ pub fn open_at(
     truncate: bool,
     exclusive: bool,
     permissions: u32,
-) Error!FileDescriptor {
+) Errno!FileDescriptor {
     var flags = mode as i32;
     if create {
         flags = flags + types::open_create;
@@ -118,7 +118,7 @@ pub fn open_at(
     }
 }
 
-pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileDescriptor {
+pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileDescriptor {
     var flags = (OpenMode::ReadOnly as i32) + types::open_directory + types::open_close_on_exec;
     if not follow_symlinks {
         flags = flags + types::open_no_follow;
@@ -137,7 +137,7 @@ pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!
     }
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
+pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!void {
     let ret = syscall::syscall3(
         syscall::mkdirat,
         dir.raw() as usize,
@@ -151,7 +151,7 @@ pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!voi
     }
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
+pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
     if ret < 0 {
         ret.syscall_error()!
@@ -160,7 +160,7 @@ pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
     }
 }
 
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Error!void {
+pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
     let ret = syscall::syscall3(
         syscall::unlinkat,
         dir.raw() as usize,
@@ -179,7 +179,7 @@ pub fn rename_at(
     old_path: &u8,
     new_dir: FileDescriptor,
     new_path: &u8,
-) Error!void {
+) Errno!void {
     let ret = syscall::syscall4(
         syscall::renameat,
         old_dir.raw() as usize,
@@ -194,6 +194,6 @@ pub fn rename_at(
     }
 }
 
-pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
     stat::metadata_at(dir, path, follow_symlinks)
 }

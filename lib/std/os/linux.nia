@@ -4,7 +4,7 @@ import std.os.linux.process;
 import std.os.linux.stat;
 import std.os.linux.types;
 
-pub using types::{Error, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
+pub using types::{Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
 
@@ -16,7 +16,7 @@ pub fn page_size() usize {
     memory::page_size()
 }
 
-pub fn page_aligned_len(len: usize) Error!usize {
+pub fn page_aligned_len(len: usize) Errno!usize {
     memory::page_aligned_len(len)
 }
 
@@ -28,23 +28,23 @@ pub fn open_at(
     truncate: bool,
     exclusive: bool,
     permissions: u32,
-) Error!FileDescriptor {
+) Errno!FileDescriptor {
     fd::open_at(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
-pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileDescriptor {
+pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileDescriptor {
     fd::open_dir_at(dir, path, follow_symlinks)
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Error!void {
+pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!void {
     fd::create_dir_at(dir, path, permissions)
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Error!void {
+pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!void {
     fd::delete_file_at(dir, path)
 }
 
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Error!void {
+pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!void {
     fd::delete_dir_at(dir, path)
 }
 
@@ -53,19 +53,19 @@ pub fn rename_at(
     old_path: &u8,
     new_dir: FileDescriptor,
     new_path: &u8,
-) Error!void {
+) Errno!void {
     fd::rename_at(old_dir, old_path, new_dir, new_path)
 }
 
-pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
     fd::metadata_at(dir, path, follow_symlinks)
 }
 
-pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
+pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     memory::map_pages(len, align)
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
+pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!void {
     memory::unmap_pages(ptr, len)
 }
 
