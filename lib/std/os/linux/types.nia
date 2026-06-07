@@ -40,6 +40,13 @@ pub enum OpenMode: i32 {
     _,
 }
 
+pub enum SeekWhence: usize {
+    Start = 0,
+    Current = 1,
+    End = 2,
+    _,
+}
+
 pub struct FileDescriptor {
     fd: i32,
 }

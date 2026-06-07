@@ -1,9 +1,13 @@
 pub comptime let read: usize = 0usize;
 pub comptime let write: usize = 1usize;
 pub comptime let close: usize = 3usize;
+pub comptime let lseek: usize = 8usize;
 pub comptime let mmap: usize = 9usize;
 pub comptime let munmap: usize = 11usize;
 pub comptime let exit: usize = 60usize;
+pub comptime let fsync: usize = 74usize;
+pub comptime let fdatasync: usize = 75usize;
+pub comptime let ftruncate: usize = 77usize;
 pub comptime let openat: usize = 257usize;
 pub comptime let mkdirat: usize = 258usize;
 pub comptime let unlinkat: usize = 263usize;

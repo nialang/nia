@@ -6,6 +6,8 @@ import std.result;
 
 using types::{CreateDirOptions, CreateOptions, Dir, EncodedPath, Error, File, OpenDirOptions, OpenOptions, Path};
 
+comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
+
 extend Dir {
     fn from_owned_descriptor(handle: os::FileDescriptor) Dir {
         { handle: handle }
@@ -171,6 +173,43 @@ extend File {
 
     pub fn handle(&self) os::FileDescriptor {
         self.handle
+    }
+
+    pub fn seek_to(&self, offset: u64) Error!u64 {
+        if offset > max_i64_as_u64 {
+            return Error::OutOfRange!;
+        }
+        self.handle.seek(offset as i64, os::SeekWhence::Start).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn seek_by(&self, delta: i64) Error!u64 {
+        self.handle.seek(delta, os::SeekWhence::Current).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn seek_from_end(&self, delta: i64) Error!u64 {
+        self.handle.seek(delta, os::SeekWhence::End).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn len(&self) Error!u64 {
+        let current = self.seek_by(0).?;
+        let end = self.seek_from_end(0).?;
+        _ = self.seek_to(current).?;
+        !end
+    }
+
+    pub fn truncate(&self, len: u64) Error!void {
+        if len > max_i64_as_u64 {
+            return Error::OutOfRange!;
+        }
+        self.handle.truncate(len).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn sync(&self) Error!void {
+        self.handle.sync().map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn sync_data(&self) Error!void {
+        self.handle.sync_data().map_err[Error](&os::Error::as_fs_error)
     }
 
     pub fn close(&self) Error!void {

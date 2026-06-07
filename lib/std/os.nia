@@ -2,7 +2,7 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-pub using platform::{Error, FileDescriptor, OpenMode};
+pub using platform::{Error, FileDescriptor, OpenMode, SeekWhence};
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
 
