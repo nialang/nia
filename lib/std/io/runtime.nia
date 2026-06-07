@@ -1,0 +1,31 @@
+import std.os;
+
+pub trait Io {
+    type Error;
+
+    fn write_file(&mut self, file: os::FileDescriptor, bytes: &[u8]) Error!usize;
+
+    fn read_file(&mut self, file: os::FileDescriptor, bytes: &mut [u8]) Error!usize;
+}
+
+pub struct BlockingIo {}
+
+extend BlockingIo {
+    pub fn init() BlockingIo {
+        {}
+    }
+}
+
+extend BlockingIo : Io {
+    type Error = os::Error;
+
+    pub fn write_file(&mut self, file: os::FileDescriptor, bytes: &[u8]) os::Error!usize {
+        _ = self;
+        file.write_some(bytes)
+    }
+
+    pub fn read_file(&mut self, file: os::FileDescriptor, bytes: &mut [u8]) os::Error!usize {
+        _ = self;
+        file.read_some(bytes)
+    }
+}

@@ -113,12 +113,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_int_sub(end, start, "slicelen")
             .map_err(|_| self.error(span, "failed to compute slice length"))?;
-        let elem_llvm_ty = self.module.llvm_basic_type(elem_ty, span)?;
-        let ptr = unsafe {
-            self.builder
-                .build_gep(elem_llvm_ty, base_ptr, &[start], "sliceptr")
-                .map_err(|_| self.error(span, "failed to build slice pointer"))?
-        };
+        let ptr = self.emit_elem_offset_ptr(span, elem_ty, base_ptr, start, "sliceptr")?;
         self.build_slice_value(ptr, len)
     }
 
@@ -174,6 +169,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_len = self.module.array_len(len, span)?;
                 let len = self.module.context.i64_type().const_int(array_len, false);
+                if self.is_zero_sized(lhs.ty) {
+                    return Ok((base_ptr, len, *elem));
+                }
                 let zero = self.module.context.i64_type().const_int(0, false);
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
                 let ptr = unsafe {
@@ -195,6 +193,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             Some(TyKind::Error) | None => Err(self.error(span, "invalid slice base")),
             _ => Err(self.error(span, "slice base must be an array, pointer, or slice")),
+        }
+    }
+
+    fn emit_elem_offset_ptr(
+        &mut self,
+        span: Span,
+        elem_ty: InternedTyId,
+        base_ptr: PointerValue<'ctx>,
+        index: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if self.is_zero_sized(elem_ty) {
+            return Ok(base_ptr);
+        }
+        let elem_llvm_ty = self.module.llvm_basic_type(elem_ty, span)?;
+        unsafe {
+            self.builder
+                .build_gep(elem_llvm_ty, base_ptr, &[index], name)
+                .map_err(|_| self.error(span, "failed to build element pointer"))
         }
     }
 

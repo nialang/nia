@@ -29,3 +29,15 @@ pub enum OpenMode: i32 {
 pub struct FileDescriptor {
     fd: i32,
 }
+
+extend Error {
+    pub fn from_code(code: i32) Error {
+        code as Error
+    }
+}
+
+extend isize {
+    pub fn syscall_error(self) Error {
+        Error::from_code((0isize - self) as i32)
+    }
+}

@@ -1,4 +1,5 @@
 import root;
+import std;
 import std.os;
 import std.process;
 
@@ -13,7 +14,8 @@ extern fn nia_start_stack(stack: &usize) void {
     let argc = stack.*;
     let argv = (stack as usize + @size[usize]()) as &&u8;
     let envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
-    let init = process::Init::init(argc, argv, envp);
+    var io = std::io::BlockingIo::init();
+    let init = process::Init::init(argc, argv, envp, &mut io);
     let exit = call_user_main(init);
     os::exit(exit.code());
     loop {}

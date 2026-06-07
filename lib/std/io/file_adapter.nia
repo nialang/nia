@@ -1,9 +1,72 @@
 import std.fs;
+import std.io.runtime;
 import std.io.traits;
+import std.mem;
+import std.os;
 
 using traits::{Reader, Writer};
+using runtime::Io;
 
-extend fs::File : Writer {
+pub struct FileWriter {
+    io: &mut Io[Error = os::Error],
+    file: fs::File,
+    buffer: &mut [u8],
+    len: usize,
+}
+
+pub struct FileReader {
+    io: &mut Io[Error = os::Error],
+    file: fs::File,
+    buffer: &mut [u8],
+    start: usize,
+    end: usize,
+}
+
+extend fs::File {
+    pub fn writer(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
+        FileWriter::init(io, self.*, buffer)
+    }
+
+    pub fn reader(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
+        FileReader::init(io, self.*, buffer)
+    }
+}
+
+extend FileWriter {
+    pub fn init(io: &mut Io[Error = os::Error], file: fs::File, buffer: &mut [u8]) FileWriter {
+        { io: io, file: file, buffer: buffer, len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[0..self.len]
+    }
+
+    fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
+        self.io.write_file(
+            self.file.handle(),
+            bytes,
+        ).map_err[fs::Error](&os::Error::as_fs_error)
+    }
+
+    fn append_buffered(&mut self, bytes: &[u8]) void {
+        var index = 0usize;
+        while index < bytes.len() {
+            self.buffer[self.len + index] = bytes[index];
+            index += 1usize;
+        }
+        self.len += bytes.len();
+    }
+}
+
+extend FileWriter : Writer {
     type Error = fs::Error;
 
     pub fn short_write(&self) Error {
@@ -11,11 +74,92 @@ extend fs::File : Writer {
     }
 
     pub fn write(&mut self, bytes: &[u8]) Error!usize {
-        self.write_some(bytes)
+        if bytes.len() == 0 {
+            !0
+        } else if self.buffer.len() == 0 {
+            self.write_direct(bytes)
+        } else if bytes.len() > self.buffer.len() {
+            self.flush().?;
+            self.write_direct(bytes)
+        } else {
+            let available = self.buffer.len() - self.len;
+            if bytes.len() > available {
+                self.flush().?;
+            }
+            self.append_buffered(bytes);
+            !bytes.len()
+        }
+    }
+
+    pub fn flush(&mut self) Error!void {
+        while self.len != 0 {
+            let n = self.write_direct(& self.buffer[0..self.len]).?;
+            if n == 0 {
+                return self.short_write()!;
+            }
+            if n == self.len {
+                self.len = 0;
+            } else {
+                var index = n;
+                while index < self.len {
+                    self.buffer[index - n] = self.buffer[index];
+                    index += 1usize;
+                }
+                self.len -= n;
+            }
+        }
+        !{}
     }
 }
 
-extend fs::File : Reader {
+extend FileReader {
+    pub fn init(io: &mut Io[Error = os::Error], file: fs::File, buffer: &mut [u8]) FileReader {
+        { io: io, file: file, buffer: buffer, start: 0, end: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.end - self.start
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[self.start..self.end]
+    }
+
+    pub fn discard_buffered(&mut self) void {
+        self.start = 0;
+        self.end = 0;
+    }
+
+    fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
+        self.io.read_file(
+            self.file.handle(),
+            bytes,
+        ).map_err[fs::Error](&os::Error::as_fs_error)
+    }
+
+    fn read_buffered(&mut self, bytes: &mut [u8]) usize {
+        var count = bytes.len();
+        if count > self.len() {
+            count = self.len();
+        }
+
+        mem::copy_forwards[u8](
+            &mut bytes[0..count],
+            &self.buffer[self.start..(self.start + count)],
+        );
+        self.start += count;
+        if self.start == self.end {
+            self.discard_buffered();
+        }
+        count
+    }
+}
+
+extend FileReader : Reader {
     type Error = fs::Error;
 
     pub fn end_of_stream(&self) Error {
@@ -23,6 +167,20 @@ extend fs::File : Reader {
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
-        self.read_some(bytes)
+        if bytes.len() == 0 {
+            !0
+        } else if self.len() != 0 {
+            !self.read_buffered(bytes)
+        } else if self.buffer.len() == 0 or bytes.len() >= self.buffer.len() {
+            self.read_direct(bytes)
+        } else {
+            self.start = 0;
+            self.end = self.read_direct(self.buffer).?;
+            if self.end == 0 {
+                !0
+            } else {
+                !self.read_buffered(bytes)
+            }
+        }
     }
 }

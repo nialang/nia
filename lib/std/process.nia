@@ -1,3 +1,6 @@
+import std.io;
+import std.os;
+
 pub struct ExitCode {
     code: i32,
 }
@@ -23,11 +26,12 @@ pub struct Init {
     argc: usize,
     argv: &&u8,
     envp: &&u8,
+    io: &mut io::Io[Error = os::Error],
 }
 
 extend Init {
-    pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
-        { argc: argc, argv: argv, envp: envp }
+    pub fn init(argc: usize, argv: &&u8, envp: &&u8, io: &mut io::Io[Error = os::Error]) Init {
+        { argc: argc, argv: argv, envp: envp, io: io }
     }
 
     pub fn argc(&self) usize {
@@ -48,6 +52,10 @@ extend Init {
 
     pub fn raw_envp(&self) &&u8 {
         self.envp
+    }
+
+    pub fn io(&self) &mut io::Io[Error = os::Error] {
+        self.io
     }
 }
 

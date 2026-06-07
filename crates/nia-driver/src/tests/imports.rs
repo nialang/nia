@@ -75,6 +75,162 @@ fn checks_each_loaded_module() {
 }
 
 #[test]
+fn std_io_file_writer_is_created_from_process_io_capability() {
+    let root = temp_dir("std_io_file_writer_is_created_from_process_io_capability");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::{fs, io, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = fs::File::stdout();
+    var buffer: [0]u8 = [];
+    var stdout = file.writer(init.io(), &mut buffer[..]);
+    switch stdout.write_all(b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        crate::NiaOptimizationLevel::default(),
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_io_buffered_file_writer_flushes_explicitly_through_process_io() {
+    let root = temp_dir("std_io_buffered_file_writer_flushes_explicitly_through_process_io");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::{fs, io, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = fs::File::stdout();
+    var buffer: [64]u8 = [0; 64];
+    var raw_buffer: [0]u8 = [];
+    var raw = file.writer(init.io(), &mut raw_buffer[..]);
+    var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
+    switch stdout.write_all(b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        crate::NiaOptimizationLevel::default(),
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_fs_file_is_not_a_writer_without_process_io_capability() {
+    let root = temp_dir("std_fs_file_is_not_a_writer_without_process_io_capability");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::{fs, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var stdout = fs::File::stdout();
+    switch stdout.write_all(b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        crate::NiaOptimizationLevel::default(),
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown struct field `write_all`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn std_io_file_reader_is_created_from_process_io_capability() {
+    let root = temp_dir("std_io_file_reader_is_created_from_process_io_capability");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::{fs, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = fs::File::stdin();
+    var buffer: [64]u8 = [0; 64];
+    var reader = file.reader(init.io(), &mut buffer[..]);
+    var bytes: [1]u8 = [0];
+    switch reader.read(&mut bytes[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        crate::NiaOptimizationLevel::default(),
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_blocking_io_coerces_to_io_trait_object_with_error_binding() {
+    let root = temp_dir("std_blocking_io_coerces_to_io_trait_object_with_error_binding");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::{io, process};
+
+fn main(argc: usize, argv: &&u8, envp: &&u8) void {
+    var backend = io::BlockingIo::init();
+    let init = process::Init::init(argc, argv, envp, &mut backend);
+    let object: &mut io::Io[Error = std::os::Error] = init.io();
+    _ = object;
+}
+"#,
+    );
+
+    let program = crate::check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn loads_cyclic_imports_without_cycle_diagnostic() {
     let root = temp_dir("loads_cyclic_imports_without_cycle_diagnostic");
     write(&root.join("main.nia"), r#"import .a; fn main() {}"#);
