@@ -18,8 +18,8 @@ fn require_at(values: &[i32], index: usize) i32!i32 {
 }
 
 fn checked_pair(values: &[i32]) i32!i32 {
-    let left = require_at(values, 0usize).?;
-    let right = require_at(values, 2usize).?;
+    let left = require_at(values, 0).?;
+    let right = require_at(values, 2).?;
     !(left + right)
 }
 
@@ -28,7 +28,7 @@ pub fn main(init: Init) ExitCode!void {
 
     var values: [3]i32 = [10, 20, 32];
     var pair_sum = 0;
-    switch checked_pair(&values[..]) {
+    switch checked_pair(values) {
         !sum => {
             pair_sum = sum;
             if sum != 42 {
@@ -38,7 +38,7 @@ pub fn main(init: Init) ExitCode!void {
         error! => return exit(2)!,
     }
 
-    switch require_at(&values[..], 9usize) {
+    switch require_at(values, 9usize) {
         !value => {
             _ = value;
             return exit(3)!;
