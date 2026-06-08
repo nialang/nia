@@ -1,0 +1,101 @@
+import std.fmt.core;
+
+extend[E] i8 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.* as i128)
+    }
+}
+
+extend[E] i16 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.* as i128)
+    }
+}
+
+extend[E] i32 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.* as i128)
+    }
+}
+
+extend[E] i64 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.* as i128)
+    }
+}
+
+extend[E] i128 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.*)
+    }
+}
+
+extend[E] isize : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_signed(self.* as i128)
+    }
+}
+
+extend[E] u8 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.* as u128)
+    }
+}
+
+extend[E] u16 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.* as u128)
+    }
+}
+
+extend[E] u32 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.* as u128)
+    }
+}
+
+extend[E] u64 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.* as u128)
+    }
+}
+
+extend[E] u128 : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.*)
+    }
+}
+
+extend[E] usize : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_unsigned(self.* as u128)
+    }
+}
+
+extend[E] bool : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        if self.* {
+            formatter.write_text("true")
+        } else {
+            formatter.write_text("false")
+        }
+    }
+}
+
+extend[E] char : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_char(self.*)
+    }
+}
+
+extend[E] [char] : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_text(self)
+    }
+}
+
+extend[E] [u8] : core::Format[E] {
+    fn format(&self, formatter: &mut core::Formatter[E]) E!void {
+        formatter.write_bytes(self)
+    }
+}

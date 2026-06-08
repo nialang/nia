@@ -1,0 +1,129 @@
+import std.io;
+import std.unicode;
+
+pub trait FormatWriter[E] {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;
+}
+
+pub trait Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void;
+}
+
+pub struct Formatter[E] {
+    writer: &mut FormatWriter[E],
+}
+
+extend[E] Formatter[E] {
+    pub fn init(writer: &mut FormatWriter[E]) Formatter[E] {
+        { writer: writer }
+    }
+
+    pub fn write_bytes(&mut self, bytes: &[u8]) E!void {
+        self.writer.write_fmt_bytes(bytes)
+    }
+
+    pub fn write_byte(&mut self, byte: u8) E!void {
+        let bytes: [1]u8 = [byte];
+        self.write_bytes(&bytes[..])
+    }
+
+    pub fn write_char(&mut self, ch: char) E!void {
+        let encoded = ch.encode_utf8();
+        self.write_bytes(encoded.bytes())
+    }
+
+    pub fn write_text(&mut self, text: &[char]) E!void {
+        var index = 0usize;
+        while index < text.len() {
+            self.write_char(text[index]).?;
+            index += 1usize;
+        }
+        !{}
+    }
+
+    pub fn write_unsigned(&mut self, value: u128) E!void {
+        if value == 0u128 {
+            self.write_byte(b'0')
+        } else {
+            var digits: [39]u8 = [
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ];
+            var count = 0usize;
+            var n = value;
+            while n != 0u128 {
+                let digit = n % 10u128;
+                digits[count] = (digit as u8) + b'0';
+                n = n / 10u128;
+                count += 1;
+            }
+            while count != 0usize {
+                count -= 1;
+                self.write_byte(digits[count]).?;
+            }
+            !{}
+        }
+    }
+
+    pub fn write_signed(&mut self, value: i128) E!void {
+        if value < 0i128 {
+            self.write_byte(b'-').?;
+            self.write_unsigned(((0i128 - (value + 1i128)) as u128) + 1u128)
+        } else {
+            self.write_unsigned(value as u128)
+        }
+    }
+
+}
+
+extend[W] W : FormatWriter[[W as io::Writer]::Error]
+where W: io::Writer
+{
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) [W as io::Writer]::Error!void {
+        self.write_all(bytes)
+    }
+}
+
+pub fn print_unchecked[W](
+    writer: &mut W,
+    template: &[char],
+    args: &[&Format[[W as io::Writer]::Error]],
+) [W as io::Writer]::Error!void
+where W: io::Writer
+{
+    var formatter = Formatter[[W as io::Writer]::Error]::init(writer);
+    var index = 0usize;
+    var arg_index = 0usize;
+    while index < template.len() {
+        let ch = template[index];
+        if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '}' {
+            args[arg_index].format(&mut formatter).?;
+            arg_index += 1usize;
+            index += 2usize;
+        } else if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '{' {
+            formatter.write_char('{').?;
+            index += 2usize;
+        } else if ch == '}' and index + 1usize < template.len() and template[index + 1usize] == '}' {
+            formatter.write_char('}').?;
+            index += 2usize;
+        } else {
+            formatter.write_char(ch).?;
+            index += 1usize;
+        }
+    }
+    !{}
+}
+
+extend[W] W
+where W: io::Writer
+{
+    pub fn print(
+        &mut self,
+        template: &[char],
+        args: &[&Format[[W as io::Writer]::Error]],
+    ) [W as io::Writer]::Error!void {
+        print_unchecked(self, template, args)
+    }
+}

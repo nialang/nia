@@ -6,6 +6,8 @@
 
 import std.array_list;
 import std.range;
+import std.slice;
 
 pub using array_list::ArrayList;
 pub using range::{from, inclusive, range};
+pub using slice::SliceIter;

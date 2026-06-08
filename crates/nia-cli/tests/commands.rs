@@ -1765,6 +1765,78 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_formats_primitives_and_array_list() {
+    let root = temp_dir("emit_exe_std_fmt_formats_primitives_and_array_list");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.fmt;
+import std.io;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var raw: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), raw);
+
+    var allocator = mem::PageAllocator::init();
+    var values = std::ArrayList[i32]::init();
+    defer values.deinit(&mut allocator).exit().?;
+
+    values.push(&mut allocator, 10).exit().?;
+    values.push(&mut allocator, 20).exit().?;
+    values.push(&mut allocator, 30).exit().?;
+
+    var total = 0;
+    for value in values.iter() {
+        total += value.*;
+    }
+
+    let signed: i8 = -5i8;
+    let wide: u64 = 123456789u64;
+    let ok = true;
+    let ch = 'λ';
+    stdout.print("list={} total={} signed={} wide={} ok={} ch={}\n", [
+        &values,
+        &total,
+        &signed,
+        &wide,
+        &ok,
+        &ch,
+    ]).exit().?;
+    stdout.flush().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output_timeout("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 ok=true ch=λ\n"
+    );
+}
+
+#[test]
 fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_discarding_writer_and_limited_reader");
     let main = root.join("main.nia");
@@ -4222,6 +4294,100 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let source: [2]u8 = [b'a', b'b'];
     helper::copy_prefix[u8](&mut dest[..], &source[..]);
     if dest[0] != b'a' or dest[1] != b'b' {
+        return (1 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-M")
+        .arg(format!("helper={}", helper.display()))
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_cross_module_slice_pointee_extension_receiver_passes_slice_value() {
+    let root =
+        temp_dir("emit_exe_cross_module_slice_pointee_extension_receiver_passes_slice_value");
+    let main = root.join("main.nia");
+    let helper = root.join("helper.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &helper,
+        r#"
+pub struct SliceIter[T]
+where T: Sized
+{
+    ptr: &T,
+    len: usize,
+    index: usize,
+}
+
+extend[T] SliceIter[T]
+where T: Sized
+{
+    pub fn from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
+        { ptr: ptr, len: len, index: 0 }
+    }
+}
+
+extend[T] SliceIter[T] : Iterator
+where T: Sized
+{
+    type Item = &T;
+
+    fn next(&mut self) ?&T {
+        if self.index >= self.len {
+            null
+        } else {
+            let item = (self.ptr as usize + self.index * @size[T]()) as &T;
+            self.index += 1usize;
+            ?item
+        }
+    }
+}
+
+extend[T] [T]
+where T: Sized
+{
+    pub fn iter(&self) SliceIter[T] {
+        SliceIter[T]::from_raw_parts(self.get_ptr_read(), self.len())
+    }
+}
+"#,
+    )
+    .expect("write helper source");
+    std::fs::write(
+        &main,
+        r#"
+import helper;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var data: [3]i32 = [10, 20, 30];
+    var total = 0;
+    for value in (&data[..]).iter() {
+        total += value.*;
+    }
+    if total != 60 {
         return (1 as process::ExitCode)!;
     }
     !{}

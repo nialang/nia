@@ -1,5 +1,7 @@
+import std.fmt;
 import std.mem;
 import std.math;
+import std.slice;
 
 pub struct ArrayList[T]
 where T: Sized
@@ -57,6 +59,10 @@ where T: Sized
 
     pub fn as_mut_slice(&mut self) &mut [T] {
         self.items
+    }
+
+    pub fn iter(&self) slice::SliceIter[T] {
+        self.as_slice().iter()
     }
 
     pub fn clear(&mut self) void {
@@ -524,4 +530,21 @@ where T: Sized
 {
     var ptr = block.ptr() as &mut T;
     &mut ptr[0..len]
+}
+
+extend[T, E] ArrayList[T] : fmt::Format[E]
+where T: Sized + fmt::Format[E]
+{
+    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+        formatter.write_byte(b'[').?;
+        var index = 0usize;
+        while index < self.len() {
+            if index != 0usize {
+                formatter.write_text(", ").?;
+            }
+            self.as_slice()[index].format(formatter).?;
+            index += 1usize;
+        }
+        formatter.write_byte(b']')
+    }
 }

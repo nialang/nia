@@ -100,7 +100,7 @@ The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `import std.process;` or `import std.io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
-`std::inclusive`, `std::from`, and `std::ArrayList`.
+`std::inclusive`, `std::from`, `std::ArrayList`, and `std::SliceIter`.
 
 - `std.process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
@@ -117,8 +117,13 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper traps if the stderr write or flush fails; use `std.io` and
   explicit error propagation for application stdout or recoverable I/O.
+- `std.fmt` defines the formatting protocol used by writer `.print(...)`.
+  Primitive integers, `bool`, `char`, character slices, byte slices, and
+  `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
 - `std.mem` defines allocation layout and block types plus an initial
   `PageAllocator` implementation.
+- `std.slice` defines `SliceIter`, and slices provide `.iter()` for explicit
+  read-only iteration.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its
   `Step` trait is implemented for the built-in integer types that have
   representable `MAX` values. The common range constructors are also re-exported
@@ -2866,8 +2871,8 @@ fn add(a: i32, b: i32) i32 {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for i in std::range(0usize..xs.len()) {
-        total += xs[i];
+    for value in xs.iter() {
+        total += value.*;
     }
     total
 }
