@@ -99,7 +99,8 @@ as `import std.process;` or `import std.io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
 `std::inclusive`, `std::from`, and `std::ArrayList`.
 
-- `std.process` defines the executable entry payload and process exit value.
+- `std.process` defines the executable entry payload, process exit value, and
+  helpers such as `io_exit` for mapping standard I/O failures into exit codes.
 - `std.os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.

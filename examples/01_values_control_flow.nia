@@ -2,6 +2,7 @@ import std;
 import std.fmt;
 import std.io;
 import std.process;
+import std.result;
 
 struct Point {
     x: i32,
@@ -50,17 +51,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::ExitCode::init(1)!;
     }
 
-    switch stdout.print(
+    stdout.print(
         "point={} other={} grade={} total={}\n",
         [&point_len2, &other_len2, &score, &total],
-    ) {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
-    }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
-    }
+    ).map_err[process::ExitCode](&process::io_exit).?;
+    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
 
     !{}
 }

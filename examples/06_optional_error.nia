@@ -1,6 +1,7 @@
 import std.fmt;
 import std.io;
 import std.process;
+import std.result;
 
 fn at(values: &[i32], index: usize) ?i32 {
     if index < values.len() {
@@ -47,14 +48,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => _ = error,
     }
 
-    switch stdout.print("optional/error pair_sum={} missing=error\n", [&pair_sum]) {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
-    }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
-    }
+    stdout.print("optional/error pair_sum={} missing=error\n", [&pair_sum])
+        .map_err[process::ExitCode](&process::io_exit).?;
+    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
 
     !{}
 }

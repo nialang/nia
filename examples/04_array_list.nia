@@ -3,6 +3,7 @@ import std.fmt;
 import std.io;
 import std.mem;
 import std.process;
+import std.result;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [256]u8 = [_]u8[0; 256];
@@ -33,22 +34,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var first = items[0];
     var last = items[2];
 
-    switch stdout.print(
+    stdout.print(
         "array_list len={} capacity={} first={} last={}\n",
         [&len, &capacity, &first, &last],
-    ) {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
-    }
+    ).map_err[process::ExitCode](&process::io_exit).?;
 
     switch values.deinit(&mut allocator) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
     }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
-    }
+    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
 
     !{}
 }

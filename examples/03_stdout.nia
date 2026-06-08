@@ -1,19 +1,14 @@
 import std.fmt;
 import std.io;
 import std.process;
+import std.result;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [_]u8[0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
-    switch stdout.print("nia stdout example\n", []) {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
-    }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
-    }
+    stdout.print("nia stdout example\n", []).map_err[process::ExitCode](&process::io_exit).?;
+    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
 
     !{}
 }

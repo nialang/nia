@@ -6,9 +6,9 @@ Each top-level `.nia` file uses the current entry contract:
 
 The examples print their results through `std.io.FileWriter` and `std.fmt`.
 Each program creates an explicit stdout buffer, writes formatted text, flushes
-the writer, and uses `process::ExitCode` only for error paths. Format arguments
-are passed as ordinary array literals, such as `[&value, &count]`; Nia converts
-the array to the expected slice.
+the writer, and maps fallible I/O calls with `process::io_exit` before using
+`.?` propagation. Format arguments are passed as ordinary array literals, such
+as `[&value, &count]`; Nia converts the array to the expected slice.
 
 Run an example from the repository root with:
 
