@@ -65,7 +65,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 ```
 
-Returning `!{}` means process success. Returning an error payload such as
+Returning `!{}` means process success. `process::ExitCode` is an open enum
+backed by `i32`; `process::ExitCode::Success` names status `0`, and unnamed
+status values may be constructed with `process::ExitCode::init(code)` or an
+explicit `code as process::ExitCode` cast. Returning an error payload such as
 `process::ExitCode::init(1)!` asks the startup layer to terminate with that exit status:
 
 ```nia
@@ -99,8 +102,9 @@ as `import std.process;` or `import std.io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
 `std::inclusive`, `std::from`, and `std::ArrayList`.
 
-- `std.process` defines the executable entry payload, process exit value, and
-  helpers such as `io_exit` for mapping standard I/O failures into exit codes.
+- `std.process` defines the executable entry payload, the open-enum process
+  exit value, and helpers such as `io_exit` for mapping standard I/O failures
+  into exit codes.
 - `std.os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
