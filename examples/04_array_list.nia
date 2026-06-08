@@ -2,7 +2,7 @@ import std;
 import std.debug;
 import std.mem;
 import std.process;
-using process::{Init, ExitCode};
+using process::{Init, ExitCode, exit};
 
 pub fn main(init: Init) ExitCode!void {
     _ = init;
@@ -12,20 +12,20 @@ pub fn main(init: Init) ExitCode!void {
 
     switch values.push(&mut allocator, 10) {
         !ok => _ = ok,
-        error! => return (1 as ExitCode)!,
+        error! => return exit(1)!,
     }
     switch values.push(&mut allocator, 20) {
         !ok => _ = ok,
-        error! => return (2 as ExitCode)!,
+        error! => return exit(2)!,
     }
     switch values.push(&mut allocator, 30) {
         !ok => _ = ok,
-        error! => return (3 as ExitCode)!,
+        error! => return exit(3)!,
     }
 
     let items = values.as_slice();
     if items.len() != 3usize or items[0] != 10 or items[2] != 30 {
-        return (4 as ExitCode)!;
+        return exit(4)!;
     }
     var len = items.len();
     var capacity = values.capacity();
@@ -39,7 +39,7 @@ pub fn main(init: Init) ExitCode!void {
 
     switch values.deinit(&mut allocator) {
         !ok => _ = ok,
-        error! => return (6 as ExitCode)!,
+        error! => return exit(6)!,
     }
 
     !{}

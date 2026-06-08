@@ -171,6 +171,16 @@ extend Env {
     }
 }
 
+extend fs::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+pub fn exit(code: i32) ExitCode {
+    code as ExitCode
+}
+
 pub fn io_exit(error: fs::Error) ExitCode {
-    error as i32 as ExitCode
+    error.as_exit_code()
 }

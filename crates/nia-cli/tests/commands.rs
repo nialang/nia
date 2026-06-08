@@ -1223,8 +1223,9 @@ fn emit_exe_exit_code_is_open_enum() {
         &main,
         r#"
 import std.process;
+import std.fs;
 
-using process::ExitCode;
+using process::{ExitCode, exit, io_exit};
 
 fn pick(flag: bool) ExitCode {
     if flag {
@@ -1238,7 +1239,16 @@ pub fn main(init: process::Init) ExitCode!void {
     _ = init;
 
     if (ExitCode::Success as i32) != 0 {
-        return (1 as ExitCode)!;
+        return exit(1)!;
+    }
+    if (exit(11) as i32) != 11 {
+        return exit(2)!;
+    }
+    if (fs::Error::NotFound.as_exit_code() as i32) != 2 {
+        return exit(3)!;
+    }
+    if (io_exit(fs::Error::NoSpace) as i32) != 28 {
+        return exit(4)!;
     }
     pick(true)!
 }

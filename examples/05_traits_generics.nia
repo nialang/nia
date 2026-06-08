@@ -1,6 +1,6 @@
 import std.debug;
 import std.process;
-using process::{Init, ExitCode};
+using process::{Init, ExitCode, exit};
 
 trait Measured {
     fn measure(&self) i32;
@@ -45,7 +45,7 @@ pub fn main(init: Init) ExitCode!void {
     var measured = read[Count](&total);
 
     if measured != 42 {
-        return (1 as ExitCode)!;
+        return exit(1)!;
     }
 
     debug::print("traits total={}\n", [&measured]);
