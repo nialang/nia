@@ -2,8 +2,9 @@ import std.fs;
 import std.io;
 import std.os;
 
-pub struct ExitCode {
-    code: i32,
+pub enum ExitCode: i32 {
+    Success = 0,
+    _,
 }
 
 pub struct Args {
@@ -172,15 +173,15 @@ extend Env {
 
 extend ExitCode {
     pub fn init(code: i32) ExitCode {
-        { code: code }
+        code as ExitCode
     }
 
     pub fn success() ExitCode {
-        ExitCode::init(0)
+        ExitCode::Success
     }
 
     pub fn code(&self) i32 {
-        self.code
+        self.* as i32
     }
 }
 
