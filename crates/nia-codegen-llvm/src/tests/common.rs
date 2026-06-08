@@ -252,7 +252,7 @@ fn main() i32 {
             )],
         },
         EmitSmokeCase {
-            name: "cross_module_map_err_optional_payload",
+            name: "cross_module_error_union_conversion_optional_payload",
             root: "main.nia",
             files: &[
                 (
@@ -268,33 +268,18 @@ fn main() i32 {
                 (
                     "facade.nia",
                     r#"
-import .result;
-
-enum A: i32 {
-    Bad = 1,
-    _
-}
-
-pub enum B: i32 {
-    Other = 2,
-    _
-}
+import .convert;
 
 pub struct Item {
     value: i32,
 }
 
-fn to_b(error: A) B {
-    _ = error;
-    B::Other
-}
-
-fn read() A!?Item {
+fn read() convert::A!?Item {
     !(?Item { value: 7 })
 }
 
 pub fn run() i32 {
-    switch read().map_err[B](&to_b) {
+    switch read().as_b() {
         !maybe => switch maybe {
             ?item => item.value,
             null => 0,
@@ -305,13 +290,28 @@ pub fn run() i32 {
 "#,
                 ),
                 (
-                    "result.nia",
+                    "convert.nia",
                     r#"
-extend[E, T] E!T {
-    pub fn map_err[E2](self, mapper: &fn(E) E2) E2!T {
+pub enum A: i32 {
+    Bad = 1,
+    _
+}
+
+pub enum B: i32 {
+    Other = 2,
+    _
+}
+
+fn to_b(error: A) B {
+    _ = error;
+    B::Other
+}
+
+extend[T] A!T {
+    pub fn as_b(self) B!T {
         switch self {
             !value => !value,
-            err! => mapper(err)!,
+            err! => to_b(err)!,
         }
     }
 }

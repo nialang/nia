@@ -104,10 +104,11 @@ facade for selected direct names; it currently exposes `std::range`,
 
 - `std.process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
-- `std.process` also extends `std.fs.Error` with `as_exit_code` and `exit` for
-  explicitly returning standard file-system errors as process exit codes from
-  executable entries. It also extends `std.fs.Error!T` with `exit`, which maps
-  the error side to `ExitCode!T` so callers can write `io_call().exit().?`.
+- `std.process` also extends `std.fs.Error` and `std.mem.Error` with
+  `as_exit_code` and `exit` for explicitly returning standard library errors as
+  process exit codes from executable entries. It also extends `std.fs.Error!T`
+  and `std.mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
+  so callers can write `io_call().exit().?`.
 - `std.os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.

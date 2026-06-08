@@ -4,8 +4,8 @@ use crate::{NiaOptimizationLevel, check_program, check_program_with_options};
 use nia_ids::ModuleId;
 
 #[test]
-fn error_union_structural_extend_supports_map_err_style_methods() {
-    let root = temp_dir("error_union_structural_extend_supports_map_err_style_methods");
+fn error_union_structural_extend_supports_conversion_methods() {
+    let root = temp_dir("error_union_structural_extend_supports_conversion_methods");
     write(
         &root.join("main.nia"),
         r#"
@@ -24,11 +24,11 @@ fn to_b(error: A) B {
     B::Other
 }
 
-extend[E, T] E!T {
-    fn map_err[E2](self, mapper: &fn(E) E2) E2!T {
+extend[T] A!T {
+    fn as_b(self) B!T {
         switch self {
             !value => !value,
-            err! => mapper(err)!,
+            err! => to_b(err)!,
         }
     }
 }
@@ -38,7 +38,7 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    switch fail().map_err[B](&to_b) {
+    switch fail().as_b() {
         !value => value,
         err! => err as i32,
     }
