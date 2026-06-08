@@ -1,16 +1,14 @@
-import std.fmt;
-import std.io;
+import std.debug;
 import std.process;
-import std.result;
 
 import .config;
 import .facade as api;
 
 using api::{Point, add as plus, Color::Green};
+using process::{Init, ExitCode};
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+pub fn main(init: Init) ExitCode!void {
+    _ = init;
 
     var point: Point = { x: 3, y: 4 };
     var values: [config::width]i32 = [1, 2, 3, 4];
@@ -20,14 +18,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var diff = api::math::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
-        return process::ExitCode::init(1)!;
+        return ExitCode::init(1)!;
     }
 
-    stdout.print(
+    debug::print(
         "modules sum={} len2={} color={} diff={}\n",
         [&sum, &len2, &color, &diff],
-    ).map_err[process::ExitCode](&process::io_exit).?;
-    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
+    );
 
     !{}
 }

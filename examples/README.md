@@ -4,11 +4,16 @@ Small executable Nia programs for the current compiler and standard library.
 Each top-level `.nia` file uses the current entry contract:
 `pub fn main(process::Init) process::ExitCode!void`.
 
-The examples print their results through `std.io.FileWriter` and `std.fmt`.
-Each program creates an explicit stdout buffer, writes formatted text, flushes
-the writer, and maps fallible I/O calls with `process::io_exit` before using
-`.?` propagation. Format arguments are passed as ordinary array literals, such
-as `[&value, &count]`; Nia converts the array to the expected slice.
+Most examples print their results through `std.debug.print`, a stderr debug
+printing helper for small programs and diagnostics. It keeps example programs
+focused on the language feature being shown; if the underlying stderr write or
+flush fails, it traps instead of silently ignoring the failure.
+
+`03_stdout.nia` shows the explicit application-output path with
+`std.io.FileWriter` and `std.fmt`: create a stdout buffer, write formatted text,
+flush the writer, map fallible I/O calls with `process::io_exit`, and use `.?`
+propagation. Format arguments are passed as ordinary array literals, such as
+`[&value, &count]`; Nia converts the array to the expected slice.
 
 Run an example from the repository root with:
 
@@ -38,11 +43,11 @@ examples, not in the default executable path.
 
 ## Reading Order
 
-- `00_minimal.nia`: the smallest stdout-printing executable entry.
+- `00_minimal.nia`: the smallest debug-printing executable entry.
 - `01_values_control_flow.nia`: structs, methods, slices, ranges, `switch`,
-  `defer`, formatted stdout, and exit-code checks.
+  `defer`, debug printing, and exit-code checks.
 - `02_slices_and_strings.nia`: arrays, slices, byte strings, C strings, and
-  mutable slice writes, printed with `std.fmt`.
+  mutable slice writes.
 - `03_stdout.nia`: standard-library stdout through `std.io` and `std.fmt`.
 - `04_array_list.nia`: `std::ArrayList` with `std.mem.PageAllocator`, printed
   length and capacity.

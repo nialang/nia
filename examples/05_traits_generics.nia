@@ -1,7 +1,6 @@
-import std.fmt;
-import std.io;
+import std.debug;
 import std.process;
-import std.result;
+using process::{Init, ExitCode};
 
 trait Measured {
     fn measure(&self) i32;
@@ -37,9 +36,8 @@ where T: Measured
     value.measure()
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+pub fn main(init: Init) ExitCode!void {
+    _ = init;
 
     var left: Count = { value: 20 };
     var right: Count = { value: 22 };
@@ -47,11 +45,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var measured = read[Count](&total);
 
     if measured != 42 {
-        return process::ExitCode::init(1)!;
+        return ExitCode::init(1)!;
     }
 
-    stdout.print("traits total={}\n", [&measured]).map_err[process::ExitCode](&process::io_exit).?;
-    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
+    debug::print("traits total={}\n", [&measured]);
 
     !{}
 }

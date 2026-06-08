@@ -1,14 +1,10 @@
-import std.fmt;
-import std.io;
+import std.debug;
 import std.process;
-import std.result;
+using process::{Init, ExitCode};
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+pub fn main(init: Init) ExitCode!void {
+    _ = init;
 
-    stdout.print("hello from nia\n", []).map_err[process::ExitCode](&process::io_exit).?;
-    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
-
+    debug::print("hello from nia\n", []);
     !{}
 }
