@@ -1549,15 +1549,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_can_map_error_unions_with_std_result() {
-    let root = temp_dir("emit_exe_can_map_error_unions_with_std_result");
+fn emit_exe_can_use_error_union_conversion_extension() {
+    let root = temp_dir("emit_exe_can_use_error_union_conversion_extension");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
 import std.process;
-import std.result;
 
 enum ParseError: i32 {
     Bad = 1,
@@ -1578,9 +1577,18 @@ fn parse() ParseError!i32 {
     ParseError::Bad!
 }
 
+extend[T] ParseError!T {
+    fn as_app_error(self) AppError!T {
+        switch self {
+            !value => !value,
+            err! => map_parse_error(err)!,
+        }
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    switch parse().map_err[AppError](&map_parse_error) {
+    switch parse().as_app_error() {
         !value => return (value as process::ExitCode)!,
         err! => return (err as i32 as process::ExitCode)!,
     }

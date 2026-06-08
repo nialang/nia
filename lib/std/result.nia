@@ -1,8 +1,0 @@
-extend[E, T] E!T {
-    pub fn map_err[E2](self, mapper: &fn(E) E2) E2!T {
-        switch self {
-            !value => !value,
-            err! => mapper(err)!,
-        }
-    }
-}

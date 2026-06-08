@@ -1,5 +1,6 @@
 import std.fs;
 import std.io;
+import std.mem;
 import std.os;
 
 pub enum ExitCode: i32 {
@@ -182,6 +183,26 @@ pub fn exit(code: i32) ExitCode {
 }
 
 extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        switch self {
+            !value => !value,
+            error! => error.as_exit_code()!,
+        }
+    }
+}
+
+extend mem::Error {
+    pub fn as_exit_code(self) ExitCode {
+        switch self {
+            mem::Error::Invalid => exit(22),
+            mem::Error::InvalidAlignment => exit(22),
+            mem::Error::OutOfMemory => exit(12),
+            _ => exit(255),
+        }
+    }
+}
+
+extend[T] mem::Error!T {
     pub fn exit(self) ExitCode!T {
         switch self {
             !value => !value,
