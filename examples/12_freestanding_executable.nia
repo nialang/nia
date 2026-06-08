@@ -1,16 +1,17 @@
-import std;
+import std.io;
+import std.process;
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = std::io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     switch stdout.write_all(b"hello from freestanding nia\n") {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     switch stdout.flush() {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(2)!,
+        error! => return process::ExitCode::init(2)!,
     }
 
     !{}

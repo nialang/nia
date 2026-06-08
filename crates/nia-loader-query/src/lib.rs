@@ -637,22 +637,23 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             .expect("std import alias");
         let std_module = program.graph.get(std_alias.target).expect("std module");
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
-        for relative in [
-            "lib/std/fmt.nia",
-            "lib/std/fs.nia",
-            "lib/std/io.nia",
-            "lib/std/mem.nia",
-            "lib/std/os.nia",
-            "lib/std/process.nia",
-            "lib/std/range.nia",
-            "lib/std/unicode.nia",
-        ] {
+        for relative in ["lib/std/array_list.nia", "lib/std/range.nia"] {
             assert!(
                 program
                     .modules
                     .iter()
                     .any(|module| module.path.as_str().ends_with(relative)),
                 "missing std facade dependency {relative}: {:?}",
+                program.modules
+            );
+        }
+        for relative in ["lib/std/fmt.nia", "lib/std/io.nia", "lib/std/process.nia"] {
+            assert!(
+                !program
+                    .modules
+                    .iter()
+                    .any(|module| module.path.as_str().ends_with(relative)),
+                "std root facade should not import {relative}: {:?}",
                 program.modules
             );
         }

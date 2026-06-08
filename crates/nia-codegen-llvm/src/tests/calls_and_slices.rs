@@ -102,9 +102,8 @@ fn emits_std_file_writer_through_process_io_capability() {
     std::fs::write(
         &main,
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
@@ -145,9 +144,8 @@ fn emits_std_buffered_file_writer_flush_through_process_io() {
     std::fs::write(
         &main,
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];

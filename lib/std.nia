@@ -1,19 +1,11 @@
-// Nia standard library root.
+// Nia standard library root facade.
 //
-// Public standard-library surfaces are re-exported from here so users can
-// import `std` as the stable facade.
+// Files are modules in Nia. This root facade re-exports selected items that
+// are intentionally available as `std::name`; it does not re-export the
+// standard-library implementation modules themselves.
 
-import std.io;
 import std.array_list;
-import std.fs;
-import std.fmt;
-import std.math;
-import std.mem;
-import std.os;
-import std.process;
 import std.range;
-import std.result;
-import std.unicode;
 
-pub using {array_list, fmt, fs, io, math, mem, os, process, range, result, unicode};
+pub using array_list::ArrayList;
 pub using range::{from, inclusive, range};

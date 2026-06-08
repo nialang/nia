@@ -61,7 +61,7 @@ build flows.
 - `10_inline_asm.nia`: `@asm` configuration shape.
 - `11_optional_error_union.nia`: `?T`, `E!T`, `null`, `.?`, and `switch`
   destructuring.
-- `12_freestanding_executable.nia`: `std.process::Init`, `std.io`, and the
-  `emit --exe` freestanding startup contract.
+- `12_freestanding_executable.nia`: direct `std.process` and `std.io` imports,
+  plus the `emit --exe` freestanding startup contract.
 - `modules/main.nia`: import paths, aliases, `using`, grouped `using`, and
   re-exports.
