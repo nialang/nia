@@ -788,9 +788,7 @@ impl<'a> BodyChecker<'a> {
                     trait_args,
                 }) = self.resolved_call(expr)
                 {
-                    let receiver = self
-                        .lower_receiver_expr(callee)
-                        .unwrap_or_else(|| self.lower_expr(callee));
+                    let (receiver, lowered_args) = self.lower_builtin_call_receiver(callee, args);
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
                             trait_id,
@@ -801,21 +799,19 @@ impl<'a> BodyChecker<'a> {
                                 &receiver, self_ty, method,
                             )),
                         }),
-                        args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                        args: lowered_args,
                     }
                 } else if let Some(ResolvedCall::BuiltinMethod { method, self_ty }) =
                     self.resolved_call(expr)
                 {
-                    let receiver = self
-                        .lower_receiver_expr(callee)
-                        .unwrap_or_else(|| self.lower_expr(callee));
+                    let (receiver, lowered_args) = self.lower_builtin_call_receiver(callee, args);
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinMethod {
                             method,
                             self_ty,
                             receiver: Box::new(receiver),
                         },
-                        args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                        args: lowered_args,
                     }
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
                     self.resolved_call(expr)
@@ -1342,6 +1338,26 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         Some(self.lower_expr(lhs))
+    }
+
+    fn lower_builtin_call_receiver(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+    ) -> (TypedExpr, Vec<TypedExpr>) {
+        if let Some(receiver) = self.lower_receiver_expr(callee) {
+            return (
+                receiver,
+                args.iter().map(|arg| self.lower_expr(arg)).collect(),
+            );
+        }
+        if let Some((receiver, args)) = args.split_first() {
+            return (
+                self.lower_expr(receiver),
+                args.iter().map(|arg| self.lower_expr(arg)).collect(),
+            );
+        }
+        (self.lower_expr(callee), Vec::new())
     }
 
     pub(crate) fn lower_place(&mut self, expr: &Expr) -> TypedPlace {

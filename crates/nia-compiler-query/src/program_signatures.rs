@@ -920,6 +920,13 @@ fn builtin_trait_method_signature_matches(
         (BuiltinTrait::Iterator, BuiltinTraitMethod::IteratorNext) => {
             builtin_iterator_method_signature_matches(module, extend, actual)
         }
+        (BuiltinTrait::Len, BuiltinTraitMethod::Len) => {
+            builtin_len_method_signature_matches(module, actual)
+        }
+        (BuiltinTrait::Start, BuiltinTraitMethod::Start)
+        | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
+            builtin_bound_method_signature_matches(module, extend, actual)
+        }
         _ => true,
     }
 }
@@ -1028,6 +1035,43 @@ fn builtin_iterator_method_signature_matches(
         return false;
     };
     types_equivalent(module.lowering, *elem, item)
+}
+
+fn builtin_len_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    actual: &FunctionSignature,
+) -> bool {
+    if actual.params.first().and_then(|param| param.receiver)
+        != Some(nia_ast::ReceiverKind::RefReadOnly)
+    {
+        return false;
+    }
+    types_equivalent(
+        module.lowering,
+        actual.return_type,
+        module.lowering.interner.primitive(PrimitiveTy::Usize),
+    )
+}
+
+fn builtin_bound_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    actual: &FunctionSignature,
+) -> bool {
+    if actual.params.first().and_then(|param| param.receiver)
+        != Some(nia_ast::ReceiverKind::RefReadOnly)
+    {
+        return false;
+    }
+    let Some(output) = extend
+        .associated_types
+        .iter()
+        .find(|associated_type| associated_type.name == BuiltinTrait::OUTPUT_ASSOC_TYPE)
+        .and_then(|associated_type| lowered_type(module, &associated_type.ty))
+    else {
+        return false;
+    };
+    types_equivalent(module.lowering, actual.return_type, output)
 }
 
 fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {

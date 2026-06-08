@@ -82,6 +82,9 @@ pub enum BuiltinTrait {
     Slice,
     GetPtrRead,
     GetPtr,
+    Len,
+    Start,
+    End,
     Iterator,
 }
 
@@ -160,6 +163,9 @@ pub enum BuiltinTraitMethod {
     Slice,
     GetPtrRead,
     GetPtr,
+    Len,
+    Start,
+    End,
     IteratorNext,
 }
 
@@ -372,6 +378,33 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
+            Self::Len,
+            BuiltinTraitMethodDescriptor::method(
+                "len",
+                BuiltinTrait::Len,
+                1,
+                BuiltinReceiverKind::RefReadOnly,
+            ),
+        ),
+        (
+            Self::Start,
+            BuiltinTraitMethodDescriptor::method(
+                "start",
+                BuiltinTrait::Start,
+                1,
+                BuiltinReceiverKind::RefReadOnly,
+            ),
+        ),
+        (
+            Self::End,
+            BuiltinTraitMethodDescriptor::method(
+                "end",
+                BuiltinTrait::End,
+                1,
+                BuiltinReceiverKind::RefReadOnly,
+            ),
+        ),
+        (
             Self::IteratorNext,
             BuiltinTraitMethodDescriptor::place(
                 "next",
@@ -459,6 +492,23 @@ impl BuiltinTraitMethodDescriptor {
             is_place_method: true,
         }
     }
+
+    const fn method(
+        name: &'static str,
+        trait_id: BuiltinTrait,
+        param_count: usize,
+        receiver_kind: BuiltinReceiverKind,
+    ) -> Self {
+        Self {
+            name,
+            trait_id,
+            param_count,
+            receiver_kind,
+            place_receiver_kind: None,
+            is_value_operator: false,
+            is_place_method: false,
+        }
+    }
 }
 
 impl BuiltinTrait {
@@ -495,6 +545,9 @@ impl BuiltinTrait {
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
     const GET_PTR_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrRead];
     const GET_PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtr];
+    const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
+    const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
+    const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
@@ -518,7 +571,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 29] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -544,6 +597,9 @@ impl BuiltinTrait {
         Self::Slice,
         Self::GetPtrRead,
         Self::GetPtr,
+        Self::Len,
+        Self::Start,
+        Self::End,
         Self::Iterator,
     ];
 
@@ -747,6 +803,30 @@ impl BuiltinTrait {
             &Self::TARGET_ASSOC_TYPES,
             &Self::GET_PTR_METHODS,
             &Self::GET_PTR_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Len,
+            "Len",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::LEN_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Start,
+            "Start",
+            0,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::START_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::End,
+            "End",
+            0,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::END_METHODS,
+            &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Iterator,

@@ -322,6 +322,8 @@ pub enum ResolvedCall {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinMethod {
     Len,
+    Start,
+    End,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +420,9 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Slice
             | BuiltinTraitMethod::GetPtrRead
             | BuiltinTraitMethod::GetPtr
+            | BuiltinTraitMethod::Len
+            | BuiltinTraitMethod::Start
+            | BuiltinTraitMethod::End
             | BuiltinTraitMethod::IteratorNext => None,
         }
     }

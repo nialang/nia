@@ -924,6 +924,8 @@ impl FunctionLowerer {
     fn lower_builtin_method(method: BuiltinMethod) -> FunctionBuiltinMethod {
         match method {
             BuiltinMethod::Len => FunctionBuiltinMethod::Len,
+            BuiltinMethod::Start => FunctionBuiltinMethod::Start,
+            BuiltinMethod::End => FunctionBuiltinMethod::End,
         }
     }
 

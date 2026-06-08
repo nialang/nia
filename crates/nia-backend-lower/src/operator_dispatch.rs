@@ -2,10 +2,10 @@
 use crate::{ExtensionTraitMethodCandidate, ExtensionTraitMethodKey, ModuleLowerer};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
-    FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
-    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
-    FunctionSliceRange, FunctionTerminator,
+    FunctionBuiltinMethod, FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee,
+    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
@@ -388,6 +388,11 @@ impl<'a> ModuleLowerer<'a> {
                         } => self.dispatch_builtin_place_method_call(
                             trait_id, method, self_ty, trait_args, *receiver, args,
                         ),
+                        FunctionCallee::BuiltinMethod {
+                            method,
+                            self_ty,
+                            receiver,
+                        } => self.dispatch_builtin_method_call(method, self_ty, *receiver, args),
                         callee => FunctionExprKind::Call { callee, args },
                     }
                 }
@@ -764,6 +769,44 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn dispatch_builtin_method_call(
+        &mut self,
+        method: FunctionBuiltinMethod,
+        self_ty: InternedTyId,
+        receiver: FunctionExpr,
+        args: Vec<FunctionExpr>,
+    ) -> FunctionExprKind {
+        if let Some((trait_id, trait_method)) = builtin_method_trait(method)
+            && let Some((def_id, method_args)) = self.resolve_builtin_extension_impl_method(
+                trait_id,
+                &[],
+                trait_method.name(),
+                self_ty,
+            )
+        {
+            return FunctionExprKind::Call {
+                callee: FunctionCallee::Method {
+                    def_id,
+                    arg_module_id: self.current_arg_module_id(),
+                    args: method_args,
+                    receiver_kind: self
+                        .receiver_kind_for_method(def_id)
+                        .unwrap_or(nia_ast::ReceiverKind::Value),
+                    receiver: Box::new(receiver),
+                },
+                args,
+            };
+        }
+        FunctionExprKind::Call {
+            callee: FunctionCallee::BuiltinMethod {
+                method,
+                self_ty,
+                receiver: Box::new(receiver),
+            },
+            args,
+        }
+    }
+
     fn resolve_builtin_operator_impl_method(
         &mut self,
         operator: FunctionBuiltinOperator,
@@ -857,5 +900,15 @@ impl<'a> ModuleLowerer<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
         })
+    }
+}
+
+fn builtin_method_trait(
+    method: FunctionBuiltinMethod,
+) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
+    match method {
+        FunctionBuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
+        FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
+        FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
     }
 }

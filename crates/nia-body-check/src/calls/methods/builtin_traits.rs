@@ -35,6 +35,14 @@ impl<'a> BodyChecker<'a> {
                 method,
             );
         }
+        if let Some(intrinsic) = builtin_intrinsic_method(method) {
+            return self.check_builtin_intrinsic_trait_method_call_with_receiver_ty(
+                call,
+                method.trait_id(),
+                method,
+                intrinsic,
+            );
+        }
         let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
@@ -51,7 +59,16 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            return None;
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call.span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(call.receiver_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+            return Some(self.error());
         }
         let output = self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args);
         if let Some(expected) = call.expected {
@@ -100,6 +117,11 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         }
+        if let Some(intrinsic) = builtin_intrinsic_method(method) {
+            return self.check_builtin_intrinsic_trait_associated_method_call(
+                expr, target_ty, name, method, intrinsic, args, expected,
+            );
+        }
         let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some((receiver, value_args)) = args.split_first() else {
@@ -140,6 +162,116 @@ impl<'a> BodyChecker<'a> {
             span,
             &expr.node_key,
             ResolvedCall::BuiltinTraitMethod { trait_id, op },
+        );
+        Some(output)
+    }
+
+    fn check_builtin_intrinsic_trait_method_call_with_receiver_ty(
+        &mut self,
+        call: &MethodCall<'_>,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        intrinsic: BuiltinMethod,
+    ) -> Option<InternedTyId> {
+        let Some(trait_args) = self.check_builtin_trait_method_value_args(
+            call.span,
+            trait_id,
+            method,
+            call.receiver_ty,
+            call.args,
+        ) else {
+            return Some(self.error());
+        };
+        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
+        }
+        if !self.current_context_proves_trait_obligation(
+            call.receiver_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call.span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(call.receiver_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+            return Some(self.error());
+        }
+        let output = self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args);
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_node_call(
+            call.span,
+            call.node_key,
+            ResolvedCall::BuiltinMethod {
+                method: intrinsic,
+                self_ty: call.receiver_ty,
+            },
+        );
+        Some(output)
+    }
+
+    fn check_builtin_intrinsic_trait_associated_method_call(
+        &mut self,
+        expr: &Expr,
+        target_ty: InternedTyId,
+        name: &str,
+        method: BuiltinTraitMethod,
+        intrinsic: BuiltinMethod,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let span = expr.span;
+        let trait_id = method.trait_id();
+        let Some((receiver, value_args)) = args.split_first() else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!("receiver method `{name}` requires a receiver argument"),
+            ));
+            return Some(self.error());
+        };
+        let receiver_ty = self.check_expr_with_expected(receiver, Some(target_ty));
+        self.expect_expr_type(receiver, target_ty, receiver_ty, "receiver argument");
+        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(receiver, target_ty, ReceiverKind::Ref);
+        }
+        let Some(trait_args) = self
+            .check_builtin_trait_method_value_args(span, trait_id, method, target_ty, value_args)
+        else {
+            return Some(self.error());
+        };
+        if !self.current_context_proves_trait_obligation(
+            target_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(target_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+        let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args);
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_node_call(
+            span,
+            &expr.node_key,
+            ResolvedCall::BuiltinMethod {
+                method: intrinsic,
+                self_ty: target_ty,
+            },
         );
         Some(output)
     }
@@ -340,6 +472,9 @@ impl<'a> BodyChecker<'a> {
         trait_id: BuiltinTrait,
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
+        if matches!(trait_id, BuiltinTrait::Len) {
+            return self.primitive(PrimitiveTy::Usize);
+        }
         if matches!(
             trait_id,
             BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
@@ -386,5 +521,14 @@ impl<'a> BodyChecker<'a> {
             }
             _ => self.error(),
         }
+    }
+}
+
+fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod> {
+    match method {
+        BuiltinTraitMethod::Len => Some(BuiltinMethod::Len),
+        BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
+        BuiltinTraitMethod::End => Some(BuiltinMethod::End),
+        _ => None,
     }
 }
