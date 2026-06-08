@@ -1,7 +1,6 @@
-import std.fmt;
-import std.io;
+import std.debug;
 import std.process;
-import std.result;
+using process::{Init, ExitCode};
 
 fn at(values: &[i32], index: usize) ?i32 {
     if index < values.len() {
@@ -24,9 +23,8 @@ fn checked_pair(values: &[i32]) i32!i32 {
     !(left + right)
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+pub fn main(init: Init) ExitCode!void {
+    _ = init;
 
     var values: [3]i32 = [10, 20, 32];
     var pair_sum = 0;
@@ -34,23 +32,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !sum => {
             pair_sum = sum;
             if sum != 42 {
-                return process::ExitCode::init(1)!;
+                return ExitCode::init(1)!;
             }
         },
-        error! => return process::ExitCode::init(2)!,
+        error! => return ExitCode::init(2)!,
     }
 
     switch require_at(&values[..], 9usize) {
         !value => {
             _ = value;
-            return process::ExitCode::init(3)!;
+            return ExitCode::init(3)!;
         },
         error! => _ = error,
     }
 
-    stdout.print("optional/error pair_sum={} missing=error\n", [&pair_sum])
-        .map_err[process::ExitCode](&process::io_exit).?;
-    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
+    debug::print("optional/error pair_sum={} missing=error\n", [&pair_sum]);
 
     !{}
 }

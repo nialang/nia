@@ -1,8 +1,7 @@
 import std;
-import std.fmt;
-import std.io;
+import std.debug;
 import std.process;
-import std.result;
+using process::{Init, ExitCode};
 
 struct Point {
     x: i32,
@@ -33,9 +32,8 @@ fn grade(score: i32) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+pub fn main(init: Init) ExitCode!void {
+    _ = init;
 
     var point: Point = { x: 3, y: 4 };
     var other = Point { x: 5, y: 12 };
@@ -48,14 +46,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     defer point.x = point.x + 1;
 
     if total != 25 + 169 + 2 {
-        return process::ExitCode::init(1)!;
+        return ExitCode::init(1)!;
     }
 
-    stdout.print(
+    debug::print(
         "point={} other={} grade={} total={}\n",
         [&point_len2, &other_len2, &score, &total],
-    ).map_err[process::ExitCode](&process::io_exit).?;
-    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
+    );
 
     !{}
 }

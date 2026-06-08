@@ -1,0 +1,18 @@
+import std.fmt;
+import std.fs;
+import std.io;
+
+pub fn print(template: &[char], args: &[&fmt::Format[fs::Error]]) void {
+    var runtime_io = io::BlockingIo::init();
+    var buffer: [512]u8 = [_]u8[0; 512];
+    var stderr = io::FileWriter::stderr(&mut runtime_io, buffer);
+
+    switch stderr.print(template, args) {
+        !ok => _ = ok,
+        error! => @trap(),
+    }
+    switch stderr.flush() {
+        !ok => _ = ok,
+        error! => @trap(),
+    }
+}

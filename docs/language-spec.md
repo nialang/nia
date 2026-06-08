@@ -106,6 +106,9 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
   `os::File` implements those traits, so complete reads and writes are provided
   by `std.io` rather than by platform file-descriptor helpers.
+- `std.debug` defines low-friction diagnostic printing to stderr. Its
+  `print` helper traps if the stderr write or flush fails; use `std.io` and
+  explicit error propagation for application stdout or recoverable I/O.
 - `std.mem` defines allocation layout and block types plus an initial
   `PageAllocator` implementation.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its
