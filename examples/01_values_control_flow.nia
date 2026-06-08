@@ -16,8 +16,8 @@ extend Point {
 
 fn sum(values: &[i32]) i32 {
     var total = 0;
-    for i in std::range(0usize..values.len()) {
-        total += values[i];
+    for value in values.iter() {
+        total += value.*;
     }
     total
 }

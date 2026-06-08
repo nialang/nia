@@ -29,8 +29,8 @@ extend Point {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for i in std::range(0usize..xs.len()) {
-        total = total + xs[i];
+    for value in xs.iter() {
+        total = total + value.*;
     }
     total
 }
@@ -106,8 +106,9 @@ See [examples/README.md](examples/README.md) for the reading order. The examples
 cover real Nia executables, arrays and slices, structs and enums, control flow,
 standard-library I/O, collections, generics, traits, error handling, and
 multi-file imports. They use the current executable entry contract:
-`pub fn main(process::Init) process::ExitCode!void`. They also write to stdout
-through `std.io` and `std.fmt`, so running an example shows what it computed.
+`pub fn main(process::Init) process::ExitCode!void`. They print visible results
+with `std.debug.print`, and `03_stdout.nia` shows explicit stdout output through
+`std.io` and `std.fmt`.
 
 ## Documentation
 

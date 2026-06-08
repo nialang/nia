@@ -269,6 +269,11 @@ impl<'a> ModuleLowerer<'a> {
     ) -> nia_ids::InternedTyId {
         match receiver {
             ReceiverKind::Value => local_ty,
+            ReceiverKind::RefReadOnly | ReceiverKind::Ref
+                if self.is_fat_receiver_local_ty(local_ty) =>
+            {
+                local_ty
+            }
             ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
@@ -285,6 +290,13 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { elem, .. }) => Some(*elem),
             _ => None,
         }
+    }
+
+    fn is_fat_receiver_local_ty(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.interner.get(ty),
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
+        )
     }
 }
 

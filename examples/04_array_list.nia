@@ -15,15 +15,17 @@ fn run(init: Init) mem::Error!void {
     values.push(&mut page, 20).?;
     values.push(&mut page, 30).?;
 
-    let items = values.as_slice();
-    var len = items.len();
+    var total = 0;
+    for item in values.iter() {
+        total += item.*;
+    }
+
+    var len = values.len();
     var capacity = values.capacity();
-    var first = items[0];
-    var last = items[2];
 
     debug::print(
-        "array_list len={} capacity={} first={} last={}\n",
-        [&len, &capacity, &first, &last],
+        "array_list len={} capacity={} values={} total={}\n",
+        [&len, &capacity, &values, &total],
     );
 
     !{}

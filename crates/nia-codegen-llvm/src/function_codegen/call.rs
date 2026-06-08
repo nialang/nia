@@ -542,12 +542,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match receiver_kind {
             ReceiverKind::Value => self.emit_expr(receiver),
             ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
-                if receiver.ty == passing_ty
-                    || matches!(
-                        self.module.ty_kind(receiver.ty),
-                        Some(TyKind::Pointer { .. })
-                    )
-                {
+                if receiver.ty == passing_ty {
+                    return self.emit_expr(receiver);
+                }
+                if self.is_fat_receiver_passing_ty(passing_ty) {
+                    return self.emit_expr(receiver);
+                }
+                if matches!(
+                    self.module.ty_kind(receiver.ty),
+                    Some(TyKind::Pointer { .. })
+                ) {
                     return self.emit_expr(receiver);
                 }
                 if is_addressable_receiver(receiver) {
@@ -556,6 +560,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self.emit_arg_address(receiver.span, receiver)?.into())
             }
         }
+    }
+
+    fn is_fat_receiver_passing_ty(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.module.ty_kind(ty),
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
+        )
     }
 
     fn emit_c_call_args(
