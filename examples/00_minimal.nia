@@ -4,7 +4,6 @@ using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!void {
     _ = init;
-
     debug::print("hello from nia\n", []);
     !{}
 }
