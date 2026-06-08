@@ -209,6 +209,57 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
 }
 
 #[test]
+fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
+    let span = Span::default();
+    let interner = TyInterner::new(ModuleId(0));
+    let item_ty = interner.primitive(PrimitiveTy::I32);
+    let body = TypedBody {
+        span,
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "i".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty: item_ty,
+            span,
+        }],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
+                binding: Some(TypedForBinding {
+                    local_id: LocalId(0),
+                    name: "i".to_string(),
+                }),
+                pattern_kind: nia_ast::ForPatternKind::Value,
+                ty: item_ty,
+                iter: TypedExpr {
+                    span,
+                    ty: item_ty,
+                    kind: TypedExprKind::Local(LocalId(10)),
+                },
+                body: empty_body(item_ty),
+            })),
+        }],
+        tail: None,
+        ty: item_ty,
+    };
+
+    assert!(
+        !interner
+            .iter()
+            .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
+    );
+
+    let lowered = lower_function_body_with_interner(&body, &interner);
+
+    assert!(
+        lowered
+            .interner
+            .iter()
+            .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
+    );
+}
+
+#[test]
 fn loop_body_gets_child_scope_with_parent_loop_edges() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));

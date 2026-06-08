@@ -57,9 +57,9 @@ impl Parser {
     }
 
     fn parse_error_union_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeRef> {
-        let error = self.parse_range_type_with_mode(mode)?;
+        let error = self.parse_optional_type_with_mode(mode)?;
         if self.eat(TokenKind::Bang).is_some() {
-            let value = self.parse_error_union_type_with_mode(mode)?;
+            let value = self.parse_type_with_mode(mode)?;
             let span = Span::new(error.span.start, value.span.end);
             return Some(self.make_type_ref(
                 span,
@@ -72,11 +72,26 @@ impl Parser {
         Some(error)
     }
 
+    fn parse_optional_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeRef> {
+        let start = self.peek().span.start;
+        if self.eat(TokenKind::Question).is_some() {
+            let elem = self.parse_optional_type_with_mode(mode)?;
+            let span = Span::new(start, elem.span.end);
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Optional {
+                    elem: Box::new(elem),
+                },
+            ));
+        }
+        self.parse_range_type_with_mode(mode)
+    }
+
     fn parse_range_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeRef> {
         let start = self.peek().span.start;
         if self.eat(TokenKind::DotDot).is_some() {
             let end = if self.type_can_start() {
-                Some(Box::new(self.parse_error_union_type_with_mode(mode)?))
+                Some(Box::new(self.parse_type_with_mode(mode)?))
             } else {
                 None
             };
@@ -94,7 +109,7 @@ impl Parser {
             ));
         }
         if self.eat(TokenKind::DotDotEq).is_some() {
-            let end = self.parse_error_union_type_with_mode(mode)?;
+            let end = self.parse_type_with_mode(mode)?;
             let span = Span::new(start, end.span.end);
             return Some(self.make_type_ref(
                 span,
@@ -106,12 +121,7 @@ impl Parser {
             ));
         }
 
-        let kind = if self.eat(TokenKind::Question).is_some() {
-            let elem = self.parse_range_type_with_mode(mode)?;
-            TypeKind::Optional {
-                elem: Box::new(elem),
-            }
-        } else if self.eat(TokenKind::Amp).is_some() {
+        let kind = if self.eat(TokenKind::Amp).is_some() {
             self.parse_type_after_amp_with_mode(start, mode)?
         } else if self.eat(TokenKind::LBracket).is_some() {
             if let Some(kind) = self.parse_projection_type_after_open() {
@@ -133,6 +143,10 @@ impl Parser {
                     elem: Box::new(elem),
                 }
             }
+        } else if self.eat(TokenKind::LParen).is_some() {
+            let ty = self.parse_type_with_mode(mode)?;
+            self.expect(TokenKind::RParen, "expected `)` after parenthesized type")?;
+            return Some(self.make_type_ref(Span::new(start, self.previous_end()), ty.kind));
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
         } else if self.at(TokenKind::Fn) {
@@ -156,7 +170,7 @@ impl Parser {
         let start_bound = self.make_type_ref(Span::new(start, start_bound_end), kind);
         if self.eat(TokenKind::DotDot).is_some() {
             let end = if self.type_can_start() {
-                Some(Box::new(self.parse_error_union_type_with_mode(mode)?))
+                Some(Box::new(self.parse_type_with_mode(mode)?))
             } else {
                 None
             };
@@ -174,7 +188,7 @@ impl Parser {
             ));
         }
         if self.eat(TokenKind::DotDotEq).is_some() {
-            let end = self.parse_error_union_type_with_mode(mode)?;
+            let end = self.parse_type_with_mode(mode)?;
             let span = Span::new(start, end.span.end);
             return Some(self.make_type_ref(
                 span,
@@ -449,6 +463,7 @@ impl Parser {
                 | TokenKind::Ident
                 | TokenKind::DotDot
                 | TokenKind::DotDotEq
+                | TokenKind::LParen
                 | TokenKind::Bool
                 | TokenKind::SelfType
                 | TokenKind::Void

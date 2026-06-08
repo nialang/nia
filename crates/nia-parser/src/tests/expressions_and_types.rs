@@ -441,6 +441,110 @@ fn maybe(x: bool, err: i32) i32!i32 {
 }
 
 #[test]
+fn parses_optional_error_union_as_error_union_with_optional_error_type() {
+    let (module, errors) = parse_module(
+        r#"
+fn read() ?Error!i32 {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let Some(return_type) = function.return_type.as_ref() else {
+        panic!("expected return type");
+    };
+    let TypeKind::ErrorUnion { error, .. } = &return_type.kind else {
+        panic!("expected outer error union");
+    };
+    assert!(matches!(error.kind, TypeKind::Optional { .. }));
+}
+
+#[test]
+fn parses_error_union_optional_as_error_union_of_optional() {
+    let (module, errors) = parse_module(
+        r#"
+fn read() Error!?i32 {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let Some(return_type) = function.return_type.as_ref() else {
+        panic!("expected return type");
+    };
+    let TypeKind::ErrorUnion { value, .. } = &return_type.kind else {
+        panic!("expected outer error union");
+    };
+    assert!(matches!(value.kind, TypeKind::Optional { .. }));
+}
+
+#[test]
+fn parenthesized_types_override_optional_error_union_precedence() {
+    let (module, errors) = parse_module(
+        r#"
+fn optional_error() (?Error)!i32 {}
+fn optional_value() Error!(?i32) {}
+fn optional_of_error() ?(Error!i32) {}
+fn nested_optional_of_error() ??(Error!i32) {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(optional_error) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let return_type = optional_error
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    let TypeKind::ErrorUnion { error, .. } = &return_type.kind else {
+        panic!("expected outer error union");
+    };
+    assert!(matches!(error.kind, TypeKind::Optional { .. }));
+
+    let ItemKind::Function(optional_value) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let return_type = optional_value
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    let TypeKind::ErrorUnion { value, .. } = &return_type.kind else {
+        panic!("expected outer error union");
+    };
+    assert!(matches!(value.kind, TypeKind::Optional { .. }));
+
+    let ItemKind::Function(optional_of_error) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let return_type = optional_of_error
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    let TypeKind::Optional { elem } = &return_type.kind else {
+        panic!("expected outer optional");
+    };
+    assert!(matches!(elem.kind, TypeKind::ErrorUnion { .. }));
+
+    let ItemKind::Function(nested_optional_of_error) = &module.items[3].kind else {
+        panic!("expected function");
+    };
+    let return_type = nested_optional_of_error
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    let TypeKind::Optional { elem } = &return_type.kind else {
+        panic!("expected outer optional");
+    };
+    let TypeKind::Optional { elem } = &elem.kind else {
+        panic!("expected nested optional");
+    };
+    assert!(matches!(elem.kind, TypeKind::ErrorUnion { .. }));
+}
+
+#[test]
 fn parses_optional_and_error_union_switch_patterns() {
     let (module, errors) = parse_module(
         r#"

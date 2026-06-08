@@ -201,7 +201,7 @@ impl QueryKey<DriverContext> for BodyDiagnosticsQuery {
 pub(super) struct FunctionBodiesQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for FunctionBodiesQuery {
-    type Value = HashMap<GlobalDefId, nia_function_ir::FunctionBody>;
+    type Value = LoweredFunctionBodies;
 
     fn name() -> &'static str {
         "function_bodies"

@@ -228,6 +228,7 @@ dependencies = [
  "nia-body-check",
  "nia-body-ir",
  "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-comptime-ir",
  "nia-defs",
  "nia-diagnostic",

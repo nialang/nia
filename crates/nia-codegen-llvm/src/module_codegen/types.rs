@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{FunctionSignature, ModuleCodegen};
-use crate::type_equiv::TypeEquivalence;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
     BackendUnionInstance,
@@ -12,7 +11,7 @@ use nia_llvm::{
     values::FunctionValue,
 };
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind, TypeEquivalence};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiParam {

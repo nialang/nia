@@ -228,12 +228,19 @@ extend DirIterator {
     pub fn init(reader: os::DirectoryReader) DirIterator {
         { reader: reader }
     }
+}
 
-    pub fn next(&mut self) Error!?DirEntry {
-        let entry = self.reader.next().map_err[Error](&os::Error::as_fs_error).?;
+extend DirIterator : Iterator {
+    type Item = Error!DirEntry;
+
+    pub fn next(&mut self) ?(Error!DirEntry) {
+        let entry = switch self.reader.next() {
+            ?result => result.map_err[Error](&os::Error::as_fs_error),
+            null => return null,
+        };
         switch entry {
-            ?value => !?value.as_fs_dir_entry(),
-            null => !null,
+            !value => ?(!value.as_fs_dir_entry()),
+            err! => ?(err!),
         }
     }
 }
