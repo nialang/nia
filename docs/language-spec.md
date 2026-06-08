@@ -121,8 +121,9 @@ facade for selected direct names; it currently exposes `std::range`,
   Primitive integers, `bool`, `char`, character slices, byte slices, and
   `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
 - `std.mem` defines the `Allocator` trait, allocation layout and block types,
-  `PageAllocator` for OS page mappings, and `FixedBufferAllocator` for
-  caller-provided backing storage.
+  `PageAllocator` for OS page mappings, `FixedBufferAllocator` for
+  caller-provided backing storage, and `ArenaAllocator` for region-style
+  allocation with bulk reset/free operations.
 - `std.slice` defines `SliceIter`, and slices provide `.iter()` for explicit
   read-only iteration.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its

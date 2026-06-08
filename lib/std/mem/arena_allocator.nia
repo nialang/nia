@@ -1,0 +1,587 @@
+import std.math;
+import std.mem.allocator;
+import std.mem.types;
+
+using allocator::Allocator;
+using types::{Block, Error, Layout};
+
+struct ArenaChunk {
+    block: Block,
+    end_index: usize,
+    next: ?&mut ArenaChunk,
+}
+
+pub struct ArenaAllocator {
+    child: &mut Allocator,
+    used_list: ?&mut ArenaChunk,
+    free_list: ?&mut ArenaChunk,
+}
+
+extend ArenaAllocator {
+    pub fn init(child: &mut Allocator) ArenaAllocator {
+        { child: child, used_list: null, free_list: null }
+    }
+
+    pub fn deinit(&mut self) Error!void {
+        let used = self.used_list;
+        let free = self.free_list;
+        self.used_list = null;
+        self.free_list = null;
+        self.free_detached_lists(used, free)
+    }
+
+    pub fn reset(&mut self) Error!void {
+        self.deinit()
+    }
+
+    pub fn reset_retain_capacity(&mut self) Error!void {
+        self.move_used_to_free_list();
+        !{}
+    }
+
+    pub fn reset_retain_with_limit(&mut self, limit: usize) Error!void {
+        self.move_used_to_free_list();
+        self.trim_free_list(limit).?;
+        !{}
+    }
+
+    pub fn query_capacity(&self) usize {
+        let used = self.list_capacity(self.used_list);
+        let free = self.list_capacity(self.free_list);
+        switch used.checked_add(free) {
+            ?total => total,
+            null => usize::MAX,
+        }
+    }
+
+    pub fn query_used(&self) usize {
+        self.list_used(self.used_list)
+    }
+}
+
+extend ArenaAllocator : Allocator {
+    pub fn alloc(&mut self, layout: Layout) Error!Block {
+        if layout.is_empty() {
+            return !empty_block(layout);
+        }
+
+        switch self.alloc_from_optional_chunk(self.used_list, layout) {
+            ?block => return !block,
+            null => {},
+        }
+
+        switch self.pop_free_chunk(layout) {
+            ?chunk => {
+                chunk.next = self.used_list;
+                self.used_list = ?chunk;
+                switch alloc_from_chunk(chunk, layout) {
+                    ?block => return !block,
+                    null => return Error::OutOfMemory!,
+                }
+            },
+            null => {},
+        }
+
+        let prev_capacity = switch self.used_list {
+            ?chunk => chunk_payload_capacity(chunk),
+            null => 0usize,
+        };
+        var chunk = self.allocate_chunk(layout, prev_capacity).?;
+        chunk.next = self.used_list;
+        self.used_list = ?chunk;
+        switch alloc_from_chunk(chunk, layout) {
+            ?block => !block,
+            null => Error::OutOfMemory!,
+        }
+    }
+
+    pub fn resize(&mut self, block: Block, new_layout: Layout) bool {
+        if block.align() != new_layout.align() {
+            return false;
+        }
+        if block.is_empty() {
+            return new_layout.is_empty();
+        }
+        var first = switch self.used_list {
+            ?chunk => chunk,
+            null => return false,
+        };
+        if not self.owns_block(block) {
+            return false;
+        }
+        if not chunk_owns_block(first, block) or not is_last_allocation(first, block) {
+            return new_layout.size() <= block.size();
+        }
+        if new_layout.size() <= block.size() {
+            first.end_index -= block.size() - new_layout.size();
+            return true;
+        }
+
+        let add = new_layout.size() - block.size();
+        let new_end = switch first.end_index.checked_add(add) {
+            ?value => value,
+            null => return false,
+        };
+        if new_end > chunk_payload_capacity(first) {
+            return false;
+        }
+        first.end_index = new_end;
+        true
+    }
+
+    pub fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
+        if self.resize(block, new_layout) {
+            ?Block::init(block.ptr(), new_layout)
+        } else if block.is_empty() and new_layout.is_empty() {
+            ?empty_block(new_layout)
+        } else {
+            null
+        }
+    }
+
+    pub fn free(&mut self, block: Block) Error!void {
+        if block.is_empty() {
+            return !{};
+        }
+        var first = switch self.used_list {
+            ?chunk => chunk,
+            null => return Error::Invalid!,
+        };
+        if not self.owns_block(block) {
+            return Error::Invalid!;
+        }
+        if chunk_owns_block(first, block) and is_last_allocation(first, block) {
+            first.end_index -= block.size();
+        }
+        !{}
+    }
+}
+
+extend ArenaAllocator {
+    fn allocate_chunk(&mut self, layout: Layout, prev_capacity: usize) Error!&mut ArenaChunk {
+        let payload_capacity = chunk_capacity_for(layout, prev_capacity).?;
+        let total_size = switch @size[ArenaChunk]().checked_add(payload_capacity) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+        let block_align = max_usize(@align[ArenaChunk](), layout.align());
+        let block_layout = Layout::init(total_size, block_align).?;
+        let block = self.child.alloc(block_layout).?;
+        var chunk = block.ptr() as &mut ArenaChunk;
+        chunk.* = { block: block, end_index: 0, next: null };
+        !chunk
+    }
+
+    fn alloc_from_optional_chunk(&mut self, maybe_chunk: ?&mut ArenaChunk, layout: Layout) ?Block {
+        switch maybe_chunk {
+            ?chunk => alloc_from_chunk(chunk, layout),
+            null => null,
+        }
+    }
+
+    fn pop_free_chunk(&mut self, layout: Layout) ?&mut ArenaChunk {
+        var best: ?&mut ArenaChunk = null;
+        var best_prev: ?&mut ArenaChunk = null;
+        var best_waste = usize::MAX;
+        var closest: ?&mut ArenaChunk = null;
+        var closest_prev: ?&mut ArenaChunk = null;
+        var closest_shortage = usize::MAX;
+        var prev: ?&mut ArenaChunk = null;
+        var current = self.free_list;
+
+        while true {
+            switch current {
+                ?chunk => {
+                    switch chunk_fit_end(chunk, layout) {
+                        ?end => {
+                            let capacity = chunk_payload_capacity(chunk);
+                            if end <= capacity {
+                                let waste = capacity - end;
+                                if waste < best_waste {
+                                    best = ?chunk;
+                                    best_prev = prev;
+                                    best_waste = waste;
+                                }
+                            } else {
+                                let shortage = end - capacity;
+                                if shortage < closest_shortage {
+                                    closest = ?chunk;
+                                    closest_prev = prev;
+                                    closest_shortage = shortage;
+                                }
+                            }
+                        },
+                        null => {},
+                    }
+                    prev = ?chunk;
+                    current = chunk.next;
+                },
+                null => {
+                    var selected = switch best {
+                        ?chunk => chunk,
+                        null => {
+                            var fallback = switch closest {
+                                ?chunk => chunk,
+                                null => return null,
+                            };
+                            if not self.grow_free_chunk(fallback, layout) {
+                                return null;
+                            }
+                            fallback
+                        },
+                    };
+                    let selected_prev = switch best {
+                        ?chunk => {
+                            _ = chunk;
+                            best_prev
+                        },
+                        null => closest_prev,
+                    };
+                    switch selected_prev {
+                        ?before => {
+                            var before = before;
+                            before.next = selected.next;
+                        },
+                        null => self.free_list = selected.next,
+                    }
+                    selected.next = null;
+                    selected.end_index = 0;
+                    return ?selected;
+                },
+            }
+        }
+        null
+    }
+
+    fn grow_free_chunk(&mut self, chunk: &mut ArenaChunk, layout: Layout) bool {
+        let end = switch chunk_fit_end(chunk, layout) {
+            ?value => value,
+            null => return false,
+        };
+        if end <= chunk_payload_capacity(chunk) {
+            return true;
+        }
+        let new_size = switch @size[ArenaChunk]().checked_add(end) {
+            ?value => value,
+            null => return false,
+        };
+        let block_align = max_usize(chunk.block.align(), layout.align());
+        let new_layout = switch Layout::init(new_size, block_align) {
+            !value => value,
+            error! => return false,
+        };
+        if self.child.resize(chunk.block, new_layout) {
+            chunk.block = Block::init(chunk.block.ptr(), new_layout);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn owns_block(&self, block: Block) bool {
+        if block.is_empty() {
+            return true;
+        }
+        if self.list_owns_block(self.used_list, block) {
+            return true;
+        }
+        self.list_owns_block(self.free_list, block)
+    }
+
+    fn list_owns_block(&self, first: ?&mut ArenaChunk, block: Block) bool {
+        var current = first;
+        while true {
+            switch current {
+                ?chunk => {
+                    if chunk_owns_block(chunk, block) {
+                        return true;
+                    }
+                    current = chunk.next;
+                },
+                null => return false,
+            }
+        }
+        false
+    }
+
+    fn move_used_to_free_list(&mut self) void {
+        var current = self.used_list;
+        self.used_list = null;
+        while true {
+            switch current {
+                ?chunk => {
+                    let next = chunk.next;
+                    chunk.end_index = 0;
+                    chunk.next = self.free_list;
+                    self.free_list = ?chunk;
+                    current = next;
+                },
+                null => return,
+            }
+        }
+    }
+
+    fn trim_free_list(&mut self, limit: usize) Error!void {
+        var kept = 0usize;
+        var current = self.free_list;
+        var previous: ?&mut ArenaChunk = null;
+        var failed = false;
+        var first_error = Error::Invalid;
+
+        while true {
+            switch current {
+                ?chunk => {
+                    var chunk = chunk;
+                    let capacity = chunk_payload_capacity(chunk);
+                    let next = chunk.next;
+                    let next_kept = switch kept.checked_add(capacity) {
+                        ?value => value,
+                        null => usize::MAX,
+                    };
+                    if kept >= limit or next_kept > limit {
+                        switch self.child.free(chunk.block) {
+                            !ok => {
+                                _ = ok;
+                                switch previous {
+                                    ?prev => {
+                                        var prev = prev;
+                                        prev.next = next;
+                                    },
+                                    null => self.free_list = next,
+                                }
+                            },
+                            err! => {
+                                if not failed {
+                                    first_error = err;
+                                    failed = true;
+                                }
+                                previous = ?chunk;
+                            },
+                        }
+                    } else {
+                        kept = next_kept;
+                        previous = ?chunk;
+                    }
+                    current = next;
+                },
+                null => {
+                    if failed {
+                        return first_error!;
+                    }
+                    return !{};
+                },
+            }
+        }
+        !{}
+    }
+
+    fn free_detached_lists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!void {
+        var failed = false;
+        var first_error = Error::Invalid;
+
+        switch self.free_chunk_list(first) {
+            !ok => _ = ok,
+            err! => {
+                first_error = err;
+                failed = true;
+            },
+        }
+
+        switch self.free_chunk_list(second) {
+            !ok => _ = ok,
+            err! => {
+                if not failed {
+                    first_error = err;
+                    failed = true;
+                }
+            },
+        }
+
+        if failed {
+            first_error!
+        } else {
+            !{}
+        }
+    }
+
+    fn free_chunk_list(&mut self, first: ?&mut ArenaChunk) Error!void {
+        var current = first;
+        var failed = false;
+        var first_error = Error::Invalid;
+        while true {
+            switch current {
+                ?chunk => {
+                    var chunk = chunk;
+                    let next = chunk.next;
+                    chunk.next = null;
+                    switch self.child.free(chunk.block) {
+                        !ok => _ = ok,
+                        err! => {
+                            chunk.end_index = 0;
+                            chunk.next = self.free_list;
+                            self.free_list = ?chunk;
+                            if not failed {
+                                first_error = err;
+                                failed = true;
+                            }
+                        },
+                    }
+                    current = next;
+                },
+                null => {
+                    if failed {
+                        return first_error!;
+                    }
+                    return !{};
+                },
+            }
+        }
+        !{}
+    }
+
+    fn list_capacity(&self, first: ?&mut ArenaChunk) usize {
+        var total = 0usize;
+        var current = first;
+        while true {
+            switch current {
+                ?chunk => {
+                    total = switch total.checked_add(chunk_payload_capacity(chunk)) {
+                        ?value => value,
+                        null => usize::MAX,
+                    };
+                    current = chunk.next;
+                },
+                null => return total,
+            }
+        }
+        total
+    }
+
+    fn list_used(&self, first: ?&mut ArenaChunk) usize {
+        var total = 0usize;
+        var current = first;
+        while true {
+            switch current {
+                ?chunk => {
+                    total = switch total.checked_add(chunk.end_index) {
+                        ?value => value,
+                        null => usize::MAX,
+                    };
+                    current = chunk.next;
+                },
+                null => return total,
+            }
+        }
+        total
+    }
+}
+
+fn alloc_from_chunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
+    let payload_base = chunk_payload_base(chunk);
+    let current = switch payload_base.checked_add(chunk.end_index) {
+        ?value => value,
+        null => return null,
+    };
+    let aligned = switch current.align_forward(layout.align()) {
+        ?value => value,
+        null => return null,
+    };
+    let offset = aligned - payload_base;
+    let new_end = switch offset.checked_add(layout.size()) {
+        ?value => value,
+        null => return null,
+    };
+    if new_end > chunk_payload_capacity(chunk) {
+        null
+    } else {
+        chunk.end_index = new_end;
+        ?Block::init(aligned as &mut u8, layout)
+    }
+}
+
+fn chunk_fit_end(chunk: &mut ArenaChunk, layout: Layout) ?usize {
+    let payload_base = chunk_payload_base(chunk);
+    let aligned = switch payload_base.align_forward(layout.align()) {
+        ?value => value,
+        null => return null,
+    };
+    let offset = aligned - payload_base;
+    offset.checked_add(layout.size())
+}
+
+fn is_last_allocation(chunk: &mut ArenaChunk, block: Block) bool {
+    let payload_base = chunk_payload_base(chunk);
+    let cursor = switch payload_base.checked_add(chunk.end_index) {
+        ?value => value,
+        null => return false,
+    };
+    let block_end = switch (block.ptr() as usize).checked_add(block.size()) {
+        ?value => value,
+        null => return false,
+    };
+    block_end == cursor
+}
+
+fn chunk_owns_block(chunk: &mut ArenaChunk, block: Block) bool {
+    if block.is_empty() {
+        return true;
+    }
+    let base = chunk_payload_base(chunk);
+    let limit = switch base.checked_add(chunk_payload_capacity(chunk)) {
+        ?value => value,
+        null => return false,
+    };
+    let addr = block.ptr() as usize;
+    if addr < base {
+        return false;
+    }
+    let end = switch addr.checked_add(block.size()) {
+        ?value => value,
+        null => return false,
+    };
+    end <= limit
+}
+
+fn chunk_payload_base(chunk: &mut ArenaChunk) usize {
+    chunk.block.ptr() as usize + @size[ArenaChunk]()
+}
+
+fn chunk_payload_capacity(chunk: &mut ArenaChunk) usize {
+    if chunk.block.size() <= @size[ArenaChunk]() {
+        0usize
+    } else {
+        chunk.block.size() - @size[ArenaChunk]()
+    }
+}
+
+fn chunk_capacity_for(layout: Layout, prev_capacity: usize) Error!usize {
+    let min_with_padding = switch layout.size().checked_add(layout.align()) {
+        ?value => value,
+        null => return Error::OutOfMemory!,
+    };
+    let grown = switch prev_capacity.checked_add(prev_capacity / 2usize) {
+        ?value => value,
+        null => usize::MAX,
+    };
+    let grown_with_slop = switch grown.checked_add(16usize) {
+        ?value => value,
+        null => usize::MAX,
+    };
+    if grown_with_slop > min_with_padding {
+        !grown_with_slop
+    } else {
+        !min_with_padding
+    }
+}
+
+fn max_usize(left: usize, right: usize) usize {
+    if left > right {
+        left
+    } else {
+        right
+    }
+}
+
+fn empty_block(layout: Layout) Block {
+    Block::init(layout.align() as &mut u8, layout)
+}

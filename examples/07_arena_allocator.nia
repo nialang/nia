@@ -1,0 +1,64 @@
+import std;
+import std.debug;
+import std.mem;
+import std.process;
+using process::{Init, ExitCode};
+
+fn fill_scores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {
+    list.push(allocator, 8).?;
+    list.push(allocator, 13).?;
+    list.push(allocator, 21).?;
+    !{}
+}
+
+fn sum(values: &[i32]) i32 {
+    var total = 0;
+    for &value in values.iter() {
+        total += value;
+    }
+    total
+}
+
+fn run(init: Init) mem::Error!void {
+    _ = init;
+
+    var page = mem::PageAllocator::init();
+    var arena = mem::ArenaAllocator::init(&mut page);
+    defer arena.deinit().?;
+
+    var scores = std::ArrayList[i32]::init();
+    fill_scores(&mut scores, &mut arena).?;
+
+    var first_total = sum(scores.as_slice());
+    var first_capacity = arena.query_capacity();
+    var first_used = arena.query_used();
+
+    arena.reset_retain_capacity().?;
+
+    var labels = arena.alloc_slice[u8](16).?;
+    labels[0] = b'o';
+    labels[1] = b'k';
+
+    var bytes_len = labels.len();
+    var retained_capacity = arena.query_capacity();
+    var retained_used = arena.query_used();
+
+    debug::print(
+        "arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",
+        [
+            &first_total,
+            &first_capacity,
+            &first_used,
+            &retained_capacity,
+            &retained_used,
+            &bytes_len,
+        ],
+    );
+
+    !{}
+}
+
+pub fn main(init: Init) ExitCode!void {
+    run(init).exit().?;
+    !{}
+}

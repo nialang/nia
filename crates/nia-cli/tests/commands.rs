@@ -3866,6 +3866,154 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_arena_allocator_supports_array_list_and_retain_reset() {
+    let root = temp_dir("emit_exe_std_mem_arena_allocator_supports_array_list_and_retain_reset");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var arena = mem::ArenaAllocator::init(&mut page);
+    defer arena.deinit().exit().?;
+
+    var list = std::ArrayList[i32]::init();
+    list.push(&mut arena, 10).exit().?;
+    list.push(&mut arena, 20).exit().?;
+    list.push(&mut arena, 30).exit().?;
+
+    var total = 0;
+    for &value in list.iter() {
+        total += value;
+    }
+    if total != 60 {
+        return (1 as process::ExitCode)!;
+    }
+
+    let capacity = arena.query_capacity();
+    if capacity == 0usize or arena.query_used() == 0usize {
+        return (2 as process::ExitCode)!;
+    }
+
+    arena.reset_retain_capacity().exit().?;
+    if arena.query_capacity() != capacity or arena.query_used() != 0usize {
+        return (3 as process::ExitCode)!;
+    }
+
+    var bytes = arena.alloc_slice[u8](64).exit().?;
+    bytes[0] = 7u8;
+    bytes[63] = 9u8;
+    if bytes[0] != 7u8 or bytes[63] != 9u8 {
+        return (4 as process::ExitCode)!;
+    }
+
+    arena.reset_retain_with_limit(0).exit().?;
+    if arena.query_capacity() != 0usize or arena.query_used() != 0usize {
+        return (5 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_arena_allocator_resize_remap_and_free_edges() {
+    let root = temp_dir("emit_exe_std_mem_arena_allocator_resize_remap_and_free_edges");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var arena = mem::ArenaAllocator::init(&mut page);
+    defer arena.deinit().exit().?;
+
+    var first = arena.alloc_bytes(16, 8).exit().?;
+    var second = arena.alloc_bytes(16, 8).exit().?;
+    if arena.resize(first, mem::Layout::init(32, 8).exit().?) {
+        return (1 as process::ExitCode)!;
+    }
+    if not arena.resize(first, mem::Layout::init(8, 8).exit().?) {
+        return (2 as process::ExitCode)!;
+    }
+
+    switch arena.remap(second, mem::Layout::init(40, 8).exit().?) {
+        ?grown => second = grown,
+        null => return (3 as process::ExitCode)!,
+    }
+    if second.size() != 40 {
+        return (4 as process::ExitCode)!;
+    }
+
+    arena.free(second).exit().?;
+    switch arena.alloc_bytes(40, 8) {
+        !again => {
+            if again.ptr() as usize != second.ptr() as usize {
+                return (5 as process::ExitCode)!;
+            }
+        },
+        error! => return (6 as process::ExitCode)!,
+    }
+
+    arena.reset().exit().?;
+    if arena.query_capacity() != 0usize or arena.query_used() != 0usize {
+        return (7 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
     let root = temp_dir("emit_exe_std_mem_allocator_realloc_preserves_byte_prefix");
     let main = root.join("main.nia");
