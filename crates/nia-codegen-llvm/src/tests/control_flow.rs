@@ -572,6 +572,128 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_deferred_return_as_ordinary_delayed_control_flow() {
+    let root = temp_dir("emits_deferred_return_as_ordinary_delayed_control_flow");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    defer {
+        return 7;
+    };
+    return 1;
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("defer.entry"), "{ir}");
+    assert!(ir.contains("ret i32 7"), "{ir}");
+}
+
+#[test]
+fn emits_deferred_break_and_continue_to_outer_loop_targets() {
+    let root = temp_dir("emits_deferred_break_and_continue_to_outer_loop_targets");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn break_from_defer() i32 {
+    loop {
+        defer {
+            log(1);
+            break;
+        };
+        continue;
+    }
+    10
+}
+
+fn continue_from_defer() i32 {
+    var i = 0;
+    loop {
+        i += 1;
+        defer {
+            log(2);
+            continue;
+        };
+        break;
+    }
+    i
+}
+
+fn main() i32 {
+    break_from_defer() + continue_from_defer()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void @log(i32 1)"), "{ir}");
+    assert!(ir.contains("call void @log(i32 2)"), "{ir}");
+    assert!(ir.contains("defer.entry"), "{ir}");
+    assert!(ir.contains("br label"), "{ir}");
+}
+
+#[test]
+fn emits_deferred_try_propagation() {
+    let root = temp_dir("emits_deferred_try_propagation");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Bad = 1,
+    _
+}
+
+fn cleanup(fail: bool) Error!void {
+    if fail {
+        Error::Bad!
+    } else {
+        !{}
+    }
+}
+
+fn main(fail: bool) Error!i32 {
+    defer cleanup(fail).?;
+    !1
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("defer.try.failure"), "{ir}");
+    assert!(ir.contains("defer.try.failed"), "{ir}");
+    assert!(
+        ir.contains("store { i8, { i32 } } %try.return.value, ptr %0"),
+        "{ir}"
+    );
+    assert!(ir.contains("ret void"), "{ir}");
+}
+
+#[test]
 fn instantiates_generic_calls_from_defer_tail_expr() {
     let root = temp_dir("instantiates_generic_calls_from_defer_tail_expr");
     let main = root.join("main.nia");

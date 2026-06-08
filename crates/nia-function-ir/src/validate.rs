@@ -29,10 +29,19 @@ impl FunctionIrError {
 pub fn validate_function_body(body: &FunctionBody) -> Result<(), FunctionIrError> {
     FunctionIrValidator::new(&body.locals, &body.scopes, &body.blocks, body.entry)
         .validate_body(body.span)?;
+    let body_block_ids = body
+        .blocks
+        .iter()
+        .map(|block| block.id)
+        .collect::<HashSet<_>>();
     for block in &body.blocks {
         for op in &block.ops {
             if let FunctionOp::Defer(defer_body) = op {
-                validate_function_defer_body(&body.locals, defer_body)?;
+                validate_function_defer_body_with_outer_blocks(
+                    &body.locals,
+                    defer_body,
+                    &body_block_ids,
+                )?;
             }
         }
     }
@@ -43,16 +52,30 @@ pub fn validate_function_defer_body(
     enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
 ) -> Result<(), FunctionIrError> {
+    validate_function_defer_body_with_outer_blocks(enclosing_locals, body, &HashSet::new())
+}
+
+fn validate_function_defer_body_with_outer_blocks(
+    enclosing_locals: &[FunctionLocal],
+    body: &FunctionDeferBody,
+    outer_block_ids: &HashSet<FunctionBlockId>,
+) -> Result<(), FunctionIrError> {
     // Defer bodies execute in the enclosing function's local namespace: captures are plain
     // local references, while control-flow scopes are private to this deferred mini-body.
     // Keeping that split explicit here prevents codegen-only failures when nested defer
     // lowering changes either side of the representation.
     FunctionIrValidator::new(enclosing_locals, &body.scopes, &body.blocks, body.entry)
-        .validate_defer_body(body.span)?;
+        .validate_defer_body(body.span, outer_block_ids)?;
+    let mut nested_outer_block_ids = outer_block_ids.clone();
+    nested_outer_block_ids.extend(body.blocks.iter().map(|block| block.id));
     for block in &body.blocks {
         for op in &block.ops {
             if let FunctionOp::Defer(defer_body) = op {
-                validate_function_defer_body(enclosing_locals, defer_body)?;
+                validate_function_defer_body_with_outer_blocks(
+                    enclosing_locals,
+                    defer_body,
+                    &nested_outer_block_ids,
+                )?;
             }
         }
     }
@@ -98,13 +121,17 @@ impl<'a> FunctionIrValidator<'a> {
         Ok(())
     }
 
-    fn validate_defer_body(&self, span: Span) -> Result<(), FunctionIrError> {
+    fn validate_defer_body(
+        &self,
+        span: Span,
+        outer_block_ids: &HashSet<FunctionBlockId>,
+    ) -> Result<(), FunctionIrError> {
         self.validate_body_shape(span)?;
         for block in self.blocks {
             for op in &block.ops {
                 self.validate_op(op)?;
             }
-            self.validate_defer_terminator(&block.terminator)?;
+            self.validate_defer_terminator(&block.terminator, outer_block_ids)?;
         }
         Ok(())
     }
@@ -254,15 +281,52 @@ impl<'a> FunctionIrValidator<'a> {
     fn validate_defer_terminator(
         &self,
         terminator: &FunctionTerminator,
+        outer_block_ids: &HashSet<FunctionBlockId>,
     ) -> Result<(), FunctionIrError> {
-        match terminator {
-            FunctionTerminator::Return { span, .. } => {
+        for successor in terminator.successors() {
+            if !self.block_ids.contains(&successor) && !outer_block_ids.contains(&successor) {
                 return Err(FunctionIrError::new(
-                    *span,
-                    "`return` is not valid in defer function IR",
+                    terminator.span(),
+                    format!(
+                        "terminator successor references missing block `{}`",
+                        successor.0
+                    ),
                 ));
             }
-            _ => self.validate_terminator(terminator)?,
+        }
+        self.validate_terminator_payload(terminator)?;
+        Ok(())
+    }
+
+    fn validate_terminator_payload(
+        &self,
+        terminator: &FunctionTerminator,
+    ) -> Result<(), FunctionIrError> {
+        match terminator {
+            FunctionTerminator::If { cond, .. } => self.validate_expr(cond)?,
+            FunctionTerminator::Switch { target, arms, .. } => {
+                self.validate_expr(target)?;
+                for arm in arms {
+                    self.validate_expr(&arm.pattern)?;
+                }
+            }
+            FunctionTerminator::Try {
+                value,
+                success_local,
+                ..
+            } => {
+                self.validate_expr(value)?;
+                self.require_local(*success_local, value.span, "try success local")?;
+            }
+            FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,
+            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+                if let Some(value) = value {
+                    self.validate_expr(value)?;
+                }
+            }
+            FunctionTerminator::Error { .. }
+            | FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. } => {}
         }
         Ok(())
     }
@@ -524,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_return_in_defer_body() {
+    fn accepts_return_in_defer_body() {
         let span = Span::default();
         let defer_body = FunctionDeferBody {
             span,
@@ -543,11 +607,36 @@ mod tests {
             entry: FunctionBlockId(0),
         };
 
-        let error =
-            validate_function_defer_body(&[], &defer_body).expect_err("defer return should fail");
+        validate_function_defer_body(&[], &defer_body).expect("defer return should be valid");
+    }
 
+    #[test]
+    fn rejects_defer_branch_to_missing_outer_block() {
+        let span = Span::default();
+        let defer_body = FunctionDeferBody {
+            span,
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Branch {
+                    target: FunctionBlockId(99),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+        };
+
+        let error = validate_function_defer_body(&[], &defer_body)
+            .expect_err("missing outer block should fail");
         assert!(
-            error.message.contains("not valid in defer function IR"),
+            error.message.contains("references missing block `99`"),
             "{error:?}"
         );
     }

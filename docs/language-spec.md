@@ -1588,8 +1588,9 @@ Multiple `defer` statements in the same block run in last-in-first-out order.
 Normal block exit, `return`, `break`, and `continue` all run already registered
 defers for exited scopes.
 
-The deferred expression must complete normally and have type `void`. If cleanup
-returns a non-`void` value, discard it explicitly:
+The deferred expression is evaluated as an ordinary delayed statement. It must
+have type `void` or `never`. If cleanup returns a non-`void` value, discard it
+explicitly:
 
 ```nia
 defer {
@@ -1598,7 +1599,13 @@ defer {
 };
 ```
 
-`return`, `break`, and `continue` are not allowed inside deferred expressions.
+Control flow inside a deferred expression runs when the deferred expression runs.
+`return` may return from the current function, `.?` may propagate from the
+current function, and `break` or `continue` may target an enclosing loop when the
+`defer` statement is registered inside that loop context. If a deferred
+expression changes control flow, that new control flow overrides the exit path
+that caused the defer to run.
+
 Nia has no exceptions, so `defer` has no exception-unwind semantics.
 
 ### 8.5 Operators

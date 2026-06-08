@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::{FunctionDeferBody, FunctionScopeId};
+use nia_function_ir::{FunctionBlockId, FunctionDeferBody, FunctionScopeId};
+use nia_llvm::basic_block::BasicBlock;
 use nia_span::Span;
 
 use super::FunctionCodegen;
@@ -25,6 +26,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         span: Span,
         scope: FunctionScopeId,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(scope) = self
             .defer_scopes
@@ -35,12 +37,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         else {
             return Err(self.error(span, "missing function defer scope"));
         };
-        self.emit_defer_scope(scope)
+        self.emit_defer_scope(scope, outer_blocks)
     }
 
-    fn emit_defer_scope(&mut self, scope: DeferScope) -> Result<(), Diagnostic> {
+    fn emit_defer_scope(
+        &mut self,
+        scope: DeferScope,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+    ) -> Result<(), Diagnostic> {
         for body in scope.bodies.into_iter().rev() {
-            self.emit_defer_function_body(&body)?;
+            self.emit_defer_function_body(&body, outer_blocks)?;
+            if self.current_block_has_terminator() {
+                break;
+            }
         }
         Ok(())
     }

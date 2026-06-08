@@ -422,199 +422,7 @@ impl FlowChecker<'_> {
     }
 
     fn check_defer(&mut self, expr: &Expr) {
-        self.check_no_deferred_control_flow(expr);
-    }
-
-    fn check_no_deferred_control_flow(&mut self, expr: &Expr) {
-        match &expr.kind {
-            ExprKind::Error
-            | ExprKind::Integer(_)
-            | ExprKind::Float(_)
-            | ExprKind::String(_)
-            | ExprKind::ByteString(_)
-            | ExprKind::CString(_)
-            | ExprKind::Char(_)
-            | ExprKind::ByteChar(_)
-            | ExprKind::Raw(_)
-            | ExprKind::Bool(_)
-            | ExprKind::Null
-            | ExprKind::Ident(_)
-            | ExprKind::Underscore
-            | ExprKind::Builtin { .. }
-            | ExprKind::TypeTarget { .. }
-            | ExprKind::Qualified { .. } => {}
-            ExprKind::BracketSuffix { callee, args } => {
-                self.check_no_deferred_control_flow(callee);
-                for arg in args {
-                    if let Some(expr) = &arg.expr {
-                        self.check_no_deferred_control_flow(expr);
-                    }
-                }
-            }
-            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
-                match elems {
-                    nia_ast::ArrayElements::List(elems) => {
-                        for elem in elems {
-                            self.check_no_deferred_control_flow(elem);
-                        }
-                    }
-                    nia_ast::ArrayElements::Repeat { value, count } => {
-                        self.check_no_deferred_control_flow(value);
-                        self.check_no_deferred_control_flow(count);
-                    }
-                }
-            }
-            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
-                for field in fields {
-                    self.check_no_deferred_control_flow(&field.value);
-                }
-            }
-            ExprKind::Unary { expr, .. }
-            | ExprKind::OptionalSome { expr }
-            | ExprKind::ErrorOk { expr }
-            | ExprKind::ErrorErr { expr }
-            | ExprKind::Cast { expr, .. } => {
-                self.check_no_deferred_control_flow(expr);
-            }
-            ExprKind::Try { expr } => {
-                self.check_no_deferred_control_flow(expr);
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
-                    expr.span,
-                    "`.?` propagation is not allowed inside deferred expressions",
-                ));
-            }
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
-                self.check_no_deferred_control_flow(lhs);
-                self.check_no_deferred_control_flow(rhs);
-            }
-            ExprKind::Call { callee, args } => {
-                self.check_no_deferred_control_flow(callee);
-                for arg in args {
-                    self.check_no_deferred_control_flow(arg);
-                }
-            }
-            ExprKind::Field { lhs, .. } => self.check_no_deferred_control_flow(lhs),
-            ExprKind::Index { lhs, index } => {
-                self.check_no_deferred_control_flow(lhs);
-                match index {
-                    IndexArg::Expr(index) => self.check_no_deferred_control_flow(index),
-                    IndexArg::Range(range) => {
-                        if let Some(start) = &range.start {
-                            self.check_no_deferred_control_flow(start);
-                        }
-                        if let Some(end) = &range.end {
-                            self.check_no_deferred_control_flow(end);
-                        }
-                    }
-                }
-            }
-            ExprKind::Range(range) => {
-                if let Some(start) = &range.start {
-                    self.check_no_deferred_control_flow(start);
-                }
-                if let Some(end) = &range.end {
-                    self.check_no_deferred_control_flow(end);
-                }
-            }
-            ExprKind::Block(block) => self.check_no_deferred_control_flow_in_block(block),
-            ExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.check_no_deferred_control_flow(cond);
-                self.check_no_deferred_control_flow_in_block(then_branch);
-                if let Some(else_branch) = else_branch {
-                    self.check_no_deferred_control_flow(else_branch);
-                }
-            }
-            ExprKind::ComptimeIf(comptime_if) => {
-                self.check_no_deferred_control_flow(&comptime_if.cond);
-                self.check_no_deferred_control_flow_in_block(&comptime_if.then_branch);
-                if let Some(else_branch) = &comptime_if.else_branch {
-                    self.check_no_deferred_control_flow(else_branch);
-                }
-            }
-            ExprKind::Switch(switch) => {
-                self.check_switch_patterns(switch);
-                self.check_no_deferred_control_flow(&switch.target);
-                for arm in &switch.arms {
-                    for pattern in &arm.patterns {
-                        match pattern {
-                            SwitchPattern::Default => {}
-                            SwitchPattern::OptionalSome { .. }
-                            | SwitchPattern::OptionalNull { .. }
-                            | SwitchPattern::ErrorOk { .. }
-                            | SwitchPattern::ErrorErr { .. } => {}
-                            SwitchPattern::Expr(expr) => self.check_no_deferred_control_flow(expr),
-                            SwitchPattern::Range { start, end, .. } => {
-                                self.check_no_deferred_control_flow(start);
-                                self.check_no_deferred_control_flow(end);
-                            }
-                        }
-                    }
-                    match &arm.body {
-                        SwitchArmBody::Expr(expr) => self.check_no_deferred_control_flow(expr),
-                        SwitchArmBody::Stmt(stmt) => {
-                            self.check_no_deferred_control_flow_in_block(&Block {
-                                span: stmt.span,
-                                stmts: vec![*stmt.clone()],
-                                tail: None,
-                            });
-                        }
-                        SwitchArmBody::Block(block) => {
-                            self.check_no_deferred_control_flow_in_block(block);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn check_no_deferred_control_flow_in_block(&mut self, block: &Block) {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Binding(binding) => {
-                    if let Some(value) = &binding.value {
-                        self.check_no_deferred_control_flow(value);
-                    }
-                }
-                StmtKind::Expr(expr) | StmtKind::Defer(expr) => {
-                    self.check_no_deferred_control_flow(expr);
-                }
-                StmtKind::Using(_) => {}
-                StmtKind::Return(_) => self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
-                    stmt.span,
-                    "`return` is not allowed inside deferred expressions",
-                )),
-                StmtKind::Break => self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
-                    stmt.span,
-                    "`break` is not allowed inside deferred expressions",
-                )),
-                StmtKind::Continue => self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
-                    stmt.span,
-                    "`continue` is not allowed inside deferred expressions",
-                )),
-                StmtKind::ForIn(for_stmt) => {
-                    self.check_no_deferred_control_flow(&for_stmt.iter);
-                    self.check_no_deferred_control_flow_in_block(&for_stmt.body);
-                }
-                StmtKind::While(while_stmt) => {
-                    self.check_no_deferred_control_flow(&while_stmt.cond);
-                    self.check_no_deferred_control_flow_in_block(&while_stmt.body);
-                }
-                StmtKind::Loop(loop_stmt) => {
-                    self.check_no_deferred_control_flow_in_block(&loop_stmt.body);
-                }
-            }
-        }
-        if let Some(tail) = &block.tail {
-            self.check_no_deferred_control_flow(tail);
-        }
+        self.check_expr_flow(expr);
     }
 
     fn check_switch_patterns(&mut self, switch: &nia_ast::SwitchStmt) {
@@ -879,7 +687,7 @@ fn name(mode: Mode) u32 {
     }
 
     #[test]
-    fn accepts_deferred_blocks_but_rejects_deferred_control_flow() {
+    fn accepts_deferred_blocks_and_return_control_flow() {
         let checked = pipeline(
             r#"
 fn cleanup() {}
@@ -895,14 +703,6 @@ fn main() {
 "#,
         );
         assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`return` is not allowed")),
-            "{:?}",
-            checked.diagnostics
-        );
-        assert!(
             !checked
                 .diagnostics
                 .iter()
@@ -913,7 +713,7 @@ fn main() {
     }
 
     #[test]
-    fn rejects_all_control_flow_inside_deferred_expressions() {
+    fn accepts_deferred_loop_control_flow_inside_loops() {
         let checked = pipeline(
             r#"
 fn cleanup() {}
@@ -942,53 +742,28 @@ fn main() {
 }
 "#,
         );
-        assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`return` is not allowed")),
-            "{:?}",
-            checked.diagnostics
-        );
-        assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`break` is not allowed")),
-            "{:?}",
-            checked.diagnostics
-        );
-        assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`continue` is not allowed")),
-            "{:?}",
-            checked.diagnostics
-        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]
-    fn rejects_control_flow_deep_inside_deferred_expression_shapes() {
+    fn rejects_deferred_break_and_continue_outside_loop_context() {
         let checked = pipeline(
             r#"
 fn cleanup() {}
 
-fn main(flag: bool) {
+fn bad_continue(flag: bool) {
     defer if flag {
-        loop {
-            continue;
-        }
+        continue;
     } else {
         cleanup();
     };
+}
 
+fn bad_break() {
     defer {
         switch 1 {
             0 => {
-                loop {
-                    break;
-                }
+                break;
             },
             _ => cleanup(),
         }
@@ -996,22 +771,39 @@ fn main(flag: bool) {
 }
 "#,
         );
-        assert!(
+        assert_eq!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`continue` is not allowed")),
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("`break` and `continue` can only appear inside loops"))
+                .count(),
+            1,
             "{:?}",
             checked.diagnostics
         );
-        assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("`break` is not allowed")),
-            "{:?}",
-            checked.diagnostics
+    }
+
+    #[test]
+    fn accepts_deferred_break_and_continue_inside_nested_loops() {
+        let checked = pipeline(
+            r#"
+fn main(flag: bool) {
+    loop {
+        defer if flag {
+            loop {
+                continue;
+            }
+        } else {
+            break;
+        };
+        break;
+    }
+}
+"#,
         );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]
