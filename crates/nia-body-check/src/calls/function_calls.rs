@@ -476,9 +476,68 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        match self.interner.get(ty) {
-            Some(TyKind::GenericParam(_)) => None,
-            _ => Some(ty),
+        if self.type_contains_generic_param(ty) {
+            None
+        } else {
+            Some(ty)
+        }
+    }
+
+    fn type_contains_generic_param(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
+            | Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Optional { elem }) => self.type_contains_generic_param(*elem),
+            Some(TyKind::Range { bound, .. }) => {
+                bound.is_some_and(|bound| self.type_contains_generic_param(bound))
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .iter()
+                    .any(|param| self.type_contains_generic_param(*param))
+                    || self.type_contains_generic_param(*return_type)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.type_contains_generic_param(*error) || self.type_contains_generic_param(*value)
+            }
+            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
+                .iter()
+                .any(|arg| self.type_contains_generic_param(*arg)),
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.type_contains_generic_param(*arg))
+                    || associated_type_bindings
+                        .iter()
+                        .any(|binding| self.type_contains_generic_param(binding.ty))
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.type_contains_generic_param(*self_ty)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.type_contains_generic_param(*arg))
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => false,
         }
     }
 
