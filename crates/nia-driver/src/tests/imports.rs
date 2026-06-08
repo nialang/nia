@@ -80,9 +80,8 @@ fn std_io_file_writer_is_created_from_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
@@ -109,9 +108,8 @@ fn std_io_buffered_file_writer_flushes_explicitly_through_process_io() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];
@@ -144,9 +142,8 @@ fn std_fs_file_is_not_a_writer_without_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
-
-using std::{fs, process};
+import std.fs;
+import std.process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
     switch file.write_all(b"nia\n") {
@@ -183,9 +180,8 @@ fn std_io_file_reader_is_created_from_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];
@@ -213,14 +209,14 @@ fn std_blocking_io_coerces_to_io_trait_object_with_error_binding() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
-
-using std::{io, process};
+import std.io;
+import std.os;
+import std.process;
 
 fn main(argc: usize, argv: &&u8, envp: &&u8) void {
     var backend = io::BlockingIo::init();
     let init = process::Init::init(argc, argv, envp, &mut backend);
-    let object: &mut io::Io[Error = std::os::Error] = init.io();
+    let object: &mut io::Io[Error = os::Error] = init.io();
     _ = object;
 }
 "#,
@@ -876,6 +872,81 @@ fn main() usize {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_exposes_array_list_type_directly() {
+    let root = temp_dir("std_facade_exposes_array_list_type_directly");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+fn main() usize {
+    var list = std::ArrayList[i32]::init();
+    list.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_does_not_reexport_standard_library_module_namespaces() {
+    let root = temp_dir("std_facade_does_not_reexport_standard_library_module_namespaces");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+fn main() usize {
+    let writer = std::io::DiscardingWriter::init();
+    writer.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("unknown value `io`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn std_facade_does_not_reexport_array_list_module_namespace() {
+    let root = temp_dir("std_facade_does_not_reexport_array_list_module_namespace");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+fn main() usize {
+    var list = std::array_list::ArrayList[i32]::init();
+    list.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown namespace `array_list`")
+            || diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown value `array_list`")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

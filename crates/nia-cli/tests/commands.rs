@@ -1215,24 +1215,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_can_use_std_root_facade_modules() {
-    let root = temp_dir("emit_exe_can_use_std_root_facade_modules");
+fn emit_exe_can_use_direct_std_modules() {
+    let root = temp_dir("emit_exe_can_use_direct_std_modules");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-import std;
+import std.io;
+import std.process;
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var writer = std::io::DiscardingWriter::init();
+    var writer = io::DiscardingWriter::init();
     switch writer.write_all(b"nia") {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     if writer.len() != 3 {
-        return std::process::ExitCode::init(2)!;
+        return process::ExitCode::init(2)!;
     }
     !{}
 }
@@ -1354,36 +1355,36 @@ fn emit_exe_exposes_process_args_without_raw_argv() {
     std::fs::write(
         &main,
         r#"
-import std;
+import std.process;
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     var args = init.args();
     if args.len() != 3 {
-        return std::process::ExitCode::init(1)!;
+        return process::ExitCode::init(1)!;
     }
     var first_arg = switch args.get(1) {
         ?value => value,
-        null => return std::process::ExitCode::init(2)!,
+        null => return process::ExitCode::init(2)!,
     };
     var second_arg = switch args.get(2) {
         ?value => value,
-        null => return std::process::ExitCode::init(3)!,
+        null => return process::ExitCode::init(3)!,
     };
     var first = first_arg.raw_bytes();
     var second = second_arg.raw_bytes();
     if first.len() != 3 {
-        return std::process::ExitCode::init(4)!;
+        return process::ExitCode::init(4)!;
     }
     if first[0] != 110u8 or first[1] != 105u8 or first[2] != 97u8 {
-        return std::process::ExitCode::init(5)!;
+        return process::ExitCode::init(5)!;
     }
     if second.len() != 4 {
-        return std::process::ExitCode::init(6)!;
+        return process::ExitCode::init(6)!;
     }
     switch args.get(3) {
         ?value => {
             _ = value;
-            return std::process::ExitCode::init(7)!;
+            return process::ExitCode::init(7)!;
         },
         null => {},
     }
@@ -1422,7 +1423,7 @@ fn emit_exe_exposes_process_env_as_values() {
     std::fs::write(
         &main,
         r#"
-import std;
+import std.process;
 
 fn starts_with_needle(bytes: &[u8]) bool {
     var needle = b"NIA_TEST_ENV=ok";
@@ -1439,20 +1440,20 @@ fn starts_with_needle(bytes: &[u8]) bool {
     true
 }
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     var env = init.env();
     var index = 0usize;
     while index < env.len() {
         var item = switch env.get(index) {
             ?value => value,
-            null => return std::process::ExitCode::init(1)!,
+            null => return process::ExitCode::init(1)!,
         };
         if starts_with_needle(item.raw_bytes()) {
             return !{};
         }
         index += 1usize;
     }
-    return std::process::ExitCode::init(2)!;
+    return process::ExitCode::init(2)!;
 }
 "#,
     )
@@ -1588,18 +1589,20 @@ fn emit_exe_can_format_to_stdout() {
     std::fs::write(
         &main,
         r#"
-import std;
+import std.io;
+import std.fmt;
+import std.process;
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [0; 128];
-    var stdout = std::io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.print("A¢€😀, {}\n", [&'λ']) {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     switch stdout.flush() {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(2)!,
+        error! => return process::ExitCode::init(2)!,
     }
     !{}
 }
@@ -1634,29 +1637,31 @@ fn emit_exe_can_use_std_io_fixed_buffers() {
     std::fs::write(
         &main,
         r#"
-import std;
+import std.io;
+import std.fmt;
+import std.process;
 
-pub fn main(init: std::process::Init) std::process::ExitCode!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
-    var writer = std::io::FixedBufferWriter::init(&mut storage[..]);
+    var writer = io::FixedBufferWriter::init(&mut storage[..]);
     switch writer.print("nia {}", [&7]) {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     if writer.len() != 5 {
-        return std::process::ExitCode::init(2)!;
+        return process::ExitCode::init(2)!;
     }
 
     var copied: [5]u8 = [0, 0, 0, 0, 0];
-    var reader = std::io::FixedBufferReader::init(writer.written());
+    var reader = io::FixedBufferReader::init(writer.written());
     switch reader.read_exact(&mut copied[..]) {
         !ok => _ = ok,
-        error! => return std::process::ExitCode::init(3)!,
+        error! => return process::ExitCode::init(3)!,
     }
     var expected = b"nia 7";
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
-        return std::process::ExitCode::init(4)!;
+        return process::ExitCode::init(4)!;
     }
     !{}
 }
@@ -4176,7 +4181,7 @@ fn emit_exe_std_array_list_push_pop_and_deinit() {
     std::fs::write(
         &main,
         r#"
-import std.array_list;
+import std;
 import std.mem;
 import std.process;
 
@@ -4184,8 +4189,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var exact: array_list::ArrayList[i32];
-    switch array_list::ArrayList[i32]::init_capacity(page, 3) {
+    var exact: std::ArrayList[i32];
+    switch std::ArrayList[i32]::init_capacity(page, 3) {
         !value => exact = value,
         error! => return process::ExitCode::init(1)!,
     }
@@ -4197,7 +4202,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(3)!,
     }
 
-    var ops = array_list::ArrayList[i32]::init();
+    var ops = std::ArrayList[i32]::init();
     switch ops.push(page, 1) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(26)!,
@@ -4248,7 +4253,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(37)!,
     }
 
-    var alias = array_list::ArrayList[i32]::init();
+    var alias = std::ArrayList[i32]::init();
     switch alias.reserve_exact(page, 2) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(38)!,
@@ -4282,7 +4287,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(45)!,
     }
 
-    var list = array_list::ArrayList[i32]::init();
+    var list = std::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return process::ExitCode::init(4)!;
     }
@@ -4492,7 +4497,7 @@ fn emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse() {
     std::fs::write(
         &main,
         r#"
-import std.array_list;
+import std;
 import std.mem;
 import std.process;
 
@@ -4500,7 +4505,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var list = array_list::ArrayList[i32]::init();
+    var list = std::ArrayList[i32]::init();
     switch list.push(page, 10) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -4565,7 +4570,7 @@ fn emit_exe_std_array_list_owned_slice_and_clone() {
     std::fs::write(
         &main,
         r#"
-import std.array_list;
+import std;
 import std.mem;
 import std.process;
 
@@ -4574,7 +4579,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     let page = &mut allocator;
 
-    var source = array_list::ArrayList[i32]::init();
+    var source = std::ArrayList[i32]::init();
     switch source.push(page, 1) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -4584,7 +4589,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(2)!,
     }
 
-    var cloned: array_list::ArrayList[i32];
+    var cloned: std::ArrayList[i32];
     switch source.clone(page) {
         !value => cloned = value,
         error! => return process::ExitCode::init(3)!,
@@ -4624,7 +4629,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     external[0] = 4;
     external[1] = 5;
     external[2] = 6;
-    var adopted = array_list::ArrayList[i32]::from_owned_slice(external);
+    var adopted = std::ArrayList[i32]::from_owned_slice(external);
     let expected_adopted: [3]i32 = [4, 5, 6];
     if adopted.capacity() != 3 or not mem::equal[i32](adopted.as_slice(), &expected_adopted[..]) {
         return process::ExitCode::init(11)!;
@@ -4669,7 +4674,7 @@ fn emit_exe_std_array_list_handles_zero_sized_elements_without_allocation() {
     std::fs::write(
         &main,
         r#"
-import std.array_list;
+import std;
 import std.mem;
 import std.process;
 
@@ -4679,7 +4684,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var list = array_list::ArrayList[Marker]::init();
+    var list = std::ArrayList[Marker]::init();
     switch list.reserve(page, 4) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,

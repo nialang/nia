@@ -93,7 +93,11 @@ Other Nia functions named `main` use normal Nia internal symbol naming unless
 they are declared `extern`. The compiler does not export the root user `main`
 as the C ABI entry point; that responsibility belongs to `std.start`.
 
-The current standard library surface is intentionally small:
+The current standard library surface is intentionally small. Standard-library
+files are modules, so module-shaped APIs are imported by their file paths, such
+as `import std.process;` or `import std.io;`. The root `std` file is a curated
+facade for selected direct names; it currently exposes `std::range`,
+`std::inclusive`, `std::from`, and `std::ArrayList`.
 
 - `std.process` defines the executable entry payload and process exit value.
 - `std.os` defines a target-dispatched OS facade. It currently exposes
@@ -105,7 +109,8 @@ The current standard library surface is intentionally small:
   `PageAllocator` implementation.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its
   `Step` trait is implemented for the built-in integer types that have
-  representable `MAX` values.
+  representable `MAX` values. The common range constructors are also re-exported
+  by the root `std` facade.
 
 `std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
 modules such as `std.os.linux` may use syscalls directly. A future `std.c` can
@@ -2464,6 +2469,10 @@ nia check src/main.nia -M std=/usr/share/nia/std.nia
 import std;            // /usr/share/nia/std.nia
 import std.io;         // /usr/share/nia/std/io.nia
 ```
+
+These are separate file modules. `import std.io;` loads the `std/io.nia`
+module through the module map; it does not require the root `std.nia` facade to
+re-export an `io` namespace.
 
 When a mapped root has extra path segments, the root file path is treated as the
 root module file and the tail segments select files below the root stem. If
