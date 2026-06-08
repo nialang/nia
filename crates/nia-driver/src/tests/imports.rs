@@ -760,16 +760,16 @@ fn main() bool {
 }
 
 #[test]
-fn std_range_iterates_half_open_usize_ranges() {
-    let root = temp_dir("std_range_iterates_half_open_usize_ranges");
+fn std_facade_range_iterates_half_open_usize_ranges() {
+    let root = temp_dir("std_facade_range_iterates_half_open_usize_ranges");
     write(
         &root.join("main.nia"),
         r#"
-import std.range;
+import std;
 
 fn main() usize {
     var total = 0usize;
-    for i in range::range(0usize..4usize) {
+    for i in std::range(0usize..4usize) {
         total += i;
     }
     total
@@ -782,16 +782,16 @@ fn main() usize {
 }
 
 #[test]
-fn std_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
-    let root = temp_dir("std_range_iterates_half_open_i64_ranges_with_expected_bound_type");
+fn std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
+    let root = temp_dir("std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type");
     write(
         &root.join("main.nia"),
         r#"
-import std.range;
+import std;
 
 fn main() i64 {
     var total = 0i64;
-    for i in range::range[i64](1..4) {
+    for i in std::range[i64](1..4) {
         total += i;
     }
     total
@@ -804,16 +804,16 @@ fn main() i64 {
 }
 
 #[test]
-fn std_range_iterates_inclusive_i32_ranges() {
-    let root = temp_dir("std_range_iterates_inclusive_i32_ranges");
+fn std_facade_range_iterates_inclusive_i32_ranges() {
+    let root = temp_dir("std_facade_range_iterates_inclusive_i32_ranges");
     write(
         &root.join("main.nia"),
         r#"
-import std.range;
+import std;
 
 fn main() i32 {
     var total = 0i32;
-    for i in range::inclusive[i32](2..=4) {
+    for i in std::inclusive[i32](2..=4) {
         total += i;
     }
     total
@@ -826,19 +826,19 @@ fn main() i32 {
 }
 
 #[test]
-fn std_range_iterates_inclusive_and_from_usize_ranges() {
-    let root = temp_dir("std_range_iterates_inclusive_and_from_usize_ranges");
+fn std_facade_range_iterates_inclusive_and_from_usize_ranges() {
+    let root = temp_dir("std_facade_range_iterates_inclusive_and_from_usize_ranges");
     write(
         &root.join("main.nia"),
         r#"
-import std.range;
+import std;
 
 fn main() usize {
     var total = 0usize;
-    for i in range::inclusive(2usize..=4usize) {
+    for i in std::inclusive(2usize..=4usize) {
         total += i;
     }
-    var from = range::from(5usize..);
+    var from = std::from(5usize..);
     var count = 0usize;
     for i in from {
         total += i;
@@ -857,21 +857,101 @@ fn main() usize {
 }
 
 #[test]
-fn std_facade_reexports_range_module() {
-    let root = temp_dir("std_facade_reexports_range_module");
+fn std_facade_exposes_range_constructors() {
+    let root = temp_dir("std_facade_exposes_range_constructors");
     write(
         &root.join("main.nia"),
         r#"
 import std;
 
-using std::range::*;
-
 fn main() usize {
     var total = 0usize;
-    for i in range(1usize..3usize) {
+    for i in std::range(1usize..3usize) {
         total += i;
     }
     total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn reexported_module_and_value_with_same_name_resolve_by_context() {
+    let root = temp_dir("reexported_module_and_value_with_same_name_resolve_by_context");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main() usize {
+    var iter: facade::range::Range[usize] = facade::range(1usize..4usize);
+    var total = 0usize;
+    for i in iter {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .range;
+
+pub using range;
+pub using range::range;
+"#,
+    );
+    write(
+        &root.join("range.nia"),
+        r#"
+pub trait Step {
+    fn next(self) ?Self;
+}
+
+pub struct Range[T] {
+    current: T,
+    end: T,
+}
+
+extend[T] Range[T] {
+    pub fn init(current: T, end: T) Range[T] {
+        { current: current, end: end }
+    }
+}
+
+extend[T] Range[T] : Iterator
+where T: Step + Ord[T]
+{
+    type Item = T;
+
+    pub fn next(&mut self) ?T {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current = switch self.current.next() {
+                ?next => next,
+                null => self.end,
+            };
+            ?value
+        }
+    }
+}
+
+pub fn range[T](bounds: T..T) Range[T]
+where T: Step + Ord[T]
+{
+    Range[T]::init(bounds.start(), bounds.end())
+}
+
+extend usize : Step {
+    pub fn next(self) ?usize {
+        ?(self + 1usize)
+    }
 }
 "#,
     );
