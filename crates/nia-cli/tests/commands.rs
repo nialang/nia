@@ -1225,7 +1225,7 @@ fn emit_exe_exit_code_is_open_enum() {
 import std.process;
 import std.fs;
 
-using process::{ExitCode, exit, io_exit};
+using process::{ExitCode, exit};
 
 fn pick(flag: bool) ExitCode {
     if flag {
@@ -1233,6 +1233,14 @@ fn pick(flag: bool) ExitCode {
     } else {
         ExitCode::Success
     }
+}
+
+fn pick_result() fs::Error!ExitCode {
+    !pick(true)
+}
+
+fn fail_with_no_space() fs::Error!void {
+    fs::Error::NoSpace!
 }
 
 pub fn main(init: process::Init) ExitCode!void {
@@ -1247,10 +1255,11 @@ pub fn main(init: process::Init) ExitCode!void {
     if (fs::Error::NotFound.as_exit_code() as i32) != 2 {
         return exit(3)!;
     }
-    if (io_exit(fs::Error::NoSpace) as i32) != 28 {
+    let picked = pick_result().exit().?;
+    if (picked as i32) != 11 {
         return exit(4)!;
     }
-    pick(true)!
+    fail_with_no_space().exit()
 }
 "#,
     )
@@ -1271,7 +1280,7 @@ pub fn main(init: process::Init) ExitCode!void {
     );
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(11));
+    assert_eq!(status.code(), Some(28));
 }
 
 #[test]

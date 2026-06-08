@@ -181,6 +181,11 @@ pub fn exit(code: i32) ExitCode {
     code as ExitCode
 }
 
-pub fn io_exit(error: fs::Error) ExitCode {
-    error.as_exit_code()
+extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        switch self {
+            !value => !value,
+            error! => error.as_exit_code()!,
+        }
+    }
 }
