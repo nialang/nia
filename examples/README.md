@@ -11,9 +11,9 @@ flush fails, it traps instead of silently ignoring the failure.
 
 `03_stdout.nia` shows the explicit application-output path with
 `std.io.FileWriter` and `std.fmt`: create a stdout buffer, write formatted text,
-flush the writer, map fallible I/O calls with `process::io_exit`, and use `.?`
-propagation. Format arguments are passed as ordinary array literals, such as
-`[&value, &count]`; Nia converts the array to the expected slice.
+flush the writer, and map I/O error unions into process exit codes with
+`io_call().exit().?`. Format arguments are passed as ordinary array literals,
+such as `[&value, &count]`; Nia converts the array to the expected slice.
 
 Run an example from the repository root with:
 
