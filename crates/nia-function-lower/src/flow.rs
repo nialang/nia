@@ -587,7 +587,7 @@ impl FunctionLowerer {
 
         let mut header_ops = Vec::new();
         let header_current = loop_header;
-        let optional_item_ty = self.optional_ty(for_stmt.ty);
+        let optional_item_ty = self.optional_ty(for_stmt.item_ty);
         let next_local = self.alloc_temp_local(span, optional_item_ty);
         let next_value =
             self.iterator_next_expr(span, iter_local, for_stmt.iter.ty, optional_item_ty);
@@ -628,17 +628,23 @@ impl FunctionLowerer {
         });
         let mut body_ops = Vec::new();
         if let Some(binding) = &for_stmt.binding {
+            let item_value = FunctionExpr {
+                span,
+                ty: for_stmt.item_ty,
+                kind: FunctionExprKind::TaggedUnionPayload {
+                    expr: Box::new(next_expr),
+                },
+            };
+            let binding_value = self.lower_binding_pattern_value(
+                for_stmt.pattern_kind,
+                for_stmt.binding_ty,
+                item_value,
+            );
             body_ops.push(FunctionOp::Binding(FunctionBinding {
                 local_id: binding.local_id,
                 name: binding.name.clone(),
-                ty: for_stmt.ty,
-                value: Some(FunctionExpr {
-                    span,
-                    ty: for_stmt.ty,
-                    kind: FunctionExprKind::TaggedUnionPayload {
-                        expr: Box::new(next_expr),
-                    },
-                }),
+                ty: for_stmt.binding_ty,
+                value: Some(binding_value),
                 is_let: true,
             }));
         }

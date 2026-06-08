@@ -79,6 +79,33 @@ fn main(xs: &[&i32], ys: &[&mut i32]) {
 }
 
 #[test]
+fn parses_local_binding_pointer_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(ptr: &i32, mut_ptr: &mut i32) {
+    let &x = ptr;
+    var &mut y: i32 = mut_ptr;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(first) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    assert_eq!(first.name, "x");
+    assert_eq!(first.pattern_kind, ForPatternKind::Pointer);
+    let StmtKind::Binding(second) = &body.stmts[1].kind else {
+        panic!("expected binding");
+    };
+    assert_eq!(second.name, "y");
+    assert_eq!(second.pattern_kind, ForPatternKind::MutPointer);
+}
+
+#[test]
 fn parses_comptime_if_items_and_expressions() {
     let (module, errors) = parse_module(
         r#"

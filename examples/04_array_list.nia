@@ -16,8 +16,8 @@ fn run(init: Init) mem::Error!void {
     values.push(&mut page, 30).?;
 
     var total = 0;
-    for item in values.iter() {
-        total += item.*;
+    for &item in values.iter() {
+        total += item;
     }
 
     var len = values.len();

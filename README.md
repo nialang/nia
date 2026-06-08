@@ -29,8 +29,8 @@ extend Point {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for value in xs.iter() {
-        total = total + value.*;
+    for &value in xs.iter() {
+        total = total + value;
     }
     total
 }

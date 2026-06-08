@@ -1791,8 +1791,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     values.push(&mut allocator, 30).exit().?;
 
     var total = 0;
-    for value in values.iter() {
-        total += value.*;
+    for &value in values.iter() {
+        total += value;
     }
 
     let signed: i8 = -5i8;
@@ -1834,6 +1834,55 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&run.stdout),
         "list=[10, 20, 30] total=60 signed=-5 wide=123456789 ok=true ch=λ\n"
     );
+}
+
+#[test]
+fn emit_exe_local_pointer_binding_patterns_destructure_values() {
+    let root = temp_dir("emit_exe_local_pointer_binding_patterns_destructure_values");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var left = 20;
+    var right = 22;
+
+    let &x = &left;
+    var &mut y: i32 = &mut right;
+    y += 1;
+
+    if x + y != 43 {
+        return (1 as process::ExitCode)!;
+    }
+    if right != 22 {
+        return (2 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
@@ -4384,8 +4433,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var data: [3]i32 = [10, 20, 30];
     var total = 0;
-    for value in (&data[..]).iter() {
-        total += value.*;
+    for &value in (&data[..]).iter() {
+        total += value;
     }
     if total != 60 {
         return (1 as process::ExitCode)!;

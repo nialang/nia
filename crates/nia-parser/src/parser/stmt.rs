@@ -93,7 +93,19 @@ impl Parser {
             self.error_here("expected `let` or `var` binding");
             return None;
         };
+        let pattern_start = self.peek().span.start;
+        let pattern_kind = if self.eat(TokenKind::Amp).is_some() {
+            if self.eat(TokenKind::Mut).is_some() {
+                ForPatternKind::MutPointer
+            } else {
+                ForPatternKind::Pointer
+            }
+        } else {
+            ForPatternKind::Value
+        };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
+        let pattern_span = Span::new(pattern_start, self.previous_end());
+        let pattern_node_key = self.node_key(NodeSyntaxKind::Pattern, pattern_span);
         let ty = if self.eat(TokenKind::Colon).is_some() {
             Some(self.parse_type_until(&[TokenKind::Eq, TokenKind::Semicolon])?)
         } else {
@@ -116,6 +128,9 @@ impl Parser {
         self.expect_semicolon_after(anchor, "expected `;` after binding")?;
         Some(BindingStmt {
             name,
+            pattern_kind,
+            pattern_span,
+            pattern_node_key,
             ty,
             value,
             is_let,

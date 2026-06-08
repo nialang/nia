@@ -147,7 +147,11 @@ impl<'a> BodyChecker<'a> {
                 TypedStmtKind::ForIn(Box::new(TypedForIn {
                     binding,
                     pattern_kind: for_stmt.pattern.kind,
-                    ty: local_id
+                    item_ty: self
+                        .expr_ty(&for_stmt.iter)
+                        .map(|iter_ty| self.for_iterator_item_type(&for_stmt.iter, iter_ty))
+                        .unwrap_or_else(|| self.error()),
+                    binding_ty: local_id
                         .and_then(|local_id| self.local_types.get(&local_id).copied())
                         .unwrap_or_else(|| self.error()),
                     iter: self.lower_expr(&for_stmt.iter),
@@ -169,7 +173,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_binding_stmt(&mut self, stmt: &Stmt, binding: &BindingStmt) -> Option<TypedBinding> {
-        let local_id = self.local_def(&stmt.node_key)?;
+        let local_id = self.local_def(self.binding_pattern_node_key(stmt, binding))?;
         let ty = self.local_types.get(&local_id).copied().unwrap_or_else(|| {
             binding.ty.as_ref().map_or_else(
                 || {
@@ -185,6 +189,7 @@ impl<'a> BodyChecker<'a> {
         Some(TypedBinding {
             local_id,
             name: binding.name.clone(),
+            pattern_kind: binding.pattern_kind,
             ty,
             value: binding.value.as_ref().map(|value| {
                 if matches!(
@@ -198,6 +203,18 @@ impl<'a> BodyChecker<'a> {
             }),
             is_let: binding.is_let,
         })
+    }
+
+    fn binding_pattern_node_key<'b>(
+        &self,
+        stmt: &'b Stmt,
+        binding: &'b BindingStmt,
+    ) -> &'b nia_node_id::NodeKey {
+        if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+            &stmt.node_key
+        } else {
+            &binding.pattern_node_key
+        }
     }
 
     fn error_expr(&mut self, span: Span) -> TypedExpr {

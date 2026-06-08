@@ -1430,6 +1430,18 @@ x /= 2;
 uninitialized declarations. A declaration without an explicit type must have an
 initializer.
 
+Local bindings may use pointer patterns:
+
+```nia
+let &x = ptr;
+var &mut y: i32 = mut_ptr;
+```
+
+`let &x = ptr` requires `ptr: &T` and binds `x: T`. `var &mut y: T = ptr`
+requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
+type after destructuring, not the pointer input type. Pointer-pattern local
+bindings require an initializer.
+
 ## 7. Statements And Semicolons
 
 Nia uses semicolons for statement boundaries.
@@ -1527,8 +1539,8 @@ for _ in values {}
 ```
 
 `&x` and `&mut x` are pointer patterns. They require the iterator item type to
-be `&T` or `&mut T` respectively, and bind `x` as that pointer value. They do
-not introduce a separate reference concept and do not copy the pointed-to value.
+be `&T` or `&mut T` respectively, and bind `x` as the pointed-to `T` value.
+Use `for x in iter` to bind the iterator item itself without destructuring it.
 
 For-in bindings do not support type annotations. Write the iterator expression
 so that its item type is clear:
@@ -2871,8 +2883,8 @@ fn add(a: i32, b: i32) i32 {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for value in xs.iter() {
-        total += value.*;
+    for &value in xs.iter() {
+        total += value;
     }
     total
 }
