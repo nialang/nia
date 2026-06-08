@@ -198,6 +198,7 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&check_help.stderr)
     );
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
+    assert!(check_stdout.contains("--exe"), "{check_stdout}");
     assert!(check_stdout.contains("--opt-report"), "{check_stdout}");
     assert!(
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
@@ -573,6 +574,72 @@ fn main() i32 {
         output.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_exe_uses_freestanding_startup_contract() {
+    let root = temp_dir("check_exe_uses_freestanding_startup_contract");
+    let private_main = root.join("private_main.nia");
+    std::fs::write(
+        &private_main,
+        r#"
+import std.process;
+
+fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write private entry source");
+
+    let ordinary_check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&private_main)
+        .output_timeout("run ordinary nia check");
+
+    assert!(
+        ordinary_check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&ordinary_check.stderr)
+    );
+
+    let exe_check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg("--exe")
+        .arg(&private_main)
+        .output_timeout("run nia check --exe");
+
+    assert!(!exe_check.status.success());
+    let stderr = String::from_utf8_lossy(&exe_check.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("root::main"), "{stderr}");
+
+    let public_main = root.join("public_main.nia");
+    std::fs::write(
+        &public_main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write public entry source");
+
+    let exe_check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg("--exe")
+        .arg(&public_main)
+        .output_timeout("run nia check --exe with public entry");
+
+    assert!(
+        exe_check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&exe_check.stderr)
     );
 }
 

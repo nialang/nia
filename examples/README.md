@@ -8,24 +8,35 @@ Run an example from the repository root with:
 
 ```sh
 cargo run -p nia-cli -- check examples/00_hello_main.nia
-cargo run -p nia-cli -- emit exe examples/00_hello_main.nia -o build/nia-hello
-build/nia-hello
+cargo run -p nia-cli -- emit --llvm examples/00_hello_main.nia
 ```
 
-`emit obj` and `emit exe` create missing output directories, so `build/` does
-not need to exist before these commands run.
+Most examples are hosted or inspection-oriented examples. They can be checked,
+emitted as LLVM IR, or emitted as object files for an external build flow.
+
+The freestanding executable example uses the current `emit --exe` startup
+contract:
+
+```sh
+cargo run -p nia-cli -- check --exe examples/12_freestanding_executable.nia
+cargo run -p nia-cli -- emit --exe examples/12_freestanding_executable.nia -o build/nia-freestanding
+build/nia-freestanding
+```
+
+`emit --obj` and `emit --exe` create missing output directories, so `build/`
+does not need to exist before these commands run.
 
 For the module example, check the root file:
 
 ```sh
 cargo run -p nia-cli -- check examples/modules/main.nia
-cargo run -p nia-cli -- emit exe examples/modules/main.nia -o build/nia-modules
-build/nia-modules
+cargo run -p nia-cli -- emit --llvm examples/modules/main.nia
 ```
 
 The examples are intentionally compact, but hosted examples may call libc
 directly through `extern fn` declarations. That keeps the language core small
-while still making emitted executables observable.
+while still making emitted IR and object files observable through external
+build flows.
 
 ## Reading Order
 
@@ -50,5 +61,7 @@ while still making emitted executables observable.
 - `10_inline_asm.nia`: `@asm` configuration shape.
 - `11_optional_error_union.nia`: `?T`, `E!T`, `null`, `.?`, and `switch`
   destructuring.
+- `12_freestanding_executable.nia`: `std.process::Init`, `std.io`, and the
+  `emit --exe` freestanding startup contract.
 - `modules/main.nia`: import paths, aliases, `using`, grouped `using`, and
   re-exports.
