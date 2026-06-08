@@ -67,16 +67,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 Returning `!{}` means process success. `process::ExitCode` is an open enum
 backed by `i32`; `process::ExitCode::Success` names status `0`, and unnamed
-status values may be constructed with `process::ExitCode::init(code)` or an
-explicit `code as process::ExitCode` cast. Returning an error payload such as
-`process::ExitCode::init(1)!` asks the startup layer to terminate with that exit status:
+status values may be constructed with an explicit `code as process::ExitCode`
+cast. Returning an error payload such as
+`(1 as process::ExitCode)!` asks the startup layer to terminate with that exit status:
 
 ```nia
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::ExitCode::init(1)!
+    (1 as process::ExitCode)!
 }
 ```
 
@@ -2877,7 +2877,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var pair: Pair[i32, i32] = { first: values[0], second: sum(&values[..]) };
 
     if score(pair) != 116 {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
 
     !{}

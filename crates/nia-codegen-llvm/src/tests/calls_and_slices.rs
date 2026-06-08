@@ -110,7 +110,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -154,11 +154,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     switch stdout.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     !{}
 }

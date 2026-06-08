@@ -18,7 +18,7 @@ pub fn main(init: Init) ExitCode!void {
     var diff = api::math::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
-        return ExitCode::init(1)!;
+        return (1 as ExitCode)!;
     }
 
     debug::print(

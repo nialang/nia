@@ -32,16 +32,16 @@ pub fn main(init: Init) ExitCode!void {
         !sum => {
             pair_sum = sum;
             if sum != 42 {
-                return ExitCode::init(1)!;
+                return (1 as ExitCode)!;
             }
         },
-        error! => return ExitCode::init(2)!,
+        error! => return (2 as ExitCode)!,
     }
 
     switch require_at(&values[..], 9usize) {
         !value => {
             _ = value;
-            return ExitCode::init(3)!;
+            return (3 as ExitCode)!;
         },
         error! => _ = error,
     }

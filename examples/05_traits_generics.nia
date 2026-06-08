@@ -45,7 +45,7 @@ pub fn main(init: Init) ExitCode!void {
     var measured = read[Count](&total);
 
     if measured != 42 {
-        return ExitCode::init(1)!;
+        return (1 as ExitCode)!;
     }
 
     debug::print("traits total={}\n", [&measured]);

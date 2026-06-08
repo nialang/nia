@@ -5,7 +5,7 @@ import std.process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
     switch root::main(init) {
-        !ok => process::ExitCode::success(),
+        !ok => process::ExitCode::Success,
         error! => error,
     }
 }
@@ -17,7 +17,7 @@ extern fn nia_start_stack(stack: &usize) void {
     var runtime_io = io::BlockingIo::init();
     let init = process::Init::init(argc, argv, envp, &mut runtime_io);
     let exit = call_user_main(init);
-    os::exit(exit.code());
+    os::exit(exit as i32);
     loop {}
 }
 

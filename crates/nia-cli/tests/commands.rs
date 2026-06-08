@@ -1190,7 +1190,7 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::ExitCode::init(7)!
+    (7 as process::ExitCode)!
 }
 "#,
     )
@@ -1237,8 +1237,8 @@ fn pick(flag: bool) ExitCode {
 pub fn main(init: process::Init) ExitCode!void {
     _ = init;
 
-    if ExitCode::Success.code() != 0 {
-        return ExitCode::init(1)!;
+    if (ExitCode::Success as i32) != 0 {
+        return (1 as ExitCode)!;
     }
     pick(true)!
 }
@@ -1280,10 +1280,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var writer = io::DiscardingWriter::init();
     switch writer.write_all(b"nia") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if writer.len() != 3 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
     !{}
 }
@@ -1323,53 +1323,53 @@ import std.process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     if 0usize.is_power_of_two() {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
     if not 4096usize.is_power_of_two() {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
     switch 10usize.checked_add(5usize) {
         ?value => {
             if value != 15usize {
-                return process::ExitCode::init(3)!;
+                return (3 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(4)!,
+        null => return (4 as process::ExitCode)!,
     }
     switch 18446744073709551615usize.checked_add(1usize) {
         ?value => {
             _ = value;
-            return process::ExitCode::init(5)!;
+            return (5 as process::ExitCode)!;
         },
         null => {},
     }
     switch 12usize.checked_mul(3usize) {
         ?value => {
             if value != 36usize {
-                return process::ExitCode::init(6)!;
+                return (6 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(7)!,
+        null => return (7 as process::ExitCode)!,
     }
     switch 4611686018427387904usize.checked_mul(4usize) {
         ?value => {
             _ = value;
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         },
         null => {},
     }
     switch 17usize.align_forward(8usize) {
         ?value => {
             if value != 24usize {
-                return process::ExitCode::init(9)!;
+                return (9 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(10)!,
+        null => return (10 as process::ExitCode)!,
     }
     switch 17usize.align_forward(3usize) {
         ?value => {
             _ = value;
-            return process::ExitCode::init(11)!;
+            return (11 as process::ExitCode)!;
         },
         null => {},
     }
@@ -1410,31 +1410,31 @@ import std.process;
 pub fn main(init: process::Init) process::ExitCode!void {
     var args = init.args();
     if args.len() != 3 {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
     var first_arg = switch args.get(1) {
         ?value => value,
-        null => return process::ExitCode::init(2)!,
+        null => return (2 as process::ExitCode)!,
     };
     var second_arg = switch args.get(2) {
         ?value => value,
-        null => return process::ExitCode::init(3)!,
+        null => return (3 as process::ExitCode)!,
     };
     var first = first_arg.raw_bytes();
     var second = second_arg.raw_bytes();
     if first.len() != 3 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     if first[0] != 110u8 or first[1] != 105u8 or first[2] != 97u8 {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     if second.len() != 4 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
     switch args.get(3) {
         ?value => {
             _ = value;
-            return process::ExitCode::init(7)!;
+            return (7 as process::ExitCode)!;
         },
         null => {},
     }
@@ -1496,14 +1496,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     while index < env.len() {
         var item = switch env.get(index) {
             ?value => value,
-            null => return process::ExitCode::init(1)!,
+            null => return (1 as process::ExitCode)!,
         };
         if starts_with_needle(item.raw_bytes()) {
             return !{};
         }
         index += 1usize;
     }
-    return process::ExitCode::init(2)!;
+    return (2 as process::ExitCode)!;
 }
 "#,
     )
@@ -1562,8 +1562,8 @@ fn parse() ParseError!i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     switch parse().map_err[AppError](&map_parse_error) {
-        !value => return process::ExitCode::init(value)!,
-        err! => return process::ExitCode::init(err as i32)!,
+        !value => return (value as process::ExitCode)!,
+        err! => return (err as i32 as process::ExitCode)!,
     }
 }
 "#,
@@ -1604,7 +1604,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -1648,11 +1648,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.print("A¢€😀, {}\n", [&'λ']) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     switch stdout.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     !{}
 }
@@ -1697,21 +1697,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
     switch writer.print("nia {}", [&7]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if writer.len() != 5 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     var copied: [5]u8 = [0, 0, 0, 0, 0];
     var reader = io::FixedBufferReader::init(writer.written());
     switch reader.read_exact(&mut copied[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     var expected = b"nia 7";
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     !{}
 }
@@ -1753,10 +1753,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var discard = io::DiscardingWriter::init();
     switch discard.write_all(b"abcdef") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if discard.len() != 6 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     var source = io::FixedBufferReader::init(b"abcdef");
@@ -1768,20 +1768,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var n: usize;
     switch limited.read(&mut copied[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     if n != 3 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     if copied[0] != b'a' or copied[1] != b'b' or copied[2] != b'c' {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     switch limited.read(&mut copied[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     if n != 0 {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     !{}
 }
@@ -1830,34 +1830,34 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     switch writer.write_all(b"abc") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if writer.len() != 3 or backing.len() != 0 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     switch writer.write_byte(b'd') {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     if writer.len() != 4 or backing.len() != 0 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
 
     switch writer.write_all(b"efghij") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     if writer.len() != 0 or backing.len() != 10 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
 
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     if backing.len() != 10 {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
 
     var expected = b"abcdefghij";
@@ -1865,7 +1865,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var index = 0usize;
     while index < written.len() {
         if written[index] != expected[index] {
-            return process::ExitCode::init(9)!;
+            return (9 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -1950,18 +1950,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     switch writer.write_all(b"abcdef") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if writer.len() != 6 or backing.len() != 0 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     if writer.len() != 0 or backing.len() != 6 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
 
     let expected = b"abcdef";
@@ -1969,7 +1969,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var index = 0usize;
     while index < expected.len() {
         if written[index] != expected[index] {
-            return process::ExitCode::init(5)!;
+            return (5 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -1983,17 +1983,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     switch direct_writer.write_all(b"ghijkl") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     if direct_writer.len() != 0 or direct_backing.len() != 6 {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     let direct_expected = b"ghijkl";
     let direct_written = direct_backing.written();
     index = 0usize;
     while index < direct_expected.len() {
         if direct_written[index] != direct_expected[index] {
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -2045,54 +2045,54 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var n: usize;
     switch reader.read(&mut first[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if n != 2 or first[0] != b'a' or first[1] != b'b' {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
     if reader.len() != 2 {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
 
     var second: [3]u8 = [0; 3];
     switch reader.read(&mut second[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     if n != 2 or second[0] != b'c' or second[1] != b'd' {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     if reader.len() != 0 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
 
     var third: [5]u8 = [0; 5];
     switch reader.read(&mut third[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     if n != 5 {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
     if third[0] != b'e' or third[1] != b'f' or third[2] != b'g' or third[3] != b'h' or third[4] != b'i' {
-        return process::ExitCode::init(9)!;
+        return (9 as process::ExitCode)!;
     }
 
     var fourth: [2]u8 = [0; 2];
     switch reader.read(&mut fourth[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
     if n != 1 or fourth[0] != b'j' {
-        return process::ExitCode::init(11)!;
+        return (11 as process::ExitCode)!;
     }
 
     switch reader.read(&mut fourth[..]) {
         !value => n = value,
-        error! => return process::ExitCode::init(12)!,
+        error! => return (12 as process::ExitCode)!,
     }
     if n != 0 {
-        return process::ExitCode::init(13)!;
+        return (13 as process::ExitCode)!;
     }
     !{}
 }
@@ -2161,13 +2161,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var bytes: [6]u8 = [0; 6];
     switch source.read_exact(&mut bytes[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     let expected = b"abcdef";
     var index = 0usize;
     while index < expected.len() {
         if bytes[index] != expected[index] {
-            return process::ExitCode::init(2)!;
+            return (2 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -2177,7 +2177,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch short.read_exact(&mut too_many[..]) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(3)!;
+            return (3 as process::ExitCode)!;
         },
         error! => {},
     }
@@ -2223,7 +2223,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -2234,44 +2234,44 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch cwd.create_file(path, fs::CreateOptions::read_write()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var write_buffer: [64]u8 = [0; 64];
     var writer = file.writer(init.io(), &mut write_buffer[..]);
     switch writer.write_all(b"nia fs") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
 
     var opened: fs::File;
     switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !value => opened = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     var read_buffer: [64]u8 = [0; 64];
     var reader = opened.reader(init.io(), &mut read_buffer[..]);
     var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
     switch reader.read_exact(&mut bytes[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     switch opened.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     var expected = b"nia fs";
     var index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -2323,44 +2323,44 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::read_write()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var write_buffer: [16]u8 = [0; 16];
     var writer = file.writer(init.io(), &mut write_buffer[..]);
     switch writer.write_all(b"open close") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
 
     var opened: fs::File;
     switch fs::File::open(path, fs::OpenOptions::read_only()) {
         !value => opened = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     var read_buffer: [16]u8 = [0; 16];
     var reader = opened.reader(init.io(), &mut read_buffer[..]);
     var bytes: [10]u8 = [0; 10];
     switch reader.read_exact(&mut bytes[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     switch opened.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     var expected = b"open close";
     var index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         }
         index += 1usize;
     }
@@ -2412,106 +2412,106 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::read_write()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
 
     var write_buffer: [16]u8 = [0; 16];
     var writer = file.writer(init.io(), &mut write_buffer[..]);
     switch writer.write_all(b"abcdef") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
 
     switch file.len() {
         !value => {
             if value != 6u64 {
-                return process::ExitCode::init(4)!;
+                return (4 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     switch file.seek_by(0) {
         !value => {
             if value != 6u64 {
-                return process::ExitCode::init(6)!;
+                return (6 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     switch file.seek_to(2u64) {
         !value => {
             if value != 2u64 {
-                return process::ExitCode::init(8)!;
+                return (8 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(9)!,
+        error! => return (9 as process::ExitCode)!,
     }
     switch file.seek_by(1i64) {
         !value => {
             if value != 3u64 {
-                return process::ExitCode::init(10)!;
+                return (10 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(11)!,
+        error! => return (11 as process::ExitCode)!,
     }
     switch file.seek_from_end(-2i64) {
         !value => {
             if value != 4u64 {
-                return process::ExitCode::init(12)!;
+                return (12 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(13)!,
+        error! => return (13 as process::ExitCode)!,
     }
 
     switch file.truncate(4u64) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(14)!,
+        error! => return (14 as process::ExitCode)!,
     }
     switch file.seek_to(9223372036854775808u64) {
         !value => {
             _ = value;
-            return process::ExitCode::init(20)!;
+            return (20 as process::ExitCode)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return process::ExitCode::init(21)!;
+                return (21 as process::ExitCode)!;
             }
         },
     }
     switch file.truncate(9223372036854775808u64) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(22)!;
+            return (22 as process::ExitCode)!;
         },
         err! => {
             if err != fs::Error::OutOfRange {
-                return process::ExitCode::init(23)!;
+                return (23 as process::ExitCode)!;
             }
         },
     }
     switch file.len() {
         !value => {
             if value != 4u64 {
-                return process::ExitCode::init(15)!;
+                return (15 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(16)!,
+        error! => return (16 as process::ExitCode)!,
     }
     switch file.sync_data() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(17)!,
+        error! => return (17 as process::ExitCode)!,
     }
     switch file.sync() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(18)!,
+        error! => return (18 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(19)!,
+        error! => return (19 as process::ExitCode)!,
     }
     !{}
 }
@@ -2557,55 +2557,55 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch fs::File::create(path, fs::CreateOptions::read_write()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
 
     var write_buffer: [16]u8 = [0; 16];
     var writer = file.writer(init.io(), &mut write_buffer[..]);
     switch writer.write_all(b"metadata") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
 
     switch file.metadata() {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return process::ExitCode::init(4)!;
+                return (4 as process::ExitCode)!;
             }
             if metadata.size() != 8u64 {
-                return process::ExitCode::init(5)!;
+                return (5 as process::ExitCode)!;
             }
             switch metadata.link_count() {
                 ?value => {
                     if value == 0u32 {
-                        return process::ExitCode::init(6)!;
+                        return (6 as process::ExitCode)!;
                     }
                 },
                 null => {},
             }
             if metadata.preferred_block_size() == 0u32 {
-                return process::ExitCode::init(7)!;
+                return (7 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(8)!,
+        error! => return (8 as process::ExitCode)!,
     }
 
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(9)!,
+        error! => return (9 as process::ExitCode)!,
     }
     switch cwd.metadata(path, fs::MetadataOptions::init()) {
         !metadata => {
             if metadata.kind() != fs::FileKind::File {
-                return process::ExitCode::init(10)!;
+                return (10 as process::ExitCode)!;
             }
             if metadata.size() != 8u64 {
-                return process::ExitCode::init(11)!;
+                return (11 as process::ExitCode)!;
             }
             switch metadata.accessed() {
                 ?time => {
@@ -2620,16 +2620,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 null => {},
             }
         },
-        error! => return process::ExitCode::init(12)!,
+        error! => return (12 as process::ExitCode)!,
     }
 
     switch cwd.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(13)!,
+        error! => return (13 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(14)!,
+        error! => return (14 as process::ExitCode)!,
     }
     !{}
 }
@@ -2675,7 +2675,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -2686,21 +2686,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch cwd.create_file(path, fs::CreateOptions::init()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var buffer: [64]u8 = [0; 64];
     var writer = file.writer(init.io(), &mut buffer[..]);
     switch writer.write_all(b"ok") {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch writer.flush() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     !{}
 }
@@ -2746,7 +2746,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -2757,13 +2757,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !file => {
             _ = file;
-            return process::ExitCode::init(1)!;
+            return (1 as process::ExitCode)!;
         },
         err! => {
             if err == fs::Error::Invalid {
                 !{}
             } else {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
         },
     }
@@ -2825,7 +2825,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var counter = Counter::init();
     counter.add(7);
     if counter.get() != 7 {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
     !{}
 }
@@ -2868,7 +2868,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -2879,20 +2879,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var file: fs::File;
     switch cwd.create_file(fs::Path::init("delete-me.txt"), fs::CreateOptions::init()) {
         !value => file = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch cwd.delete_file(fs::Path::init("delete-me.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch cwd.open_file(fs::Path::init("delete-me.txt"), fs::OpenOptions::read_only()) {
         !file => {
             _ = file;
-            return process::ExitCode::init(4)!;
+            return (4 as process::ExitCode)!;
         },
         error! => {},
     }
@@ -2900,7 +2900,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch cwd.delete_file(fs::Path::init("bad\0path")) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(5)!;
+            return (5 as process::ExitCode)!;
         },
         error! => {},
     }
@@ -2950,7 +2950,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -2961,62 +2961,62 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     switch cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
 
     var file: fs::File;
     switch cwd.create_file(fs::Path::init("old-name.txt"), fs::CreateOptions::init()) {
         !value => file = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
 
     switch cwd.rename(fs::Path::init("old-name.txt"), fs::Path::init("subdir/new-name.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
 
     switch cwd.open_file(fs::Path::init("old-name.txt"), fs::OpenOptions::read_only()) {
         !value => {
             _ = value;
-            return process::ExitCode::init(5)!;
+            return (5 as process::ExitCode)!;
         },
         error! => {},
     }
 
     switch cwd.open_file(fs::Path::init("subdir/new-name.txt"), fs::OpenOptions::read_only()) {
         !value => file = value,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
 
     switch cwd.delete_dir(fs::Path::init("subdir")) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         },
         error! => {},
     }
 
     switch cwd.delete_file(fs::Path::init("subdir/new-name.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(9)!,
+        error! => return (9 as process::ExitCode)!,
     }
     switch cwd.delete_dir(fs::Path::init("subdir")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
 
     switch cwd.create_dir(fs::Path::init("bad\0path"), fs::CreateDirOptions::init()) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(11)!;
+            return (11 as process::ExitCode)!;
         },
         error! => {},
     }
@@ -3066,7 +3066,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(90)!,
+        error! => return (90 as process::ExitCode)!,
     }
     defer {
         switch cwd.close() {
@@ -3076,54 +3076,54 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     switch cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
 
     var subdir: fs::Dir;
     switch cwd.open_dir(fs::Path::init("subdir"), fs::OpenDirOptions::init()) {
         !value => subdir = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
 
     var file: fs::File;
     switch subdir.create_file(fs::Path::init("inside.txt"), fs::CreateOptions::init()) {
         !value => file = value,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
 
     switch subdir.open_file(fs::Path::init("inside.txt"), fs::OpenOptions::read_only()) {
         !value => file = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     switch file.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
 
     switch subdir.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
 
     switch cwd.open_dir(fs::Path::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
         !value => {
             _ = value;
-            return process::ExitCode::init(8)!;
+            return (8 as process::ExitCode)!;
         },
         error! => {},
     }
 
     switch cwd.delete_file(fs::Path::init("subdir/inside.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(9)!,
+        error! => return (9 as process::ExitCode)!,
     }
     switch cwd.delete_dir(fs::Path::init("subdir")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
     !{}
 }
@@ -3173,45 +3173,45 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd: fs::Dir;
     switch fs::Dir::cwd() {
         !value => cwd = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
 
     switch cwd.create_dir(fs::Path::init("entries"), fs::CreateDirOptions::init()) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
 
     var first: fs::File;
     switch cwd.create_file(fs::Path::init("entries/alpha.txt"), fs::CreateOptions::init()) {
         !value => first = value,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch first.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
 
     var second: fs::File;
     switch cwd.create_file(fs::Path::init("entries/beta.txt"), fs::CreateOptions::init()) {
         !value => second = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     switch second.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
 
     var dir: fs::Dir;
     switch cwd.open_dir(fs::Path::init("entries"), fs::OpenDirOptions::init()) {
         !value => dir = value,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
 
     var buffer: [1024]u8 = [0; 1024];
     var iter: fs::DirIterator;
     switch dir.entries(&mut buffer[..]) {
         !value => iter = value,
-        error! => return process::ExitCode::init(8)!,
+        error! => return (8 as process::ExitCode)!,
     }
 
     var saw_alpha = false;
@@ -3220,12 +3220,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     for result in iter {
         let value = switch result {
             !entry => entry,
-            error! => return process::ExitCode::init(10)!,
+            error! => return (10 as process::ExitCode)!,
         };
         if not value.is_dot() and not value.is_dot_dot() {
             count += 1usize;
             if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
-                return process::ExitCode::init(9)!;
+                return (9 as process::ExitCode)!;
             }
             if bytes_equal(value.name(), b"alpha.txt") {
                 saw_alpha = true;
@@ -3236,31 +3236,31 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     if count != 2usize {
-        return process::ExitCode::init(11)!;
+        return (11 as process::ExitCode)!;
     }
     if not saw_alpha or not saw_beta {
-        return process::ExitCode::init(12)!;
+        return (12 as process::ExitCode)!;
     }
 
     switch dir.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(13)!,
+        error! => return (13 as process::ExitCode)!,
     }
     switch cwd.delete_file(fs::Path::init("entries/alpha.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(14)!,
+        error! => return (14 as process::ExitCode)!,
     }
     switch cwd.delete_file(fs::Path::init("entries/beta.txt")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(15)!,
+        error! => return (15 as process::ExitCode)!,
     }
     switch cwd.delete_dir(fs::Path::init("entries")) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(16)!,
+        error! => return (16 as process::ExitCode)!,
     }
     switch cwd.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(17)!,
+        error! => return (17 as process::ExitCode)!,
     }
     !{}
 }
@@ -3305,21 +3305,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var layout: mem::Layout;
     switch mem::Layout::of[u8]() {
         !value => layout = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     switch allocator.alloc_bytes(4096, layout.align()) {
         !block => {
             var ptr = block.ptr();
             ptr.* = 42u8;
             if ptr.* != 42u8 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
             switch allocator.free(block) {
                 !ok => _ = ok,
-                error! => return process::ExitCode::init(3)!,
+                error! => return (3 as process::ExitCode)!,
             }
         },
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -3362,25 +3362,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var layout: mem::Layout;
     switch mem::Layout::init(64, 8192) {
         !value => layout = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var block: mem::Block;
     switch allocator.alloc(layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     if block.ptr() as usize % 8192usize != 0usize {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
     var bytes = block.bytes();
     bytes[0] = 17u8;
     bytes[63] = 23u8;
     if bytes[0] != 17u8 or bytes[63] != 23u8 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     !{}
 }
@@ -3422,11 +3422,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch mem::Layout::init(16, 3) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(1)!;
+            return (1 as process::ExitCode)!;
         },
         err! => {
             if err as i32 != mem::Error::InvalidAlignment as i32 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
         },
     }
@@ -3470,11 +3470,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch mem::Layout::array[i32](4611686018427387904usize) {
         !ok => {
             _ = ok;
-            return process::ExitCode::init(1)!;
+            return (1 as process::ExitCode)!;
         },
         err! => {
             if err as i32 != mem::Error::OutOfMemory as i32 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
         },
     }
@@ -3523,17 +3523,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
             items[2] = 30;
             items[3] = 40;
             if items.len() != 4 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
             if items[0] + items[1] + items[2] + items[3] != 100 {
-                return process::ExitCode::init(3)!;
+                return (3 as process::ExitCode)!;
             }
             switch allocator.free_slice[i32](items) {
                 !ok => _ = ok,
-                error! => return process::ExitCode::init(4)!,
+                error! => return (4 as process::ExitCode)!,
             }
         },
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -3576,7 +3576,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var block: mem::Block;
     switch allocator.alloc_bytes(4, 1) {
         !value => block = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var bytes = block.bytes();
     bytes[0] = 10u8;
@@ -3587,18 +3587,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var grow_layout: mem::Layout;
     switch mem::Layout::init(8, 1) {
         !value => grow_layout = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch allocator.realloc(block, grow_layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     if block.size() != 8 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     bytes = block.bytes();
     if bytes[0] != 10u8 or bytes[1] != 20u8 or bytes[2] != 30u8 or bytes[3] != 40u8 {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     bytes[4] = 50u8;
     bytes[5] = 60u8;
@@ -3606,23 +3606,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var shrink_layout: mem::Layout;
     switch mem::Layout::init(2, 1) {
         !value => shrink_layout = value,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     switch allocator.realloc(block, shrink_layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     if block.size() != 2 {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
     bytes = block.bytes();
     if bytes[0] != 10u8 or bytes[1] != 20u8 {
-        return process::ExitCode::init(9)!;
+        return (9 as process::ExitCode)!;
     }
 
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
     !{}
 }
@@ -3665,88 +3665,88 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var layout: mem::Layout;
     switch mem::Layout::init(16, 8) {
         !value => layout = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var block: mem::Block;
     switch allocator.alloc(layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     if not allocator.resize(block, layout) {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
 
     var larger: mem::Layout;
     switch mem::Layout::init(32, 8) {
         !value => larger = value,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     if not allocator.resize(block, larger) {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     switch allocator.remap(block, larger) {
         ?same => {
             if same.ptr() as usize != block.ptr() as usize or same.size() != 32 {
-                return process::ExitCode::init(6)!;
+                return (6 as process::ExitCode)!;
             }
             block = same;
         },
-        null => return process::ExitCode::init(7)!,
+        null => return (7 as process::ExitCode)!,
     }
     switch allocator.remap(block, layout) {
         ?same => {
             if same.ptr() as usize != block.ptr() as usize or same.size() != 16 {
-                return process::ExitCode::init(8)!;
+                return (8 as process::ExitCode)!;
             }
             block = same;
         },
-        null => return process::ExitCode::init(9)!,
+        null => return (9 as process::ExitCode)!,
     }
 
     var next_page: mem::Layout;
     switch mem::Layout::init(8192, 8) {
         !value => next_page = value,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
     if allocator.resize(block, next_page) {
-        return process::ExitCode::init(11)!;
+        return (11 as process::ExitCode)!;
     }
     switch allocator.remap(block, next_page) {
         ?moved => {
             _ = moved;
-            return process::ExitCode::init(12)!;
+            return (12 as process::ExitCode)!;
         },
         null => {},
     }
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(13)!,
+        error! => return (13 as process::ExitCode)!,
     }
 
     var empty_a: mem::Layout;
     switch mem::Layout::init(0, 8) {
         !value => empty_a = value,
-        error! => return process::ExitCode::init(14)!,
+        error! => return (14 as process::ExitCode)!,
     }
     switch allocator.alloc(empty_a) {
         !value => block = value,
-        error! => return process::ExitCode::init(15)!,
+        error! => return (15 as process::ExitCode)!,
     }
     var empty_b: mem::Layout;
     switch mem::Layout::init(0, 16) {
         !value => empty_b = value,
-        error! => return process::ExitCode::init(16)!,
+        error! => return (16 as process::ExitCode)!,
     }
     if allocator.resize(block, empty_b) {
-        return process::ExitCode::init(17)!;
+        return (17 as process::ExitCode)!;
     }
     switch allocator.remap(block, empty_b) {
         ?moved => {
             if moved.size() != 0 or moved.align() != 16 {
-                return process::ExitCode::init(18)!;
+                return (18 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(19)!,
+        null => return (19 as process::ExitCode)!,
     }
     !{}
 }
@@ -3789,39 +3789,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var empty_layout: mem::Layout;
     switch mem::Layout::init(0, 8) {
         !value => empty_layout = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var block: mem::Block;
     switch allocator.alloc(empty_layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     if block.size() != 0 {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
 
     var full_layout: mem::Layout;
     switch mem::Layout::init(16, 8) {
         !value => full_layout = value,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     switch allocator.realloc(block, full_layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     if block.size() != 16 or block.align() != 8 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
     var bytes = block.bytes();
     bytes[0] = 77u8;
     bytes[15] = 99u8;
     if bytes[0] != 77u8 or bytes[15] != 99u8 {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
 
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(8)!,
+        error! => return (8 as process::ExitCode)!,
     }
     !{}
 }
@@ -3864,14 +3864,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch allocator.alloc_slice[i32](0) {
         !items => {
             if items.len() != 0 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
             switch allocator.free_slice[i32](items) {
                 !ok => _ = ok,
-                error! => return process::ExitCode::init(3)!,
+                error! => return (3 as process::ExitCode)!,
             }
         },
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -3914,14 +3914,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch allocator.alloc_slice[void](4) {
         !items => {
             if items.len() != 4 {
-                return process::ExitCode::init(2)!;
+                return (2 as process::ExitCode)!;
             }
             switch allocator.free_slice[void](items) {
                 !ok => _ = ok,
-                error! => return process::ExitCode::init(3)!,
+                error! => return (3 as process::ExitCode)!,
             }
         },
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     !{}
 }
@@ -3964,20 +3964,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var layout: mem::Layout;
     switch mem::Layout::array[void](8) {
         !value => layout = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     var block: mem::Block;
     switch allocator.alloc(layout) {
         !value => block = value,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     var items = block.as_slice[void]();
     if items.len() != 0 {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     !{}
 }
@@ -4020,21 +4020,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     mem::copy_forwards[i32](&mut left[0..3], &left[1..4]);
     let expected_left: [5]i32 = [2, 3, 4, 4, 5];
     if not mem::equal[i32](&left[..], &expected_left[..]) {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
 
     var right: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_backwards[i32](&mut right[1..4], &right[0..3]);
     let expected_right: [5]i32 = [1, 1, 2, 3, 5];
     if not mem::equal[i32](&right[..], &expected_right[..]) {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     var exact_to: [3]u8 = [0, 0, 0];
     let exact_from: [3]u8 = [7, 8, 9];
     mem::copy_forwards[u8](&mut exact_to[..], &exact_from[..]);
     if not mem::equal[u8](&exact_to[..], &exact_from[..]) {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
 
     var short_to: [2]u8 = [0, 0];
@@ -4042,29 +4042,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
     mem::copy_forwards[u8](&mut short_to[..], &long_from[..]);
     let expected_short_to: [2]u8 = [5, 6];
     if not mem::equal[u8](&short_to[..], &expected_short_to[..]) {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
 
     var short_backward: [2]u8 = [0, 0];
     mem::copy_backwards[u8](&mut short_backward[..], &long_from[..]);
     if not mem::equal[u8](&short_backward[..], &expected_short_to[..]) {
-        return process::ExitCode::init(9)!;
+        return (9 as process::ExitCode)!;
     }
 
     let low: [2]u8 = [1, 2];
     let high: [2]u8 = [1, 3];
     if mem::order[u8](&low[..], &high[..]) != mem::Order::Less {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     if mem::order[u8](&high[..], &low[..]) != mem::Order::Greater {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     if mem::order[u8](&low[..], &low[..]) != mem::Order::Equal {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
     let prefix: [1]u8 = [1];
     if mem::order[u8](&prefix[..], &low[..]) != mem::Order::Less {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     !{}
 }
@@ -4107,39 +4107,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let source_ints: [3]i32 = [7, 8, 9];
     @memcpy(&mut ints[..], &source_ints[..]);
     if ints[0] != 7 or ints[1] != 8 or ints[2] != 9 {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
 
     var wide: [5]i32 = [0, 0, 0, 44, 55];
     let short: [3]i32 = [11, 22, 33];
     @memcpy(&mut wide[..], &short[..]);
     if wide[0] != 11 or wide[1] != 22 or wide[2] != 33 or wide[3] != 44 or wide[4] != 55 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
 
     var narrow: [4]u8 = [0, 0, 77, 88];
     let long: [4]u8 = [10, 20, 30, 40];
     @memcpy(&mut narrow[0..2], &long[..]);
     if narrow[0] != 10 or narrow[1] != 20 or narrow[2] != 77 or narrow[3] != 88 {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
 
     var overlap: [5]u8 = [1, 2, 3, 4, 5];
     @memmove(&mut overlap[1..], &overlap[0..4]);
     if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
 
     var short_move: [4]u8 = [9, 8, 7, 6];
     @memmove(&mut short_move[0..2], &short_move[1..4]);
     if short_move[0] != 8 or short_move[1] != 7 or short_move[2] != 7 or short_move[3] != 6 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
 
     var bytes: [4]u8 = [1, 2, 3, 4];
     @memset(&mut bytes[1..3], 9);
     if bytes[0] != 1 or bytes[1] != 9 or bytes[2] != 9 or bytes[3] != 4 {
-        return process::ExitCode::init(3)!;
+        return (3 as process::ExitCode)!;
     }
 
     !{}
@@ -4195,7 +4195,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let source: [2]u8 = [b'a', b'b'];
     helper::copy_prefix[u8](&mut dest[..], &source[..]);
     if dest[0] != b'a' or dest[1] != b'b' {
-        return process::ExitCode::init(1)!;
+        return (1 as process::ExitCode)!;
     }
     !{}
 }
@@ -4242,150 +4242,150 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var exact: std::ArrayList[i32];
     switch std::ArrayList[i32]::init_capacity(page, 3) {
         !value => exact = value,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if exact.len() != 0 or exact.capacity() != 3 {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
     switch exact.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
 
     var ops = std::ArrayList[i32]::init();
     switch ops.push(page, 1) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(26)!,
+        error! => return (26 as process::ExitCode)!,
     }
     switch ops.push(page, 3) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(27)!,
+        error! => return (27 as process::ExitCode)!,
     }
     switch ops.insert(page, 1, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(28)!,
+        error! => return (28 as process::ExitCode)!,
     }
     let inserted_tail: [2]i32 = [4, 5];
     switch ops.insert_slice(page, 3, &inserted_tail[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(29)!,
+        error! => return (29 as process::ExitCode)!,
     }
     let expected_ops: [5]i32 = [1, 2, 3, 4, 5];
     if not mem::equal[i32](ops.as_slice(), &expected_ops[..]) {
-        return process::ExitCode::init(30)!;
+        return (30 as process::ExitCode)!;
     }
     switch ops.ordered_remove(1) {
         ?value => {
             if value != 2 {
-                return process::ExitCode::init(31)!;
+                return (31 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(32)!,
+        null => return (32 as process::ExitCode)!,
     }
     let expected_ordered: [4]i32 = [1, 3, 4, 5];
     if not mem::equal[i32](ops.as_slice(), &expected_ordered[..]) {
-        return process::ExitCode::init(33)!;
+        return (33 as process::ExitCode)!;
     }
     switch ops.swap_remove(0) {
         ?value => {
             if value != 1 {
-                return process::ExitCode::init(34)!;
+                return (34 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(35)!,
+        null => return (35 as process::ExitCode)!,
     }
     let expected_swap: [3]i32 = [5, 3, 4];
     if not mem::equal[i32](ops.as_slice(), &expected_swap[..]) {
-        return process::ExitCode::init(36)!;
+        return (36 as process::ExitCode)!;
     }
     switch ops.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(37)!,
+        error! => return (37 as process::ExitCode)!,
     }
 
     var alias = std::ArrayList[i32]::init();
     switch alias.reserve_exact(page, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(38)!,
+        error! => return (38 as process::ExitCode)!,
     }
     switch alias.push(page, 1) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(39)!,
+        error! => return (39 as process::ExitCode)!,
     }
     switch alias.push(page, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(40)!,
+        error! => return (40 as process::ExitCode)!,
     }
     switch alias.append_slice(page, alias.as_slice()) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(41)!,
+        error! => return (41 as process::ExitCode)!,
     }
     let expected_alias_append: [4]i32 = [1, 2, 1, 2];
     if not mem::equal[i32](alias.as_slice(), &expected_alias_append[..]) {
-        return process::ExitCode::init(42)!;
+        return (42 as process::ExitCode)!;
     }
     switch alias.insert_slice(page, 1, alias.as_slice()) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(43)!,
+        error! => return (43 as process::ExitCode)!,
     }
     let expected_alias_insert: [8]i32 = [1, 1, 2, 1, 2, 2, 1, 2];
     if not mem::equal[i32](alias.as_slice(), &expected_alias_insert[..]) {
-        return process::ExitCode::init(44)!;
+        return (44 as process::ExitCode)!;
     }
     switch alias.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(45)!,
+        error! => return (45 as process::ExitCode)!,
     }
 
     var list = std::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     switch list.reserve_exact(page, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     if list.capacity() != 2 {
-        return process::ExitCode::init(6)!;
+        return (6 as process::ExitCode)!;
     }
     switch list.reserve(page, 3) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(7)!,
+        error! => return (7 as process::ExitCode)!,
     }
     if list.capacity() < 5 {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
     var index = 0;
     while index < 6 {
         switch list.push(page, index * 10) {
             !ok => _ = ok,
-            error! => return process::ExitCode::init(9)!,
+            error! => return (9 as process::ExitCode)!,
         }
         index += 1;
     }
     if list.len() != 6 or list.capacity() < 6 {
-        return process::ExitCode::init(10)!;
+        return (10 as process::ExitCode)!;
     }
     let items = list.as_slice();
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
-        return process::ExitCode::init(11)!;
+        return (11 as process::ExitCode)!;
     }
 
     let more: [3]i32 = [60, 70, 80];
     switch list.append_slice(page, &more[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(12)!,
+        error! => return (12 as process::ExitCode)!,
     }
     if list.len() != 9 or list.as_slice()[8] != 80 {
-        return process::ExitCode::init(13)!;
+        return (13 as process::ExitCode)!;
     }
 
     switch list.add_one(page) {
         !slot => slot.* = 90,
-        error! => return process::ExitCode::init(14)!,
+        error! => return (14 as process::ExitCode)!,
     }
     if list.len() != 10 or list.as_slice()[9] != 90 {
-        return process::ExitCode::init(15)!;
+        return (15 as process::ExitCode)!;
     }
 
     switch list.add_many_as_slice(page, 2) {
@@ -4393,10 +4393,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             slots[0] = 100;
             slots[1] = 110;
         },
-        error! => return process::ExitCode::init(16)!,
+        error! => return (16 as process::ExitCode)!,
     }
     if list.len() != 12 or list.as_slice()[11] != 110 {
-        return process::ExitCode::init(17)!;
+        return (17 as process::ExitCode)!;
     }
 
     switch list.add_many_at(page, 2, 2) {
@@ -4404,116 +4404,116 @@ pub fn main(init: process::Init) process::ExitCode!void {
             slots[0] = 21;
             slots[1] = 22;
         },
-        error! => return process::ExitCode::init(46)!,
+        error! => return (46 as process::ExitCode)!,
     }
     if list.len() != 14 or list.as_slice()[2] != 21 or list.as_slice()[3] != 22 or list.as_slice()[4] != 20 {
-        return process::ExitCode::init(47)!;
+        return (47 as process::ExitCode)!;
     }
 
     list.append_assume_capacity(120);
     if list.len() != 15 or list.as_slice()[14] != 120 {
-        return process::ExitCode::init(48)!;
+        return (48 as process::ExitCode)!;
     }
 
     switch list.resize(page, 18) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(49)!,
+        error! => return (49 as process::ExitCode)!,
     }
     if list.len() != 18 {
-        return process::ExitCode::init(50)!;
+        return (50 as process::ExitCode)!;
     }
     var unused = list.unused_capacity_slice();
     if unused.len() < 2 {
-        return process::ExitCode::init(51)!;
+        return (51 as process::ExitCode)!;
     }
     unused[0] = 180;
     unused[1] = 190;
     switch list.add_many_as_slice(page, 2) {
         !slots => {
             if slots[0] != 180 or slots[1] != 190 {
-                return process::ExitCode::init(52)!;
+                return (52 as process::ExitCode)!;
             }
         },
-        error! => return process::ExitCode::init(53)!,
+        error! => return (53 as process::ExitCode)!,
     }
     if list.len() != 20 {
-        return process::ExitCode::init(54)!;
+        return (54 as process::ExitCode)!;
     }
 
     switch list.resize(page, 12) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(55)!,
+        error! => return (55 as process::ExitCode)!,
     }
     if list.len() != 12 {
-        return process::ExitCode::init(56)!;
+        return (56 as process::ExitCode)!;
     }
 
     let before_shrink_capacity = list.capacity();
     switch list.shrink_to_len(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(57)!,
+        error! => return (57 as process::ExitCode)!,
     }
     if list.len() != 12 or list.capacity() > before_shrink_capacity or list.capacity() < list.len() {
-        return process::ExitCode::init(58)!;
+        return (58 as process::ExitCode)!;
     }
 
     switch list.reserve_exact(page, 4) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(59)!,
+        error! => return (59 as process::ExitCode)!,
     }
     list.expand_to_capacity();
     if list.len() != list.capacity() {
-        return process::ExitCode::init(60)!;
+        return (60 as process::ExitCode)!;
     }
 
     switch list.shrink_and_free(page, 10) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(61)!,
+        error! => return (61 as process::ExitCode)!,
     }
     if list.len() != 10 or list.capacity() < 10 {
-        return process::ExitCode::init(62)!;
+        return (62 as process::ExitCode)!;
     }
 
     let allocated = list.allocated_slice();
     if allocated.len() != list.capacity() {
-        return process::ExitCode::init(63)!;
+        return (63 as process::ExitCode)!;
     }
 
     let retained_capacity = list.capacity();
     list.shrink_retaining_capacity(10);
     if list.len() != 10 or list.capacity() != retained_capacity {
-        return process::ExitCode::init(18)!;
+        return (18 as process::ExitCode)!;
     }
 
     let tail: [2]i32 = [100, 110];
     list.append_slice_assume_capacity(&tail[..]);
     if list.len() != 12 or list.as_slice()[10] != 100 or list.as_slice()[11] != 110 {
-        return process::ExitCode::init(19)!;
+        return (19 as process::ExitCode)!;
     }
 
     switch list.pop() {
         ?value => {
             if value != 110 {
-                return process::ExitCode::init(20)!;
+                return (20 as process::ExitCode)!;
             }
         },
-        null => return process::ExitCode::init(21)!,
+        null => return (21 as process::ExitCode)!,
     }
     if list.len() != 11 {
-        return process::ExitCode::init(22)!;
+        return (22 as process::ExitCode)!;
     }
     var mutable_items = list.as_mut_slice();
     mutable_items[2] = 77;
     if list.as_slice()[2] != 77 {
-        return process::ExitCode::init(23)!;
+        return (23 as process::ExitCode)!;
     }
     list.clear_retaining_capacity();
     if not list.is_empty() {
-        return process::ExitCode::init(24)!;
+        return (24 as process::ExitCode)!;
     }
     switch list.clear_and_free(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(25)!,
+        error! => return (25 as process::ExitCode)!,
     }
     !{}
 }
@@ -4558,35 +4558,35 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var list = std::ArrayList[i32]::init();
     switch list.push(page, 10) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     switch list.push(page, 20) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
     switch list.shrink_to_capacity(page, 0) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     if list.len() != 0 or list.capacity() != 0 {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
 
     switch list.push(page, 30) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
+        error! => return (5 as process::ExitCode)!,
     }
     switch list.push(page, 40) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     let expected: [2]i32 = [30, 40];
     if not mem::equal[i32](list.as_slice(), &expected[..]) {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     switch list.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(8)!,
+        error! => return (8 as process::ExitCode)!,
     }
     !{}
 }
@@ -4632,49 +4632,49 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var source = std::ArrayList[i32]::init();
     switch source.push(page, 1) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     switch source.push(page, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return (2 as process::ExitCode)!,
     }
 
     var cloned: std::ArrayList[i32];
     switch source.clone(page) {
         !value => cloned = value,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     var source_items = source.as_mut_slice();
     source_items[0] = 9;
     let expected_source: [2]i32 = [9, 2];
     let expected_clone: [2]i32 = [1, 2];
     if not mem::equal[i32](source.as_slice(), &expected_source[..]) {
-        return process::ExitCode::init(4)!;
+        return (4 as process::ExitCode)!;
     }
     if not mem::equal[i32](cloned.as_slice(), &expected_clone[..]) {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
 
     var owned: &mut [i32];
     switch source.into_owned_slice(page) {
         !value => owned = value,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     if source.len() != 0 or source.capacity() != 0 {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     if not mem::equal[i32](owned, &expected_source[..]) {
-        return process::ExitCode::init(8)!;
+        return (8 as process::ExitCode)!;
     }
     switch page.free_slice[i32](owned) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(9)!,
+        error! => return (9 as process::ExitCode)!,
     }
 
     var external: &mut [i32];
     switch page.alloc_slice[i32](3) {
         !items => external = items,
-        error! => return process::ExitCode::init(10)!,
+        error! => return (10 as process::ExitCode)!,
     }
     external[0] = 4;
     external[1] = 5;
@@ -4682,15 +4682,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var adopted = std::ArrayList[i32]::from_owned_slice(external);
     let expected_adopted: [3]i32 = [4, 5, 6];
     if adopted.capacity() != 3 or not mem::equal[i32](adopted.as_slice(), &expected_adopted[..]) {
-        return process::ExitCode::init(11)!;
+        return (11 as process::ExitCode)!;
     }
     switch adopted.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(12)!,
+        error! => return (12 as process::ExitCode)!,
     }
     switch cloned.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(13)!,
+        error! => return (13 as process::ExitCode)!,
     }
     !{}
 }
@@ -4737,32 +4737,32 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var list = std::ArrayList[Marker]::init();
     switch list.reserve(page, 4) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return (1 as process::ExitCode)!,
     }
     if list.capacity() != usize::MAX {
-        return process::ExitCode::init(2)!;
+        return (2 as process::ExitCode)!;
     }
     switch list.push(page, {}) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return (3 as process::ExitCode)!,
     }
     switch list.resize(page, 16) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(4)!,
+        error! => return (4 as process::ExitCode)!,
     }
     if list.len() != 16 or list.capacity() != usize::MAX {
-        return process::ExitCode::init(5)!;
+        return (5 as process::ExitCode)!;
     }
     switch list.shrink_and_free(page, 3) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return (6 as process::ExitCode)!,
     }
     if list.len() != 3 or list.capacity() != usize::MAX {
-        return process::ExitCode::init(7)!;
+        return (7 as process::ExitCode)!;
     }
     switch list.deinit(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(8)!,
+        error! => return (8 as process::ExitCode)!,
     }
     !{}
 }
@@ -4799,7 +4799,7 @@ import std.process;
 
 fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::ExitCode::init(7)!
+    (7 as process::ExitCode)!
 }
 "#,
     )
@@ -4923,7 +4923,7 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::ExitCode::init(9)!
+    (9 as process::ExitCode)!
 }
 "#,
     )
@@ -4985,7 +4985,7 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::ExitCode::init(5)!
+    (5 as process::ExitCode)!
 }
 "#,
     )
@@ -5054,7 +5054,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var y = x;
     y = identity[i32](y);
     var unused = plus_two(99);
-    process::ExitCode::init(pick(true, plus_two(y), unused))!
+    (pick(true, plus_two(y), unused) as process::ExitCode)!
 }
 "#,
     )

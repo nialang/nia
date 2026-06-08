@@ -171,24 +171,6 @@ extend Env {
     }
 }
 
-extend ExitCode {
-    pub fn init(code: i32) ExitCode {
-        code as ExitCode
-    }
-
-    pub fn success() ExitCode {
-        ExitCode::Success
-    }
-
-    pub fn code(&self) i32 {
-        self.* as i32
-    }
-}
-
-pub fn exit(code: i32) ExitCode {
-    ExitCode::init(code)
-}
-
 pub fn io_exit(error: fs::Error) ExitCode {
-    ExitCode::init(error as i32)
+    error as i32 as ExitCode
 }
