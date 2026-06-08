@@ -1,9 +1,12 @@
 import std;
+import std.fmt;
+import std.io;
 import std.mem;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var buffer: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     var allocator = mem::PageAllocator::init();
     var values = std::ArrayList[i32]::init();
@@ -25,10 +28,26 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if items.len() != 3usize or items[0] != 10 or items[2] != 30 {
         return process::ExitCode::init(4)!;
     }
+    var len = items.len();
+    var capacity = values.capacity();
+    var first = items[0];
+    var last = items[2];
+
+    switch stdout.print(
+        "array_list len={} capacity={} first={} last={}\n",
+        [&len, &capacity, &first, &last],
+    ) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
 
     switch values.deinit(&mut allocator) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
+        error! => return process::ExitCode::init(6)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(7)!,
     }
 
     !{}

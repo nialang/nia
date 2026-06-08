@@ -1,3 +1,5 @@
+import std.fmt;
+import std.io;
 import std.process;
 
 fn first(values: &[i32]) i32 {
@@ -9,7 +11,8 @@ fn write_first(values: &mut [i32], value: i32) void {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var buffer: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     var values: [4]i32 = [1, 2, 3, 4];
     var window = &values[1..=2];
@@ -20,11 +23,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let name = "nia";
     let bytes = b"ni" b"a";
     let c_name = c"nia";
+    var window_len = window.len();
+    var name_len = name.len();
+    var bytes_len = bytes.len();
+    var c_name_len = c_name.len();
+    var first_written = writable[0];
 
-    if writable[0] != 2 {
+    if first_written != 2 {
         return process::ExitCode::init(1)!;
     }
-    if name.len() != 3usize {
+    if name_len != 3usize {
         return process::ExitCode::init(2)!;
     }
     if bytes[2] != b'a' {
@@ -32,6 +40,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if c_name[3] != 0u8 {
         return process::ExitCode::init(4)!;
+    }
+
+    switch stdout.print(
+        "slice window={} first={} text={} bytes={} cstring={}\n",
+        [&window_len, &first_written, &name_len, &bytes_len, &c_name_len],
+    ) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
     }
 
     !{}

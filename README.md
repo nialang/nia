@@ -106,7 +106,8 @@ See [examples/README.md](examples/README.md) for the reading order. The examples
 cover real Nia executables, arrays and slices, structs and enums, control flow,
 standard-library I/O, collections, generics, traits, error handling, and
 multi-file imports. They use the current executable entry contract:
-`pub fn main(process::Init) process::ExitCode!void`.
+`pub fn main(process::Init) process::ExitCode!void`. They also write to stdout
+through `std.io` and `std.fmt`, so running an example shows what it computed.
 
 ## Documentation
 

@@ -1,4 +1,6 @@
 import std;
+import std.fmt;
+import std.io;
 import std.process;
 
 struct Point {
@@ -31,17 +33,33 @@ fn grade(score: i32) i32 {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var buffer: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     var point: Point = { x: 3, y: 4 };
     var other = Point { x: 5, y: 12 };
-    var values = [_]i32[point.len2(), other.len2(), grade(87)];
+    var point_len2 = point.len2();
+    var other_len2 = other.len2();
+    var score = grade(87);
+    var values = [_]i32[point_len2, other_len2, score];
     var total = sum(&values[..]);
 
     defer point.x = point.x + 1;
 
     if total != 25 + 169 + 2 {
         return process::ExitCode::init(1)!;
+    }
+
+    switch stdout.print(
+        "point={} other={} grade={} total={}\n",
+        [&point_len2, &other_len2, &score, &total],
+    ) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
     }
 
     !{}
