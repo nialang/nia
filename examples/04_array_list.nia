@@ -2,31 +2,19 @@ import std;
 import std.debug;
 import std.mem;
 import std.process;
-using process::{Init, ExitCode, exit};
+using process::{Init, ExitCode};
 
-pub fn main(init: Init) ExitCode!void {
+fn run(init: Init) mem::Error!void {
     _ = init;
 
     var allocator = mem::PageAllocator::init();
     var values = std::ArrayList[i32]::init();
 
-    switch values.push(&mut allocator, 10) {
-        !ok => _ = ok,
-        error! => return exit(1)!,
-    }
-    switch values.push(&mut allocator, 20) {
-        !ok => _ = ok,
-        error! => return exit(2)!,
-    }
-    switch values.push(&mut allocator, 30) {
-        !ok => _ = ok,
-        error! => return exit(3)!,
-    }
+    values.push(&mut allocator, 10).?;
+    values.push(&mut allocator, 20).?;
+    values.push(&mut allocator, 30).?;
 
     let items = values.as_slice();
-    if items.len() != 3usize or items[0] != 10 or items[2] != 30 {
-        return exit(4)!;
-    }
     var len = items.len();
     var capacity = values.capacity();
     var first = items[0];
@@ -37,10 +25,12 @@ pub fn main(init: Init) ExitCode!void {
         [&len, &capacity, &first, &last],
     );
 
-    switch values.deinit(&mut allocator) {
-        !ok => _ = ok,
-        error! => return exit(6)!,
-    }
+    values.deinit(&mut allocator).?;
 
+    !{}
+}
+
+pub fn main(init: Init) ExitCode!void {
+    run(init).exit().?;
     !{}
 }
