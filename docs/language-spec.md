@@ -103,6 +103,7 @@ The current standard library surface is intentionally small:
   by `std.io` rather than by platform file-descriptor helpers.
 - `std.mem` defines allocation layout and block types plus an initial
   `PageAllocator` implementation.
+- `std.range` defines range-to-iterator adapters for common `usize` loops.
 
 `std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
 modules such as `std.os.linux` may use syscalls directly. A future `std.c` can
@@ -1488,8 +1489,10 @@ trait Iterator {
 }
 ```
 
-`Item` may be a value type, `&T`, or `&mut T`. Fallible iteration is not part
-of the base `for` protocol.
+`Item` may be any ordinary item type, including `&T`, `&mut T`, `?T`, or
+`E!T`. Fallible iteration is not a separate `for` protocol: an iterator can
+choose `Item = E!T`, and the loop body decides whether to handle or propagate
+each item.
 
 The loop pattern may be a value binding, a pointer binding, a mutable pointer
 binding, or a discard:
@@ -1509,7 +1512,9 @@ For-in bindings do not support type annotations. Write the iterator expression
 so that its item type is clear:
 
 ```nia
-for i in 0usize..len {
+import std.range;
+
+for i in range::range(0usize..len) {
     printf(& int_fmt[0], i);
 }
 ```

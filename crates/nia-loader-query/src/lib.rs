@@ -644,6 +644,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             "lib/std/mem.nia",
             "lib/std/os.nia",
             "lib/std/process.nia",
+            "lib/std/range.nia",
             "lib/std/unicode.nia",
         ] {
             assert!(

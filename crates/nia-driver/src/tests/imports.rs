@@ -760,6 +760,83 @@ fn main() bool {
 }
 
 #[test]
+fn std_range_iterates_half_open_usize_ranges() {
+    let root = temp_dir("std_range_iterates_half_open_usize_ranges");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.range;
+
+fn main() usize {
+    var total = 0usize;
+    for i in range::range(0usize..4usize) {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_range_iterates_inclusive_and_from_usize_ranges() {
+    let root = temp_dir("std_range_iterates_inclusive_and_from_usize_ranges");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.range;
+
+fn main() usize {
+    var total = 0usize;
+    for i in range::inclusive(2usize..=4usize) {
+        total += i;
+    }
+    var from = range::from(5usize..);
+    var count = 0usize;
+    for i in from {
+        total += i;
+        count += 1usize;
+        if count == 3usize {
+            break;
+        }
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_reexports_range_module() {
+    let root = temp_dir("std_facade_reexports_range_module");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std;
+
+using std::range::*;
+
+fn main() usize {
+    var total = 0usize;
+    for i in range(1usize..3usize) {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn primitive_integer_limits_are_builtin_associated_values() {
     let root = temp_dir("primitive_integer_limits_are_builtin_associated_values");
     write(

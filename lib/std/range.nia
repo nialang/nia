@@ -1,0 +1,129 @@
+import std.math;
+
+pub struct Range {
+    start: usize,
+    end: usize,
+}
+
+pub struct RangeInclusive {
+    current: usize,
+    end: usize,
+    done: bool,
+}
+
+pub struct RangeFrom {
+    current: usize,
+    done: bool,
+}
+
+extend Range {
+    pub fn init(start: usize, end: usize) Range {
+        { start: start, end: end }
+    }
+
+    pub fn from(bounds: usize..usize) Range {
+        Range::init(bounds.start(), bounds.end())
+    }
+
+    pub fn start(&self) usize {
+        self.start
+    }
+
+    pub fn end(&self) usize {
+        self.end
+    }
+}
+
+extend Range : Iterator {
+    type Item = usize;
+
+    pub fn next(&mut self) ?usize {
+        if self.start >= self.end {
+            null
+        } else {
+            let value = self.start;
+            self.start += 1usize;
+            ?value
+        }
+    }
+}
+
+extend RangeInclusive {
+    pub fn init(start: usize, end: usize) RangeInclusive {
+        { current: start, end: end, done: start > end }
+    }
+
+    pub fn from(bounds: usize..=usize) RangeInclusive {
+        RangeInclusive::init(bounds.start(), bounds.end())
+    }
+
+    pub fn start(&self) usize {
+        self.current
+    }
+
+    pub fn end(&self) usize {
+        self.end
+    }
+}
+
+extend RangeInclusive : Iterator {
+    type Item = usize;
+
+    pub fn next(&mut self) ?usize {
+        if self.done {
+            return null;
+        }
+        let value = self.current;
+        if value == self.end {
+            self.done = true;
+        } else {
+            self.current += 1usize;
+        }
+        ?value
+    }
+}
+
+extend RangeFrom {
+    pub fn init(start: usize) RangeFrom {
+        { current: start, done: false }
+    }
+
+    pub fn from(bounds: usize..) RangeFrom {
+        RangeFrom::init(bounds.start())
+    }
+
+    pub fn start(&self) usize {
+        self.current
+    }
+}
+
+extend RangeFrom : Iterator {
+    type Item = usize;
+
+    pub fn next(&mut self) ?usize {
+        if self.done {
+            return null;
+        }
+        let value = self.current;
+        self.current = switch self.current.checked_add(1usize) {
+            ?next => next,
+            null => {
+                self.done = true;
+                usize::MAX
+            },
+        };
+        ?value
+    }
+}
+
+pub fn range(bounds: usize..usize) Range {
+    Range::from(bounds)
+}
+
+pub fn inclusive(bounds: usize..=usize) RangeInclusive {
+    RangeInclusive::from(bounds)
+}
+
+pub fn from(bounds: usize..) RangeFrom {
+    RangeFrom::from(bounds)
+}

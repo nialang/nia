@@ -11,7 +11,8 @@ import std.math;
 import std.mem;
 import std.os;
 import std.process;
+import std.range;
 import std.result;
 import std.unicode;
 
-pub using {array_list, fmt, fs, io, math, mem, os, process, result, unicode};
+pub using {array_list, fmt, fs, io, math, mem, os, process, range, result, unicode};
