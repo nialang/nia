@@ -1,3 +1,4 @@
+import std.mem.arena_allocator;
 import std.mem.allocator;
 import std.mem.copy;
 import std.mem.fixed_buffer_allocator;
@@ -5,6 +6,7 @@ import std.mem.page_allocator;
 import std.mem.types;
 
 pub using types::{Block, Error, Layout, Order};
+pub using arena_allocator::ArenaAllocator;
 pub using allocator::Allocator;
 pub using copy::{copy_backwards, copy_forwards, equal, order};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
