@@ -2741,7 +2741,7 @@ A conforming Nia compiler supports:
 The CLI surface is:
 
 ```text
-nia check <file.nia> [--opt-report]
+nia check <file.nia> [--exe] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
 nia emit --checked <file.nia> [--opt-report]
@@ -2771,9 +2771,12 @@ Optimization options are accepted before or after the command:
 ```
 
 `-O` means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy and backend optimization report to stdout. Emit commands
-write the same report to stderr when `--opt-report` is supplied, so stdout
-remains backend IR or LLVM IR and native emit targets remain file-only.
+optimization policy and backend optimization report to stdout. `nia check --exe
+<file.nia>` checks with the same freestanding startup runtime that `emit --exe`
+injects, including the public `root::main(process::Init) process::ExitCode!void`
+entry contract. Emit commands write the same report to stderr when
+`--opt-report` is supplied, so stdout remains backend IR or LLVM IR and native
+emit targets remain file-only.
 
 `emit --obj` writes one object per backend codegen unit. `-o` is only valid for
 a single-unit program. Multi-unit output uses `--out-dir`. `emit --exe` writes

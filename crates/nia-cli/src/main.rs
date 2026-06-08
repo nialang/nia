@@ -72,6 +72,7 @@ enum CliCommand {
     Check {
         path: String,
         opt_report: bool,
+        exe: bool,
     },
     Emit {
         path: String,
@@ -138,9 +139,16 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
 
     match cli.command {
-        CliCommand::Check { opt_report, .. } => {
-            run_check(&path, &source, cli.module_map, cli.optimization, opt_report)
-        }
+        CliCommand::Check {
+            opt_report, exe, ..
+        } => run_check(
+            &path,
+            &source,
+            cli.module_map,
+            cli.optimization,
+            opt_report,
+            exe,
+        ),
         CliCommand::Emit {
             target, opt_report, ..
         } => run_emit(
@@ -334,9 +342,11 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let mut path = None;
     let mut opt_report = false;
+    let mut exe = false;
     for arg in args {
         match arg.as_str() {
             "--opt-report" => opt_report = true,
+            "--exe" => exe = true,
             _ if path.is_none() => path = Some(arg),
             _ => {
                 return Err(CliError::new(
@@ -352,7 +362,11 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             HelpTopic::Check,
         ));
     };
-    Ok(CliCommand::Check { path, opt_report })
+    Ok(CliCommand::Check {
+        path,
+        opt_report,
+        exe,
+    })
 }
 
 fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -560,8 +574,17 @@ fn run_check(
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     opt_report: bool,
+    exe: bool,
 ) -> ExitCode {
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = if exe {
+        nia_driver::check_freestanding_executable_with_map_and_options(
+            path,
+            module_map,
+            optimization,
+        )
+    } else {
+        nia_driver::check_program_with_map_and_options(path, module_map, optimization)
+    };
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;

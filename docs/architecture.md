@@ -199,7 +199,8 @@ Current Nia-owned optimization consumers:
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
   `nia check <file.nia> --opt-report` prints this report for direct CLI
-  inspection. `nia emit --checked <file.nia> --opt-report`,
+  inspection. `nia check --exe <file.nia>` checks with the same freestanding
+  startup runtime that `emit --exe` injects. `nia emit --checked <file.nia> --opt-report`,
   `nia emit --backend <file.nia> --opt-report`,
   `nia emit --llvm <file.nia> --opt-report`,
   `nia emit --obj <file.nia> --opt-report`, and
@@ -1046,7 +1047,7 @@ The package is `nia-cli`. The installed binary name is `nia`.
 The CLI supports:
 
 ```text
-nia check <file.nia> [--opt-report]
+nia check <file.nia> [--exe] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
 nia emit --checked <file.nia> [--opt-report]
@@ -1078,7 +1079,9 @@ Global optimization options are listed explicitly in CLI help:
 `nia check <file.nia> --opt-report` prints the active optimization
 policy, LLVM codegen optimization level, enabled backend module/function/global
 pass inventories, the backend optimization change count, and backend
-optimization changes to stdout.
+optimization changes to stdout. `nia check --exe <file.nia>` injects the
+freestanding startup runtime and checks the same entry contract used by
+`emit --exe`.
 `nia emit --backend` prints the optimized backend IR to stdout for pass review.
 `nia emit --checked <file.nia> --opt-report`,
 `nia emit --backend <file.nia> --opt-report`,
@@ -1099,8 +1102,9 @@ level.
 
 `emit --obj` may produce multiple object files because backend lowering can
 produce multiple codegen units. `-o` is only valid for single-unit output;
-`--out-dir` is the multi-unit form. `emit --exe` uses host linking and is
-therefore part of the host execution model. Native output paths are
+`--out-dir` is the multi-unit form. `emit --exe` lowers the freestanding
+runtime-selected executable model and invokes the configured target linker.
+Native output paths are
 mkdir-friendly by design: missing parent directories for `emit --obj -o`,
 `emit --obj --out-dir`, and `emit --exe -o` are created before writing or
 linking output artifacts. Input paths and module map paths are never created

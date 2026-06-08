@@ -81,7 +81,7 @@ cargo run -p nia-cli -- --help
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
-nia check <file.nia> [--opt-report]
+nia check <file.nia> [--exe] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
 nia emit --checked <file.nia> [--opt-report]
@@ -100,12 +100,15 @@ Check every top-level example from the repository root with:
 ```sh
 for file in examples/*.nia; do cargo run -p nia-cli -- check "$file"; done
 cargo run -p nia-cli -- check examples/modules/main.nia
+cargo run -p nia-cli -- check --exe examples/12_freestanding_executable.nia
 ```
 
 See [examples/README.md](examples/README.md) for the reading order. The examples
 cover hosted programs, arrays and slices, structs and enums, control flow,
 functions, generics, traits, trait objects, comptime, inline assembly, and
-multi-file modules.
+multi-file modules. The hosted examples are intended for `check`, `emit --llvm`,
+or `emit --obj` and can be linked by an external build flow. The freestanding
+example uses the current `emit --exe` startup contract.
 
 ## Documentation
 
@@ -142,8 +145,9 @@ See [docs/platform-support.md](docs/platform-support.md).
 
 Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
 means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy to stdout. Emit commands write the same report to stderr
-when `--opt-report` is supplied.
+optimization policy to stdout. `nia check --exe <file.nia>` checks with the
+same freestanding startup runtime that `emit --exe` injects. Emit commands
+write the same report to stderr when `--opt-report` is supplied.
 
 ## Testing
 

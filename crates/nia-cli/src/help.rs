@@ -75,9 +75,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Check => HelpDoc {
             title: "nia check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["nia check <file.nia> [--opt-report] [options]"],
+            usage: &["nia check <file.nia> [--exe] [--opt-report] [options]"],
             commands: &[],
             options: &[
+                HelpRow {
+                    left: "--exe",
+                    right: "check with the freestanding executable startup runtime injected",
+                },
                 HelpRow {
                     left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes",
@@ -97,6 +101,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "nia check src/main.nia",
+                "nia check --exe src/main.nia",
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
             ],
