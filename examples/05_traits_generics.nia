@@ -1,3 +1,5 @@
+import std.fmt;
+import std.io;
 import std.process;
 
 trait Measured {
@@ -35,14 +37,25 @@ where T: Measured
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var buffer: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     var left: Count = { value: 20 };
     var right: Count = { value: 22 };
     var total = combine[Count](left, right);
+    var measured = read[Count](&total);
 
-    if read[Count](&total) != 42 {
+    if measured != 42 {
         return process::ExitCode::init(1)!;
+    }
+
+    switch stdout.print("traits total={}\n", [&measured]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
     }
 
     !{}

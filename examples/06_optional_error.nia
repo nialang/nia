@@ -1,3 +1,5 @@
+import std.fmt;
+import std.io;
 import std.process;
 
 fn at(values: &[i32], index: usize) ?i32 {
@@ -22,11 +24,14 @@ fn checked_pair(values: &[i32]) i32!i32 {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var buffer: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
     var values: [3]i32 = [10, 20, 32];
+    var pair_sum = 0;
     switch checked_pair(&values[..]) {
         !sum => {
+            pair_sum = sum;
             if sum != 42 {
                 return process::ExitCode::init(1)!;
             }
@@ -40,6 +45,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return process::ExitCode::init(3)!;
         },
         error! => _ = error,
+    }
+
+    switch stdout.print("optional/error pair_sum={} missing=error\n", [&pair_sum]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
     }
 
     !{}

@@ -4,6 +4,12 @@ Small executable Nia programs for the current compiler and standard library.
 Each top-level `.nia` file uses the current entry contract:
 `pub fn main(process::Init) process::ExitCode!void`.
 
+The examples print their results through `std.io.FileWriter` and `std.fmt`.
+Each program creates an explicit stdout buffer, writes formatted text, flushes
+the writer, and uses `process::ExitCode` only for error paths. Format arguments
+are passed as ordinary array literals, such as `[&value, &count]`; Nia converts
+the array to the expected slice.
+
 Run an example from the repository root with:
 
 ```sh
@@ -32,13 +38,17 @@ examples, not in the default executable path.
 
 ## Reading Order
 
-- `00_minimal.nia`: the smallest valid executable entry.
+- `00_minimal.nia`: the smallest stdout-printing executable entry.
 - `01_values_control_flow.nia`: structs, methods, slices, ranges, `switch`,
-  `defer`, and exit-code checks.
+  `defer`, formatted stdout, and exit-code checks.
 - `02_slices_and_strings.nia`: arrays, slices, byte strings, C strings, and
-  mutable slice writes.
-- `03_stdout.nia`: standard-library stdout through `std.io`.
-- `04_array_list.nia`: `std::ArrayList` with `std.mem.PageAllocator`.
-- `05_traits_generics.nia`: traits, generic bounds, and operator traits.
-- `06_optional_error.nia`: optional values, error unions, and propagation.
-- `modules/main.nia`: file modules, aliases, selected `using`, and `pub using`.
+  mutable slice writes, printed with `std.fmt`.
+- `03_stdout.nia`: standard-library stdout through `std.io` and `std.fmt`.
+- `04_array_list.nia`: `std::ArrayList` with `std.mem.PageAllocator`, printed
+  length and capacity.
+- `05_traits_generics.nia`: traits, generic bounds, operator traits, and a
+  formatted computed total.
+- `06_optional_error.nia`: optional values, error unions, propagation, and
+  printed success/error state.
+- `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
+  formatted results from imported code.
