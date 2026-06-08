@@ -1,13 +1,13 @@
+import std.process;
+
 import .config;
 import .facade as api;
 
 using api::{Point, add as plus, Color::Green};
 
-extern fn printf(fmt: &u8, ...);
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
 
-fn main() i32 {
-    // `import` keeps names qualified by module, while `using` brings selected
-    // re-exported names into the local scope.
     var point: Point = { x: 3, y: 4 };
     var values: [config::width]i32 = [1, 2, 3, 4];
     var sum = plus(values[0], values[3]);
@@ -15,12 +15,8 @@ fn main() i32 {
     var color = api::color_code(Green);
     var diff = api::math::sub(10, 5);
 
-    printf(
-        c"modules: sum=%d len2=%d color=%d diff=%d\n",
-        sum,
-        len2,
-        color,
-        diff,
-    );
-    0
+    if sum + len2 + color + diff != 33 {
+        return process::ExitCode::init(1)!;
+    }
+    !{}
 }

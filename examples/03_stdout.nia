@@ -5,7 +5,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [_]u8[0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
 
-    switch stdout.write_all(b"hello from freestanding nia\n") {
+    switch stdout.write_all(b"nia stdout example\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
     }

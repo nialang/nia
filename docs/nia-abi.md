@@ -29,7 +29,7 @@ fn sum(pair: Pair) i64 {
 The C ABI is used for explicit external boundaries:
 
 ```nia
-extern fn puts(s: &u8) i32;
+extern fn foreign_log(message: &u8) void;
 
 extern struct CPoint {
     x: i32,

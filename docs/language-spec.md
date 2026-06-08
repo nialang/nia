@@ -894,15 +894,15 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-let log_fmt = c"value=%d\n";
+var log_total: i32 = 0;
 
 fn log(value: i32) {
-    printf(& log_fmt[0], value);
+    log_total += value;
 }
 ```
 
 Use top-level `let` rather than `comptime` for data that must have a stable
-address, such as a C format string.
+address, such as data passed across an explicit foreign ABI boundary.
 
 Function pointer type:
 
@@ -1012,7 +1012,7 @@ fn abs(x: i32) i32 {
 visibility first and `extern` second:
 
 ```nia
-pub extern fn printf(fmt: &u8, ...);
+pub extern fn foreign_log(message: &u8);
 ```
 
 `extern pub fn` is not valid syntax.
@@ -1020,7 +1020,7 @@ pub extern fn printf(fmt: &u8, ...);
 An `extern fn` without a body declares an external C ABI symbol:
 
 ```nia
-pub extern fn printf(fmt: &u8, ...);
+pub extern fn foreign_log(message: &u8);
 ```
 
 An `extern fn` with a body defines a C ABI-visible symbol in the current module:
@@ -1248,7 +1248,7 @@ address:
 ```nia
 comptime let width: usize = 4;
 
-fn main() i32 {
+fn first_value() i32 {
     comptime let local_width: usize = width;
     var xs: [local_width]i32 = [1, 2, 3, 4];
     xs[0]
@@ -1345,7 +1345,7 @@ keyword.
 ```nia
 var a = 1;
 
-fn main() i32 {
+fn bump() i32 {
     a = a + 1;
     0
 }
@@ -1420,11 +1420,9 @@ Nia uses semicolons for statement boundaries.
 Statements requiring semicolons:
 
 ```nia
-let int_fmt = c"%d\n";
-
 var x = 1;
 x = x + 1;
-printf(& int_fmt[0], x);
+record(x);
 return x;
 break;
 continue;
@@ -1521,12 +1519,14 @@ so that its item type is clear:
 ```nia
 import std;
 
+var total: usize = 0;
 for i in std::range(0usize..len) {
-    printf(& int_fmt[0], i);
+    total += i;
 }
 
+var wide_total: i64 = 0;
 for i in std::range[i64](1..4) {
-    printf(& int_fmt[0], i);
+    wide_total += i;
 }
 ```
 
@@ -2598,7 +2598,7 @@ pub using palette::Color::*;
 ```nia
 // main.nia
 import .facade;
-fn main() facade::Color {
+pub fn color() facade::Color {
     facade::Red
 }
 ```
@@ -2645,16 +2645,17 @@ specification.
 Nia does not require a garbage collector, exception runtime, async runtime, or
 hidden allocator.
 
-Extern interop uses the C ABI:
+Extern interop uses the C ABI and is an explicit boundary, not Nia's default
+runtime model:
 
 ```nia
-extern fn printf(fmt: &u8, ...);
+extern fn foreign_log(message: &u8);
 ```
 
 When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
 
 ```nia
-printf(c"hello\n");
+foreign_log(c"hello\n");
 ```
 
 String, byte string, and C string literals are array values, not places. They
@@ -2821,16 +2822,8 @@ this document:
 ## 16. Example
 
 ```nia
-extern fn printf(fmt: &u8, ...);
-
-let hello_fmt = c"hello, %s\n";
-let not_answer_fmt = c"not answer\n";
-let len2_fmt = c"len2=%d\n";
-
-struct String {
-    ptr: &u8,
-    len: usize,
-}
+import std;
+import std.process;
 
 struct Pair[T, U] {
     first: T,
@@ -2852,19 +2845,33 @@ fn add(a: i32, b: i32) i32 {
     a + b
 }
 
-fn main() i32 {
-    var name = c"nia";
-    var x = add(40, 2);
-
-    if x == 42 {
-        printf(& hello_fmt[0], & name[0]);
-    } else {
-        printf(& not_answer_fmt[0]);
+fn sum(xs: &[i32]) i32 {
+    var total = 0;
+    for i in std::range(0usize..xs.len()) {
+        total += xs[i];
     }
+    total
+}
+
+fn score(answer: Pair[i32, i32]) i32 {
+    switch answer.first {
+        0..10 => answer.second,
+        10..=42 => answer.first + answer.second,
+        _ => 0,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
 
     var v: Vec2 = { x: 3, y: 4 };
-    printf(& len2_fmt[0], v.len2());
+    var values = [_]i32[add(40, 2), v.len2(), 7];
+    var pair: Pair[i32, i32] = { first: values[0], second: sum(&values[..]) };
 
-    0
+    if score(pair) != 116 {
+        return process::ExitCode::init(1)!;
+    }
+
+    !{}
 }
 ```

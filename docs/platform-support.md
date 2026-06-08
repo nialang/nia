@@ -14,10 +14,10 @@ Platform support has two separate meanings:
 - target platform: where generated LLVM IR, object files, or executables are
   expected to run.
 
-Nia should eventually support both hosted and bare workflows, but these are
-different promises. A host platform can run `nia` without being a supported
-target, and a target can be emitted as object code without `nia` providing a
-full executable or linking workflow for it.
+Nia should eventually support both compiler-host and target-runtime workflows,
+but these are different promises. A host platform can run `nia` without being a
+supported target, and a target can be emitted as object code without `nia`
+providing a full executable or linking workflow for it.
 
 ## Current Status
 
