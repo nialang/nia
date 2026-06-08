@@ -797,7 +797,7 @@ Checks flow-sensitive structural rules:
 - missing returns;
 - unreachable statements;
 - `break` and `continue` outside loops;
-- invalid control flow in deferred expressions;
+- ordinary control-flow validity inside deferred expressions;
 - switch duplicate defaults and duplicate syntactic patterns.
 
 It should not perform full type checking.

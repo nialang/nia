@@ -926,7 +926,7 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Defer(expr) => {
                 let expr_ty = self.check_expr(expr);
-                if !self.is_void(expr_ty) {
+                if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0301",
                         expr.span,

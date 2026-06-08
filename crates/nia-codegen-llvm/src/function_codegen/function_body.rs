@@ -22,6 +22,18 @@ struct TryTerminatorInput<'b, 'ctx> {
     llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
 }
 
+struct DeferTryTerminatorInput<'b, 'ctx> {
+    body: &'b FunctionDeferBody,
+    block: FunctionBlockId,
+    span: Span,
+    value: &'b FunctionExpr,
+    kind: FunctionTryKind,
+    success_local: nia_ids::LocalId,
+    success_target: FunctionBlockId,
+    llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+    outer_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+}
+
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(crate) fn emit_function_body(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
         validate_function_body(body).map_err(function_ir_diagnostic)?;
@@ -87,6 +99,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_defer_function_body(
         &mut self,
         body: &FunctionDeferBody,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let mut llvm_blocks = std::collections::HashMap::new();
         for block in &body.blocks {
@@ -101,6 +114,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .append_basic_block(self.llvm_function, &name)?;
             llvm_blocks.insert(block.id, llvm_block);
         }
+        let mut defer_outer_blocks = outer_blocks.clone();
+        defer_outer_blocks.extend(llvm_blocks.iter().map(|(id, block)| (*id, *block)));
         let defer_end = self
             .module
             .context
@@ -144,6 +159,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     block.id,
                     &block.terminator,
                     &llvm_blocks,
+                    &defer_outer_blocks,
                     defer_end,
                 )?;
             }
@@ -191,17 +207,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionTerminator::Next { target, span }
             | FunctionTerminator::Branch { target, span } => {
-                self.emit_function_edge_defers(body, block, *target, *span)?;
+                self.emit_function_edge_defers(body, block, *target, *span, llvm_blocks)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 let target = self.llvm_function_block(*span, *target, llvm_blocks)?;
                 self.builder
                     .build_unconditional_branch(target)
                     .map_err(|_| self.error(*span, "failed to build function branch"))?;
             }
             FunctionTerminator::Return { value, span } => {
-                self.emit_function_return(body, block, *span, value.as_ref())?;
+                self.emit_function_return(body, block, *span, value.as_ref(), llvm_blocks)?;
             }
             FunctionTerminator::Tail { value, span } => {
-                self.emit_function_tail(body, block, *span, value.as_ref())?;
+                self.emit_function_tail(body, block, *span, value.as_ref(), llvm_blocks)?;
             }
             FunctionTerminator::If {
                 cond,
@@ -273,6 +292,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         block: FunctionBlockId,
         terminator: &FunctionTerminator,
         llvm_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
         defer_end: BasicBlock<'ctx>,
     ) -> Result<(), Diagnostic> {
         match terminator {
@@ -283,17 +303,31 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionTerminator::Next { target, span }
             | FunctionTerminator::Branch { target, span } => {
-                self.emit_defer_function_edge_defers(body, block, *target, *span)?;
-                let target = self.llvm_function_block(*span, *target, llvm_blocks)?;
+                self.emit_defer_function_edge_defers(
+                    body,
+                    block,
+                    *target,
+                    *span,
+                    llvm_blocks,
+                    outer_blocks,
+                )?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
+                let target =
+                    self.llvm_defer_function_block(*span, *target, llvm_blocks, outer_blocks)?;
                 self.builder
                     .build_unconditional_branch(target)
                     .map_err(|_| self.error(*span, "failed to build defer function branch"))?;
             }
-            FunctionTerminator::Return { span, .. } => {
-                return Err(self.error(*span, "`return` is not valid in defer function IR"));
+            FunctionTerminator::Return { value, span } => {
+                self.emit_defer_function_return(body, block, *span, value.as_ref(), outer_blocks)?;
             }
             FunctionTerminator::Tail { span, .. } => {
-                self.emit_defer_function_tail_defers(body, block, *span)?;
+                self.emit_defer_function_tail_defers(body, block, *span, outer_blocks)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 self.builder
                     .build_unconditional_branch(defer_end)
                     .map_err(|_| self.error(*span, "failed to leave defer function body"))?;
@@ -305,8 +339,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 span,
             } => {
                 let cond = self.emit_expr(cond)?.into_int_value()?;
-                let then_block = self.llvm_function_block(*span, *then_target, llvm_blocks)?;
-                let else_block = self.llvm_function_block(*span, *else_target, llvm_blocks)?;
+                let then_block =
+                    self.llvm_defer_function_block(*span, *then_target, llvm_blocks, outer_blocks)?;
+                let else_block =
+                    self.llvm_defer_function_block(*span, *else_target, llvm_blocks, outer_blocks)?;
                 self.builder
                     .build_conditional_branch(cond, then_block, else_block)
                     .map_err(|_| self.error(*span, "failed to build defer function if branch"))?;
@@ -320,20 +356,40 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             } => {
                 let target = self.emit_expr(target)?.into_int_value()?;
                 let default = default.unwrap_or(*fallback);
-                let default_block = self.llvm_function_block(*span, default, llvm_blocks)?;
+                let default_block =
+                    self.llvm_defer_function_block(*span, default, llvm_blocks, outer_blocks)?;
                 let mut cases = Vec::new();
                 for arm in arms {
                     let value = self.emit_switch_pattern_value(&arm.pattern)?;
-                    let block = self.llvm_function_block(*span, arm.target, llvm_blocks)?;
+                    let block = self.llvm_defer_function_block(
+                        *span,
+                        arm.target,
+                        llvm_blocks,
+                        outer_blocks,
+                    )?;
                     cases.push((value, block));
                 }
                 self.builder
                     .build_switch(target, default_block, &cases)
                     .map_err(|_| self.error(*span, "failed to build defer function switch"))?;
             }
-            FunctionTerminator::Try { span, .. } => {
-                return Err(self.error(*span, "`.?` propagation is not valid in defer function IR"));
-            }
+            FunctionTerminator::Try {
+                value,
+                kind,
+                success_local,
+                success_target,
+                span,
+            } => self.emit_defer_try_terminator(DeferTryTerminatorInput {
+                body,
+                block,
+                span: *span,
+                value,
+                kind: *kind,
+                success_local: *success_local,
+                success_target: *success_target,
+                llvm_blocks,
+                outer_blocks,
+            })?,
             FunctionTerminator::Loop {
                 header,
                 body: loop_body,
@@ -341,10 +397,89 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 span,
                 ..
             } => {
-                let body_block = self.llvm_function_block(*span, *loop_body, llvm_blocks)?;
-                let break_block = self.llvm_function_block(*span, *break_target, llvm_blocks)?;
+                let body_block =
+                    self.llvm_defer_function_block(*span, *loop_body, llvm_blocks, outer_blocks)?;
+                let break_block = self.llvm_defer_function_block(
+                    *span,
+                    *break_target,
+                    llvm_blocks,
+                    outer_blocks,
+                )?;
                 self.emit_function_loop_header(*span, header, body_block, break_block)?;
             }
+        }
+        Ok(())
+    }
+
+    fn emit_defer_try_terminator(
+        &mut self,
+        input: DeferTryTerminatorInput<'_, 'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let DeferTryTerminatorInput {
+            body,
+            block,
+            span,
+            value,
+            kind,
+            success_local,
+            success_target,
+            llvm_blocks,
+            outer_blocks,
+        } = input;
+        let aggregate = self.emit_expr(value)?.into_struct_value()?;
+        let tag = self
+            .builder
+            .build_extract_value(aggregate, 0, "defer.try.tag")
+            .map_err(|_| self.error(span, "failed to extract deferred propagation tag"))?
+            .into_int_value()?;
+        let failure_tag = match kind {
+            FunctionTryKind::Optional => FunctionOptionalTag::Null.discriminant(),
+            FunctionTryKind::ErrorUnion => FunctionErrorUnionTag::Err.discriminant(),
+        };
+        let failure_tag = self
+            .module
+            .context
+            .i8_type()
+            .const_int(failure_tag.into(), false);
+        let is_failure = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag, failure_tag, "defer.try.failed")
+            .map_err(|_| self.error(span, "failed to compare deferred propagation tag"))?;
+        let failure_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "defer.try.failure")
+            .map_err(|_| self.error(span, "failed to create deferred propagation failure block"))?;
+        let success_block =
+            self.llvm_defer_function_block(span, success_target, llvm_blocks, outer_blocks)?;
+        self.builder
+            .build_conditional_branch(is_failure, failure_block, success_block)
+            .map_err(|_| self.error(span, "failed to build deferred propagation branch"))?;
+
+        self.builder.position_at_end(failure_block);
+        self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
+        self.emit_try_failure_return_payload(span, aggregate, value.ty, kind)?;
+
+        self.builder.position_at_end(success_block);
+        if !self.is_zero_sized_local(success_local) {
+            let Some(ptr) = self.locals.get(&success_local).copied() else {
+                return Err(self.error(span, "missing deferred propagation success local"));
+            };
+            let Some(payload_ty) = self.local_tys.get(&success_local).copied() else {
+                return Err(self.error(span, "missing deferred propagation success local type"));
+            };
+            let payload = self.load_tagged_union_payload_from_value(
+                span,
+                aggregate.into(),
+                value.ty,
+                payload_ty,
+            )?;
+            self.builder
+                .build_store(ptr, payload)
+                .map_err(|_| self.error(span, "failed to store deferred propagation payload"))?;
         }
         Ok(())
     }
@@ -393,7 +528,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build propagation branch"))?;
 
         self.builder.position_at_end(failure_block);
-        self.emit_try_failure_return(body, block, span, aggregate, value.ty, kind)?;
+        self.emit_try_failure_return(body, block, span, aggregate, value.ty, kind, llvm_blocks)?;
 
         self.builder.position_at_end(success_block);
         if !self.is_zero_sized_local(success_local) {
@@ -424,7 +559,50 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         aggregate: nia_llvm::values::StructValue<'ctx>,
         aggregate_ty: nia_ids::InternedTyId,
         kind: FunctionTryKind,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
+        let (return_llvm_ty, return_ptr) =
+            self.emit_try_failure_return_storage(span, aggregate, aggregate_ty, kind)?;
+        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
+        let value = self
+            .builder
+            .build_load(return_llvm_ty, return_ptr, "try.return.value")
+            .map_err(|_| self.error(span, "failed to load propagation return"))?;
+        self.emit_return_value(span, value)
+    }
+
+    fn emit_try_failure_return_payload(
+        &mut self,
+        span: Span,
+        aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate_ty: nia_ids::InternedTyId,
+        kind: FunctionTryKind,
+    ) -> Result<(), Diagnostic> {
+        let (return_llvm_ty, return_ptr) =
+            self.emit_try_failure_return_storage(span, aggregate, aggregate_ty, kind)?;
+        let value = self
+            .builder
+            .build_load(return_llvm_ty, return_ptr, "try.return.value")
+            .map_err(|_| self.error(span, "failed to load propagation return"))?;
+        self.emit_return_value(span, value)
+    }
+
+    fn emit_try_failure_return_storage(
+        &mut self,
+        span: Span,
+        aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate_ty: nia_ids::InternedTyId,
+        kind: FunctionTryKind,
+    ) -> Result<
+        (
+            nia_llvm::types::BasicTypeEnum<'ctx>,
+            nia_llvm::values::PointerValue<'ctx>,
+        ),
+        Diagnostic,
+    > {
         let return_ty = self.function.return_type;
         let return_llvm_ty = self.module.llvm_basic_type(return_ty, span)?;
         let return_ptr = self
@@ -481,12 +659,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
         }
-        self.emit_function_tail_defers(body, block, span)?;
-        let value = self
-            .builder
-            .build_load(return_llvm_ty, return_ptr, "try.return.value")
-            .map_err(|_| self.error(span, "failed to load propagation return"))?;
-        self.emit_return_value(span, value)
+        Ok((return_llvm_ty, return_ptr))
     }
 
     fn emit_function_loop_header(
@@ -518,12 +691,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         from: FunctionBlockId,
         to: FunctionBlockId,
         span: Span,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(scopes) = body.edge_exited_scopes(from, to) else {
             return Err(self.error(span, "invalid function branch scopes"));
         };
         for scope in scopes {
-            self.emit_function_scope_defers(span, scope)?;
+            self.emit_function_scope_defers(span, scope, outer_blocks)?;
         }
         Ok(())
     }
@@ -534,6 +708,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         block: FunctionBlockId,
         span: Span,
         value: Option<&FunctionExpr>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         if let Some(value) = value {
             if self.is_zero_sized(value.ty) {
@@ -541,7 +716,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if self.current_block_has_terminator() {
                     return Ok(());
                 }
-                self.emit_function_tail_defers(body, block, span)?;
+                self.emit_function_tail_defers(body, block, span, outer_blocks)?;
                 if self.current_block_has_terminator() {
                     return Ok(());
                 }
@@ -556,14 +731,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
                 return Ok(());
             }
-            if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
+            if self.emit_indirect_aggregate_literal_return(
+                body,
+                block,
+                span,
+                value,
+                outer_blocks,
+            )? {
                 return Ok(());
             }
             if self.emit_indirect_aggregate_call_return(body, block, span, value)? {
                 return Ok(());
             }
             let value = self.emit_expr(value)?;
-            self.emit_function_tail_defers(body, block, span)?;
+            self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             if self.is_never(self.function.return_type) {
                 self.builder
                     .build_unreachable()
@@ -572,7 +756,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_return_value(span, value)?;
             }
         } else {
-            self.emit_function_tail_defers(body, block, span)?;
+            self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             if self.is_never(self.function.return_type) {
                 self.builder
                     .build_unreachable()
@@ -592,15 +779,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         block: FunctionBlockId,
         span: Span,
         value: Option<&FunctionExpr>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(value) = value else {
             if self.is_void(self.function.return_type) {
-                self.emit_function_tail_defers(body, block, span)?;
+                self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 self.builder
                     .build_return(None)
                     .map_err(|_| self.error(span, "failed to build void return"))?;
             } else if self.is_never(self.function.return_type) {
-                self.emit_function_tail_defers(body, block, span)?;
+                self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 self.builder
                     .build_unreachable()
                     .map_err(|_| self.error(span, "failed to build never function unreachable"))?;
@@ -612,7 +806,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             if self.current_block_has_terminator() {
                 return Ok(());
             }
-            self.emit_function_tail_defers(body, block, span)?;
+            self.emit_function_tail_defers(body, block, span, outer_blocks)?;
             if self.current_block_has_terminator() {
                 return Ok(());
             }
@@ -621,7 +815,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to build void return"))?;
             return Ok(());
         }
-        if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
+        if self.emit_indirect_aggregate_literal_return(body, block, span, value, outer_blocks)? {
             return Ok(());
         }
         if self.emit_indirect_aggregate_call_return(body, block, span, value)? {
@@ -631,7 +825,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if self.current_block_has_terminator() {
             return Ok(());
         }
-        self.emit_function_tail_defers(body, block, span)?;
+        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
         self.emit_return_value(span, value)
     }
 
@@ -640,12 +837,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         body: &FunctionBody,
         block: FunctionBlockId,
         span: Span,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(scopes) = body.return_exited_scopes(block) else {
             return Err(self.error(span, "invalid function tail scopes"));
         };
         for scope in scopes {
-            self.emit_function_scope_defers(span, scope)?;
+            self.emit_function_scope_defers(span, scope, outer_blocks)?;
         }
         Ok(())
     }
@@ -656,12 +854,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         from: FunctionBlockId,
         to: FunctionBlockId,
         span: Span,
+        llvm_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
-        let Some(scopes) = body.edge_exited_scopes(from, to) else {
+        let scopes = if llvm_blocks.contains_key(&to) {
+            body.edge_exited_scopes(from, to)
+        } else if outer_blocks.contains_key(&to) {
+            body.return_exited_scopes(from)
+        } else {
+            None
+        };
+        let Some(scopes) = scopes else {
             return Err(self.error(span, "invalid defer function branch scopes"));
         };
         for scope in scopes {
-            self.emit_function_scope_defers(span, scope)?;
+            self.emit_function_scope_defers(span, scope, outer_blocks)?;
         }
         Ok(())
     }
@@ -671,12 +878,70 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         body: &FunctionDeferBody,
         block: FunctionBlockId,
         span: Span,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         let Some(scopes) = body.return_exited_scopes(block) else {
             return Err(self.error(span, "invalid defer function tail scopes"));
         };
         for scope in scopes {
-            self.emit_function_scope_defers(span, scope)?;
+            self.emit_function_scope_defers(span, scope, outer_blocks)?;
+        }
+        Ok(())
+    }
+
+    fn emit_defer_function_return(
+        &mut self,
+        body: &FunctionDeferBody,
+        block: FunctionBlockId,
+        span: Span,
+        value: Option<&FunctionExpr>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+    ) -> Result<(), Diagnostic> {
+        if let Some(value) = value {
+            if self.is_zero_sized(value.ty) {
+                self.emit_effect_expr(value)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
+                self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
+                return if self.is_never(self.function.return_type) {
+                    self.builder
+                        .build_unreachable()
+                        .map_err(|_| self.error(span, "failed to build deferred never return"))?;
+                    Ok(())
+                } else {
+                    self.builder
+                        .build_return(None)
+                        .map_err(|_| self.error(span, "failed to build deferred void return"))?;
+                    Ok(())
+                };
+            }
+            let value = self.emit_expr(value)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
+            self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
+            return self.emit_return_value(span, value);
+        }
+
+        self.emit_defer_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
+        if self.is_never(self.function.return_type) {
+            self.builder
+                .build_unreachable()
+                .map_err(|_| self.error(span, "failed to build deferred never return"))?;
+        } else {
+            self.builder
+                .build_return(None)
+                .map_err(|_| self.error(span, "failed to build deferred void return"))?;
         }
         Ok(())
     }
@@ -691,6 +956,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .get(&id)
             .copied()
             .ok_or_else(|| self.error(span, "missing function branch target"))
+    }
+
+    fn llvm_defer_function_block(
+        &self,
+        span: Span,
+        id: FunctionBlockId,
+        llvm_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+    ) -> Result<BasicBlock<'ctx>, Diagnostic> {
+        llvm_blocks
+            .get(&id)
+            .or_else(|| outer_blocks.get(&id))
+            .copied()
+            .ok_or_else(|| self.error(span, "missing defer function branch target"))
     }
 
     pub(super) fn emit_switch_pattern_value(
@@ -787,6 +1066,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         block: FunctionBlockId,
         span: Span,
         value: &FunctionExpr,
+        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<bool, Diagnostic> {
         if self.out_ptr.is_none()
             || self.is_never(self.function.return_type)
@@ -800,7 +1080,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_alloca(ty, "return.copy")
             .map_err(|_| self.error(span, "failed to allocate aggregate return"))?;
         self.emit_aggregate_literal_into(return_copy, value)?;
-        self.emit_function_tail_defers(body, block, span)?;
+        self.emit_function_tail_defers(body, block, span, outer_blocks)?;
+        if self.current_block_has_terminator() {
+            return Ok(true);
+        }
         let value = self
             .builder
             .build_load(ty, return_copy, "return.value")
