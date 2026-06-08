@@ -1,0 +1,38 @@
+import std.process;
+
+fn first(values: &[i32]) i32 {
+    values[0]
+}
+
+fn write_first(values: &mut [i32], value: i32) void {
+    values[0] = value;
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    var values: [4]i32 = [1, 2, 3, 4];
+    var window = &values[1..=2];
+    var zeros: [4]i32 = [0; 4];
+    var writable = &mut zeros[..];
+    write_first(writable, first(window));
+
+    let name = "nia";
+    let bytes = b"ni" b"a";
+    let c_name = c"nia";
+
+    if writable[0] != 2 {
+        return process::ExitCode::init(1)!;
+    }
+    if name.len() != 3usize {
+        return process::ExitCode::init(2)!;
+    }
+    if bytes[2] != b'a' {
+        return process::ExitCode::init(3)!;
+    }
+    if c_name[3] != 0u8 {
+        return process::ExitCode::init(4)!;
+    }
+
+    !{}
+}

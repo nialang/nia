@@ -1,0 +1,48 @@
+import std;
+import std.process;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fn len2(&self) i32 {
+        self.x * self.x + self.y * self.y
+    }
+}
+
+fn sum(values: &[i32]) i32 {
+    var total = 0;
+    for i in std::range(0usize..values.len()) {
+        total += values[i];
+    }
+    total
+}
+
+fn grade(score: i32) i32 {
+    switch score {
+        0..60 => 0,
+        60..=79 => 1,
+        80..=89 => 2,
+        90..=100 => 3,
+        _ => -1,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    var point: Point = { x: 3, y: 4 };
+    var other = Point { x: 5, y: 12 };
+    var values = [_]i32[point.len2(), other.len2(), grade(87)];
+    var total = sum(&values[..]);
+
+    defer point.x = point.x + 1;
+
+    if total != 25 + 169 + 2 {
+        return process::ExitCode::init(1)!;
+    }
+
+    !{}
+}

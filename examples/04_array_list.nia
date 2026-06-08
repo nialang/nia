@@ -1,0 +1,35 @@
+import std;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    var allocator = mem::PageAllocator::init();
+    var values = std::ArrayList[i32]::init();
+
+    switch values.push(&mut allocator, 10) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch values.push(&mut allocator, 20) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch values.push(&mut allocator, 30) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+
+    let items = values.as_slice();
+    if items.len() != 3usize or items[0] != 10 or items[2] != 30 {
+        return process::ExitCode::init(4)!;
+    }
+
+    switch values.deinit(&mut allocator) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
+
+    !{}
+}

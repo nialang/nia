@@ -1,0 +1,49 @@
+import std.process;
+
+trait Measured {
+    fn measure(&self) i32;
+}
+
+struct Count {
+    value: i32,
+}
+
+extend Count : Measured {
+    fn measure(&self) i32 {
+        self.value
+    }
+}
+
+extend Count : Add[Count] {
+    type Output = Count;
+
+    fn add(self, rhs: Count) Count {
+        { value: self.value + rhs.value }
+    }
+}
+
+fn combine[T](left: T, right: T) T
+where T: Add[T, Output = T]
+{
+    left + right
+}
+
+fn read[T](value: &T) i32
+where T: Measured
+{
+    value.measure()
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    var left: Count = { value: 20 };
+    var right: Count = { value: 22 };
+    var total = combine[Count](left, right);
+
+    if read[Count](&total) != 42 {
+        return process::ExitCode::init(1)!;
+    }
+
+    !{}
+}

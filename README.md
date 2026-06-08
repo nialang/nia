@@ -7,15 +7,14 @@ pre-1.0 and under active design, with an implementation that favors clear
 semantics, predictable compilation phases, and a compact language surface.
 
 The project is intentionally narrow: this repository contains the compiler,
-language documentation, a small standard library, and runnable examples.
+language documentation, a small standard library, and teaching examples.
 The package manager and build system are expected to live as separate projects.
 
 ## A Small Example
 
 ```nia
 import std;
-
-extern fn printf(fmt: &u8, ...);
+import std.process;
 
 struct Point {
     x: i32,
@@ -36,18 +35,19 @@ fn sum(xs: &[i32]) i32 {
     total
 }
 
-fn main() i32 {
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
     var point: Point = { x: 3, y: 4 };
     var also_point = Point { x: 5, y: 12 };
     var values = [_]i32[point.len2(), also_point.len2(), 7];
     var borrowed = &([3]i32[1, 2, 3])[..];
 
-    printf(c"point=%d values=%d borrowed=%d\n",
-        point.len2(),
-        sum(&values[..]),
-        sum(borrowed),
-    );
-    0
+    if point.len2() + sum(&values[..]) + sum(borrowed) != 232 {
+        return process::ExitCode::init(1)!;
+    }
+
+    !{}
 }
 ```
 
@@ -98,17 +98,15 @@ Module aliases can be supplied with `-M name=path`.
 Check every top-level example from the repository root with:
 
 ```sh
-for file in examples/*.nia; do cargo run -p nia-cli -- check "$file"; done
-cargo run -p nia-cli -- check examples/modules/main.nia
-cargo run -p nia-cli -- check --exe examples/12_freestanding_executable.nia
+for file in examples/*.nia; do cargo run -p nia-cli -- check --exe "$file"; done
+cargo run -p nia-cli -- check --exe examples/modules/main.nia
 ```
 
 See [examples/README.md](examples/README.md) for the reading order. The examples
-cover hosted programs, arrays and slices, structs and enums, control flow,
-functions, generics, traits, trait objects, comptime, inline assembly, and
-multi-file modules. The hosted examples are intended for `check`, `emit --llvm`,
-or `emit --obj` and can be linked by an external build flow. The freestanding
-example uses the current `emit --exe` startup contract.
+cover real Nia executables, arrays and slices, structs and enums, control flow,
+standard-library I/O, collections, generics, traits, error handling, and
+multi-file imports. They use the current executable entry contract:
+`pub fn main(process::Init) process::ExitCode!void`.
 
 ## Documentation
 
@@ -132,8 +130,8 @@ language states are tracked through Git tags.
 - [crates/nia-cli](crates/nia-cli): the `nia` command-line compiler frontend.
 - `crates/nia-*`: compiler libraries used by `nia`.
 - [docs/](docs/): language, ABI, architecture, platform, and maintenance docs.
-- [examples/](examples/): runnable teaching programs for the current language
-  surface.
+- [examples/](examples/): small executable programs for the current language
+  and standard-library surface.
 
 ## Platform Status
 
