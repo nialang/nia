@@ -1,9 +1,11 @@
 import std.mem.allocator;
 import std.mem.copy;
+import std.mem.fixed_buffer_allocator;
 import std.mem.page_allocator;
 import std.mem.types;
 
 pub using types::{Block, Error, Layout, Order};
 pub using allocator::Allocator;
 pub using copy::{copy_backwards, copy_forwards, equal, order};
+pub using fixed_buffer_allocator::FixedBufferAllocator;
 pub using page_allocator::PageAllocator;

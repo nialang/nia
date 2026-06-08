@@ -1,0 +1,155 @@
+import std.math;
+import std.mem.allocator;
+import std.mem.types;
+
+using allocator::Allocator;
+using types::{Block, Error, Layout};
+
+pub struct FixedBufferAllocator {
+    buffer: &mut [u8],
+    end_index: usize,
+}
+
+extend FixedBufferAllocator {
+    pub fn init(buffer: &mut [u8]) FixedBufferAllocator {
+        { buffer: buffer, end_index: 0 }
+    }
+
+    pub fn reset(&mut self) void {
+        self.end_index = 0;
+    }
+
+    pub fn used(&self) usize {
+        self.end_index
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn remaining(&self) usize {
+        self.capacity() - self.used()
+    }
+
+    pub fn owns_block(&self, block: Block) bool {
+        if block.is_empty() {
+            return true;
+        }
+        let base = self.buffer.get_ptr_read() as usize;
+        let limit = switch base.checked_add(self.buffer.len()) {
+            ?value => value,
+            null => return false,
+        };
+        let addr = block.ptr() as usize;
+        if addr < base {
+            return false;
+        }
+        let end = switch addr.checked_add(block.size()) {
+            ?value => value,
+            null => return false,
+        };
+        end <= limit
+    }
+
+    pub fn is_last_allocation(&self, block: Block) bool {
+        if block.is_empty() {
+            return false;
+        }
+        let base = self.buffer.get_ptr_read() as usize;
+        let cursor = switch base.checked_add(self.end_index) {
+            ?value => value,
+            null => return false,
+        };
+        let block_end = switch (block.ptr() as usize).checked_add(block.size()) {
+            ?value => value,
+            null => return false,
+        };
+        block_end == cursor
+    }
+}
+
+extend FixedBufferAllocator : Allocator {
+    pub fn alloc(&mut self, layout: Layout) Error!Block {
+        if layout.is_empty() {
+            return !empty_block(layout);
+        }
+
+        let base = self.buffer.get_ptr() as usize;
+        let current = switch base.checked_add(self.end_index) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+        let aligned = switch current.align_forward(layout.align()) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+        let offset = aligned - base;
+        let new_end = switch offset.checked_add(layout.size()) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+        if new_end > self.buffer.len() {
+            return Error::OutOfMemory!;
+        }
+
+        self.end_index = new_end;
+        !Block::init(aligned as &mut u8, layout)
+    }
+
+    pub fn resize(&mut self, block: Block, new_layout: Layout) bool {
+        if block.align() != new_layout.align() {
+            return false;
+        }
+        if block.is_empty() {
+            return new_layout.is_empty();
+        }
+        if not self.owns_block(block) {
+            return false;
+        }
+        if not self.is_last_allocation(block) {
+            return new_layout.size() <= block.size();
+        }
+        if new_layout.size() <= block.size() {
+            self.end_index -= block.size() - new_layout.size();
+            return true;
+        }
+
+        let add = new_layout.size() - block.size();
+        let new_end = switch self.end_index.checked_add(add) {
+            ?value => value,
+            null => return false,
+        };
+        if new_end > self.buffer.len() {
+            return false;
+        }
+        self.end_index = new_end;
+        true
+    }
+
+    pub fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
+        if self.resize(block, new_layout) {
+            ?Block::init(block.ptr(), new_layout)
+        } else if block.is_empty() and new_layout.is_empty() {
+            ?empty_block(new_layout)
+        } else {
+            null
+        }
+    }
+
+    pub fn free(&mut self, block: Block) Error!void {
+        if block.is_empty() {
+            return !{};
+        }
+        if not self.owns_block(block) {
+            return Error::Invalid!;
+        }
+        if self.is_last_allocation(block) {
+            self.end_index -= block.size();
+        }
+        !{}
+    }
+}
+
+fn empty_block(layout: Layout) Block {
+    Block::init(layout.align() as &mut u8, layout)
+}

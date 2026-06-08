@@ -49,8 +49,8 @@ examples, not in the default executable path.
 - `02_slices_and_strings.nia`: arrays, slices, byte strings, C strings, and
   mutable slice writes.
 - `03_stdout.nia`: standard-library stdout through `std.io` and `std.fmt`.
-- `04_array_list.nia`: `std::ArrayList` with `std.mem.PageAllocator`, slice
-  iteration, and formatted list output.
+- `04_array_list.nia`: `std::ArrayList` with `std.mem.FixedBufferAllocator`,
+  slice iteration, and formatted list output.
 - `05_traits_generics.nia`: traits, generic bounds, operator traits, and a
   formatted computed total.
 - `06_optional_error.nia`: optional values, error unions, propagation, and
