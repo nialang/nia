@@ -1,7 +1,7 @@
 import std;
 import std.debug;
 import std.process;
-using process::{Init, ExitCode};
+using process::{Init, ExitCode, exit};
 
 struct Point {
     x: i32,
@@ -46,7 +46,7 @@ pub fn main(init: Init) ExitCode!void {
     defer point.x = point.x + 1;
 
     if total != 25 + 169 + 2 {
-        return (1 as ExitCode)!;
+        return exit(1)!;
     }
 
     debug::print(

@@ -1,6 +1,6 @@
 import std.debug;
 import std.process;
-using process::{Init, ExitCode};
+using process::{Init, ExitCode, exit};
 
 fn first(values: &[i32]) i32 {
     values[0]
@@ -29,16 +29,16 @@ pub fn main(init: Init) ExitCode!void {
     var first_written = writable[0];
 
     if first_written != 2 {
-        return (1 as ExitCode)!;
+        return exit(1)!;
     }
     if name_len != 3usize {
-        return (2 as ExitCode)!;
+        return exit(2)!;
     }
     if bytes[2] != b'a' {
-        return (3 as ExitCode)!;
+        return exit(3)!;
     }
     if c_name[3] != 0u8 {
-        return (4 as ExitCode)!;
+        return exit(4)!;
     }
 
     debug::print(

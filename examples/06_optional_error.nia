@@ -1,6 +1,6 @@
 import std.debug;
 import std.process;
-using process::{Init, ExitCode};
+using process::{Init, ExitCode, exit};
 
 fn at(values: &[i32], index: usize) ?i32 {
     if index < values.len() {
@@ -32,16 +32,16 @@ pub fn main(init: Init) ExitCode!void {
         !sum => {
             pair_sum = sum;
             if sum != 42 {
-                return (1 as ExitCode)!;
+                return exit(1)!;
             }
         },
-        error! => return (2 as ExitCode)!,
+        error! => return exit(2)!,
     }
 
     switch require_at(&values[..], 9usize) {
         !value => {
             _ = value;
-            return (3 as ExitCode)!;
+            return exit(3)!;
         },
         error! => _ = error,
     }
