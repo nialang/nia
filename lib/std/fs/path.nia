@@ -1,5 +1,4 @@
 import std.fs.types;
-import std.result;
 import std.unicode;
 
 using types::{EncodedPath, Error, Path, PathError};
@@ -14,7 +13,7 @@ extend Path {
     }
 
     pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
-        self.encode_bytes(storage).map_err[Error](&PathError::as_fs_error)
+        self.encode_bytes(storage).as_fs_error()
     }
 
     pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
@@ -62,6 +61,15 @@ extend PathError {
             PathError::Invalid => Error::Invalid,
             PathError::TooLong => Error::TooLong,
             _ => Error::Invalid,
+        }
+    }
+}
+
+extend[T] PathError!T {
+    pub fn as_fs_error(self) Error!T {
+        switch self {
+            !value => !value,
+            error! => error.as_fs_error()!,
         }
     }
 }

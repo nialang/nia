@@ -2,8 +2,6 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-import std.result;
-
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
 
 pub enum Error: i32 {
@@ -97,7 +95,7 @@ pub fn page_size() usize {
 }
 
 pub fn page_aligned_len(len: usize) Error!usize {
-    platform::page_aligned_len(len).map_err[Error](&platform::Errno::as_os_error)
+    platform::page_aligned_len(len).as_os_error()
 }
 
 pub fn cwd() FileHandle {
@@ -121,7 +119,7 @@ pub fn open_at(
         truncate,
         exclusive,
         permissions,
-    ).map_err[Error](&platform::Errno::as_os_error).?;
+    ).as_os_error().?;
     !FileHandle::from_platform(handle)
 }
 
@@ -130,20 +128,20 @@ pub fn open_dir_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!File
         dir.platform(),
         path,
         follow_symlinks,
-    ).map_err[Error](&platform::Errno::as_os_error).?;
+    ).as_os_error().?;
     !FileHandle::from_platform(handle)
 }
 
 pub fn create_dir_at(dir: FileHandle, path: &u8, permissions: u32) Error!void {
-    platform::create_dir_at(dir.platform(), path, permissions).map_err[Error](&platform::Errno::as_os_error)
+    platform::create_dir_at(dir.platform(), path, permissions).as_os_error()
 }
 
 pub fn delete_file_at(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_file_at(dir.platform(), path).map_err[Error](&platform::Errno::as_os_error)
+    platform::delete_file_at(dir.platform(), path).as_os_error()
 }
 
 pub fn delete_dir_at(dir: FileHandle, path: &u8) Error!void {
-    platform::delete_dir_at(dir.platform(), path).map_err[Error](&platform::Errno::as_os_error)
+    platform::delete_dir_at(dir.platform(), path).as_os_error()
 }
 
 pub fn rename_at(
@@ -157,7 +155,7 @@ pub fn rename_at(
         old_path,
         new_dir.platform(),
         new_path,
-    ).map_err[Error](&platform::Errno::as_os_error)
+    ).as_os_error()
 }
 
 pub fn metadata_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!FileMetadata {
@@ -165,16 +163,16 @@ pub fn metadata_at(dir: FileHandle, path: &u8, follow_symlinks: bool) Error!File
         dir.platform(),
         path,
         follow_symlinks,
-    ).map_err[Error](&platform::Errno::as_os_error).?;
+    ).as_os_error().?;
     !metadata.as_os_metadata()
 }
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
-    platform::map_pages(len, align).map_err[Error](&platform::Errno::as_os_error)
+    platform::map_pages(len, align).as_os_error()
 }
 
 pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
-    platform::unmap_pages(ptr, len).map_err[Error](&platform::Errno::as_os_error)
+    platform::unmap_pages(ptr, len).as_os_error()
 }
 
 pub fn exit(code: i32) void {
@@ -206,6 +204,15 @@ extend platform::Errno {
             platform::Errno::TooLong => Error::TooLong,
             platform::Errno::NotEmpty => Error::NotEmpty,
             _ => Error::System,
+        }
+    }
+}
+
+extend[T] platform::Errno!T {
+    fn as_os_error(self) Error!T {
+        switch self {
+            !value => !value,
+            error! => error.as_os_error()!,
         }
     }
 }
@@ -425,42 +432,42 @@ extend FileHandle {
     }
 
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        self.platform().write_some(bytes).map_err[Error](&platform::Errno::as_os_error)
+        self.platform().write_some(bytes).as_os_error()
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        self.platform().read_some(bytes).map_err[Error](&platform::Errno::as_os_error)
+        self.platform().read_some(bytes).as_os_error()
     }
 
     pub fn close(&self) Error!void {
-        self.platform().close().map_err[Error](&platform::Errno::as_os_error)
+        self.platform().close().as_os_error()
     }
 
     pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
         self.platform().seek(
             offset,
             whence.as_platform_seek_whence(),
-        ).map_err[Error](&platform::Errno::as_os_error)
+        ).as_os_error()
     }
 
     pub fn truncate(&self, len: u64) Error!void {
-        self.platform().truncate(len).map_err[Error](&platform::Errno::as_os_error)
+        self.platform().truncate(len).as_os_error()
     }
 
     pub fn sync(&self) Error!void {
-        self.platform().sync().map_err[Error](&platform::Errno::as_os_error)
+        self.platform().sync().as_os_error()
     }
 
     pub fn sync_data(&self) Error!void {
-        self.platform().sync_data().map_err[Error](&platform::Errno::as_os_error)
+        self.platform().sync_data().as_os_error()
     }
 
     pub fn metadata(&self) Error!FileMetadata {
-        let metadata = self.platform().metadata().map_err[Error](&platform::Errno::as_os_error).?;
+        let metadata = self.platform().metadata().as_os_error().?;
         !metadata.as_os_metadata()
     }
 
     fn read_dir_entries(&self, buffer: &mut [u8]) Error!usize {
-        self.platform().read_dir_entries(buffer).map_err[Error](&platform::Errno::as_os_error)
+        self.platform().read_dir_entries(buffer).as_os_error()
     }
 }

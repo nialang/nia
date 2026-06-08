@@ -1,7 +1,6 @@
 import std.mem.allocator;
 import std.mem.types;
 import std.os;
-import std.result;
 
 using allocator::Allocator;
 using types::{Block, Layout};
@@ -20,7 +19,7 @@ extend PageAllocator : Allocator {
         if layout.is_empty() {
             !empty_block(layout)
         } else {
-            let ptr = os::map_pages(layout.size(), layout.align()).map_err[types::Error](&os::Error::as_page_allocator_error).?;
+            let ptr = os::map_pages(layout.size(), layout.align()).as_page_allocator_error().?;
             !Block::init(ptr, layout)
         }
     }
@@ -62,7 +61,7 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            os::unmap_pages(block.ptr(), block.size()).map_err[types::Error](&os::Error::as_page_allocator_error)
+            os::unmap_pages(block.ptr(), block.size()).as_page_allocator_error()
         }
     }
 }
@@ -77,6 +76,15 @@ extend os::Error {
             os::Error::Invalid => types::Error::Invalid,
             os::Error::OutOfMemory => types::Error::OutOfMemory,
             _ => types::Error::System,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn as_page_allocator_error(self) types::Error!T {
+        switch self {
+            !value => !value,
+            error! => error.as_page_allocator_error()!,
         }
     }
 }

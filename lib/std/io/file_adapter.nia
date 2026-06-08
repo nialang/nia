@@ -61,7 +61,7 @@ extend FileWriter {
         self.io.write_file(
             self.file,
             bytes,
-        ).map_err[fs::Error](&os::Error::as_fs_error)
+        ).as_fs_error()
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) void {
@@ -150,7 +150,7 @@ extend FileReader {
         self.io.read_file(
             self.file,
             bytes,
-        ).map_err[fs::Error](&os::Error::as_fs_error)
+        ).as_fs_error()
     }
 
     fn read_buffered(&mut self, bytes: &mut [u8]) usize {

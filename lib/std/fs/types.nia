@@ -149,6 +149,15 @@ extend os::Error {
     }
 }
 
+extend[T] os::Error!T {
+    pub fn as_fs_error(self) Error!T {
+        switch self {
+            !value => !value,
+            error! => error.as_fs_error()!,
+        }
+    }
+}
+
 extend os::FileKind {
     pub fn as_fs_file_kind(self) FileKind {
         switch self {
@@ -235,7 +244,7 @@ extend DirIterator : Iterator {
 
     pub fn next(&mut self) ?(Error!DirEntry) {
         let entry = switch self.reader.next() {
-            ?result => result.map_err[Error](&os::Error::as_fs_error),
+            ?result => result.as_fs_error(),
             null => return null,
         };
         switch entry {
