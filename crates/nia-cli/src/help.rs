@@ -55,48 +55,22 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &["nia [options] <command> [args]", "nia help [command]"],
             commands: &[
                 HelpRow {
-                    left: "lex <file.nia>",
-                    right: "tokenize a source file",
-                },
-                HelpRow {
-                    left: "parse <file.nia>",
-                    right: "parse and print the AST",
-                },
-                HelpRow {
                     left: "check <file.nia>",
                     right: "run semantic checks",
                 },
                 HelpRow {
-                    left: "emit <target> <file.nia>",
-                    right: "write compiler output",
+                    left: "emit --<target> <file.nia>",
+                    right: "write compiler output or inspection data",
                 },
             ],
             options: GLOBAL_OPTIONS,
             examples: &[
                 "nia check src/main.nia",
-                "nia -O2 emit obj src/main.nia --out-dir build/obj",
-                "nia emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
-                "nia emit exe src/main.nia -o build/main -M share=share/share.nia",
+                "nia emit --ast src/main.nia",
+                "nia -O2 emit --obj src/main.nia --out-dir build/obj",
+                "nia emit --exe src/main.nia -o build/main -M share=share/share.nia",
             ],
             notes: &["Use `nia help <command>` for command-specific details."],
-        },
-        HelpTopic::Lex => HelpDoc {
-            title: "nia lex",
-            about: "Tokenize a source file and print token kinds with byte spans.",
-            usage: &["nia lex <file.nia> [options]"],
-            commands: &[],
-            options: GLOBAL_OPTIONS,
-            examples: &["nia lex src/main.nia"],
-            notes: &[],
-        },
-        HelpTopic::Parse => HelpDoc {
-            title: "nia parse",
-            about: "Parse a source file and print the AST.",
-            usage: &["nia parse <file.nia> [options]"],
-            commands: &[],
-            options: GLOBAL_OPTIONS,
-            examples: &["nia parse src/main.nia"],
-            notes: &["Parse diagnostics are rendered after the AST."],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",
@@ -130,151 +104,57 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         },
         HelpTopic::Emit => HelpDoc {
             title: "nia emit",
-            about: "Run checking and write compiler output.",
-            usage: &["nia emit <target> <file.nia> [options]"],
-            commands: &[
+            about: "Run a selected compiler output stage.",
+            usage: &[
+                "nia emit --tokens <file.nia> [options]",
+                "nia emit --ast <file.nia> [options]",
+                "nia emit --checked <file.nia> [--opt-report] [options]",
+                "nia emit --backend <file.nia> [--opt-report] [options]",
+                "nia emit --llvm <file.nia> [--opt-report] [options]",
+                "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--opt-report] [options]",
+                "nia emit --exe <file.nia> [-o <executable>] [--opt-report] [options]",
+            ],
+            commands: &[],
+            options: &[
                 HelpRow {
-                    left: "backend <file.nia>",
+                    left: "--tokens",
+                    right: "tokenize and print token kinds with byte spans",
+                },
+                HelpRow {
+                    left: "--ast",
+                    right: "parse and print the AST",
+                },
+                HelpRow {
+                    left: "--checked",
+                    right: "run checking and print the checked program",
+                },
+                HelpRow {
+                    left: "--backend",
                     right: "write optimized backend IR to stdout",
                 },
                 HelpRow {
-                    left: "llvm <file.nia>",
+                    left: "--llvm",
                     right: "write LLVM IR to stdout",
                 },
                 HelpRow {
-                    left: "obj <file.nia>",
+                    left: "--obj",
                     right: "write native object file(s)",
                 },
                 HelpRow {
-                    left: "exe <file.nia>",
+                    left: "--exe",
                     right: "link a freestanding executable",
-                },
-            ],
-            options: GLOBAL_OPTIONS,
-            examples: &[
-                "nia emit backend src/main.nia",
-                "nia emit llvm src/main.nia",
-                "nia emit obj src/main.nia --out-dir build/obj",
-                "nia emit exe src/main.nia -o build/main",
-            ],
-            notes: &["Use `nia help emit <target>` for target-specific options."],
-        },
-        HelpTopic::EmitBackend => HelpDoc {
-            title: "nia emit backend",
-            about: "Run checking and write optimized backend IR to stdout.",
-            usage: &["nia emit backend <file.nia> [--opt-report] [options]"],
-            commands: &[],
-            options: &[
-                HelpRow {
-                    left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
-                },
-                HelpRow {
-                    left: OPTIMIZATION_OPTION_HELP,
-                    right: "set optimization level; -O means -O2",
-                },
-                HelpRow {
-                    left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere; `root` is reserved",
-                },
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help text",
-                },
-            ],
-            examples: &[
-                "nia emit backend src/main.nia",
-                "nia -O2 emit backend src/main.nia --opt-report",
-            ],
-            notes: &["The optimization report is written to stderr so stdout remains backend IR."],
-        },
-        HelpTopic::EmitLlvm => HelpDoc {
-            title: "nia emit llvm",
-            about: "Run checking and write LLVM IR for all codegen units to stdout.",
-            usage: &["nia emit llvm <file.nia> [--opt-report] [options]"],
-            commands: &[],
-            options: &[
-                HelpRow {
-                    left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
-                },
-                HelpRow {
-                    left: OPTIMIZATION_OPTION_HELP,
-                    right: "set optimization level; -O means -O2",
-                },
-                HelpRow {
-                    left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere; `root` is reserved",
-                },
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help text",
-                },
-            ],
-            examples: &[
-                "nia emit llvm src/main.nia",
-                "nia -O2 emit llvm src/main.nia --opt-report",
-            ],
-            notes: &["The optimization report is written to stderr so stdout remains LLVM IR."],
-        },
-        HelpTopic::EmitObj => HelpDoc {
-            title: "nia emit obj",
-            about: "Run checking and write native object output.",
-            usage: &[
-                "nia emit obj <file.nia> [-o <file.o> | --out-dir <dir>] [--opt-report] [options]",
-            ],
-            commands: &[],
-            options: &[
-                HelpRow {
-                    left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
                     left: "-o <file.o>",
-                    right: "write a single object file",
+                    right: "write a single object file for --obj, or executable for --exe",
                 },
                 HelpRow {
                     left: "--out-dir <dir>",
-                    right: "write one object per codegen unit",
+                    right: "write one object per codegen unit for --obj",
                 },
-                HelpRow {
-                    left: OPTIMIZATION_OPTION_HELP,
-                    right: "set optimization level; -O means -O2",
-                },
-                HelpRow {
-                    left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere; `root` is reserved",
-                },
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help text",
-                },
-            ],
-            examples: &[
-                "nia emit obj src/main.nia -o build/main.o",
-                "nia -Os emit obj src/main.nia -o build/main.o --opt-report",
-                "nia emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
-            ],
-            notes: &[
-                "The optimization report is written to stderr so object output remains file-only.",
-                "Use --out-dir when a program emits multiple codegen units.",
-                "-o is accepted only when one object file is produced.",
-                "Missing parent directories for -o and --out-dir are created automatically.",
-            ],
-        },
-        HelpTopic::EmitExe => HelpDoc {
-            title: "nia emit exe",
-            about: "Write native objects to a temporary directory, then invoke the target linker without CRT startup.",
-            usage: &["nia emit exe <file.nia> [-o <executable>] [--opt-report] [options]"],
-            commands: &[],
-            options: &[
                 HelpRow {
                     left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
-                },
-                HelpRow {
-                    left: "-o <executable>",
-                    right: "write executable to this path",
+                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr for checked/backend/llvm/obj/exe",
                 },
                 HelpRow {
                     left: OPTIMIZATION_OPTION_HELP,
@@ -290,15 +170,21 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "nia emit exe src/main.nia -o build/main",
-                "nia -Oz emit exe src/main.nia -o build/main --opt-report",
-                "nia emit exe src/main.nia -M share=share/share.nia",
+                "nia emit --tokens src/main.nia",
+                "nia emit --ast src/main.nia",
+                "nia -O2 emit --backend src/main.nia --opt-report",
+                "nia emit --llvm src/main.nia",
+                "nia emit --obj src/main.nia --out-dir build/obj",
+                "nia emit --exe src/main.nia -o build/main",
             ],
             notes: &[
-                "The optimization report is written to stderr so the executable path remains the only file output.",
+                "Use exactly one emit target flag.",
+                "The optimization report is written to stderr so stdout remains inspection output and native targets remain file-only.",
+                "Use --out-dir when --obj emits multiple codegen units.",
+                "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
                 "The default executable runtime is freestanding and enters through the injected std.start facade; the current implementation is Linux x86_64.",
-                "Missing parent directories for -o are created automatically.",
+                "Missing parent directories for -o and --out-dir are created automatically.",
             ],
         },
     }

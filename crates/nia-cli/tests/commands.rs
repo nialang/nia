@@ -175,9 +175,11 @@ fn help_and_version_use_nia_command_name() {
     let help_stdout = String::from_utf8_lossy(&help.stdout);
     assert!(help_stdout.contains("Usage:\n  nia"), "{help_stdout}");
     assert!(
-        help_stdout.contains("emit <target> <file.nia>"),
+        help_stdout.contains("emit --<target> <file.nia>"),
         "{help_stdout}"
     );
+    assert!(!help_stdout.contains("lex <file.nia>"), "{help_stdout}");
+    assert!(!help_stdout.contains("parse <file.nia>"), "{help_stdout}");
     assert!(
         help_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{help_stdout}"
@@ -216,104 +218,31 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&emit_help.stderr)
     );
     let emit_stdout = String::from_utf8_lossy(&emit_help.stdout);
-    assert!(emit_stdout.contains("backend <file.nia>"), "{emit_stdout}");
-
-    let emit_backend_help = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("help")
-        .arg("emit")
-        .arg("backend")
-        .output_timeout("run nia help emit backend");
+    for target in [
+        "--tokens",
+        "--ast",
+        "--checked",
+        "--backend",
+        "--llvm",
+        "--obj",
+        "--exe",
+    ] {
+        assert!(emit_stdout.contains(target), "{emit_stdout}");
+    }
     assert!(
-        emit_backend_help.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&emit_backend_help.stderr)
+        emit_stdout.contains("nia emit --obj <file.nia>"),
+        "{emit_stdout}"
     );
-    let emit_backend_stdout = String::from_utf8_lossy(&emit_backend_help.stdout);
+    assert!(emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
+    assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
     assert!(
-        emit_backend_stdout.contains("nia emit backend <file.nia>"),
-        "{emit_backend_stdout}"
-    );
-    assert!(
-        emit_backend_stdout.contains("--opt-report"),
-        "{emit_backend_stdout}"
-    );
-    assert!(
-        emit_backend_stdout
+        emit_stdout
             .contains("optimization policy, enabled passes, change count, and changes to stderr"),
-        "{emit_backend_stdout}"
-    );
-
-    let emit_llvm_help = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("help")
-        .arg("emit")
-        .arg("llvm")
-        .output_timeout("run nia help emit llvm");
-    assert!(
-        emit_llvm_help.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&emit_llvm_help.stderr)
-    );
-    let emit_llvm_stdout = String::from_utf8_lossy(&emit_llvm_help.stdout);
-    assert!(
-        emit_llvm_stdout.contains("nia emit llvm <file.nia>"),
-        "{emit_llvm_stdout}"
-    );
-    assert!(
-        emit_llvm_stdout
-            .contains("optimization policy, enabled passes, change count, and changes to stderr"),
-        "{emit_llvm_stdout}"
-    );
-
-    let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("help")
-        .arg("emit")
-        .arg("obj")
-        .output_timeout("run nia help emit obj");
-    assert!(
-        emit_obj_help.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&emit_obj_help.stderr)
-    );
-    let emit_obj_stdout = String::from_utf8_lossy(&emit_obj_help.stdout);
-    assert!(
-        emit_obj_stdout.contains("nia emit obj <file.nia>"),
-        "{emit_obj_stdout}"
-    );
-    assert!(
-        emit_obj_stdout.contains("--out-dir <dir>"),
-        "{emit_obj_stdout}"
-    );
-    assert!(
-        emit_obj_stdout.contains("--opt-report"),
-        "{emit_obj_stdout}"
+        "{emit_stdout}"
     );
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
-        assert!(emit_obj_stdout.contains(level), "{emit_obj_stdout}");
+        assert!(emit_stdout.contains(level), "{emit_stdout}");
     }
-
-    let emit_exe_help = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("help")
-        .arg("emit")
-        .arg("exe")
-        .output_timeout("run nia help emit exe");
-    assert!(
-        emit_exe_help.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&emit_exe_help.stderr)
-    );
-    let emit_exe_stdout = String::from_utf8_lossy(&emit_exe_help.stdout);
-    assert!(
-        emit_exe_stdout.contains("nia emit exe <file.nia>"),
-        "{emit_exe_stdout}"
-    );
-    assert!(
-        emit_exe_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
-        "{emit_exe_stdout}"
-    );
-    assert!(
-        emit_exe_stdout.contains("--opt-report"),
-        "{emit_exe_stdout}"
-    );
 
     let version = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--version")
@@ -344,9 +273,9 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O2")
         .arg("emit")
-        .arg("llvm")
+        .arg("--llvm")
         .arg(&main)
-        .output_timeout("run nia -O2 emit llvm");
+        .output_timeout("run nia -O2 emit --llvm");
 
     assert!(
         output.status.success(),
@@ -355,6 +284,126 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("define i32 @"), "{stdout}");
+}
+
+#[test]
+fn emit_can_print_frontend_inspection_stages() {
+    let root = temp_dir("emit_can_print_frontend_inspection_stages");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    42
+}
+"#,
+    )
+    .expect("write test source");
+
+    let tokens = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--tokens")
+        .arg(&main)
+        .output_timeout("run nia emit --tokens");
+    assert!(
+        tokens.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&tokens.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&tokens.stdout);
+    assert!(stdout.contains("Fn"), "{stdout}");
+    assert!(stdout.contains("Ident"), "{stdout}");
+
+    let ast = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--ast")
+        .arg(&main)
+        .output_timeout("run nia emit --ast");
+    assert!(
+        ast.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&ast.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&ast.stdout);
+    assert!(stdout.contains("FunctionItem"), "{stdout}");
+    assert!(stdout.contains("main"), "{stdout}");
+
+    let checked = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--checked")
+        .arg(&main)
+        .output_timeout("run nia emit --checked");
+    assert!(
+        checked.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&checked.stdout);
+    assert!(stdout.contains("CheckedProgram"), "{stdout}");
+    assert!(stdout.contains("backend_lowering"), "{stdout}");
+}
+
+#[test]
+fn removed_top_level_inspection_commands_are_rejected() {
+    let root = temp_dir("removed_top_level_inspection_commands_are_rejected");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { 0 }").expect("write test source");
+
+    let lex = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("lex")
+        .arg(&main)
+        .output_timeout("run removed nia lex");
+    assert!(!lex.status.success());
+    let stderr = String::from_utf8_lossy(&lex.stderr);
+    assert!(stderr.contains("unknown command `lex`"), "{stderr}");
+
+    let parse = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("parse")
+        .arg(&main)
+        .output_timeout("run removed nia parse");
+    assert!(!parse.status.success());
+    let stderr = String::from_utf8_lossy(&parse.stderr);
+    assert!(stderr.contains("unknown command `parse`"), "{stderr}");
+}
+
+#[test]
+fn removed_emit_target_argument_syntax_is_rejected() {
+    let root = temp_dir("removed_emit_target_argument_syntax_is_rejected");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { 0 }").expect("write test source");
+
+    let old_obj = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("obj")
+        .arg(&main)
+        .output_timeout("run removed nia emit obj");
+    assert!(!old_obj.status.success());
+    let stderr = String::from_utf8_lossy(&old_obj.stderr);
+    assert!(
+        stderr.contains("old `nia emit obj` syntax was removed; use `nia emit --obj`"),
+        "{stderr}"
+    );
+
+    let missing_target = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg(&main)
+        .output_timeout("run nia emit without target flag");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8_lossy(&missing_target.stderr);
+    assert!(stderr.contains("missing emit target flag"), "{stderr}");
+
+    let duplicate_target = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--llvm")
+        .arg("--backend")
+        .arg(&main)
+        .output_timeout("run nia emit with duplicate target flags");
+    assert!(!duplicate_target.status.success());
+    let stderr = String::from_utf8_lossy(&duplicate_target.stderr);
+    assert!(
+        stderr.contains("use exactly one emit target flag"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -692,9 +741,9 @@ fn main() i32 {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("backend")
+        .arg("--backend")
         .arg(&main)
-        .output_timeout("run nia emit backend");
+        .output_timeout("run nia emit --backend");
 
     assert!(
         output.status.success(),
@@ -728,10 +777,10 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O1")
         .arg("emit")
-        .arg("backend")
+        .arg("--backend")
         .arg(&main)
         .arg("--opt-report")
-        .output_timeout("run nia emit backend --opt-report");
+        .output_timeout("run nia emit --backend --opt-report");
 
     assert!(
         output.status.success(),
@@ -769,9 +818,9 @@ fn main() i32 {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("llvm")
+        .arg("--llvm")
         .arg(&main)
-        .output_timeout("run nia emit llvm");
+        .output_timeout("run nia emit --llvm");
 
     assert!(
         output.status.success(),
@@ -804,10 +853,10 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O1")
         .arg("emit")
-        .arg("llvm")
+        .arg("--llvm")
         .arg(&main)
         .arg("--opt-report")
-        .output_timeout("run nia emit llvm --opt-report");
+        .output_timeout("run nia emit --llvm --opt-report");
 
     assert!(
         output.status.success(),
@@ -847,11 +896,11 @@ fn main() i32 {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("-o")
         .arg(&object)
-        .output_timeout("run nia emit obj");
+        .output_timeout("run nia emit --obj");
 
     assert!(
         output.status.success(),
@@ -878,11 +927,11 @@ fn main() i32 {
 
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
         let object = root.join(format!("main_{}.o", level.trim_start_matches('-')));
-        let output_context = format!("run nia {level} emit obj");
+        let output_context = format!("run nia {level} emit --obj");
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
-            .arg("obj")
+            .arg("--obj")
             .arg(&main)
             .arg("-o")
             .arg(&object)
@@ -916,11 +965,11 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("-o")
         .arg("-Oartifact.o")
-        .output_timeout("run nia emit obj -o -Oartifact.o");
+        .output_timeout("run nia emit --obj -o -Oartifact.o");
 
     assert!(
         output.status.success(),
@@ -933,11 +982,11 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("-o")
         .arg("--opt-report")
-        .output_timeout("run nia emit obj -o --opt-report");
+        .output_timeout("run nia emit --obj -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -954,11 +1003,11 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("--out-dir")
         .arg("-Oobjects")
-        .output_timeout("run nia emit obj --out-dir -Oobjects");
+        .output_timeout("run nia emit --obj --out-dir -Oobjects");
 
     assert!(
         output.status.success(),
@@ -997,12 +1046,12 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("-o")
         .arg(&object)
         .arg("--opt-report")
-        .output_timeout("run nia emit obj --opt-report");
+        .output_timeout("run nia emit --obj --opt-report");
 
     assert!(
         output.status.success(),
@@ -1023,12 +1072,12 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg("--opt-report")
         .arg(&main)
         .arg("-o")
         .arg(&object_before_source)
-        .output_timeout("run nia emit obj --opt-report before source");
+        .output_timeout("run nia emit --obj --opt-report before source");
 
     assert!(
         output.status.success(),
@@ -1043,12 +1092,12 @@ fn main() i32 {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
-        .arg("obj")
+        .arg("--obj")
         .arg(&main)
         .arg("--opt-report")
         .arg("-o")
         .arg(&object_before_output_flag)
-        .output_timeout("run nia emit obj --opt-report before -o");
+        .output_timeout("run nia emit --obj --opt-report before -o");
 
     assert!(
         output.status.success(),
@@ -1082,11 +1131,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1126,11 +1175,11 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1214,11 +1263,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1279,11 +1328,11 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1344,11 +1393,11 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1405,11 +1454,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1447,11 +1496,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1493,11 +1542,11 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1550,11 +1599,11 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1620,11 +1669,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1706,11 +1755,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1834,11 +1883,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -1931,11 +1980,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2018,11 +2067,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2112,11 +2161,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2201,11 +2250,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2350,11 +2399,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2468,11 +2517,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2539,11 +2588,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2603,11 +2652,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2664,11 +2713,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2741,11 +2790,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2857,11 +2906,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -2962,11 +3011,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3099,11 +3148,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3158,11 +3207,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3219,11 +3268,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3267,11 +3316,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3315,11 +3364,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3372,11 +3421,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3461,11 +3510,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3585,11 +3634,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3660,11 +3709,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3710,11 +3759,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3760,11 +3809,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3816,11 +3865,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3903,11 +3952,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -3979,11 +4028,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4034,13 +4083,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-M")
         .arg(format!("helper={}", helper.display()))
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4352,11 +4401,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4425,11 +4474,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4529,11 +4578,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4601,11 +4650,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(
         output.status.success(),
@@ -4636,9 +4685,9 @@ fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
-        .output_timeout("run nia emit exe");
+        .output_timeout("run nia emit --exe");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -4721,13 +4770,13 @@ pub fn mymain() i32 {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-M")
         .arg(format!("std={}", std_root.display()))
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit exe with custom std start");
+        .output_timeout("run nia emit --exe with custom std start");
 
     assert!(
         output.status.success(),
@@ -4761,11 +4810,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe_name)
-        .output_timeout("run nia emit exe -o -Orunnable");
+        .output_timeout("run nia emit --exe -o -Orunnable");
 
     assert!(
         output.status.success(),
@@ -4781,11 +4830,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&report_name)
-        .output_timeout("run nia emit exe -o --opt-report");
+        .output_timeout("run nia emit --exe -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -4823,12 +4872,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Oz")
         .arg("emit")
-        .arg("exe")
+        .arg("--exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
         .arg("--opt-report")
-        .output_timeout("run nia emit exe --opt-report");
+        .output_timeout("run nia emit --exe --opt-report");
 
     assert!(
         output.status.success(),
@@ -4896,11 +4945,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
             std::env::consts::EXE_SUFFIX
         );
         let exe = root.join(exe_name);
-        let output_context = format!("run nia {level} emit exe");
+        let output_context = format!("run nia {level} emit --exe");
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
-            .arg("exe")
+            .arg("--exe")
             .arg(&main)
             .arg("-o")
             .arg(&exe)
