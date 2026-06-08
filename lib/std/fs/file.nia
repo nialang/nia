@@ -2,7 +2,6 @@ import std.fs.options;
 import std.fs.path;
 import std.fs.types;
 import std.os;
-import std.result;
 
 using types::{
     CreateDirOptions,
@@ -32,7 +31,7 @@ extend Dir {
             os::cwd(),
             &current[0],
             true,
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !Dir::from_owned_descriptor(handle)
     }
 
@@ -107,7 +106,7 @@ extend Dir {
             false,
             false,
             0,
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !File::from_owned_descriptor(handle)
     }
 
@@ -116,7 +115,7 @@ extend Dir {
             self.handle,
             path.ptr(),
             options.follow_symlinks(),
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !Dir::from_owned_descriptor(handle)
     }
 
@@ -129,7 +128,7 @@ extend Dir {
             options.truncate(),
             options.is_exclusive(),
             options.permissions(),
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !File::from_owned_descriptor(handle)
     }
 
@@ -138,15 +137,15 @@ extend Dir {
             self.handle,
             path.ptr(),
             options.permissions(),
-        ).map_err[Error](&os::Error::as_fs_error)
+        ).as_fs_error()
     }
 
     pub fn delete_encoded_file(&self, path: EncodedPath) Error!void {
-        os::delete_file_at(self.handle, path.ptr()).map_err[Error](&os::Error::as_fs_error)
+        os::delete_file_at(self.handle, path.ptr()).as_fs_error()
     }
 
     pub fn delete_encoded_dir(&self, path: EncodedPath) Error!void {
-        os::delete_dir_at(self.handle, path.ptr()).map_err[Error](&os::Error::as_fs_error)
+        os::delete_dir_at(self.handle, path.ptr()).as_fs_error()
     }
 
     pub fn rename_encoded_to(&self, old_path: EncodedPath, new_dir: &Dir, new_path: EncodedPath) Error!void {
@@ -155,7 +154,7 @@ extend Dir {
             old_path.ptr(),
             new_dir.handle,
             new_path.ptr(),
-        ).map_err[Error](&os::Error::as_fs_error)
+        ).as_fs_error()
     }
 
     pub fn encoded_metadata(&self, path: EncodedPath, options: MetadataOptions) Error!Metadata {
@@ -163,12 +162,12 @@ extend Dir {
             self.handle,
             path.ptr(),
             options.follow_symlinks(),
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !metadata.as_fs_metadata()
     }
 
     pub fn close(&self) Error!void {
-        self.handle.close().map_err[Error](&os::Error::as_fs_error)
+        self.handle.close().as_fs_error()
     }
 }
 
@@ -188,7 +187,7 @@ extend File {
             false,
             false,
             0,
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !File::from_owned_descriptor(handle)
     }
 
@@ -203,7 +202,7 @@ extend File {
             options.truncate(),
             options.is_exclusive(),
             options.permissions(),
-        ).map_err[Error](&os::Error::as_fs_error).?;
+        ).as_fs_error().?;
         !File::from_owned_descriptor(handle)
     }
 
@@ -215,15 +214,15 @@ extend File {
         if offset > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.handle.seek(offset as i64, os::SeekWhence::Start).map_err[Error](&os::Error::as_fs_error)
+        self.handle.seek(offset as i64, os::SeekWhence::Start).as_fs_error()
     }
 
     pub fn seek_by(&self, delta: i64) Error!u64 {
-        self.handle.seek(delta, os::SeekWhence::Current).map_err[Error](&os::Error::as_fs_error)
+        self.handle.seek(delta, os::SeekWhence::Current).as_fs_error()
     }
 
     pub fn seek_from_end(&self, delta: i64) Error!u64 {
-        self.handle.seek(delta, os::SeekWhence::End).map_err[Error](&os::Error::as_fs_error)
+        self.handle.seek(delta, os::SeekWhence::End).as_fs_error()
     }
 
     pub fn len(&self) Error!u64 {
@@ -232,7 +231,7 @@ extend File {
     }
 
     pub fn metadata(&self) Error!Metadata {
-        let metadata = self.handle.metadata().map_err[Error](&os::Error::as_fs_error).?;
+        let metadata = self.handle.metadata().as_fs_error().?;
         !metadata.as_fs_metadata()
     }
 
@@ -240,18 +239,18 @@ extend File {
         if len > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.handle.truncate(len).map_err[Error](&os::Error::as_fs_error)
+        self.handle.truncate(len).as_fs_error()
     }
 
     pub fn sync(&self) Error!void {
-        self.handle.sync().map_err[Error](&os::Error::as_fs_error)
+        self.handle.sync().as_fs_error()
     }
 
     pub fn sync_data(&self) Error!void {
-        self.handle.sync_data().map_err[Error](&os::Error::as_fs_error)
+        self.handle.sync_data().as_fs_error()
     }
 
     pub fn close(&self) Error!void {
-        self.handle.close().map_err[Error](&os::Error::as_fs_error)
+        self.handle.close().as_fs_error()
     }
 }
