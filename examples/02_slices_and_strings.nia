@@ -1,6 +1,7 @@
 import std.fmt;
 import std.io;
 import std.process;
+import std.result;
 
 fn first(values: &[i32]) i32 {
     values[0]
@@ -42,17 +43,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::ExitCode::init(4)!;
     }
 
-    switch stdout.print(
+    stdout.print(
         "slice window={} first={} text={} bytes={} cstring={}\n",
         [&window_len, &first_written, &name_len, &bytes_len, &c_name_len],
-    ) {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(5)!,
-    }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
-    }
+    ).map_err[process::ExitCode](&process::io_exit).?;
+    stdout.flush().map_err[process::ExitCode](&process::io_exit).?;
 
     !{}
 }
