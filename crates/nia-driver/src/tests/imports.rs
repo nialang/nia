@@ -782,6 +782,50 @@ fn main() usize {
 }
 
 #[test]
+fn std_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
+    let root = temp_dir("std_range_iterates_half_open_i64_ranges_with_expected_bound_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.range;
+
+fn main() i64 {
+    var total = 0i64;
+    for i in range::range[i64](1..4) {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_range_iterates_inclusive_i32_ranges() {
+    let root = temp_dir("std_range_iterates_inclusive_i32_ranges");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.range;
+
+fn main() i32 {
+    var total = 0i32;
+    for i in range::inclusive[i32](2..=4) {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn std_range_iterates_inclusive_and_from_usize_ranges() {
     let root = temp_dir("std_range_iterates_inclusive_and_from_usize_ranges");
     write(

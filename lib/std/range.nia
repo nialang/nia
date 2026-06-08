@@ -1,75 +1,86 @@
-import std.math;
-
-pub struct Range {
-    start: usize,
-    end: usize,
+pub trait Step {
+    fn forward_checked(self) ?Self;
 }
 
-pub struct RangeInclusive {
-    current: usize,
-    end: usize,
+pub struct Range[T] {
+    start: T,
+    end: T,
+}
+
+pub struct RangeInclusive[T] {
+    current: T,
+    end: T,
     done: bool,
 }
 
-pub struct RangeFrom {
-    current: usize,
+pub struct RangeFrom[T] {
+    current: T,
     done: bool,
 }
 
-extend Range {
-    pub fn init(start: usize, end: usize) Range {
+extend[T] Range[T] {
+    pub fn init(start: T, end: T) Range[T] {
         { start: start, end: end }
     }
 
-    pub fn from(bounds: usize..usize) Range {
-        Range::init(bounds.start(), bounds.end())
+    pub fn from(bounds: T..T) Range[T] {
+        Range[T]::init(bounds.start(), bounds.end())
     }
 
-    pub fn start(&self) usize {
+    pub fn start(&self) T {
         self.start
     }
 
-    pub fn end(&self) usize {
+    pub fn end(&self) T {
         self.end
     }
 }
 
-extend Range : Iterator {
-    type Item = usize;
+extend[T] Range[T] : Iterator
+where T: Step + Ord[T]
+{
+    type Item = T;
 
-    pub fn next(&mut self) ?usize {
+    pub fn next(&mut self) ?T {
         if self.start >= self.end {
             null
         } else {
             let value = self.start;
-            self.start += 1usize;
+            self.start = switch self.start.forward_checked() {
+                ?next => next,
+                null => self.end,
+            };
             ?value
         }
     }
 }
 
-extend RangeInclusive {
-    pub fn init(start: usize, end: usize) RangeInclusive {
+extend[T] RangeInclusive[T]
+where T: Ord[T]
+{
+    pub fn init(start: T, end: T) RangeInclusive[T] {
         { current: start, end: end, done: start > end }
     }
 
-    pub fn from(bounds: usize..=usize) RangeInclusive {
-        RangeInclusive::init(bounds.start(), bounds.end())
+    pub fn from(bounds: T..=T) RangeInclusive[T] {
+        RangeInclusive[T]::init(bounds.start(), bounds.end())
     }
 
-    pub fn start(&self) usize {
+    pub fn start(&self) T {
         self.current
     }
 
-    pub fn end(&self) usize {
+    pub fn end(&self) T {
         self.end
     }
 }
 
-extend RangeInclusive : Iterator {
-    type Item = usize;
+extend[T] RangeInclusive[T] : Iterator
+where T: Step + Ord[T] + Eq[T]
+{
+    type Item = T;
 
-    pub fn next(&mut self) ?usize {
+    pub fn next(&mut self) ?T {
         if self.done {
             return null;
         }
@@ -77,53 +88,133 @@ extend RangeInclusive : Iterator {
         if value == self.end {
             self.done = true;
         } else {
-            self.current += 1usize;
+            self.current = switch self.current.forward_checked() {
+                ?next => next,
+                null => {
+                    self.done = true;
+                    self.end
+                },
+            };
         }
         ?value
     }
 }
 
-extend RangeFrom {
-    pub fn init(start: usize) RangeFrom {
+extend[T] RangeFrom[T] {
+    pub fn init(start: T) RangeFrom[T] {
         { current: start, done: false }
     }
 
-    pub fn from(bounds: usize..) RangeFrom {
-        RangeFrom::init(bounds.start())
+    pub fn from(bounds: T..) RangeFrom[T] {
+        RangeFrom[T]::init(bounds.start())
     }
 
-    pub fn start(&self) usize {
+    pub fn start(&self) T {
         self.current
     }
 }
 
-extend RangeFrom : Iterator {
-    type Item = usize;
+extend[T] RangeFrom[T] : Iterator
+where T: Step
+{
+    type Item = T;
 
-    pub fn next(&mut self) ?usize {
+    pub fn next(&mut self) ?T {
         if self.done {
             return null;
         }
         let value = self.current;
-        self.current = switch self.current.checked_add(1usize) {
+        self.current = switch self.current.forward_checked() {
             ?next => next,
             null => {
                 self.done = true;
-                usize::MAX
+                self.current
             },
         };
         ?value
     }
 }
 
-pub fn range(bounds: usize..usize) Range {
-    Range::from(bounds)
+pub fn range[T](bounds: T..T) Range[T]
+where T: Step + Ord[T]
+{
+    Range[T]::from(bounds)
 }
 
-pub fn inclusive(bounds: usize..=usize) RangeInclusive {
-    RangeInclusive::from(bounds)
+pub fn inclusive[T](bounds: T..=T) RangeInclusive[T]
+where T: Step + Ord[T] + Eq[T]
+{
+    RangeInclusive[T]::from(bounds)
 }
 
-pub fn from(bounds: usize..) RangeFrom {
-    RangeFrom::from(bounds)
+pub fn from[T](bounds: T..) RangeFrom[T]
+where T: Step
+{
+    RangeFrom[T]::from(bounds)
+}
+
+extend i8 : Step {
+    pub fn forward_checked(self) ?i8 {
+        if self == i8::MAX { null } else { ?(self + 1i8) }
+    }
+}
+
+extend i16 : Step {
+    pub fn forward_checked(self) ?i16 {
+        if self == i16::MAX { null } else { ?(self + 1i16) }
+    }
+}
+
+extend i32 : Step {
+    pub fn forward_checked(self) ?i32 {
+        if self == i32::MAX { null } else { ?(self + 1i32) }
+    }
+}
+
+extend i64 : Step {
+    pub fn forward_checked(self) ?i64 {
+        if self == i64::MAX { null } else { ?(self + 1i64) }
+    }
+}
+
+extend i128 : Step {
+    pub fn forward_checked(self) ?i128 {
+        if self == i128::MAX { null } else { ?(self + 1i128) }
+    }
+}
+
+extend isize : Step {
+    pub fn forward_checked(self) ?isize {
+        if self == isize::MAX { null } else { ?(self + 1isize) }
+    }
+}
+
+extend u8 : Step {
+    pub fn forward_checked(self) ?u8 {
+        if self == u8::MAX { null } else { ?(self + 1u8) }
+    }
+}
+
+extend u16 : Step {
+    pub fn forward_checked(self) ?u16 {
+        if self == u16::MAX { null } else { ?(self + 1u16) }
+    }
+}
+
+extend u32 : Step {
+    pub fn forward_checked(self) ?u32 {
+        if self == u32::MAX { null } else { ?(self + 1u32) }
+    }
+}
+
+extend u64 : Step {
+    pub fn forward_checked(self) ?u64 {
+        if self == u64::MAX { null } else { ?(self + 1u64) }
+    }
+}
+
+extend usize : Step {
+    pub fn forward_checked(self) ?usize {
+        if self == usize::MAX { null } else { ?(self + 1usize) }
+    }
 }

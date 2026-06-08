@@ -728,7 +728,7 @@ impl<'a> TypeLowerer<'a> {
             (None, None) => None,
         };
         if let Some(bound) = bound
-            && !self.is_integer(bound)
+            && !self.can_be_integer(bound)
         {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0202",
@@ -1377,6 +1377,14 @@ impl<'a> TypeLowerer<'a> {
                     | PrimitiveTy::Usize
             ))
         )
+    }
+
+    fn can_be_integer(&self, ty: InternedTyId) -> bool {
+        self.is_integer(ty)
+            || matches!(
+                self.interner.get(self.normalize_if_known(ty)),
+                Some(TyKind::GenericParam(_))
+            )
     }
 
     fn types_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {

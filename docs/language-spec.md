@@ -103,7 +103,9 @@ The current standard library surface is intentionally small:
   by `std.io` rather than by platform file-descriptor helpers.
 - `std.mem` defines allocation layout and block types plus an initial
   `PageAllocator` implementation.
-- `std.range` defines range-to-iterator adapters for common `usize` loops.
+- `std.range` defines range-to-iterator adapters for integer ranges. Its
+  `Step` trait is implemented for the built-in integer types that have
+  representable `MAX` values.
 
 `std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
 modules such as `std.os.linux` may use syscalls directly. A future `std.c` can
@@ -1515,6 +1517,10 @@ so that its item type is clear:
 import std.range;
 
 for i in range::range(0usize..len) {
+    printf(& int_fmt[0], i);
+}
+
+for i in range::range[i64](1..4) {
     printf(& int_fmt[0], i);
 }
 ```
