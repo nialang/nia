@@ -7,13 +7,14 @@ using process::{Init, ExitCode};
 fn run(init: Init) mem::Error!void {
     _ = init;
 
-    var page = mem::PageAllocator::init();
+    var storage: [256]u8 = [_]u8[0; 256];
+    var allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
     var values = std::ArrayList[i32]::init();
-    defer values.deinit(&mut page).?;
+    defer values.deinit(&mut allocator).?;
 
-    values.push(&mut page, 10).?;
-    values.push(&mut page, 20).?;
-    values.push(&mut page, 30).?;
+    values.push(&mut allocator, 10).?;
+    values.push(&mut allocator, 20).?;
+    values.push(&mut allocator, 30).?;
 
     var total = 0;
     for &item in values.iter() {

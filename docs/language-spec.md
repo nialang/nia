@@ -120,8 +120,9 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.fmt` defines the formatting protocol used by writer `.print(...)`.
   Primitive integers, `bool`, `char`, character slices, byte slices, and
   `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
-- `std.mem` defines allocation layout and block types plus an initial
-  `PageAllocator` implementation.
+- `std.mem` defines the `Allocator` trait, allocation layout and block types,
+  `PageAllocator` for OS page mappings, and `FixedBufferAllocator` for
+  caller-provided backing storage.
 - `std.slice` defines `SliceIter`, and slices provide `.iter()` for explicit
   read-only iteration.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its
