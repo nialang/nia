@@ -7,12 +7,13 @@ using process::{Init, ExitCode};
 fn run(init: Init) mem::Error!void {
     _ = init;
 
-    var allocator = mem::PageAllocator::init();
+    var page = mem::PageAllocator::init();
     var values = std::ArrayList[i32]::init();
+    defer values.deinit(&mut page).?;
 
-    values.push(&mut allocator, 10).?;
-    values.push(&mut allocator, 20).?;
-    values.push(&mut allocator, 30).?;
+    values.push(&mut page, 10).?;
+    values.push(&mut page, 20).?;
+    values.push(&mut page, 30).?;
 
     let items = values.as_slice();
     var len = items.len();
@@ -24,8 +25,6 @@ fn run(init: Init) mem::Error!void {
         "array_list len={} capacity={} first={} last={}\n",
         [&len, &capacity, &first, &last],
     );
-
-    values.deinit(&mut allocator).?;
 
     !{}
 }
