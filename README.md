@@ -79,13 +79,14 @@ cargo run -p nia-cli -- --help
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
-nia lex <file.nia>
-nia parse <file.nia>
 nia check <file.nia> [--opt-report]
-nia emit backend <file.nia> [--opt-report]
-nia emit llvm <file.nia> [--opt-report]
-nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
-nia emit exe <file.nia> [-o executable] [--opt-report]
+nia emit --tokens <file.nia>
+nia emit --ast <file.nia>
+nia emit --checked <file.nia> [--opt-report]
+nia emit --backend <file.nia> [--opt-report]
+nia emit --llvm <file.nia> [--opt-report]
+nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit --exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Module aliases can be supplied with `-M name=path`.

@@ -69,34 +69,26 @@ struct Cli {
 
 #[derive(Debug)]
 enum CliCommand {
-    Lex {
-        path: String,
-    },
-    Parse {
-        path: String,
-    },
     Check {
         path: String,
         opt_report: bool,
     },
-    EmitBackend {
+    Emit {
         path: String,
+        target: EmitTarget,
         opt_report: bool,
     },
-    EmitLlvm {
-        path: String,
-        opt_report: bool,
-    },
-    EmitObj {
-        path: String,
-        args: Vec<String>,
-        opt_report: bool,
-    },
-    EmitExe {
-        path: String,
-        args: Vec<String>,
-        opt_report: bool,
-    },
+}
+
+#[derive(Debug)]
+enum EmitTarget {
+    Tokens,
+    Ast,
+    Checked,
+    Backend,
+    Llvm,
+    Obj { args: Vec<String> },
+    Exe { args: Vec<String> },
 }
 
 enum CliAction {
@@ -108,14 +100,8 @@ enum CliAction {
 #[derive(Clone, Copy)]
 enum HelpTopic {
     Main,
-    Lex,
-    Parse,
     Check,
     Emit,
-    EmitBackend,
-    EmitLlvm,
-    EmitObj,
-    EmitExe,
 }
 
 struct CliError {
@@ -152,33 +138,15 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
 
     match cli.command {
-        CliCommand::Lex { .. } => run_lex(&source),
-        CliCommand::Parse { .. } => run_parse(&path, &source),
         CliCommand::Check { opt_report, .. } => {
             run_check(&path, &source, cli.module_map, cli.optimization, opt_report)
         }
-        CliCommand::EmitLlvm { opt_report, .. } => {
-            run_emit_llvm(&path, &source, cli.module_map, cli.optimization, opt_report)
-        }
-        CliCommand::EmitBackend { opt_report, .. } => {
-            run_emit_backend(&path, &source, cli.module_map, cli.optimization, opt_report)
-        }
-        CliCommand::EmitObj {
-            args, opt_report, ..
-        } => run_emit_obj(
+        CliCommand::Emit {
+            target, opt_report, ..
+        } => run_emit(
             &path,
             &source,
-            args,
-            cli.module_map,
-            cli.optimization,
-            opt_report,
-        ),
-        CliCommand::EmitExe {
-            args, opt_report, ..
-        } => run_emit_exe(
-            &path,
-            &source,
-            args,
+            target,
             cli.module_map,
             cli.optimization,
             opt_report,
@@ -188,13 +156,7 @@ fn run_cli(cli: Cli) -> ExitCode {
 
 fn read_source_for_command(command: &CliCommand) -> Result<(String, String), String> {
     let path = match command {
-        CliCommand::Lex { path }
-        | CliCommand::Parse { path }
-        | CliCommand::Check { path, .. }
-        | CliCommand::EmitBackend { path, .. }
-        | CliCommand::EmitLlvm { path, .. }
-        | CliCommand::EmitObj { path, .. }
-        | CliCommand::EmitExe { path, .. } => path,
+        CliCommand::Check { path, .. } | CliCommand::Emit { path, .. } => path,
     };
     let source = match fs::read_to_string(path) {
         Ok(source) => source,
@@ -345,12 +307,6 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
     let rest = args.collect::<Vec<_>>();
     match command.as_str() {
         "help" => Ok(ParsedCommand::Help(help_topic_from_args(&rest))),
-        "lex" => parse_source_command("lex", rest, HelpTopic::Lex, |path| CliCommand::Lex { path })
-            .map(ParsedCommand::Run),
-        "parse" => parse_source_command("parse", rest, HelpTopic::Parse, |path| {
-            CliCommand::Parse { path }
-        })
-        .map(ParsedCommand::Run),
         "check" => parse_check_command(rest).map(ParsedCommand::Run),
         "emit" => parse_emit_command(rest).map(ParsedCommand::Run),
         _ => Err(CliError::new(
@@ -363,41 +319,13 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
 fn help_topic_from_args(args: &[String]) -> HelpTopic {
     match args {
         [] => HelpTopic::Main,
-        [command] if command == "lex" => HelpTopic::Lex,
-        [command] if command == "parse" => HelpTopic::Parse,
         [command] if command == "check" => HelpTopic::Check,
         [command] if command == "emit" => HelpTopic::Emit,
-        [command, target] if command == "emit" && target == "backend" => HelpTopic::EmitBackend,
-        [command, target] if command == "emit" && target == "llvm" => HelpTopic::EmitLlvm,
-        [command, target] if command == "emit" && target == "obj" => HelpTopic::EmitObj,
-        [command, target] if command == "emit" && target == "exe" => HelpTopic::EmitExe,
+        [command, target] if command == "emit" && emit_target_flag(target).is_some() => {
+            HelpTopic::Emit
+        }
         _ => HelpTopic::Main,
     }
-}
-
-fn parse_source_command(
-    command: &str,
-    args: Vec<String>,
-    help: HelpTopic,
-    build: impl FnOnce(String) -> CliCommand,
-) -> Result<CliCommand, CliError> {
-    if has_help_flag(&args) {
-        return Err(CliError::help(help));
-    }
-    let mut args = args.into_iter();
-    let Some(path) = args.next() else {
-        return Err(CliError::new(
-            format!("missing source file for `nia {command}`"),
-            help,
-        ));
-    };
-    if let Some(extra) = args.next() {
-        return Err(CliError::new(
-            format!("unexpected argument `{extra}` for `nia {command}`"),
-            help,
-        ));
-    }
-    Ok(build(path))
 }
 
 fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -431,150 +359,157 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     if args.is_empty() {
         return Err(CliError::help(HelpTopic::Emit));
     }
-    if args.len() == 1 && has_help_flag(&args) {
+    if has_help_flag(&args) {
         return Err(CliError::help(HelpTopic::Emit));
     }
-    let mut args = args.into_iter();
-    let Some(target) = args.next() else {
-        return Err(CliError::help(HelpTopic::Emit));
-    };
-    let rest = args.collect::<Vec<_>>();
-    if has_help_flag(&rest) {
-        return Err(CliError::help(match target.as_str() {
-            "backend" => HelpTopic::EmitBackend,
-            "llvm" => HelpTopic::EmitLlvm,
-            "obj" => HelpTopic::EmitObj,
-            "exe" => HelpTopic::EmitExe,
-            _ => HelpTopic::Emit,
-        }));
-    }
-    match target.as_str() {
-        "backend" => parse_emit_backend_command(rest),
-        "llvm" => parse_emit_llvm_command(rest),
-        "obj" => parse_emit_with_options(
-            "emit obj",
-            rest,
-            HelpTopic::EmitObj,
-            |path, args, opt_report| CliCommand::EmitObj {
-                path,
-                args,
-                opt_report,
-            },
-        ),
-        "exe" => parse_emit_with_options(
-            "emit exe",
-            rest,
-            HelpTopic::EmitExe,
-            |path, args, opt_report| CliCommand::EmitExe {
-                path,
-                args,
-                opt_report,
-            },
-        ),
-        _ => Err(CliError::new(
-            format!("unknown emit target `{target}`"),
-            HelpTopic::Emit,
-        )),
-    }
-}
 
-fn parse_emit_backend_command(args: Vec<String>) -> Result<CliCommand, CliError> {
-    if has_help_flag(&args) {
-        return Err(CliError::help(HelpTopic::EmitBackend));
-    }
-    let mut path = None;
-    let mut opt_report = false;
-    for arg in args {
-        match arg.as_str() {
-            "--opt-report" => opt_report = true,
-            _ if path.is_none() => path = Some(arg),
-            _ => {
-                return Err(CliError::new(
-                    format!("unexpected argument `{arg}` for `nia emit backend`"),
-                    HelpTopic::EmitBackend,
-                ));
-            }
-        }
-    }
-    let Some(path) = path else {
-        return Err(CliError::new(
-            "missing source file for `nia emit backend`",
-            HelpTopic::EmitBackend,
-        ));
-    };
-    Ok(CliCommand::EmitBackend { path, opt_report })
-}
-
-fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
-    if has_help_flag(&args) {
-        return Err(CliError::help(HelpTopic::EmitLlvm));
-    }
-    let mut path = None;
-    let mut opt_report = false;
-    for arg in args {
-        match arg.as_str() {
-            "--opt-report" => opt_report = true,
-            _ if path.is_none() => path = Some(arg),
-            _ => {
-                return Err(CliError::new(
-                    format!("unexpected argument `{arg}` for `nia emit llvm`"),
-                    HelpTopic::EmitLlvm,
-                ));
-            }
-        }
-    }
-    let Some(path) = path else {
-        return Err(CliError::new(
-            "missing source file for `nia emit llvm`",
-            HelpTopic::EmitLlvm,
-        ));
-    };
-    Ok(CliCommand::EmitLlvm { path, opt_report })
-}
-
-fn parse_emit_with_options(
-    command: &str,
-    args: Vec<String>,
-    help: HelpTopic,
-    build: impl FnOnce(String, Vec<String>, bool) -> CliCommand,
-) -> Result<CliCommand, CliError> {
-    if has_help_flag(&args) {
-        return Err(CliError::help(help));
-    }
+    let mut target = None;
     let mut opt_report = false;
     let mut path = None;
     let mut target_args = Vec::new();
     let mut preserve_next = false;
     for arg in args {
-        if path.is_none() {
-            if arg == "--opt-report" {
-                opt_report = true;
-                continue;
-            }
-            path = Some(arg);
-            continue;
-        }
         if preserve_next {
             preserve_next = false;
             target_args.push(arg);
             continue;
         }
-        if arg == "--opt-report" {
-            opt_report = true;
-            continue;
+        match emit_target_flag(&arg) {
+            Some(flag) => {
+                if target.is_some() {
+                    return Err(CliError::new(
+                        "use exactly one emit target flag",
+                        HelpTopic::Emit,
+                    ));
+                }
+                target = Some(flag);
+                continue;
+            }
+            None if looks_like_removed_emit_target(&arg) && path.is_none() => {
+                return Err(CliError::new(
+                    format!("old `nia emit {arg}` syntax was removed; use `nia emit --{arg}`"),
+                    HelpTopic::Emit,
+                ));
+            }
+            None => {}
         }
-        if native_emit_option_takes_path(&arg) {
-            preserve_next = true;
+        match arg.as_str() {
+            "--opt-report" => opt_report = true,
+            _ if native_emit_option_takes_path(&arg) => {
+                preserve_next = true;
+                target_args.push(arg);
+            }
+            _ if arg.starts_with('-') && path.is_none() => {
+                return Err(CliError::new(
+                    format!("unknown `nia emit` option `{arg}`"),
+                    HelpTopic::Emit,
+                ));
+            }
+            _ if path.is_none() => path = Some(arg),
+            _ => {
+                target_args.push(arg);
+            }
         }
-        target_args.push(arg);
     }
-    let Some(path) = path else {
+    let Some(target) = target else {
         return Err(CliError::new(
-            format!("missing source file for `nia {command}`"),
-            help,
+            "missing emit target flag; expected one of --tokens, --ast, --checked, --backend, --llvm, --obj, or --exe",
+            HelpTopic::Emit,
         ));
     };
-    Ok(build(path, target_args, opt_report))
+    let Some(path) = path else {
+        return Err(CliError::new(
+            "missing source file for `nia emit`",
+            HelpTopic::Emit,
+        ));
+    };
+    if !target.accepts_target_args()
+        && let Some(arg) = target_args.first()
+    {
+        return Err(CliError::new(
+            format!(
+                "unexpected argument `{arg}` for `nia emit {}`",
+                target.flag_name()
+            ),
+            HelpTopic::Emit,
+        ));
+    }
+    if opt_report && !target.accepts_opt_report() {
+        return Err(CliError::new(
+            format!(
+                "`--opt-report` is not valid for `nia emit {}`",
+                target.flag_name()
+            ),
+            HelpTopic::Emit,
+        ));
+    }
+    let target = match target {
+        ParsedEmitTarget::Tokens => EmitTarget::Tokens,
+        ParsedEmitTarget::Ast => EmitTarget::Ast,
+        ParsedEmitTarget::Checked => EmitTarget::Checked,
+        ParsedEmitTarget::Backend => EmitTarget::Backend,
+        ParsedEmitTarget::Llvm => EmitTarget::Llvm,
+        ParsedEmitTarget::Obj => EmitTarget::Obj { args: target_args },
+        ParsedEmitTarget::Exe => EmitTarget::Exe { args: target_args },
+    };
+    Ok(CliCommand::Emit {
+        path,
+        target,
+        opt_report,
+    })
+}
+
+#[derive(Clone, Copy)]
+enum ParsedEmitTarget {
+    Tokens,
+    Ast,
+    Checked,
+    Backend,
+    Llvm,
+    Obj,
+    Exe,
+}
+
+impl ParsedEmitTarget {
+    fn flag_name(self) -> &'static str {
+        match self {
+            Self::Tokens => "--tokens",
+            Self::Ast => "--ast",
+            Self::Checked => "--checked",
+            Self::Backend => "--backend",
+            Self::Llvm => "--llvm",
+            Self::Obj => "--obj",
+            Self::Exe => "--exe",
+        }
+    }
+
+    fn accepts_target_args(self) -> bool {
+        matches!(self, Self::Obj | Self::Exe)
+    }
+
+    fn accepts_opt_report(self) -> bool {
+        !matches!(self, Self::Tokens | Self::Ast)
+    }
+}
+
+fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
+    match arg {
+        "--tokens" => Some(ParsedEmitTarget::Tokens),
+        "--ast" => Some(ParsedEmitTarget::Ast),
+        "--checked" => Some(ParsedEmitTarget::Checked),
+        "--backend" => Some(ParsedEmitTarget::Backend),
+        "--llvm" => Some(ParsedEmitTarget::Llvm),
+        "--obj" => Some(ParsedEmitTarget::Obj),
+        "--exe" => Some(ParsedEmitTarget::Exe),
+        _ => None,
+    }
+}
+
+fn looks_like_removed_emit_target(arg: &str) -> bool {
+    matches!(
+        arg,
+        "tokens" | "ast" | "checked" | "backend" | "llvm" | "obj" | "exe"
+    )
 }
 
 fn has_help_flag(args: &[String]) -> bool {
@@ -634,6 +569,48 @@ fn run_check(
     if opt_report {
         print_optimization_report(&program);
     }
+    ExitCode::SUCCESS
+}
+
+fn run_emit(
+    path: &str,
+    source: &str,
+    target: EmitTarget,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    opt_report: bool,
+) -> ExitCode {
+    match target {
+        EmitTarget::Tokens => run_lex(source),
+        EmitTarget::Ast => run_parse(path, source),
+        EmitTarget::Checked => run_emit_checked(path, source, module_map, optimization, opt_report),
+        EmitTarget::Backend => run_emit_backend(path, source, module_map, optimization, opt_report),
+        EmitTarget::Llvm => run_emit_llvm(path, source, module_map, optimization, opt_report),
+        EmitTarget::Obj { args } => {
+            run_emit_obj(path, source, args, module_map, optimization, opt_report)
+        }
+        EmitTarget::Exe { args } => {
+            run_emit_exe(path, source, args, module_map, optimization, opt_report)
+        }
+    }
+}
+
+fn run_emit_checked(
+    path: &str,
+    source: &str,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    opt_report: bool,
+) -> ExitCode {
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    if !program.diagnostics.is_empty() {
+        print_program_diagnostics(path, source, &program);
+        return ExitCode::FAILURE;
+    }
+    if opt_report {
+        print_optimization_report_to_stderr(&program);
+    }
+    println!("{program:#?}");
     ExitCode::SUCCESS
 }
 
@@ -879,7 +856,7 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
                 };
                 out_dir = Some(PathBuf::from(path));
             }
-            _ => return Err(format!("unknown `nia emit obj` option `{arg}`")),
+            _ => return Err(format!("unknown `nia emit --obj` option `{arg}`")),
         }
     }
     match (output, out_dir) {
@@ -901,7 +878,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<PathBuf, St
                 };
                 output = Some(PathBuf::from(path));
             }
-            _ => return Err(format!("unknown `nia emit exe` option `{arg}`")),
+            _ => return Err(format!("unknown `nia emit --exe` option `{arg}`")),
         }
     }
     Ok(output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)))

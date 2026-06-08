@@ -2704,13 +2704,14 @@ A conforming Nia compiler supports:
 The CLI surface is:
 
 ```text
-nia lex <file.nia>
-nia parse <file.nia>
 nia check <file.nia> [--opt-report]
-nia emit backend <file.nia> [--opt-report]
-nia emit llvm <file.nia> [--opt-report]
-nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
-nia emit exe <file.nia> [-o executable] [--opt-report]
+nia emit --tokens <file.nia>
+nia emit --ast <file.nia>
+nia emit --checked <file.nia> [--opt-report]
+nia emit --backend <file.nia> [--opt-report]
+nia emit --llvm <file.nia> [--opt-report]
+nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit --exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Module-map options are accepted before or after the command:
@@ -2737,17 +2738,17 @@ optimization policy and backend optimization report to stdout. Emit commands
 write the same report to stderr when `--opt-report` is supplied, so stdout
 remains backend IR or LLVM IR and native emit targets remain file-only.
 
-`emit obj` writes one object per backend codegen unit. `-o` is only valid for a
-single-unit program. Multi-unit output uses `--out-dir`. `emit exe` writes
+`emit --obj` writes one object per backend codegen unit. `-o` is only valid for
+a single-unit program. Multi-unit output uses `--out-dir`. `emit --exe` writes
 temporary objects and invokes the target linker without CRT startup. The linker
 is selected with `NIA_LINKER`; if it is unset, the target default linker is used.
-Native emit commands create missing output directories: `emit obj -o
-build/main.o`, `emit obj --out-dir build/obj`, and `emit exe -o build/main` all
-create `build` or `build/obj` when needed. This applies only to compiler output
-paths, not to input source files or module-map paths.
+Native emit commands create missing output directories: `emit --obj -o
+build/main.o`, `emit --obj --out-dir build/obj`, and `emit --exe -o build/main`
+all create `build` or `build/obj` when needed. This applies only to compiler
+output paths, not to input source files or module-map paths.
 
 `build` is reserved for an external build system. The current CLI does not
-provide `run`; use `emit exe` and execute the result.
+provide `run`; use `emit --exe` and execute the result.
 
 ## 15. Reserved Future Design Areas
 

@@ -199,14 +199,15 @@ Current Nia-owned optimization consumers:
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
   `nia check <file.nia> --opt-report` prints this report for direct CLI
-  inspection. `nia emit backend <file.nia> --opt-report`,
-  `nia emit llvm <file.nia> --opt-report`,
-  `nia emit obj <file.nia> --opt-report`, and
-  `nia emit exe <file.nia> --opt-report` write the same report to stderr
+  inspection. `nia emit --checked <file.nia> --opt-report`,
+  `nia emit --backend <file.nia> --opt-report`,
+  `nia emit --llvm <file.nia> --opt-report`,
+  `nia emit --obj <file.nia> --opt-report`, and
+  `nia emit --exe <file.nia> --opt-report` write the same report to stderr
   so stdout remains machine-readable backend IR or LLVM IR and native emit
   targets keep object/executable output file-only.
   Dedicated `--emit-*-before-opt` / `--emit-*-after-opt` snapshots are not
-  implemented yet; reviewers should currently use `emit backend` for the final
+  implemented yet; reviewers should currently use `emit --backend` for the final
   optimized backend IR and `--opt-report` for pass inventory and change
   attribution.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
@@ -362,7 +363,8 @@ errors.
 The lexer does not know semantic meaning. It should not resolve types, evaluate
 constants, or classify identifiers beyond keyword recognition.
 
-The lexer also remains available for CLI/debug tooling such as `nia lex`.
+The lexer also remains available for CLI/debug tooling through
+`nia emit --tokens`.
 Parser lowering does not depend on lexer token vectors.
 
 ### 4.2 `nia-syntax`
@@ -1044,13 +1046,14 @@ The package is `nia-cli`. The installed binary name is `nia`.
 The CLI supports:
 
 ```text
-nia lex <file.nia>
-nia parse <file.nia>
 nia check <file.nia> [--opt-report]
-nia emit backend <file.nia> [--opt-report]
-nia emit llvm <file.nia> [--opt-report]
-nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
-nia emit exe <file.nia> [-o executable] [--opt-report]
+nia emit --tokens <file.nia>
+nia emit --ast <file.nia>
+nia emit --checked <file.nia> [--opt-report]
+nia emit --backend <file.nia> [--opt-report]
+nia emit --llvm <file.nia> [--opt-report]
+nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit --exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Global module-map options:
@@ -1076,16 +1079,17 @@ Global optimization options are listed explicitly in CLI help:
 policy, LLVM codegen optimization level, enabled backend module/function/global
 pass inventories, the backend optimization change count, and backend
 optimization changes to stdout.
-`nia emit backend` prints the optimized backend IR to stdout for pass review.
-`nia emit backend <file.nia> --opt-report`,
-`nia emit llvm <file.nia> --opt-report`,
-`nia emit obj <file.nia> --opt-report`, and
-`nia emit exe <file.nia> --opt-report` print the report to stderr while
+`nia emit --backend` prints the optimized backend IR to stdout for pass review.
+`nia emit --checked <file.nia> --opt-report`,
+`nia emit --backend <file.nia> --opt-report`,
+`nia emit --llvm <file.nia> --opt-report`,
+`nia emit --obj <file.nia> --opt-report`, and
+`nia emit --exe <file.nia> --opt-report` print the report to stderr while
 leaving stdout as backend IR or LLVM IR, and while keeping native
 object/executable output file-only. This is useful when reviewing pass behavior
 next to emitted code or native codegen artifacts.
 The CLI does not yet expose separate before/after backend optimization snapshots;
-`emit backend` is the post-lowering optimized backend IR, and
+`emit --backend` is the post-lowering optimized backend IR, and
 `--opt-report` is the stable pass-observability interface.
 The CLI regression fixture emits and runs the same program at `-O0`, `-O1`,
 `-O2`, `-O3`, `-Os`, `-Oz`, and `-O`; it exercises constant leaf inlining,
@@ -1093,13 +1097,14 @@ generic instance calls, local cleanup, and size-safe forwarding wrappers while
 checking that the freestanding executable exits with the same value at every
 level.
 
-`emit obj` may produce multiple object files because backend lowering can produce
-multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is
-the multi-unit form. `emit exe` uses host linking and is therefore part of the
-host execution model. Native output paths are mkdir-friendly by design: missing
-parent directories for `emit obj -o`, `emit obj --out-dir`, and `emit exe -o`
-are created before writing or linking output artifacts. Input paths and module
-map paths are never created implicitly.
+`emit --obj` may produce multiple object files because backend lowering can
+produce multiple codegen units. `-o` is only valid for single-unit output;
+`--out-dir` is the multi-unit form. `emit --exe` uses host linking and is
+therefore part of the host execution model. Native output paths are
+mkdir-friendly by design: missing parent directories for `emit --obj -o`,
+`emit --obj --out-dir`, and `emit --exe -o` are created before writing or
+linking output artifacts. Input paths and module map paths are never created
+implicitly.
 
 ## 14. Diagnostics
 
