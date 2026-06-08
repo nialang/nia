@@ -3460,6 +3460,57 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_range_start_and_end_methods_evaluate_bounds() {
+    let root = temp_dir("comptime_range_start_and_end_methods_evaluate_bounds");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn total() usize {
+    let both = 2usize..5usize;
+    let from = 7usize..;
+    let to = ..11usize;
+    both.start() + both.end() + from.start() + to.end()
+}
+
+comptime let n: usize = total();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_range_start_and_end_require_present_bounds() {
+    let root = temp_dir("comptime_range_start_and_end_require_present_bounds");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let bad_end: usize = (1usize..).end();
+comptime let bad_start: usize = (..2usize).start();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let count = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("comptime range does not have")
+        })
+        .count();
+    assert_eq!(count, 2, "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_target_strings_compare_with_string_literals() {
     let root = temp_dir("comptime_target_strings_compare_with_string_literals");
     write(

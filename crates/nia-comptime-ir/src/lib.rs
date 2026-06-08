@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
+use nia_ids::{
+    BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
+    ValueBuiltin,
+};
 use nia_node_id::NodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
@@ -814,7 +817,8 @@ pub enum ResolvedComptimeExprKind {
         lhs: Box<ResolvedComptimeExpr>,
         name: String,
     },
-    Len {
+    BuiltinMethod {
+        method: BuiltinTraitMethod,
         lhs: Box<ResolvedComptimeExpr>,
     },
     Index {
@@ -1263,7 +1267,8 @@ pub enum EarlyComptimeExprKind {
         lhs: Box<EarlyComptimeExpr>,
         name: String,
     },
-    Len {
+    BuiltinMethod {
+        method: BuiltinTraitMethod,
         lhs: Box<EarlyComptimeExpr>,
     },
     Index {
@@ -1901,9 +1906,10 @@ fn lower_call_with_context(
     }
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
-        && name == "len"
+        && let Some(method) = comptime_builtin_method_name(name)
     {
-        return Ok(EarlyComptimeExprKind::Len {
+        return Ok(EarlyComptimeExprKind::BuiltinMethod {
+            method,
             lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
@@ -1925,6 +1931,15 @@ fn lower_call_with_context(
             .map(|arg| lower_expr_internal(arg, context))
             .collect::<Result<Vec<_>, _>>()?,
     })
+}
+
+fn comptime_builtin_method_name(name: &str) -> Option<BuiltinTraitMethod> {
+    match name {
+        "len" => Some(BuiltinTraitMethod::Len),
+        "start" => Some(BuiltinTraitMethod::Start),
+        "end" => Some(BuiltinTraitMethod::End),
+        _ => None,
+    }
 }
 
 fn lower_comptime_range_with_context(
@@ -2269,9 +2284,12 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             lhs: Box::new(resolve_expr(*lhs)?),
             name,
         },
-        EarlyComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
-            lhs: Box::new(resolve_expr(*lhs)?),
-        },
+        EarlyComptimeExprKind::BuiltinMethod { method, lhs } => {
+            ResolvedComptimeExprKind::BuiltinMethod {
+                method,
+                lhs: Box::new(resolve_expr(*lhs)?),
+            }
+        }
         EarlyComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
             lhs: Box::new(resolve_expr(*lhs)?),
             index: Box::new(resolve_expr(*index)?),

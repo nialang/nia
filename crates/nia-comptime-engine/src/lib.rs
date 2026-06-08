@@ -16,7 +16,9 @@ use nia_comptime_ir::{
     ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
     ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
+use nia_ids::{
+    BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin,
+};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
 use std::collections::BTreeMap;
@@ -529,21 +531,8 @@ fn eval_resolved_comptime_expr_flow(
                 }
             }
         }
-        ResolvedComptimeExprKind::Len { lhs } => {
-            match eval_resolved_value_or_return_flow!(lhs, env) {
-                ComptimeValue::Array(values) => {
-                    ComptimeValue::Int(i128::try_from(values.len()).map_err(|_| ComptimeError {
-                        span: span,
-                        message: "comptime array length is too large".to_string(),
-                    })?)
-                }
-                _ => {
-                    return Err(ComptimeError {
-                        span: span,
-                        message: "comptime len requires an array value".to_string(),
-                    });
-                }
-            }
+        ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => {
+            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
         }
         ResolvedComptimeExprKind::Index { lhs, index } => {
             return eval_resolved_array_index_flow(span, lhs, index, env);
@@ -775,20 +764,9 @@ fn eval_comptime_expr_flow(
                 });
             }
         },
-        EarlyComptimeExprKind::Len { lhs } => match eval_value_or_return_flow!(lhs, env) {
-            ComptimeValue::Array(values) => {
-                ComptimeValue::Int(i128::try_from(values.len()).map_err(|_| ComptimeError {
-                    span: expr.span,
-                    message: "comptime array length is too large".to_string(),
-                })?)
-            }
-            _ => {
-                return Err(ComptimeError {
-                    span: expr.span,
-                    message: "comptime len requires an array value".to_string(),
-                });
-            }
-        },
+        EarlyComptimeExprKind::BuiltinMethod { method, lhs } => {
+            eval_builtin_method_value(expr.span, *method, eval_value_or_return_flow!(lhs, env))?
+        }
         EarlyComptimeExprKind::Index { lhs, index } => {
             return eval_array_index_flow(expr.span, lhs, index, env);
         }
@@ -985,6 +963,65 @@ fn eval_comptime_if_expr_flow(
             message: "comptime if expression requires an else branch".to_string(),
         })
     }
+}
+
+fn eval_builtin_method_value(
+    span: Span,
+    method: BuiltinTraitMethod,
+    value: ComptimeValue,
+) -> Result<ComptimeValue, ComptimeError> {
+    match method {
+        BuiltinTraitMethod::Len => eval_builtin_len_value(span, value),
+        BuiltinTraitMethod::Start => eval_builtin_range_bound_value(span, value, true),
+        BuiltinTraitMethod::End => eval_builtin_range_bound_value(span, value, false),
+        _ => Err(ComptimeError {
+            span,
+            message: format!(
+                "unsupported builtin trait method in comptime expression: {}",
+                method.name()
+            ),
+        }),
+    }
+}
+
+fn eval_builtin_len_value(
+    span: Span,
+    value: ComptimeValue,
+) -> Result<ComptimeValue, ComptimeError> {
+    match value {
+        ComptimeValue::Array(values) => Ok(ComptimeValue::Int(
+            i128::try_from(values.len()).map_err(|_| ComptimeError {
+                span,
+                message: "comptime array length is too large".to_string(),
+            })?,
+        )),
+        _ => Err(ComptimeError {
+            span,
+            message: "comptime len requires an array value".to_string(),
+        }),
+    }
+}
+
+fn eval_builtin_range_bound_value(
+    span: Span,
+    value: ComptimeValue,
+    want_start: bool,
+) -> Result<ComptimeValue, ComptimeError> {
+    let ComptimeValue::Range(range) = value else {
+        return Err(ComptimeError {
+            span,
+            message: "comptime range bound method requires a range value".to_string(),
+        });
+    };
+    let bound = if want_start { range.start } else { range.end };
+    let Some(bound) = bound else {
+        let name = if want_start { "start" } else { "end" };
+        return Err(ComptimeError {
+            span,
+            message: format!("comptime range does not have a {name} bound"),
+        });
+    };
+    Ok(ComptimeValue::Int(bound))
 }
 
 fn eval_comptime_switch_expr_flow(

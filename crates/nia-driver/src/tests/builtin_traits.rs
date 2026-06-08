@@ -797,8 +797,8 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn len_is_not_a_builtin_trait() {
-    let root = temp_dir("len_is_not_a_builtin_trait");
+fn builtin_len_trait_constrains_array_and_slice_length() {
+    let root = temp_dir("builtin_len_trait_constrains_array_and_slice_length");
     write(
         &root.join("main.nia"),
         r#"
@@ -807,22 +807,20 @@ where T: Len {
     value.len()
 }
 
-fn main() usize {
+fn associated_len_of[T](value: T) usize
+where T: Len {
+    [T]::len(value)
+}
+
+fn main(slice: & [usize]) usize {
     var array = [1usize, 2usize, 3usize, 4usize];
-    len_of(array)
+    len_of(array) + associated_len_of(slice)
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| { diagnostic.diagnostic.summary.contains("unknown type `Len`") }),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -884,6 +882,171 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_start_and_end_traits_model_range_bounds() {
+    let root = temp_dir("builtin_start_and_end_traits_model_range_bounds");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn start_of[T](value: T) [T as Start]::Output
+where T: Start {
+    value.start()
+}
+
+fn end_of[T](value: T) [T as End]::Output
+where T: End {
+    [T]::end(value)
+}
+
+fn main() usize {
+    let both = 2usize..5usize;
+    let from = 3usize..;
+    let to = ..7usize;
+    start_of(both) + end_of(both) + start_of(from) + end_of(to)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn range_bounds_only_expose_present_start_or_end() {
+    let root = temp_dir("range_bounds_only_expose_present_start_or_end");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() usize {
+    let from = 1usize..;
+    let to = ..2usize;
+    from.end() + to.start()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let trait_failures = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            let summary = &diagnostic.diagnostic.summary;
+            summary.contains("trait bound not satisfied")
+                && (summary.contains(": End") || summary.contains(": Start"))
+        })
+        .count();
+    assert_eq!(trait_failures, 2, "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_len_start_end_traits_allow_user_impls() {
+    let root = temp_dir("builtin_len_start_end_traits_allow_user_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Window {
+    lo: usize,
+    hi: usize,
+}
+
+extend Window : Len {
+    fn len(& self) usize {
+        self.hi - self.lo
+    }
+}
+
+extend Window : Start {
+    type Output = usize;
+
+    fn start(& self) usize {
+        self.lo
+    }
+}
+
+extend Window : End {
+    type Output = usize;
+
+    fn end(& self) usize {
+        self.hi
+    }
+}
+
+fn len_of[T](value: T) usize
+where T: Len {
+    value.len()
+}
+
+fn start_of[T](value: T) [T as Start]::Output
+where T: Start {
+    value.start()
+}
+
+fn end_of[T](value: T) [T as End]::Output
+where T: End {
+    value.end()
+}
+
+fn main() usize {
+    let window: Window = { lo: 3usize, hi: 9usize };
+    len_of(window) + start_of(window) + end_of(window)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_len_start_end_traits_validate_method_signatures() {
+    let root = temp_dir("builtin_len_start_end_traits_validate_method_signatures");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct BadLen {}
+struct BadStart {}
+struct BadEnd {}
+
+extend BadLen : Len {
+    fn len(self) i32 {
+        1
+    }
+}
+
+extend BadStart : Start {
+    type Output = usize;
+
+    fn start(self) usize {
+        1usize
+    }
+}
+
+extend BadEnd : End {
+    type Output = usize;
+
+    fn end(& self) i32 {
+        1
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for method in ["len", "start", "end"] {
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic.diagnostic.summary.contains(&format!(
+                    "implementation of trait method `{method}` does not match the trait signature"
+                ))
+            }),
+            "{method}: {:?}",
+            program.diagnostics
+        );
+    }
 }
 
 #[test]

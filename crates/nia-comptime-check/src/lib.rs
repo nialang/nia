@@ -17,7 +17,8 @@ use nia_comptime_ir::{
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{
-    GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+    BuiltinAssociatedType, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
+    LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature,
@@ -2385,9 +2386,9 @@ impl Analyzer<'_> {
                 let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
                 self.comptime_field_type(lhs_ty, name)
             }
-            ResolvedComptimeExprKind::Len { lhs } => {
+            ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => {
                 let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
-                self.comptime_len_type(lhs_ty)
+                self.comptime_builtin_method_type(*method, lhs_ty)
             }
             ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
                 self.resolved_comptime_cast_type(inner, *ty)
@@ -2515,21 +2516,48 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_len_type(&mut self, lhs: ComptimeValueType) -> Option<ComptimeValueType> {
-        match lhs {
-            ComptimeValueType::Array { .. } => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Usize),
-            )),
-            ComptimeValueType::Runtime(ty) => match self.ty_kind(ty)? {
-                TyKind::Array { .. } => Some(ComptimeValueType::Runtime(
+    fn comptime_builtin_method_type(
+        &mut self,
+        method: BuiltinTraitMethod,
+        lhs: ComptimeValueType,
+    ) -> Option<ComptimeValueType> {
+        let receiver_ty = match lhs {
+            ComptimeValueType::Array { .. } if method == BuiltinTraitMethod::Len => {
+                return Some(ComptimeValueType::Runtime(
                     self.current_runtime_primitive_type(PrimitiveTy::Usize),
-                )),
-                _ => None,
-            },
-            ComptimeValueType::Struct(_)
+                ));
+            }
+            ComptimeValueType::Runtime(ty) => ty,
+            ComptimeValueType::Array { .. }
+            | ComptimeValueType::Struct(_)
             | ComptimeValueType::Int
             | ComptimeValueType::Bool
-            | ComptimeValueType::String => None,
+            | ComptimeValueType::String => return None,
+        };
+        let trait_id = method.trait_id();
+        if !matches!(
+            method,
+            BuiltinTraitMethod::Len | BuiltinTraitMethod::Start | BuiltinTraitMethod::End
+        ) || !self.proves_trait_obligation(receiver_ty, TraitId::Builtin(trait_id), Vec::new())
+        {
+            return None;
+        }
+        match method {
+            BuiltinTraitMethod::Len => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Usize),
+            )),
+            BuiltinTraitMethod::Start | BuiltinTraitMethod::End => self
+                .resolve_associated_type_projection(
+                    receiver_ty,
+                    TraitId::Builtin(trait_id),
+                    &[],
+                    BuiltinAssociatedType::Output.name(),
+                )
+                .and_then(|ty| {
+                    self.import_ty_into_module_or_none(ty, self.current_execution_module_id())
+                })
+                .map(ComptimeValueType::Runtime),
+            _ => None,
         }
     }
 

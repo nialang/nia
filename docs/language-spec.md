@@ -666,6 +666,11 @@ unsuffixed integer literals in slice bounds are inferred as `usize`. Omitted
 slice bounds are interpreted by the slice operation, not by rewriting the range
 value to `0` or `usize::MAX`.
 
+Bounded range values expose their present bounds through the builtin `Start`
+and `End` traits. `a..b` and `a..=b` implement both `Start` and `End`;
+`a..` implements only `Start`; `..b` and `..=b` implement only `End`; `..`
+implements neither. Range values do not implement `Len`.
+
 Nia does not provide built-in runtime bounds checks. The programmer is
 responsible for ensuring that the selected memory range is valid.
 
@@ -1732,6 +1737,8 @@ Nia provides a small builtin surface:
 @builtin().target.endian
 @builtin().target.pointer_width
 value.len()
+range.start()
+range.end()
 slice.get_ptr_read()
 slice.get_ptr()
 @asm({...})
@@ -1757,10 +1764,14 @@ compile-time known values and may appear in array lengths, static initializers,
 and ordinary expressions. In generic code they remain layout values until the
 generic function is instantiated.
 
-`value.len()` is a compiler built-in method for arrays and slices. For `[N]T`,
-it returns `N`; for `&[T]` and `&mut [T]`, it returns the runtime slice
-length. `len` is not a trait method and user types cannot implement a built-in
-`Len` capability.
+`value.len()` calls the built-in `Len` trait method. Arrays and slices have
+compiler-proven `Len` implementations; for `[N]T`, it returns `N`; for `&[T]`
+and `&mut [T]`, it returns the runtime slice length. User types may implement
+`Len` when they do not overlap compiler-proven array or slice implementations.
+
+`range.start()` and `range.end()` call the built-in `Start` and `End` trait
+methods. They are available only for range shapes that carry the requested
+bound and return that bound's integer type.
 
 `slice.get_ptr_read()` and `slice.get_ptr()` call the built-in `GetPtrRead`
 and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
@@ -2125,6 +2136,20 @@ trait Slice[R] : SliceRead[R] {
     fn slice(&mut self, range: R) [Self as Slice[R]]::Output;
 }
 
+trait Len {
+    fn len(&self) usize;
+}
+
+trait Start {
+    type Output;
+    fn start(&self) [Self as Start]::Output;
+}
+
+trait End {
+    type Output;
+    fn end(&self) [Self as End]::Output;
+}
+
 trait GetPtrRead {
     type Target;
     fn get_ptr_read(&self) &[Self as GetPtrRead]::Target;
@@ -2142,7 +2167,8 @@ to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
 container may implement `SliceRead[..]`, but `[N]T` may not provide a manual
 `SliceRead[..]` implementation because array slicing is already
-compiler-proven. Length remains a built-in method only for arrays and slices.
+compiler-proven. Custom range-like types may implement `Start` and `End`,
+while compiler-proven structural range implementations cannot be overlapped.
 
 Index expressions lower through `IndexRead` or `Index`; slice expressions
 lower through `SliceRead` or `Slice`. Native array, pointer, and slice
@@ -2688,7 +2714,7 @@ A conforming Nia compiler supports:
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `value.len()`, `slice.get_ptr_read()`, and `@asm({...})`;
+- `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.get_ptr_read()`, and `@asm({...})`;
 - relative file imports and module-map bare imports;
 - global static storage from top-level `var` and `let`;
 - top-level `pub` visibility;

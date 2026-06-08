@@ -222,6 +222,9 @@ where
             }
             BuiltinTrait::GetPtrRead => self.can_be_slice(self_ty, false),
             BuiltinTrait::GetPtr => self.can_be_slice(self_ty, true),
+            BuiltinTrait::Len => self.can_have_len(self_ty),
+            BuiltinTrait::Start => self.can_have_range_start(self_ty),
+            BuiltinTrait::End => self.can_have_range_end(self_ty),
             BuiltinTrait::Iterator => false,
         }
     }
@@ -417,6 +420,44 @@ where
                 self.interner.get(self.normalize(*bound)),
                 Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Usize))
             ),
+            _ => false,
+        }
+    }
+
+    fn can_have_len(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::GenericParam(_) | TyKind::Array { .. } | TyKind::Slice { .. })
+        )
+    }
+
+    fn can_have_range_start(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(self.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Range { kind, bound }) => {
+                bound.is_some()
+                    && matches!(
+                        kind,
+                        RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From
+                    )
+            }
+            _ => false,
+        }
+    }
+
+    fn can_have_range_end(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(self.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Range { kind, bound }) => {
+                bound.is_some()
+                    && matches!(
+                        kind,
+                        RangeTyKind::Exclusive
+                            | RangeTyKind::Inclusive
+                            | RangeTyKind::To
+                            | RangeTyKind::ToInclusive
+                    )
+            }
             _ => false,
         }
     }
@@ -646,6 +687,16 @@ where
                 goal.trait_args.is_empty()
                     && self.intrinsic_get_ptr_target_ty(self_ty, true).is_some()
             }
+            BuiltinTrait::Len => {
+                goal.trait_args.is_empty() && self.intrinsic_len_output_ty(self_ty).is_some()
+            }
+            BuiltinTrait::Start => {
+                goal.trait_args.is_empty()
+                    && self.intrinsic_range_start_output_ty(self_ty).is_some()
+            }
+            BuiltinTrait::End => {
+                goal.trait_args.is_empty() && self.intrinsic_range_end_output_ty(self_ty).is_some()
+            }
             BuiltinTrait::Iterator => false,
         }
     }
@@ -738,6 +789,14 @@ where
             (BuiltinTrait::GetPtr, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_get_ptr_target_ty(self_ty, true)
+            }
+            (BuiltinTrait::Start, BuiltinAssociatedType::Output) => {
+                trait_args.is_empty().then_some(())?;
+                self.intrinsic_range_start_output_ty(self_ty)
+            }
+            (BuiltinTrait::End, BuiltinAssociatedType::Output) => {
+                trait_args.is_empty().then_some(())?;
+                self.intrinsic_range_end_output_ty(self_ty)
             }
             _ => None,
         }
@@ -842,6 +901,40 @@ where
                 is_readonly: true,
                 elem,
             }) if !require_mutable => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub fn intrinsic_len_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
+        match self.kind(self_ty) {
+            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => Some(self.usize()),
+            _ => None,
+        }
+    }
+
+    pub fn intrinsic_range_start_output_ty(
+        &mut self,
+        self_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match self.kind(self_ty) {
+            Some(TyKind::Range {
+                kind: RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From,
+                bound: Some(bound),
+            }) => Some(*bound),
+            _ => None,
+        }
+    }
+
+    pub fn intrinsic_range_end_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
+        match self.kind(self_ty) {
+            Some(TyKind::Range {
+                kind:
+                    RangeTyKind::Exclusive
+                    | RangeTyKind::Inclusive
+                    | RangeTyKind::To
+                    | RangeTyKind::ToInclusive,
+                bound: Some(bound),
+            }) => Some(*bound),
             _ => None,
         }
     }
