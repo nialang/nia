@@ -950,7 +950,11 @@ impl<'a> BodyChecker<'a> {
             StmtKind::ForIn(for_stmt) => {
                 let iter_ty = self.check_expr(&for_stmt.iter);
                 let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
-                let binding_ty = self.check_for_pattern(&for_stmt.pattern, item_ty);
+                let binding_ty = self.check_binding_pattern(
+                    for_stmt.pattern.kind,
+                    for_stmt.pattern.span,
+                    item_ty,
+                );
                 if for_stmt.pattern.name().is_some()
                     && let Some(local_id) = self.local_def(&for_stmt.pattern.node_key)
                 {
@@ -999,24 +1003,25 @@ impl<'a> BodyChecker<'a> {
         self.normalize_projection(item)
     }
 
-    fn check_for_pattern(
+    fn check_binding_pattern(
         &mut self,
-        pattern: &nia_ast::ForPattern,
-        item_ty: InternedTyId,
+        kind: nia_ast::ForPatternKind,
+        span: Span,
+        value_ty: InternedTyId,
     ) -> InternedTyId {
-        match pattern.kind {
-            nia_ast::ForPatternKind::Value => item_ty,
+        match kind {
+            nia_ast::ForPatternKind::Value => value_ty,
             nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => {
-                let expected_readonly = matches!(pattern.kind, nia_ast::ForPatternKind::Pointer);
+                let expected_readonly = matches!(kind, nia_ast::ForPatternKind::Pointer);
                 match self
                     .interner
-                    .get(self.normalization.normalize(item_ty))
+                    .get(self.normalization.normalize(value_ty))
                     .cloned()
                 {
-                    Some(TyKind::Pointer { is_readonly, .. })
+                    Some(TyKind::Pointer { is_readonly, elem })
                         if is_readonly == expected_readonly =>
                     {
-                        item_ty
+                        elem
                     }
                     Some(TyKind::Pointer { .. }) => {
                         let expected = if expected_readonly {
@@ -1026,8 +1031,8 @@ impl<'a> BodyChecker<'a> {
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0301",
-                            pattern.span,
-                            format!("for pattern {expected} does not match iterator item type"),
+                            span,
+                            format!("binding pattern {expected} does not match value type"),
                         ));
                         self.error()
                     }
@@ -1039,13 +1044,66 @@ impl<'a> BodyChecker<'a> {
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0301",
-                            pattern.span,
-                            format!("for pattern requires iterator item to be a {expected}"),
+                            span,
+                            format!("binding pattern requires value to be a {expected}"),
                         ));
                         self.error()
                     }
                 }
             }
+        }
+    }
+
+    fn binding_pattern_input_ty(
+        &mut self,
+        kind: nia_ast::ForPatternKind,
+        binding_ty: InternedTyId,
+    ) -> InternedTyId {
+        match kind {
+            nia_ast::ForPatternKind::Value => binding_ty,
+            nia_ast::ForPatternKind::Pointer => self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: binding_ty,
+            }),
+            nia_ast::ForPatternKind::MutPointer => self.interner.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem: binding_ty,
+            }),
+        }
+    }
+
+    fn materialize_explicit_binding_pattern_ty(
+        &self,
+        kind: nia_ast::ForPatternKind,
+        explicit_binding: InternedTyId,
+        value_ty: InternedTyId,
+    ) -> InternedTyId {
+        match kind {
+            nia_ast::ForPatternKind::Value => self
+                .materialize_inferred_array_type(explicit_binding, value_ty)
+                .unwrap_or(explicit_binding),
+            nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => self
+                .interner
+                .get(self.normalization.normalize(value_ty))
+                .and_then(|ty| match ty {
+                    TyKind::Pointer { elem, .. } => {
+                        self.materialize_inferred_array_type(explicit_binding, *elem)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(explicit_binding),
+        }
+    }
+
+    fn local_binding_pattern_key<'b>(
+        &self,
+        stmt: &'b Stmt,
+        binding: &'b BindingStmt,
+    ) -> &'b NodeKey {
+        if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+            &stmt.node_key
+        } else {
+            &binding.pattern_node_key
         }
     }
 
@@ -1058,28 +1116,51 @@ impl<'a> BodyChecker<'a> {
                 "comptime binding requires an initializer",
             ));
         }
+        if !matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value)
+            && binding.value.is_none()
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                binding.pattern_span,
+                "binding pattern requires an initializer",
+            ));
+            return self.record_error_local_binding(self.local_binding_pattern_key(stmt, binding));
+        }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
-                let explicit = self.ty_for_type(ty);
+                let explicit_binding = self.ty_for_type(ty);
+                let explicit_input =
+                    self.binding_pattern_input_ty(binding.pattern_kind, explicit_binding);
                 let value_ty = if binding.is_comptime {
                     self.with_comptime_context(|this| {
-                        this.check_expr_with_expected(value, Some(explicit))
+                        this.check_expr_with_expected(value, Some(explicit_input))
                     })
                 } else {
-                    self.check_expr_with_expected(value, Some(explicit))
+                    self.check_expr_with_expected(value, Some(explicit_input))
                 };
                 if binding.is_comptime && self.is_comptime_only_ty(value_ty) {
                     // The initializer is validated by nia-comptime-check and has no runtime value.
                 } else if self.is_comptime_only_ty(value_ty) {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
-                    return self.record_error_local_binding(&stmt.node_key);
+                    return self
+                        .record_error_local_binding(self.local_binding_pattern_key(stmt, binding));
                 } else {
-                    self.expect_expr_type(value, explicit, value_ty, "binding initializer");
+                    self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
                 }
-                self.materialize_inferred_array_type(explicit, value_ty)
-                    .unwrap_or(explicit)
+                self.materialize_explicit_binding_pattern_ty(
+                    binding.pattern_kind,
+                    explicit_binding,
+                    value_ty,
+                )
             }
-            (Some(ty), None) => self.ty_for_type(ty),
+            (Some(ty), None) => {
+                let explicit = self.ty_for_type(ty);
+                if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+                    explicit
+                } else {
+                    self.error()
+                }
+            }
             (None, Some(value)) => {
                 let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
                     if binding.is_comptime {
@@ -1098,7 +1179,7 @@ impl<'a> BodyChecker<'a> {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
                     self.error()
                 } else {
-                    value_ty
+                    self.check_binding_pattern(binding.pattern_kind, binding.pattern_span, value_ty)
                 }
             }
             (None, None) => {
@@ -1110,7 +1191,7 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         };
-        if let Some(local_id) = self.local_def(&stmt.node_key) {
+        if let Some(local_id) = self.local_def(self.local_binding_pattern_key(stmt, binding)) {
             self.local_types.insert(local_id, binding_ty);
         }
     }

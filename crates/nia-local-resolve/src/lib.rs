@@ -272,7 +272,7 @@ impl<'a> LocalResolver<'a> {
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Binding(binding) => {
-                self.resolve_binding(stmt.span, stmt.node_key.clone(), binding);
+                self.resolve_binding(stmt.span, binding, stmt.node_key.clone());
             }
             StmtKind::Using(_) => {
                 // Block-scope `using` is handled by a later resolution pass; nothing local to bind.
@@ -307,13 +307,18 @@ impl<'a> LocalResolver<'a> {
         }
     }
 
-    fn resolve_binding(&mut self, span: Span, node_key: NodeKey, binding: &BindingStmt) {
+    fn resolve_binding(&mut self, span: Span, binding: &BindingStmt, fallback_key: NodeKey) {
         if let Some(ty) = &binding.ty {
             self.resolve_type(ty);
         }
         if let Some(value) = &binding.value {
             self.resolve_expr(value);
         }
+        let node_key = if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+            fallback_key
+        } else {
+            binding.pattern_node_key.clone()
+        };
         self.define(
             &binding.name,
             if binding.is_comptime {

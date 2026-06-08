@@ -41,6 +41,9 @@ pub enum StmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingStmt {
     pub name: String,
+    pub pattern_kind: ForPatternKind,
+    pub pattern_span: Span,
+    pub pattern_node_key: NodeKey,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
     pub is_let: bool,

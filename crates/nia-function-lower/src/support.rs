@@ -165,15 +165,37 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionBinding {
+        let value = binding.value.as_ref().map(|value| {
+            let value = self.lower_value_expr(value, scope, current, ops, blocks);
+            self.lower_binding_pattern_value(binding.pattern_kind, binding.ty, value)
+        });
         FunctionBinding {
             local_id: binding.local_id,
             name: binding.name.clone(),
             ty: binding.ty,
-            value: binding
-                .value
-                .as_ref()
-                .map(|value| self.lower_value_expr(value, scope, current, ops, blocks)),
+            value,
             is_let: binding.is_let,
+        }
+    }
+
+    pub(super) fn lower_binding_pattern_value(
+        &mut self,
+        pattern_kind: nia_ast::ForPatternKind,
+        binding_ty: InternedTyId,
+        value: FunctionExpr,
+    ) -> FunctionExpr {
+        match pattern_kind {
+            nia_ast::ForPatternKind::Value => value,
+            nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => {
+                FunctionExpr {
+                    span: value.span,
+                    ty: binding_ty,
+                    kind: FunctionExprKind::Unary {
+                        op: nia_ast::UnaryOp::Deref,
+                        expr: Box::new(value),
+                    },
+                }
+            }
         }
     }
 

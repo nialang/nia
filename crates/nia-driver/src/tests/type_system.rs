@@ -274,7 +274,7 @@ fn main() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("for pattern requires iterator item to be a read-only pointer")),
+            .contains("binding pattern requires value to be a read-only pointer")),
         "{:?}",
         program.diagnostics
     );

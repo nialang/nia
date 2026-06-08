@@ -67,6 +67,7 @@ pub enum TypedStmtKind {
 pub struct TypedBinding {
     pub local_id: LocalId,
     pub name: String,
+    pub pattern_kind: nia_ast::ForPatternKind,
     pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
     pub is_let: bool,
@@ -76,7 +77,8 @@ pub struct TypedBinding {
 pub struct TypedForIn {
     pub binding: Option<TypedForBinding>,
     pub pattern_kind: nia_ast::ForPatternKind,
-    pub ty: InternedTyId,
+    pub item_ty: InternedTyId,
+    pub binding_ty: InternedTyId,
     pub iter: TypedExpr,
     pub body: TypedBody,
 }

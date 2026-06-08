@@ -321,10 +321,25 @@ extend Once : Iterator {
 
 fn main(value: &i32) i32 {
     var iter = Once { value: value, done: false };
+    var total = 0;
     for &n in iter {
-        _ = n;
+        total += n;
     }
-    0
+    total
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn accepts_local_pointer_binding_patterns() {
+    let checked = pipeline(
+        r#"
+fn main(ptr: &i32, mut_ptr: &mut i32) i32 {
+    let &x = ptr;
+    var &mut y: i32 = mut_ptr;
+    x + y
 }
 "#,
     );
@@ -357,7 +372,7 @@ fn main() i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("for pattern requires iterator item")),
+            .contains("binding pattern requires value")),
         "{:?}",
         checked.diagnostics
     );
