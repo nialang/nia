@@ -7,13 +7,15 @@ pre-1.0 and under active design, with an implementation that favors clear
 semantics, predictable compilation phases, and a compact language surface.
 
 The project is intentionally narrow: this repository contains the compiler,
-language documentation, and runnable examples. The standard library, package
-manager, and build system are expected to live as separate projects.
+language documentation, a small standard library, and runnable examples.
+The package manager and build system are expected to live as separate projects.
 
 ## A Small Example
 
 ```nia
-extern fn printf(fmt: &const u8, ...);
+import std.range;
+
+extern fn printf(fmt: &u8, ...);
 
 struct Point {
     x: i32,
@@ -21,14 +23,14 @@ struct Point {
 }
 
 extend Point {
-    fn len2(&const self) i32 {
+    fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
 
-fn sum(xs: &const [i32]) i32 {
+fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for i in 0usize..xs.len() {
+    for i in range::range(0usize..xs.len()) {
         total = total + xs[i];
     }
     total
@@ -38,11 +40,11 @@ fn main() i32 {
     var point: Point = { x: 3, y: 4 };
     var also_point = Point { x: 5, y: 12 };
     var values = [_]i32[point.len2(), also_point.len2(), 7];
-    var borrowed = &const ([3]i32[1, 2, 3])[..];
+    var borrowed = &([3]i32[1, 2, 3])[..];
 
     printf(c"point=%d values=%d borrowed=%d\n",
         point.len2(),
-        sum(&const values[..]),
+        sum(&values[..]),
         sum(borrowed),
     );
     0

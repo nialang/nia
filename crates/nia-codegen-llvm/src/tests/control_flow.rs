@@ -97,19 +97,17 @@ fn emits_for_over_range_value() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        &format!(
-            "{COUNTER_ITERATOR}\n{}",
-            r#"
+        r#"
+import std.range;
+
 fn main() i32 {
-    var iter = Counter { current: 1, end: 4 };
     var sum = 0;
-    for i in iter {
-        sum += i;
+    for i in range::range(1usize..4usize) {
+        sum += i as i32;
     }
     sum
 }
 "#,
-        ),
     )
     .expect("write test source");
 
