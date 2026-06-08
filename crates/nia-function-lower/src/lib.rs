@@ -33,8 +33,39 @@ pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
     FunctionLowerer::new(ModuleId(0), None).lower_body(body)
 }
 
-pub fn lower_function_body_with_interner(body: &TypedBody, interner: &TyInterner) -> FunctionBody {
-    FunctionLowerer::new(interner.interner_id(), Some(interner)).lower_body(body)
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoweredFunctionBody {
+    pub interner: TyInterner,
+    pub body: FunctionBody,
+}
+
+pub fn lower_function_body_with_interner(
+    body: &TypedBody,
+    interner: &TyInterner,
+) -> LoweredFunctionBody {
+    let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
+    let body = lowerer.lower_body(body);
+    LoweredFunctionBody {
+        interner: lowerer.finish_interner(),
+        body,
+    }
+}
+
+pub fn lower_function_bodies_with_interner<'a>(
+    bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
+    interner: &TyInterner,
+) -> (
+    TyInterner,
+    std::collections::HashMap<nia_ids::GlobalDefId, FunctionBody>,
+) {
+    let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
+    let mut bodies = bodies.into_iter().collect::<Vec<_>>();
+    bodies.sort_by_key(|(def_id, _)| **def_id);
+    let bodies = bodies
+        .into_iter()
+        .map(|(def_id, body)| (*def_id, lowerer.lower_body(body)))
+        .collect();
+    (lowerer.finish_interner(), bodies)
 }
 
 struct FunctionLowerer {
@@ -85,6 +116,7 @@ impl FunctionLowerer {
     }
 
     fn lower_body(&mut self, body: &TypedBody) -> FunctionBody {
+        self.reset_function_state();
         // Function IR keeps one flat local table per function body. Nested
         // source bodies still have their own scopes and blocks, but their
         // locals must be visible to validation and later codegen by id.
@@ -104,5 +136,20 @@ impl FunctionLowerer {
             entry,
             ty: body.ty,
         }
+    }
+
+    fn reset_function_state(&mut self) {
+        self.next_block = 0;
+        self.next_scope = 0;
+        self.next_temp_local = 0;
+        self.temp_locals.clear();
+        self.scopes.clear();
+        self.loop_targets.clear();
+    }
+
+    fn finish_interner(&mut self) -> TyInterner {
+        self.interner
+            .take()
+            .unwrap_or_else(|| TyInterner::new(self.module_id))
     }
 }

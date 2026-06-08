@@ -112,6 +112,12 @@ pub(super) struct ProgramSignatures {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LoweredFunctionBodies {
+    pub(super) interner: nia_ty::TyInterner,
+    pub(super) bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
+}
+
 impl ProgramSignatures {
     pub(super) fn maps(&self) -> ProgramSignatureMaps<'_> {
         ProgramSignatureMaps {

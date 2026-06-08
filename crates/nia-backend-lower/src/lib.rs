@@ -85,6 +85,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub type_normalization: &'a TypeNormalization,
     pub body_ir: &'a BodyIr,
+    pub function_interner: &'a nia_ty::TyInterner,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
@@ -328,7 +329,7 @@ impl<'a> ModuleLowerer<'a> {
             input,
             monomorphization,
             optimization,
-            interner: input.body_ir.interner.clone(),
+            interner: input.function_interner.clone(),
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
@@ -336,7 +337,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_impls_by_method: index_trait_impls_by_method(input),
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
-                input.extension_interner.unwrap_or(&input.body_ir.interner),
+                input.extension_interner.unwrap_or(input.function_interner),
             ),
             program_extension_trait_method_candidates:
                 index_program_extension_trait_method_candidates(input),
@@ -652,7 +653,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.input.body_ir.interner.error()
+        self.input.function_interner.error()
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -720,6 +721,7 @@ fn index_known_type_interners<'a>(
 ) -> HashMap<ModuleId, Vec<nia_ty::TyInterner>> {
     let mut interners = HashMap::new();
     insert_known_type_interner(&mut interners, &input.body_ir.interner);
+    insert_known_type_interner(&mut interners, input.function_interner);
     if let Some(interner) = input.extension_interner {
         insert_known_type_interner(&mut interners, interner);
     }

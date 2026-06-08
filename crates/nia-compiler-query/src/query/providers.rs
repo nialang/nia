@@ -47,10 +47,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) body_ir: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_ir::BodyIr,
     pub(super) semantic_facts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticFacts,
     pub(super) body_diagnostics: fn(&QueryDb<DriverContext>, ModuleId) -> Vec<Diagnostic>,
-    pub(super) function_bodies: fn(
-        &QueryDb<DriverContext>,
-        ModuleId,
-    ) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
+    pub(super) function_bodies: fn(&QueryDb<DriverContext>, ModuleId) -> LoweredFunctionBodies,
     pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
     pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
     pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
@@ -762,18 +759,13 @@ pub(super) fn provide_body_check(
 pub(super) fn provide_function_bodies(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
-) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody> {
+) -> LoweredFunctionBodies {
     let body_ir = db.query(BodyIrQuery(module_id));
-    body_ir
-        .function_bodies
-        .iter()
-        .map(|(def_id, body)| {
-            (
-                *def_id,
-                nia_function_lower::lower_function_body_with_interner(body, &body_ir.interner),
-            )
-        })
-        .collect()
+    let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
+        body_ir.function_bodies.iter(),
+        &body_ir.interner,
+    );
+    LoweredFunctionBodies { interner, bodies }
 }
 
 pub(super) fn provide_body_ir(
@@ -837,13 +829,20 @@ pub(super) fn provide_monomorphization(
 ) -> nia_monomorphize::Monomorphization {
     let checked_modules = db.query(CheckedModulesQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
+    let function_bodies = checked_modules
+        .iter()
+        .map(|module| (module.id, db.query(FunctionBodiesQuery(module.id))))
+        .collect::<HashMap<_, _>>();
     nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
             .map(|module| MonomorphizeModuleInput {
                 module_id: module.id,
                 defs: &module.defs,
-                interner: &module.body_ir.interner,
+                interner: &function_bodies
+                    .get(&module.id)
+                    .expect("missing lowered function bodies")
+                    .interner,
                 normalization: &module.type_normalization,
                 comptime: &module.comptime,
                 const_exprs: &module.type_lowering.const_exprs,
@@ -881,17 +880,23 @@ pub(super) fn provide_backend_lowering(
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_type_interners = checked_modules
-        .iter()
-        .map(|checked_module| (checked_module.id, &checked_module.body_ir.interner))
-        .collect::<HashMap<_, _>>();
     let function_bodies = checked_modules
         .iter()
         .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let program_type_interners = checked_modules
+        .iter()
+        .zip(function_bodies.iter())
+        .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner))
+        .collect::<HashMap<_, _>>();
     let program_function_bodies = function_bodies
         .iter()
-        .flat_map(|bodies| bodies.iter().map(|(def_id, body)| (*def_id, body.clone())))
+        .flat_map(|lowered| {
+            lowered
+                .bodies
+                .iter()
+                .map(|(def_id, body)| (*def_id, body.clone()))
+        })
         .collect::<HashMap<_, _>>();
     let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = checked_modules
@@ -913,10 +918,11 @@ pub(super) fn provide_backend_lowering(
                     signatures: &checked_module.item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_ir: &checked_module.body_ir,
+                    function_interner: &function_bodies.interner,
                     semantic_facts: &checked_module.semantic_facts,
                     comptime: &checked_module.comptime,
                     layouts: &checked_module.layouts,
-                    function_bodies,
+                    function_bodies: &function_bodies.bodies,
                     program_function_bodies: &program_function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: &extension_methods.methods,

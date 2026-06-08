@@ -158,6 +158,312 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_for_over_error_union_iterator_item() {
+    let root = temp_dir("emits_for_over_error_union_iterator_item");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Bad = 1,
+    _
+}
+
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = Error!i32;
+
+    fn next(&mut self) ?(Error!i32) {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?(!value)
+        }
+    }
+}
+
+fn main() i32 {
+    var iter = Counter { current: 1, end: 4 };
+    var sum = 0;
+    for result in iter {
+        let value = switch result {
+            !item => item,
+            error! => return 100,
+        };
+        sum += value;
+    }
+    sum
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("extractvalue"));
+    assert!(ir.contains("br i1"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_for_over_cross_module_composite_iterator_items() {
+    let root = temp_dir("emits_for_over_cross_module_composite_iterator_items");
+    let main = root.join("main.nia");
+    let iter = root.join("iter.nia");
+    std::fs::write(
+        &iter,
+        r#"
+pub enum Error: i32 {
+    Bad = 1,
+    _
+}
+
+pub struct Payload {
+    value: i32,
+}
+
+pub struct Box[T] {
+    value: T,
+}
+
+pub struct StructIter {
+    index: i32,
+}
+
+extend StructIter : Iterator {
+    type Item = Payload;
+
+    pub fn next(&mut self) ?Payload {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?Payload { value: 2 }
+        }
+    }
+}
+
+pub struct ArrayIter {
+    index: i32,
+}
+
+extend ArrayIter : Iterator {
+    type Item = [2]i32;
+
+    pub fn next(&mut self) ?[2]i32 {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?[3, 4]
+        }
+    }
+}
+
+pub struct OptionalIter {
+    index: i32,
+}
+
+extend OptionalIter : Iterator {
+    type Item = ?Payload;
+
+    pub fn next(&mut self) ??Payload {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ??Payload { value: 5 }
+        }
+    }
+}
+
+pub struct ErrorIter {
+    index: i32,
+}
+
+extend ErrorIter : Iterator {
+    type Item = Error!Payload;
+
+    pub fn next(&mut self) ?(Error!Payload) {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?(!Payload { value: 6 })
+        }
+    }
+}
+
+pub struct OptionalErrorIter {
+    index: i32,
+}
+
+extend OptionalErrorIter : Iterator {
+    type Item = ?(Error!Payload);
+
+    pub fn next(&mut self) ??(Error!Payload) {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ??(!Payload { value: 7 })
+        }
+    }
+}
+
+pub struct ErrorOptionalIter {
+    index: i32,
+}
+
+extend ErrorOptionalIter : Iterator {
+    type Item = Error!?Payload;
+
+    pub fn next(&mut self) ?(Error!?Payload) {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?(!?Payload { value: 8 })
+        }
+    }
+}
+
+pub struct SliceIter {
+    index: i32,
+    data: [2]i32,
+}
+
+extend SliceIter : Iterator {
+    type Item = &[i32];
+
+    pub fn next(&mut self) ?&[i32] {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?&self.data[..]
+        }
+    }
+}
+
+pub struct GenericIter {
+    index: i32,
+}
+
+extend GenericIter : Iterator {
+    type Item = Box[Payload];
+
+    pub fn next(&mut self) ?Box[Payload] {
+        if self.index >= 1 {
+            null
+        } else {
+            self.index += 1;
+            ?Box[Payload] { value: Payload { value: 11 } }
+        }
+    }
+}
+"#,
+    )
+    .expect("write iter source");
+    std::fs::write(
+        &main,
+        r#"
+import .iter;
+
+fn main() i32 {
+    var total = 0;
+
+    var struct_iter = iter::StructIter { index: 0 };
+    for item in struct_iter {
+        total += item.value;
+    }
+
+    var array_iter = iter::ArrayIter { index: 0 };
+    for item in array_iter {
+        total += item[0] + item[1];
+    }
+
+    var optional_iter = iter::OptionalIter { index: 0 };
+    for item in optional_iter {
+        switch item {
+            ?value => total += value.value,
+            null => total += 100,
+        }
+    }
+
+    var error_iter = iter::ErrorIter { index: 0 };
+    for item in error_iter {
+        switch item {
+            !value => total += value.value,
+            error! => total += 1000,
+        }
+    }
+
+    var optional_error_iter = iter::OptionalErrorIter { index: 0 };
+    for item in optional_error_iter {
+        switch item {
+            ?result => switch result {
+                !value => total += value.value,
+                error! => total += 1000,
+            },
+            null => total += 100,
+        }
+    }
+
+    var error_optional_iter = iter::ErrorOptionalIter { index: 0 };
+    for item in error_optional_iter {
+        switch item {
+            !maybe => switch maybe {
+                ?value => total += value.value,
+                null => total += 100,
+            },
+            error! => total += 1000,
+        }
+    }
+
+    var slice_iter = iter::SliceIter { index: 0, data: [9, 10] };
+    for item in slice_iter {
+        total += item[0] + item[1];
+    }
+
+    var generic_iter = iter::GenericIter { index: 0 };
+    for item in generic_iter {
+        total += item.value.value;
+    }
+
+    total
+}
+"#,
+    )
+    .expect("write main source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("extractvalue"));
+    assert!(ir.contains("br i1"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
 fn emits_defer_before_return_and_block_exit() {
     let root = temp_dir("emits_defer_before_return_and_block_exit");
     let main = root.join("main.nia");

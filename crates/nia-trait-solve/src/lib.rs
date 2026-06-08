@@ -6,7 +6,9 @@ use nia_ids::{
 };
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
-use nia_ty::{PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
+use nia_ty::{
+    ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, TypeEquivalence, import_type_into,
+};
 use nia_type_normalize::TypeNormalization;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -862,186 +864,7 @@ where
         if left == right {
             return true;
         }
-        match (self.interner.get(left), self.interner.get(right)) {
-            (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
-            (
-                Some(TyKind::Pointer {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Pointer {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            )
-            | (
-                Some(TyKind::Slice {
-                    is_readonly: left_const,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Slice {
-                    is_readonly: right_const,
-                    elem: right_elem,
-                }),
-            ) => left_const == right_const && self.types_equivalent(*left_elem, *right_elem),
-            (
-                Some(TyKind::SlicePointee { elem: left_elem }),
-                Some(TyKind::SlicePointee { elem: right_elem }),
-            ) => self.types_equivalent(*left_elem, *right_elem),
-            (
-                Some(TyKind::Array {
-                    len: left_len,
-                    elem: left_elem,
-                }),
-                Some(TyKind::Array {
-                    len: right_len,
-                    elem: right_elem,
-                }),
-            ) => left_len == right_len && self.types_equivalent(*left_elem, *right_elem),
-            (
-                Some(TyKind::Range {
-                    kind: left_kind,
-                    bound: left_bound,
-                }),
-                Some(TyKind::Range {
-                    kind: right_kind,
-                    bound: right_bound,
-                }),
-            ) => {
-                left_kind == right_kind
-                    && match (left_bound, right_bound) {
-                        (Some(left_bound), Some(right_bound)) => {
-                            self.types_equivalent(*left_bound, *right_bound)
-                        }
-                        (None, None) => true,
-                        _ => false,
-                    }
-            }
-            (
-                Some(TyKind::FunctionPointer {
-                    params: left_params,
-                    return_type: left_return,
-                    is_variadic: left_variadic,
-                }),
-                Some(TyKind::FunctionPointer {
-                    params: right_params,
-                    return_type: right_return,
-                    is_variadic: right_variadic,
-                }),
-            ) => {
-                left_variadic == right_variadic
-                    && left_params.len() == right_params.len()
-                    && left_params
-                        .iter()
-                        .zip(right_params)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-                    && self.types_equivalent(*left_return, *right_return)
-            }
-            (
-                Some(TyKind::Nominal {
-                    def_id: left_def,
-                    args: left_args,
-                }),
-                Some(TyKind::Nominal {
-                    def_id: right_def,
-                    args: right_args,
-                }),
-            ) => {
-                left_def == right_def
-                    && left_args.len() == right_args.len()
-                    && left_args
-                        .iter()
-                        .zip(right_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-            }
-            (
-                Some(TyKind::BuiltinTrait {
-                    trait_id: left_trait,
-                    args: left_args,
-                }),
-                Some(TyKind::BuiltinTrait {
-                    trait_id: right_trait,
-                    args: right_args,
-                }),
-            ) => {
-                left_trait == right_trait
-                    && left_args.len() == right_args.len()
-                    && left_args
-                        .iter()
-                        .zip(right_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-            }
-            (
-                Some(TyKind::TraitObject {
-                    is_readonly: left_readonly,
-                    trait_id: left_trait,
-                    trait_args: left_args,
-                    associated_type_bindings: left_bindings,
-                }),
-                Some(TyKind::TraitObject {
-                    is_readonly: right_readonly,
-                    trait_id: right_trait,
-                    trait_args: right_args,
-                    associated_type_bindings: right_bindings,
-                }),
-            ) => {
-                left_readonly == right_readonly
-                    && left_trait == right_trait
-                    && left_args.len() == right_args.len()
-                    && left_bindings.len() == right_bindings.len()
-                    && left_args
-                        .iter()
-                        .zip(right_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-                    && self.associated_type_bindings_equivalent(left_bindings, right_bindings)
-            }
-            (
-                Some(TyKind::TraitObjectPointee {
-                    trait_id: left_trait,
-                    trait_args: left_args,
-                    associated_type_bindings: left_bindings,
-                }),
-                Some(TyKind::TraitObjectPointee {
-                    trait_id: right_trait,
-                    trait_args: right_args,
-                    associated_type_bindings: right_bindings,
-                }),
-            ) => {
-                left_trait == right_trait
-                    && left_args.len() == right_args.len()
-                    && left_bindings.len() == right_bindings.len()
-                    && left_args
-                        .iter()
-                        .zip(right_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-                    && self.associated_type_bindings_equivalent(left_bindings, right_bindings)
-            }
-            (
-                Some(TyKind::Projection {
-                    self_ty: left_self,
-                    trait_id: left_trait,
-                    trait_args: left_args,
-                    name: left_name,
-                }),
-                Some(TyKind::Projection {
-                    self_ty: right_self,
-                    trait_id: right_trait,
-                    trait_args: right_args,
-                    name: right_name,
-                }),
-            ) => {
-                left_trait == right_trait
-                    && left_name == right_name
-                    && left_args.len() == right_args.len()
-                    && self.types_equivalent(*left_self, *right_self)
-                    && left_args
-                        .iter()
-                        .zip(right_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-            }
-            (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
-            _ => false,
-        }
+        self.compute_same_type_for_equiv(left, right)
     }
 
     fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
@@ -1563,29 +1386,6 @@ where
         )
     }
 
-    fn associated_type_bindings_equivalent(
-        &self,
-        left_bindings: &[nia_ty::AssociatedTypeBindingTy],
-        right_bindings: &[nia_ty::AssociatedTypeBindingTy],
-    ) -> bool {
-        left_bindings.iter().all(|left| {
-            right_bindings
-                .iter()
-                .find(|right| {
-                    left.name == right.name
-                        && left.trait_id == right.trait_id
-                        && left.trait_args.len() == right.trait_args.len()
-                })
-                .is_some_and(|right| {
-                    left.trait_args
-                        .iter()
-                        .zip(&right.trait_args)
-                        .all(|(left, right)| self.types_equivalent(*left, *right))
-                        && self.types_equivalent(left.ty, right.ty)
-                })
-        })
-    }
-
     fn bool(&self) -> InternedTyId {
         self.interner.primitive(PrimitiveTy::Bool)
     }
@@ -1635,5 +1435,22 @@ where
             self.kind(ty),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
         )
+    }
+}
+
+impl<F> TypeEquivalence for TraitSolver<'_, F>
+where
+    F: Fn(InternedTyId) -> bool,
+{
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.interner.get(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        left == right
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        self.types_equivalent(left, right)
     }
 }

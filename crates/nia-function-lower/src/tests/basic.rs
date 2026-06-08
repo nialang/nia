@@ -105,7 +105,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         ty: i32_ty,
     };
 
-    let function_body = lower_function_body_with_interner(&body, &interner);
+    let function_body = lower_function_body_with_interner(&body, &interner).body;
 
     assert!(function_body.blocks.iter().any(|block| {
         matches!(

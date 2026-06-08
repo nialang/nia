@@ -6,10 +6,9 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_layout::TypeLayout;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, RangeTyKind, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, RangeTyKind, TyKind, TypeEquivalence};
 
 use super::{BackendValidator, align_to, primitive_layout};
-use crate::type_equiv::TypeEquivalence;
 
 impl BackendValidator<'_> {
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {

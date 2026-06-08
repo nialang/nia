@@ -3046,28 +3046,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var saw_alpha = false;
     var saw_beta = false;
     var count = 0usize;
-    var done = false;
-    while not done {
-        switch iter.next() {
-            !entry => {
-                switch entry {
-                    ?value => {
-                        if not value.is_dot() and not value.is_dot_dot() {
-                            count += 1usize;
-                            if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
-                                return process::ExitCode::init(9)!;
-                            }
-                            if bytes_equal(value.name(), b"alpha.txt") {
-                                saw_alpha = true;
-                            } else if bytes_equal(value.name(), b"beta.txt") {
-                                saw_beta = true;
-                            }
-                        }
-                    },
-                    null => done = true,
-                }
-            },
+    for result in iter {
+        let value = switch result {
+            !entry => entry,
             error! => return process::ExitCode::init(10)!,
+        };
+        if not value.is_dot() and not value.is_dot_dot() {
+            count += 1usize;
+            if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
+                return process::ExitCode::init(9)!;
+            }
+            if bytes_equal(value.name(), b"alpha.txt") {
+                saw_alpha = true;
+            } else if bytes_equal(value.name(), b"beta.txt") {
+                saw_beta = true;
+            }
         }
     }
 

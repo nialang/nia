@@ -313,28 +313,31 @@ extend DirectoryReader {
         { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
     }
 
-    pub fn next(&mut self) Error!?DirectoryEntry {
+    pub fn next(&mut self) ?(Error!DirectoryEntry) {
         if self.done {
-            return !null;
+            return null;
         }
         if self.start >= self.end {
             self.start = 0;
-            self.end = self.handle.read_dir_entries(self.buffer).?;
+            switch self.handle.read_dir_entries(self.buffer) {
+                !value => self.end = value,
+                err! => return ?(err!),
+            }
             if self.end == 0 {
                 self.done = true;
-                return !null;
+                return null;
             }
         }
 
         let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
             ?value => value.as_os_directory_entry(),
-            null => return Error::Invalid!,
+            null => return ?(Error::Invalid!),
         };
         self.start = switch platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
             ?value => value,
-            null => return Error::Invalid!,
+            null => return ?(Error::Invalid!),
         };
-        !?entry
+        ?(!entry)
     }
 }
 

@@ -16,7 +16,9 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature, TraitSignature,
 };
 use nia_trait_solve::IntrinsicOverlap;
-use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, import_type_into};
+use nia_ty::{
+    ArrayLenTy, PrimitiveTy, TraitId, TyInterner, TyKind, TypeEquivalence, import_type_into,
+};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -963,7 +965,7 @@ fn builtin_place_trait_method_signature_matches(
     else {
         return false;
     };
-    types_equivalent(&module.lowering.interner, *elem, associated_type)
+    types_equivalent(module.lowering, *elem, associated_type)
 }
 
 fn builtin_slice_trait_method_signature_matches(
@@ -991,7 +993,7 @@ fn builtin_slice_trait_method_signature_matches(
     else {
         return false;
     };
-    if !types_equivalent(&module.lowering.interner, range_param.ty, range_ty) {
+    if !types_equivalent(module.lowering, range_param.ty, range_ty) {
         return false;
     }
     let Some(output) = extend
@@ -1002,7 +1004,7 @@ fn builtin_slice_trait_method_signature_matches(
     else {
         return false;
     };
-    types_equivalent(&module.lowering.interner, actual.return_type, output)
+    types_equivalent(module.lowering, actual.return_type, output)
 }
 
 fn builtin_iterator_method_signature_matches(
@@ -1025,7 +1027,7 @@ fn builtin_iterator_method_signature_matches(
     let Some(TyKind::Optional { elem }) = module.lowering.interner.get(actual_return) else {
         return false;
     };
-    types_equivalent(&module.lowering.interner, *elem, item)
+    types_equivalent(module.lowering, *elem, item)
 }
 
 fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {
@@ -1179,117 +1181,104 @@ fn has_matching_trait_impl(
             .iter()
             .map(|arg| import_type_into(&mut comparison_interner, &impl_signature.interner, *arg))
             .collect::<Vec<_>>();
-        types_equivalent(&comparison_interner, impl_target_ty, target_ty)
+        types_equivalent_in_interner(&comparison_interner, impl_target_ty, target_ty)
             && impl_trait_args.len() == trait_args.len()
-            && impl_trait_args
-                .iter()
-                .zip(trait_args)
-                .all(|(left, right)| types_equivalent(&comparison_interner, *left, *right))
+            && impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
+                types_equivalent_in_interner(&comparison_interner, *left, *right)
+            })
     })
 }
 
 fn types_equivalent(
+    lowering: &TypeLowering,
+    left: nia_ids::InternedTyId,
+    right: nia_ids::InternedTyId,
+) -> bool {
+    types_equivalent_with_const_exprs(&lowering.interner, &lowering.const_exprs, left, right)
+}
+
+fn types_equivalent_in_interner(
     interner: &TyInterner,
+    left: nia_ids::InternedTyId,
+    right: nia_ids::InternedTyId,
+) -> bool {
+    types_equivalent_with_const_exprs(interner, &HashMap::new(), left, right)
+}
+
+fn types_equivalent_with_const_exprs(
+    interner: &TyInterner,
+    const_exprs: &HashMap<nia_ids::GlobalConstExprId, nia_ast::Expr>,
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
 ) -> bool {
     if left == right {
         return true;
     }
-    match (interner.get(left), interner.get(right)) {
-        (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
-        (
-            Some(TyKind::Pointer {
-                is_readonly: left_const,
-                elem: left_elem,
-            }),
-            Some(TyKind::Pointer {
-                is_readonly: right_const,
-                elem: right_elem,
-            }),
-        )
-        | (
-            Some(TyKind::Slice {
-                is_readonly: left_const,
-                elem: left_elem,
-            }),
-            Some(TyKind::Slice {
-                is_readonly: right_const,
-                elem: right_elem,
-            }),
-        ) => left_const == right_const && types_equivalent(interner, *left_elem, *right_elem),
-        (
-            Some(TyKind::Array {
-                len: left_len,
-                elem: left_elem,
-            }),
-            Some(TyKind::Array {
-                len: right_len,
-                elem: right_elem,
-            }),
-        ) => left_len == right_len && types_equivalent(interner, *left_elem, *right_elem),
-        (
-            Some(TyKind::FunctionPointer {
-                params: left_params,
-                return_type: left_return,
-                is_variadic: left_variadic,
-            }),
-            Some(TyKind::FunctionPointer {
-                params: right_params,
-                return_type: right_return,
-                is_variadic: right_variadic,
-            }),
-        ) => {
-            left_variadic == right_variadic
-                && left_params.len() == right_params.len()
-                && left_params
-                    .iter()
-                    .zip(right_params)
-                    .all(|(left, right)| types_equivalent(interner, *left, *right))
-                && types_equivalent(interner, *left_return, *right_return)
-        }
-        (
-            Some(TyKind::Nominal {
-                def_id: left_def,
-                args: left_args,
-            }),
-            Some(TyKind::Nominal {
-                def_id: right_def,
-                args: right_args,
-            }),
-        ) => {
-            left_def == right_def
-                && left_args.len() == right_args.len()
-                && left_args
-                    .iter()
-                    .zip(right_args)
-                    .all(|(left, right)| types_equivalent(interner, *left, *right))
-        }
-        (
-            Some(TyKind::Projection {
-                self_ty: left_self,
-                trait_id: left_trait,
-                trait_args: left_args,
-                name: left_name,
-            }),
-            Some(TyKind::Projection {
-                self_ty: right_self,
-                trait_id: right_trait,
-                trait_args: right_args,
-                name: right_name,
-            }),
-        ) => {
-            left_trait == right_trait
-                && left_name == right_name
-                && left_args.len() == right_args.len()
-                && types_equivalent(interner, *left_self, *right_self)
-                && left_args
-                    .iter()
-                    .zip(right_args)
-                    .all(|(left, right)| types_equivalent(interner, *left, *right))
-        }
-        _ => false,
+    SignatureTypeEquivalence {
+        interner,
+        const_exprs,
     }
+    .compute_same_type_for_equiv(left, right)
+}
+
+struct SignatureTypeEquivalence<'a> {
+    interner: &'a TyInterner,
+    const_exprs: &'a HashMap<nia_ids::GlobalConstExprId, nia_ast::Expr>,
+}
+
+impl TypeEquivalence for SignatureTypeEquivalence<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.interner.get(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        if left == right {
+            return true;
+        }
+        match (left, right) {
+            (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            _ => self
+                .literal_array_len_value(left)
+                .zip(self.literal_array_len_value(right))
+                .is_some_and(|(left, right)| left == right),
+        }
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        types_equivalent_with_const_exprs(self.interner, self.const_exprs, left, right)
+    }
+}
+
+impl SignatureTypeEquivalence<'_> {
+    fn literal_array_len_value(&self, len: &ArrayLenTy) -> Option<u64> {
+        match len {
+            ArrayLenTy::ConstValue(value) => Some(*value),
+            ArrayLenTy::ConstExpr(id) => self
+                .const_exprs
+                .get(id)
+                .and_then(literal_array_len_expr_value),
+            _ => None,
+        }
+    }
+}
+
+fn literal_array_len_expr_value(expr: &nia_ast::Expr) -> Option<u64> {
+    let nia_ast::ExprKind::Integer(text) = &expr.kind else {
+        return None;
+    };
+    let value = nia_comptime_engine::eval_int_literal(text).ok()?;
+    u64::try_from(value).ok()
 }
 
 fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> String {
