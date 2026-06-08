@@ -46,7 +46,7 @@ pub fn main(init: Init) ExitCode!void {
     defer point.x = point.x + 1;
 
     if total != 25 + 169 + 2 {
-        return ExitCode::init(1)!;
+        return (1 as ExitCode)!;
     }
 
     debug::print(

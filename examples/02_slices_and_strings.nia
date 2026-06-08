@@ -29,16 +29,16 @@ pub fn main(init: Init) ExitCode!void {
     var first_written = writable[0];
 
     if first_written != 2 {
-        return ExitCode::init(1)!;
+        return (1 as ExitCode)!;
     }
     if name_len != 3usize {
-        return ExitCode::init(2)!;
+        return (2 as ExitCode)!;
     }
     if bytes[2] != b'a' {
-        return ExitCode::init(3)!;
+        return (3 as ExitCode)!;
     }
     if c_name[3] != 0u8 {
-        return ExitCode::init(4)!;
+        return (4 as ExitCode)!;
     }
 
     debug::print(
