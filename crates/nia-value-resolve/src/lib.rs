@@ -545,9 +545,6 @@ impl<'a> ValueResolver<'a> {
         if let Some(surfaces) = self.public_surfaces
             && let Some(surface) = surfaces.get(module_id)
         {
-            if surface.lookup_module(name.name).is_some() {
-                return;
-            }
             if let Some(item) = surface.lookup_value(name.name) {
                 self.insert_qualified_value(
                     node_key,
@@ -569,6 +566,9 @@ impl<'a> ValueResolver<'a> {
                         def_id: item.target_def_id,
                     },
                 );
+                return;
+            }
+            if surface.lookup_module(name.name).is_some() {
                 return;
             }
         }

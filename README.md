@@ -13,7 +13,7 @@ The package manager and build system are expected to live as separate projects.
 ## A Small Example
 
 ```nia
-import std.range;
+import std;
 
 extern fn printf(fmt: &u8, ...);
 
@@ -30,7 +30,7 @@ extend Point {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for i in range::range(0usize..xs.len()) {
+    for i in std::range(0usize..xs.len()) {
         total = total + xs[i];
     }
     total

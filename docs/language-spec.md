@@ -1514,13 +1514,13 @@ For-in bindings do not support type annotations. Write the iterator expression
 so that its item type is clear:
 
 ```nia
-import std.range;
+import std;
 
-for i in range::range(0usize..len) {
+for i in std::range(0usize..len) {
     printf(& int_fmt[0], i);
 }
 
-for i in range::range[i64](1..4) {
+for i in std::range[i64](1..4) {
     printf(& int_fmt[0], i);
 }
 ```

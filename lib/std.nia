@@ -16,3 +16,4 @@ import std.result;
 import std.unicode;
 
 pub using {array_list, fmt, fs, io, math, mem, os, process, range, result, unicode};
+pub using range::{from, inclusive, range};

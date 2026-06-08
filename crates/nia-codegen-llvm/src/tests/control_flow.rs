@@ -98,11 +98,11 @@ fn emits_for_over_range_value() {
     std::fs::write(
         &main,
         r#"
-import std.range;
+import std;
 
 fn main() i32 {
     var sum = 0;
-    for i in range::range(1usize..4usize) {
+    for i in std::range(1usize..4usize) {
         sum += i as i32;
     }
     sum
