@@ -5136,6 +5136,8 @@ import std;
 import std.mem;
 import std.process;
 
+struct Unit {}
+
 fn run(init: process::Init) mem::Error!void {
     _ = init;
     var page = mem::PageAllocator::init();
@@ -5219,6 +5221,21 @@ fn run(init: process::Init) mem::Error!void {
 
     map.clear();
     if map.len() != 0usize or map.contains_key(&42) {
+        return mem::Error::Invalid!;
+    }
+
+    var set_like = std::HashMap[i32, Unit]::init_seed(99u64);
+    defer set_like.deinit(&mut gpa).?;
+    _ = set_like.put(&mut gpa, 1, {}).?;
+    _ = set_like.put(&mut gpa, 2, {}).?;
+    if not set_like.contains_key(&1) or not set_like.contains_key(&2) {
+        return mem::Error::Invalid!;
+    }
+    switch set_like.remove(&1) {
+        ?value => _ = value,
+        null => return mem::Error::Invalid!,
+    }
+    if set_like.contains_key(&1) or set_like.len() != 1usize {
         return mem::Error::Invalid!;
     }
 

@@ -263,34 +263,46 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         let keys_layout = mem::Layout::array[K](capacity).?;
         let values_layout = mem::Layout::array[V](capacity).?;
         let ctrl_block = allocator.alloc(ctrl_layout).?;
-        let keys_block = switch allocator.alloc(keys_layout) {
-            !block => block,
-            err! => {
-                switch allocator.free(ctrl_block) {
-                    !ok => _ = ok,
-                    error! => {},
-                }
-                return err!;
-            },
-        };
-        switch allocator.alloc(values_layout) {
-            !values_block => {
-                self.ctrl = ctrl_block.as_slice[u8]();
-                self.keys = keys_block.as_slice[K]();
-                self.values = values_block.as_slice[V]();
-            },
-            err! => {
-                switch allocator.free(ctrl_block) {
-                    !ok => _ = ok,
-                    error! => {},
-                }
-                switch allocator.free(keys_block) {
-                    !ok => _ = ok,
-                    error! => {},
-                }
-                return err!;
-            },
+
+        if keys_layout.is_empty() {
+            self.keys = dangling_len_slice[K](capacity);
+        } else {
+            switch allocator.alloc(keys_layout) {
+                !keys_block => self.keys = keys_block.as_slice[K](),
+                err! => {
+                    switch allocator.free(ctrl_block) {
+                        !ok => _ = ok,
+                        error! => {},
+                    }
+                    return err!;
+                },
+            }
         }
+
+        if values_layout.is_empty() {
+            self.values = dangling_len_slice[V](capacity);
+        } else {
+            switch allocator.alloc(values_layout) {
+                !values_block => self.values = values_block.as_slice[V](),
+                err! => {
+                    if not keys_layout.is_empty() {
+                        let key_block = mem::Block::init(self.keys.get_ptr() as &mut u8, keys_layout);
+                        switch allocator.free(key_block) {
+                            !ok => _ = ok,
+                            error! => {},
+                        }
+                    }
+                    switch allocator.free(ctrl_block) {
+                        !ok => _ = ok,
+                        error! => {},
+                    }
+                    self.keys = dangling_slice[K]();
+                    return err!;
+                },
+            }
+        }
+
+        self.ctrl = ctrl_block.as_slice[u8]();
         fill_ctrl(self.ctrl, ctrl_empty);
         self.len = 0usize;
         self.growth_left = usable_capacity(capacity);
@@ -308,26 +320,30 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         }
         if self.keys.len() != 0usize {
             let layout = mem::Layout::array[K](self.keys.len()).?;
-            switch allocator.free(mem::Block::init(self.keys.get_ptr() as &mut u8, layout)) {
-                !ok => _ = ok,
-                err! => {
-                    switch first_error {
-                        ?value => {},
-                        null => first_error = ?err,
-                    }
-                },
+            if not layout.is_empty() {
+                switch allocator.free(mem::Block::init(self.keys.get_ptr() as &mut u8, layout)) {
+                    !ok => _ = ok,
+                    err! => {
+                        switch first_error {
+                            ?value => {},
+                            null => first_error = ?err,
+                        }
+                    },
+                }
             }
         }
         if self.values.len() != 0usize {
             let layout = mem::Layout::array[V](self.values.len()).?;
-            switch allocator.free(mem::Block::init(self.values.get_ptr() as &mut u8, layout)) {
-                !ok => _ = ok,
-                err! => {
-                    switch first_error {
-                        ?value => {},
-                        null => first_error = ?err,
-                    }
-                },
+            if not layout.is_empty() {
+                switch allocator.free(mem::Block::init(self.values.get_ptr() as &mut u8, layout)) {
+                    !ok => _ = ok,
+                    err! => {
+                        switch first_error {
+                            ?value => {},
+                            null => first_error = ?err,
+                        }
+                    },
+                }
             }
         }
         switch first_error {
@@ -335,6 +351,13 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             null => !{},
         }
     }
+}
+
+fn dangling_len_slice[T](len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..len]
 }
 
 fn random_seed() os::Error!u64 {
