@@ -2,6 +2,7 @@ import std.mem.arena_allocator;
 import std.mem.allocator;
 import std.mem.copy;
 import std.mem.fixed_buffer_allocator;
+import std.mem.general_purpose_allocator;
 import std.mem.page_allocator;
 import std.mem.types;
 
@@ -10,4 +11,5 @@ pub using arena_allocator::ArenaAllocator;
 pub using allocator::Allocator;
 pub using copy::{copy_backwards, copy_forwards, equal, order};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
+pub using general_purpose_allocator::GeneralPurposeAllocator;
 pub using page_allocator::PageAllocator;

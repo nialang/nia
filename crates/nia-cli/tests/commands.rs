@@ -4147,6 +4147,241 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list() {
+    let root = temp_dir(
+        "emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list",
+    );
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    defer allocator.deinit().exit().?;
+
+    let layout = mem::Layout::init(24, 8).exit().?;
+    var first = allocator.alloc(layout).exit().?;
+    var second = allocator.alloc(layout).exit().?;
+    if first.ptr() as usize == second.ptr() as usize {
+        return (1 as process::ExitCode)!;
+    }
+
+    let first_addr = first.ptr() as usize;
+    allocator.free(first).exit().?;
+    var reused = allocator.alloc(layout).exit().?;
+    if reused.ptr() as usize != first_addr {
+        return (2 as process::ExitCode)!;
+    }
+
+    allocator.free(reused).exit().?;
+    allocator.free(second).exit().?;
+    if not allocator.is_empty() {
+        return (3 as process::ExitCode)!;
+    }
+
+    var list = std::ArrayList[i32]::init();
+    defer list.deinit(&mut allocator).exit().?;
+    list.push(&mut allocator, 10).exit().?;
+    list.push(&mut allocator, 20).exit().?;
+    list.push(&mut allocator, 30).exit().?;
+
+    var total = 0;
+    for &value in list.iter() {
+        total += value;
+    }
+    if total != 60 {
+        return (4 as process::ExitCode)!;
+    }
+    if allocator.query_used() == 0usize or allocator.query_capacity() == 0usize {
+        return (5 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc() {
+    let root =
+        temp_dir("emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    defer allocator.deinit().exit().?;
+
+    let layout = mem::Layout::init(3000, 4096).exit().?;
+    var block = allocator.alloc(layout).exit().?;
+    if block.ptr() as usize % 4096usize != 0usize {
+        return (1 as process::ExitCode)!;
+    }
+    var bytes = block.bytes();
+    bytes[0] = 11u8;
+    bytes[2999] = 22u8;
+
+    let grown_layout = mem::Layout::init(3040, 4096).exit().?;
+    let old_addr = block.ptr() as usize;
+    block = allocator.realloc(block, grown_layout).exit().?;
+    if block.ptr() as usize != old_addr or block.size() != 3040usize {
+        return (2 as process::ExitCode)!;
+    }
+    bytes = block.bytes();
+    if bytes[0] != 11u8 or bytes[2999] != 22u8 {
+        return (3 as process::ExitCode)!;
+    }
+
+    let moved_layout = mem::Layout::init(12000, 4096).exit().?;
+    block = allocator.realloc(block, moved_layout).exit().?;
+    if block.ptr() as usize % 4096usize != 0usize or block.size() != 12000usize {
+        return (4 as process::ExitCode)!;
+    }
+    bytes = block.bytes();
+    if bytes[0] != 11u8 or bytes[2999] != 22u8 {
+        return (5 as process::ExitCode)!;
+    }
+
+    allocator.free(block).exit().?;
+    if not allocator.is_empty() {
+        return (6 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_general_purpose_allocator_rejects_invalid_free_and_resize() {
+    let root =
+        temp_dir("emit_exe_std_mem_general_purpose_allocator_rejects_invalid_free_and_resize");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    defer allocator.deinit().exit().?;
+
+    let small_layout = mem::Layout::init(32, 8).exit().?;
+    let small = allocator.alloc(small_layout).exit().?;
+    allocator.free(small).exit().?;
+    switch allocator.free(small) {
+        !ok => {
+            _ = ok;
+            return (1 as process::ExitCode)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return (2 as process::ExitCode)!;
+            }
+        },
+    }
+    if allocator.resize(small, small_layout) {
+        return (3 as process::ExitCode)!;
+    }
+
+    let large_layout = mem::Layout::init(4096, 4096).exit().?;
+    let large = allocator.alloc(large_layout).exit().?;
+    let wrong_layout = mem::Layout::init(2048, 4096).exit().?;
+    let wrong = mem::Block::init(large.ptr(), wrong_layout);
+    switch allocator.free(wrong) {
+        !ok => {
+            _ = ok;
+            return (4 as process::ExitCode)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return (5 as process::ExitCode)!;
+            }
+        },
+    }
+    allocator.free(large).exit().?;
+    if not allocator.is_empty() {
+        return (6 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
     let root = temp_dir("emit_exe_std_mem_allocator_realloc_preserves_byte_prefix");
     let main = root.join("main.nia");
