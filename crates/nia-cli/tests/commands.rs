@@ -6349,6 +6349,9 @@ fn run(init: process::Init) mem::Error!void {
     if free_fail.capacity() != 14usize or free_fail.len() != 14usize {
         return mem::Error::Invalid!;
     }
+    free_fail_allocator.clear_failures();
+    free_fail_allocator.fail_next_alloc();
+    free_fail.shrink_to_capacity(&mut free_fail_allocator, free_fail.capacity()).?;
     key = 0;
     while key < 14 {
         switch free_fail.get(&key) {
