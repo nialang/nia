@@ -5935,7 +5935,7 @@ fn run(init: process::Init) mem::Error!void {
         null => return mem::Error::Invalid!,
     }
     tombstones.shrink_to_fit(&mut gpa).?;
-    if tombstones.len() != 1usize or tombstones.capacity() != 8usize {
+    if tombstones.len() != 1usize or tombstones.capacity() != 7usize {
         return mem::Error::Invalid!;
     }
     switch tombstones.get(&777) {
@@ -5945,7 +5945,7 @@ fn run(init: process::Init) mem::Error!void {
         null => return mem::Error::Invalid!,
     }
     tombstones.shrink_to_capacity(&mut gpa, 14usize).?;
-    if tombstones.len() != 1usize or tombstones.capacity() != 8usize {
+    if tombstones.len() != 1usize or tombstones.capacity() != 7usize {
         return mem::Error::Invalid!;
     }
     switch tombstones.remove(&777) {
@@ -5968,7 +5968,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     tombstones.shrink_to_capacity(&mut gpa, 14usize).?;
-    if tombstones.len() != 10usize or tombstones.capacity() != 16usize {
+    if tombstones.len() != 10usize or tombstones.capacity() != 14usize {
         return mem::Error::Invalid!;
     }
     key = 0;
@@ -6311,7 +6311,7 @@ fn run(init: process::Init) mem::Error!void {
             return err!;
         },
     }
-    if free_fail.capacity() != 16usize or free_fail.len() != 14usize {
+    if free_fail.capacity() != 14usize or free_fail.len() != 14usize {
         return mem::Error::Invalid!;
     }
     key = 0;
@@ -6460,7 +6460,7 @@ fn run(init: process::Init) mem::Error!void {
     );
     defer tail_probe.deinit(&mut gpa).?;
     tail_probe.reserve(&mut gpa, 14usize).?;
-    if tail_probe.capacity() != 16usize {
+    if tail_probe.capacity() != 14usize {
         return mem::Error::Invalid!;
     }
     key = 0;
