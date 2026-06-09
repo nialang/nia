@@ -159,6 +159,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: array }
             | FunctionExprKind::TaggedUnionPayload { expr: array }
             | FunctionExprKind::Try { expr: array }
+            | FunctionExprKind::LoadUnaligned { ptr: array, .. }
             | FunctionExprKind::Splat { value: array }
             | FunctionExprKind::Bitmask { vector: array }
             | FunctionExprKind::BitIntrinsic { value: array, .. }

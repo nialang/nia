@@ -343,6 +343,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
             FunctionExprKind::Atomic(atomic) => self.emit_atomic_value(expr, atomic),
+            FunctionExprKind::LoadUnaligned { ty, ptr } => {
+                self.emit_load_unaligned(expr.span, *ty, ptr)
+            }
             FunctionExprKind::Splat { value } => self.emit_splat(expr, value),
             FunctionExprKind::ExtractElement { vector, index } => {
                 self.emit_extract_element(expr, vector, index)
@@ -469,6 +472,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_shuffle_vector(inserted, inserted, mask, "splat")
             .map_err(|_| self.error(expr.span, "failed to build splat vector"))
+    }
+
+    fn emit_load_unaligned(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        ptr: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let llvm_ty = self.module.llvm_basic_type(ty, span)?;
+        let ptr = self.emit_expr(ptr)?.into_pointer_value()?;
+        self.builder
+            .build_aligned_load(llvm_ty, ptr, 1, "load.unaligned")
+            .map_err(|_| self.error(span, "failed to build unaligned load"))
     }
 
     fn emit_extract_element(

@@ -106,6 +106,7 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::MemCopy
             | BuiltinResolution::MemMove
             | BuiltinResolution::MemSet
+            | BuiltinResolution::LoadUnaligned
             | BuiltinResolution::Splat
             | BuiltinResolution::Extract
             | BuiltinResolution::Insert
@@ -239,6 +240,9 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::MemSet => {
                 self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::LoadUnaligned => {
+                self.check_load_unaligned_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
             BuiltinResolution::Splat => {
                 self.check_splat_builtin_call(call_span, builtin_span, name, type_arg, args)
@@ -435,6 +439,57 @@ impl<'a> BodyChecker<'a> {
             None => {}
         }
         self.primitive(PrimitiveTy::Usize)
+    }
+
+    fn check_load_unaligned_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let Some(type_arg) = type_arg else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                builtin_span,
+                format!("builtin `@{name}` requires a type argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.error();
+        };
+        let ty = self.ty_for_type(type_arg);
+        self.require_sized_type(type_arg.span, ty, name);
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly one pointer argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return ty;
+        }
+        let ptr_ty = self.check_expr(&args[0]);
+        let u8_ty = self.primitive(PrimitiveTy::U8);
+        match self.interner.get(ptr_ty).cloned() {
+            Some(TyKind::Pointer { elem, .. }) if self.types_match(elem, u8_ty) => {}
+            Some(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    args[0].span,
+                    format!(
+                        "builtin `@{name}` requires a byte pointer argument, got {}",
+                        self.ty_name(ptr_ty)
+                    ),
+                ));
+            }
+            None => {}
+        }
+        ty
     }
 
     fn check_bit_intrinsic_builtin_call(

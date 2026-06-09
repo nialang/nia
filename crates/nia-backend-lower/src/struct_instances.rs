@@ -311,6 +311,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -852,6 +853,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::BitIntrinsic { value: expr, .. }

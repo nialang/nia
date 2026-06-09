@@ -324,6 +324,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: array }
             | FunctionExprKind::TaggedUnionPayload { expr: array }
             | FunctionExprKind::Try { expr: array }
+            | FunctionExprKind::LoadUnaligned { ptr: array, .. }
             | FunctionExprKind::Splat { value: array }
             | FunctionExprKind::Bitmask { vector: array }
             | FunctionExprKind::BitIntrinsic { value: array, .. }
@@ -829,6 +830,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -1011,6 +1013,7 @@ fn small_pure_inline_expr_cost_with_local(
             1 + small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)?
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }

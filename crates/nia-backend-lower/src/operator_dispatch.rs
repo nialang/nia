@@ -334,6 +334,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                 },
+                FunctionExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
+                    ty,
+                    ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
+                },
                 FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
                     value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
                 },

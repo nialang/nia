@@ -793,6 +793,10 @@ impl<'a> BodyChecker<'a> {
                                 )),
                             })
                         }
+                        ("load_unaligned", [ptr]) => TypedExprKind::LoadUnaligned {
+                            ty: self.builtin_atomic_type_arg(callee),
+                            ptr: Box::new(self.lower_expr(ptr)),
+                        },
                         ("splat", [value]) => TypedExprKind::Splat {
                             value: Box::new(self.lower_expr(value)),
                         },

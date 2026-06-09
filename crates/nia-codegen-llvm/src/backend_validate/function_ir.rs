@@ -191,6 +191,7 @@ impl BackendValidator<'_> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::BitIntrinsic { value: expr, .. }

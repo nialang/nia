@@ -1449,6 +1449,56 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_unaligned_vector_load_reads_lanes() {
+    let root = temp_dir("emit_exe_unaligned_vector_load_reads_lanes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    let bytes: [10]u8 = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
+    let vec = @load_unaligned[u8x8](&bytes[1]);
+    if @extract(vec, 0usize) != 1u8 {
+        return (1 as process::ExitCode)!;
+    }
+    if @extract(vec, 7usize) != 8u8 {
+        return (2 as process::ExitCode)!;
+    }
+    let mask = @bitmask(vec == @splat[u8x8](4u8));
+    if mask != 0x08usize {
+        return (3 as process::ExitCode)!;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exit_code_is_open_enum() {
     let root = temp_dir("emit_exe_exit_code_is_open_enum");
     let main = root.join("main.nia");
@@ -5352,6 +5402,10 @@ struct ModuloContext {
     salt: u64,
 }
 
+struct TailHashContext {
+    offset: usize,
+}
+
 extend ConstantHashContext {
     fn init() ConstantHashContext {
         {}
@@ -5398,6 +5452,12 @@ extend Key {
 extend ModuloContext {
     fn init(modulus: i32, salt: u64) ModuloContext {
         { modulus: modulus, salt: salt }
+    }
+}
+
+extend TailHashContext {
+    fn init(offset: usize) TailHashContext {
+        { offset: offset }
     }
 }
 
@@ -5468,6 +5528,17 @@ extend ModuloContext : std::HashMapContext[Key] {
 
     fn eql(&self, left: &Key, right: &Key) bool {
         (left.value % self.modulus) == (right.value % self.modulus)
+    }
+}
+
+extend TailHashContext : std::HashMapContext[i32] {
+    fn hash(&self, seed: u64, key: &i32) u64 {
+        _ = seed;
+        (key.* as u64) + (self.offset as u64)
+    }
+
+    fn eql(&self, left: &i32, right: &i32) bool {
+        left.* == right.*
     }
 }
 
@@ -6180,6 +6251,58 @@ fn run(init: process::Init) mem::Error!void {
     let replaced = Key::init(46);
     switch modulo.get(&replaced) {
         ?value => if value.* != 56 * 3 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    var tail_probe = std::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
+        TailHashContext::init(15usize),
+        0u64,
+    );
+    defer tail_probe.deinit(&mut gpa).?;
+    tail_probe.reserve(&mut gpa, 14usize).?;
+    if tail_probe.capacity() != 16usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 8 {
+        _ = tail_probe.put(&mut gpa, key, key + 100).?;
+        key += 1;
+    }
+    key = 0;
+    while key < 8 {
+        switch tail_probe.get(&key) {
+            ?value => if value.* != key + 100 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    switch tail_probe.remove(&0) {
+        ?value => if value != 100 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch tail_probe.put(&mut gpa, 16, 1600) {
+        !old => switch old {
+            ?value => return mem::Error::Invalid!,
+            null => {},
+        },
+        err! => return err!,
+    }
+    switch tail_probe.get(&16) {
+        ?value => if value.* != 1600 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    tail_probe.clear();
+    _ = tail_probe.put(&mut gpa, 0, 700).?;
+    switch tail_probe.get(&0) {
+        ?value => if value.* != 700 {
             return mem::Error::Invalid!;
         },
         null => return mem::Error::Invalid!,

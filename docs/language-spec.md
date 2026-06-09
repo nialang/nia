@@ -1822,6 +1822,7 @@ range.start()
 range.end()
 slice.get_ptr_read()
 slice.get_ptr()
+@load_unaligned[T](ptr)
 @splat[Vec](value)
 @extract(vector, index)
 @insert(vector, index, value)
@@ -1874,6 +1875,11 @@ and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
 intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
 with `&array[..]`. User types may implement these traits for custom contiguous
 storage abstractions, but may not overlap compiler-proven slice implementations.
+
+`@load_unaligned[T](ptr)` reads a `T` from a byte pointer with alignment 1.
+`ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`. The caller is
+responsible for ensuring that at least `@size[T]()` readable bytes are available
+at `ptr`; the builtin only relaxes alignment, not bounds or initialization.
 
 SIMD vector builtins operate on primitive vector types such as `u8x16` and
 `boolx16`. `@splat[Vec](value)` constructs a vector whose lanes all contain

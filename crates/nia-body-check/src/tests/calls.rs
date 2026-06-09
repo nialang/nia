@@ -396,3 +396,27 @@ fn missing_type(value: usize) usize {
         checked.diagnostics
     );
 }
+
+#[test]
+fn checks_load_unaligned_builtin() {
+    let checked = pipeline(
+        r#"
+fn load(ptr: &u8) u8x8 {
+    @load_unaligned[u8x8](ptr)
+}
+
+fn invalid_ptr(ptr: &u16) u8x8 {
+    @load_unaligned[u8x8](ptr)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("byte pointer argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+}

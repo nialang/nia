@@ -199,6 +199,10 @@ pub enum TypedExprKind {
     InlineAsm(TypedInlineAsm),
     MemoryIntrinsic(TypedMemoryIntrinsic),
     Atomic(TypedAtomic),
+    LoadUnaligned {
+        ty: InternedTyId,
+        ptr: Box<TypedExpr>,
+    },
     Splat {
         value: Box<TypedExpr>,
     },

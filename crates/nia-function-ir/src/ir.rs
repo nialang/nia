@@ -234,6 +234,10 @@ pub enum FunctionExprKind {
     },
     InlineAsm(FunctionInlineAsm),
     Atomic(FunctionAtomic),
+    LoadUnaligned {
+        ty: InternedTyId,
+        ptr: Box<FunctionExpr>,
+    },
     Splat {
         value: Box<FunctionExpr>,
     },
