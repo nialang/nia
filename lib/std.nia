@@ -14,6 +14,6 @@ import std.slice;
 pub using array_list::ArrayList;
 pub using atomic::Atomic;
 pub using hash::{Hash, Hasher, Wyhash};
-pub using hash_map::{DefaultHashMapContext, HashMap, HashMapContext, HashMapEntry, HashMapEntryRef, HashMapGetOrPutResult, HashMapIter, HashMapIterWithContext, HashMapKeys, HashMapKeysWithContext, HashMapValues, HashMapValuesWithContext, HashMapWithContext};
+pub using hash_map::{DefaultHashMapContext, HashMap, HashMapContext, HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult, HashMapIter, HashMapIterMut, HashMapIterMutWithContext, HashMapIterWithContext, HashMapKeys, HashMapKeysWithContext, HashMapValues, HashMapValuesMut, HashMapValuesMutWithContext, HashMapValuesWithContext, HashMapWithContext};
 pub using range::{from, inclusive, range};
 pub using slice::SliceIter;

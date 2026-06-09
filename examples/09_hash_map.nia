@@ -20,6 +20,13 @@ fn run(init: Init) mem::Error!void {
     _ = scores.put(&mut gpa, 9, 90).?;
     var answer_slot = scores.get_or_put(&mut gpa, 42).?;
     answer_slot.value().* = answer_slot.value().* + 1;
+    switch scores.get_entry_mut(&42) {
+        ?entry => entry.value_mut().* = entry.value().* + 9,
+        null => return mem::Error::Invalid!,
+    }
+    for value in scores.values_mut() {
+        value.* = value.* / 10;
+    }
 
     var answer = 0;
     switch scores.get(&42) {

@@ -5376,6 +5376,7 @@ fn emit_exe_std_hash_map_supports_basic_operations() {
         &main,
         r#"
 import std;
+import std.debug;
 import std.mem;
 import std.process;
 
@@ -5612,8 +5613,43 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    switch map.get_entry_mut(&42) {
+        ?entry => {
+            if entry.key().* != 42 or entry.value().* != 8 {
+                return mem::Error::Invalid!;
+            }
+            entry.value_mut().* = 9;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch map.get(&42) {
+        ?value => if value.* != 9 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    for value in map.values_mut() {
+        value.* = value.* + 1;
+    }
+    switch map.get(&42) {
+        ?value => if value.* != 10 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    for entry in map.iter_mut() {
+        if entry.key().* == 42 {
+            entry.value_mut().* = entry.value().* + 2;
+        }
+    }
+    switch map.get(&42) {
+        ?value => if value.* != 12 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
     switch map.remove(&10) {
-        ?value => if value != 100 {
+        ?value => if value != 101 {
             return mem::Error::Invalid!;
         },
         null => return mem::Error::Invalid!,
@@ -5637,14 +5673,14 @@ fn run(init: process::Init) mem::Error!void {
     for &value in map.values() {
         value_sum += value;
     }
-    if value_sum != 19648 {
+    if value_sum != 19714 {
         return mem::Error::Invalid!;
     }
 
     var entry_count = 0usize;
     for entry in map.iter() {
         entry_count += 1usize;
-        if entry.key().* == 42 and entry.value().* != 8 {
+        if entry.key().* == 42 and entry.value().* != 12 {
             return mem::Error::Invalid!;
         }
     }
@@ -5654,7 +5690,7 @@ fn run(init: process::Init) mem::Error!void {
 
     switch map.remove_entry(&42) {
         ?entry => {
-            if entry.key().* != 42 or entry.value().* != 8 {
+            if entry.key().* != 42 or entry.value().* != 12 {
                 return mem::Error::Invalid!;
             }
         },
@@ -6505,6 +6541,7 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    debug::print("hash_map={}\n", [&tail_probe]);
 
     var tiny_storage: [16]u8 = [0; 16];
     var tiny = mem::FixedBufferAllocator::init(tiny_storage);
