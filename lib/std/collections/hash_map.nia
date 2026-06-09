@@ -458,15 +458,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn shrink_to_capacity(&mut self, allocator: &mut mem::Allocator, min_capacity: usize) mem::Error!void {
         let target_capacity = max_usize(self.len(), min_capacity);
+        if target_capacity >= self.capacity() {
+            return !{};
+        }
         if target_capacity == 0usize {
             self.clear_and_free(allocator).?;
             return !{};
         }
 
         let target = capacity_to_buckets(target_capacity).?;
-        if target >= self.bucket_capacity() {
-            return self.compact(allocator);
-        }
         self.rehash_to_buckets(allocator, target)
     }
 
