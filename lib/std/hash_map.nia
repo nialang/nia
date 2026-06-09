@@ -629,7 +629,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             index += 1usize;
         }
 
-        self.free_allocations(allocator).?;
+        var old_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
+        old_map.ctrl = self.ctrl;
+        old_map.keys = self.keys;
+        old_map.values = self.values;
+        old_map.len = self.len;
+        old_map.growth_left = self.growth_left;
         self.ctrl = new_map.ctrl;
         self.keys = new_map.keys;
         self.values = new_map.values;
@@ -638,7 +643,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         new_map.ctrl = dangling_slice[u8]();
         new_map.keys = dangling_slice[K]();
         new_map.values = dangling_slice[V]();
-        !{}
+        old_map.free_allocations(allocator)
     }
 
     fn insert_existing(&mut self, key: K, value: V) void {
