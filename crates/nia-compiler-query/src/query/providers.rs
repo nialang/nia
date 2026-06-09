@@ -323,6 +323,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
         unions: collect_program_unions(&modules),
         enums: collect_program_enums(&modules),
         traits: collect_program_traits(&modules),
+        type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
         trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
     }
 }
@@ -606,6 +607,7 @@ pub(super) fn provide_layouts(
         nia_layout::ProgramLayoutContext {
             layouts: Some(&layout_query),
             array_lengths: Some(&program_array_lengths),
+            ..Default::default()
         },
     )
 }
@@ -898,6 +900,7 @@ pub(super) fn provide_backend_lowering(
                 .map(|(def_id, body)| (*def_id, body.clone()))
         })
         .collect::<HashMap<_, _>>();
+    let program_defs = db.query(ProgramDefsByIdQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = checked_modules
         .iter()
@@ -927,8 +930,11 @@ pub(super) fn provide_backend_lowering(
                     extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: &extension_methods.methods,
                     program_extensions: &program_extensions,
+                    program_defs: &program_defs,
                     program_type_interners: &program_type_interners,
                     program_functions: &program_signatures.functions,
+                    program_structs: &program_signatures.structs,
+                    program_unions: &program_signatures.unions,
                     program_enums: &program_signatures.enums,
                     program_traits: &program_signatures.traits,
                     trait_impls: &program_signatures.trait_impls,

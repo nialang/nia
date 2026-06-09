@@ -178,24 +178,31 @@ impl<'a> BodyChecker<'a> {
             self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Function(method_id));
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        Some(self.normalize_projection(return_type))
+        let return_type = self.normalize_projection(return_type);
+        Some(self.normalize_aliases_in_type(return_type))
     }
 
-    pub(in crate::calls::methods) fn associated_target_ty(
+    pub(in crate::calls) fn associated_target_ty(
         &mut self,
         ty_expr: &Expr,
         expected: Option<InternedTyId>,
         name: &str,
     ) -> Option<InternedTyId> {
         if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
-            return Some(self.ty_for_type(ty));
+            let ty = self.ty_for_type(ty);
+            return Some(self.normalization.normalize(ty));
         }
         let (nominal_def_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
-        let candidates = self.method_candidates_for_nominal_def(nominal_def_id, name);
         if type_args.is_empty()
             && let Some(expected) = expected
+            && let Some(prefix_ty) = self.associated_nominal_target_ty(nominal_def_id, Vec::new())
+            && let Some(nia_ty::TyKind::Nominal {
+                def_id: normalized_def_id,
+                ..
+            }) = self.interner.get(prefix_ty).cloned()
+            && let candidates = self.method_candidates_for_target(prefix_ty, name)
             && let Some(inferred) = self.infer_associated_type_args_from_candidates(
-                nominal_def_id,
+                normalized_def_id,
                 &candidates,
                 expected,
             )
@@ -204,16 +211,25 @@ impl<'a> BodyChecker<'a> {
         }
         if !type_args.is_empty() || self.nominal_type_prefix_has_no_generics(nominal_def_id) {
             self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
-            return Some(self.interner.intern(TyKind::Nominal {
-                def_id: nominal_def_id,
-                args: type_args,
-            }));
+            return self.associated_nominal_target_ty(nominal_def_id, type_args);
         }
         self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
-        Some(self.interner.intern(TyKind::Nominal {
-            def_id: nominal_def_id,
-            args: Vec::new(),
-        }))
+        self.associated_nominal_target_ty(nominal_def_id, Vec::new())
+    }
+
+    fn associated_nominal_target_ty(
+        &mut self,
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        if let Some(target) = self.expand_type_alias_instance(def_id, &args) {
+            return Some(target);
+        }
+        let ty = self.interner.intern(TyKind::Nominal {
+            def_id,
+            args,
+        });
+        Some(self.normalization.normalize(ty))
     }
 
     fn infer_associated_type_args_from_expected_return(
@@ -235,6 +251,7 @@ impl<'a> BodyChecker<'a> {
         }
         let substitutions = self.nominal_type_generic_substitutions(nominal_def_id, &expected_args);
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.normalize_aliases_in_type(return_type);
         if self.types_match(expected, return_type) {
             Some(expected_args)
         } else {

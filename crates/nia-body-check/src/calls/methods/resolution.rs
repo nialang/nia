@@ -15,25 +15,6 @@ struct DynamicTraitMethodSearch<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
-    pub(in crate::calls) fn method_candidates_for_nominal_def(
-        &mut self,
-        nominal_def_id: GlobalDefId,
-        name: &str,
-    ) -> Vec<MethodCandidate> {
-        self.extensions
-            .all_methods_named(name)
-            .into_iter()
-            .filter_map(|(target_ty, method)| {
-                let target_ty = self.normalization.normalize(target_ty);
-                matches!(
-                    self.interner.get(target_ty),
-                    Some(TyKind::Nominal { def_id, .. }) if *def_id == nominal_def_id
-                )
-                .then_some(MethodCandidate { target_ty, method })
-            })
-            .collect()
-    }
-
     pub(in crate::calls) fn method_candidates_for_target(
         &mut self,
         target_ty: InternedTyId,
@@ -57,7 +38,7 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &str,
     ) -> Vec<MethodCandidate> {
-        let mut receiver_ty = self.normalization.normalize(receiver_ty);
+        let mut receiver_ty = self.normalize_aliases_in_type(receiver_ty);
         loop {
             let candidates = self
                 .extensions
@@ -83,7 +64,7 @@ impl<'a> BodyChecker<'a> {
             }
             match self.interner.get(receiver_ty) {
                 Some(TyKind::Pointer { elem, .. }) => {
-                    receiver_ty = self.normalization.normalize(*elem);
+                    receiver_ty = self.normalize_aliases_in_type(*elem);
                 }
                 _ => return Vec::new(),
             }
@@ -91,7 +72,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn receiver_is_trait_object(&mut self, receiver_ty: InternedTyId) -> bool {
-        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let receiver_ty = self.normalize_aliases_in_type(receiver_ty);
         matches!(
             self.interner.get(receiver_ty),
             Some(TyKind::TraitObject { .. })

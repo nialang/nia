@@ -976,6 +976,37 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         pattern: &FunctionExpr,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
+        match &pattern.kind {
+            FunctionExprKind::Null => {
+                return Ok(self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionOptionalTag::Null.discriminant().into(), false));
+            }
+            FunctionExprKind::OptionalSome { .. } => {
+                return Ok(self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionOptionalTag::Some.discriminant().into(), false));
+            }
+            FunctionExprKind::ErrorOk { .. } => {
+                return Ok(self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionErrorUnionTag::Ok.discriminant().into(), false));
+            }
+            FunctionExprKind::ErrorErr { .. } => {
+                return Ok(self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false));
+            }
+            _ => {}
+        }
         Ok(self.emit_expr(pattern)?.into_int_value()?)
     }
 

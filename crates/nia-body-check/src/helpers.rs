@@ -207,6 +207,47 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default()
     }
 
+    pub(crate) fn expand_type_alias_instance(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<InternedTyId> {
+        if def_id.module_id == self.defs.module_id
+            && let Some(alias) = self.signatures.type_aliases.get(&def_id.def_id).cloned()
+        {
+            if alias.generics.len() != args.len() {
+                return Some(self.error());
+            }
+            let substitutions = self.generic_substitutions(&alias.generics, args);
+            let target = self.substitute_generics(alias.target, &substitutions);
+            return Some(self.normalize_aliases_in_type(target));
+        }
+        if let Some(alias) = self.program_type_aliases.get(&def_id).cloned() {
+            if alias.signature.generics.len() != args.len() {
+                return Some(self.error());
+            }
+            let substitutions = self.generic_substitutions(&alias.signature.generics, args);
+            let target = self.import_type_from(&alias.interner, alias.signature.target);
+            let target = self.substitute_generics(target, &substitutions);
+            return Some(self.normalize_aliases_in_type(target));
+        }
+        None
+    }
+
+    pub(crate) fn normalize_aliases_in_type(&mut self, ty: InternedTyId) -> InternedTyId {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Nominal { def_id, args }) => self
+                .expand_type_alias_instance(def_id, &args)
+                .unwrap_or(ty),
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.normalize_aliases_in_type(elem);
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            _ => ty,
+        }
+    }
+
     pub(crate) fn substitute_generics(
         &mut self,
         ty: InternedTyId,

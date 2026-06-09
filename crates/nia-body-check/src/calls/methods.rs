@@ -135,14 +135,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<InternedTyId> {
+        let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
         let dynamic_candidates =
-            self.dynamic_trait_method_candidates_for_receiver(call.receiver_ty, call.name);
+            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, call.name);
         if !dynamic_candidates.is_empty() {
             return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
         }
-        let candidates = self.method_candidates_for_receiver(call.receiver_ty, call.name);
+        let candidates = self.method_candidates_for_receiver(receiver_ty, call.name);
         let trait_candidates = if candidates.is_empty() {
-            self.trait_method_candidates_for_receiver(call.receiver_ty, call.name)
+            self.trait_method_candidates_for_receiver(receiver_ty, call.name)
         } else {
             Vec::new()
         };
@@ -191,7 +192,7 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(self.error());
         };
-        self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);
+        self.check_receiver_match(call.receiver, receiver_ty, receiver_kind);
 
         let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
             for arg in call.args {
@@ -202,7 +203,7 @@ impl<'a> BodyChecker<'a> {
         let Some(mut substitutions) = self.method_generic_substitutions(
             MethodGenericContext {
                 span: call.span,
-                receiver_ty: call.receiver_ty,
+                receiver_ty,
                 method_id,
                 method_args: call.type_args,
                 lowered_method_args: &method_instantiation_args,
@@ -255,6 +256,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        Some(self.normalize_projection(return_type))
+        let return_type = self.normalize_projection(return_type);
+        Some(self.normalize_aliases_in_type(return_type))
     }
 }

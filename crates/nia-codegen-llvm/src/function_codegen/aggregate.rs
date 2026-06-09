@@ -93,6 +93,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(field_id) = field.field else {
                 return Err(self.error(field.span, "invalid struct field initializer"));
             };
+            if self.is_zero_sized(self.field_ty(expr.ty, field_id, field.span)?) {
+                self.emit_effect_expr(&field.value)?;
+                continue;
+            }
             let field_index = self.field_index(expr.ty, field_id, field.span)?;
             let field_ptr = self
                 .builder
@@ -193,9 +197,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_store(tag_ptr, tag_value)
             .map_err(|_| self.error(expr.span, "failed to store tagged union tag"))?;
-        if let Some(payload) = payload
-            && !self.is_zero_sized(payload.ty)
-        {
+        if let Some(payload) = payload {
+            if self.is_zero_sized(payload.ty) {
+                self.emit_effect_expr(payload)?;
+                return Ok(());
+            }
             let storage_ptr = self
                 .builder
                 .build_struct_gep(ty, ptr, 1, "payloadptr")

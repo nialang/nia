@@ -73,6 +73,12 @@ pub struct ProgramTraitSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTypeAliasSignature {
+    pub signature: TypeAliasSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitImplSignature {
     pub module_id: nia_ids::ModuleId,
     pub local_index: usize,
@@ -94,6 +100,7 @@ pub struct ProgramSignatureMaps<'a> {
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 

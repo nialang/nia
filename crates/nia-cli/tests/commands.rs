@@ -5138,6 +5138,28 @@ import std.process;
 
 struct Unit {}
 
+struct ConstantHashContext {}
+
+extend ConstantHashContext {
+    fn init() ConstantHashContext {
+        {}
+    }
+}
+
+extend ConstantHashContext : std::HashMapContext[i32] {
+    fn hash(&self, seed: u64, key: &i32) u64 {
+        _ = self;
+        _ = seed;
+        _ = key;
+        1u64
+    }
+
+    fn eql(&self, left: &i32, right: &i32) bool {
+        _ = self;
+        left.* == right.*
+    }
+}
+
 fn run(init: process::Init) mem::Error!void {
     _ = init;
     var page = mem::PageAllocator::init();
@@ -5391,6 +5413,77 @@ fn run(init: process::Init) mem::Error!void {
             null => return mem::Error::Invalid!,
         }
         key += 1;
+    }
+
+    var collisions = std::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
+        ConstantHashContext::init(),
+        777u64,
+    );
+    defer collisions.deinit(&mut gpa).?;
+    collisions.reserve(&mut gpa, 16usize).?;
+    key = 0;
+    while key < 20 {
+        _ = collisions.put(&mut gpa, key, key + 1000).?;
+        key += 1;
+    }
+    if collisions.len() != 20usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 20 {
+        switch collisions.get(&key) {
+            ?value => if value.* != key + 1000 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    key = 0;
+    while key < 10 {
+        switch collisions.remove(&key) {
+            ?value => if value != key + 1000 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    key = 100;
+    while key < 110 {
+        _ = collisions.put(&mut gpa, key, key + 2000).?;
+        key += 1;
+    }
+    if collisions.len() != 20usize {
+        return mem::Error::Invalid!;
+    }
+    key = 10;
+    while key < 20 {
+        if not collisions.contains_key(&key) {
+            return mem::Error::Invalid!;
+        }
+        key += 1;
+    }
+    key = 100;
+    while key < 110 {
+        switch collisions.get(&key) {
+            ?value => if value.* != key + 2000 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+
+    var tiny_storage: [16]u8 = [0; 16];
+    var tiny = mem::FixedBufferAllocator::init(tiny_storage);
+    var tiny_map = std::HashMap[i32, i32]::init_seed(11u64);
+    defer tiny_map.deinit(&mut tiny).?;
+    switch tiny_map.reserve(&mut tiny, 64usize) {
+        !ok => return mem::Error::Invalid!,
+        err! => if err as i32 != mem::Error::OutOfMemory as i32 {
+            return err!;
+        },
     }
 
     !{}

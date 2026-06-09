@@ -784,10 +784,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn field_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        match self.interner.get(ty) {
-            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
-            Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
+    fn field_base_type(&mut self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let ty = self.normalize_aliases_in_type(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Nominal { def_id, args }) => Some((def_id, args)),
+            Some(TyKind::Pointer { elem, .. }) => self.field_base_type(elem),
             _ => None,
         }
     }

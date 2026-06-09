@@ -25,10 +25,10 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
-    ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature, WherePredicateSignature,
+    ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature, WherePredicateSignature,
 };
-use nia_layout::{Layouts, StructLayoutKey};
+use nia_layout::{Layouts, ProgramLayoutContext, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
@@ -98,8 +98,11 @@ pub struct BackendLowerModuleInput<'a> {
         ModuleId,
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
+    pub program_defs: &'a std::collections::HashMap<ModuleId, DefCollection>,
     pub program_type_interners: &'a std::collections::HashMap<ModuleId, &'a nia_ty::TyInterner>,
     pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub program_structs: &'a std::collections::HashMap<GlobalDefId, ProgramStructSignature>,
+    pub program_unions: &'a std::collections::HashMap<GlobalDefId, ProgramUnionSignature>,
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
@@ -204,7 +207,11 @@ fn append_function_instances(
     );
     let mut backend_layouts =
         BackendLayouts::from_module_layouts(lowerer.input.module_id, lowerer.input.layouts);
-    lowerer.extend_backend_layouts_for_instances(&mut backend_layouts);
+    lowerer.extend_backend_layouts_for_instances(
+        &mut backend_layouts,
+        &module.struct_instances,
+        &module.union_instances,
+    );
     module.layouts = backend_layouts;
     module.interner = lowerer.interner.clone();
 }
@@ -485,7 +492,11 @@ impl<'a> ModuleLowerer<'a> {
 
         let mut backend_layouts =
             BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(&mut backend_layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut backend_layouts,
+            &struct_instances,
+            &union_instances,
+        );
 
         BackendModule {
             id: self.input.module_id,
@@ -518,7 +529,12 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn extend_backend_layouts_for_instances(&self, layouts: &mut BackendLayouts) {
+    fn extend_backend_layouts_for_instances(
+        &self,
+        layouts: &mut BackendLayouts,
+        struct_instances: &[nia_backend_ir::BackendStructInstance],
+        union_instances: &[nia_backend_ir::BackendUnionInstance],
+    ) {
         let computed = nia_layout::compute_layouts_with_normalized_types(
             self.input.defs,
             &self.interner,
@@ -528,15 +544,93 @@ impl<'a> ModuleLowerer<'a> {
             self.input.layouts.target,
         );
         append_missing_layout_instances(
-            self.input.module_id,
             &mut layouts.struct_instances,
             computed.struct_instances,
+            self.input.module_id,
         );
         append_missing_layout_instances(
-            self.input.module_id,
             &mut layouts.union_instances,
             computed.union_instances,
+            self.input.module_id,
         );
+        self.append_foreign_instance_layouts(layouts, struct_instances, union_instances);
+    }
+
+    fn append_foreign_instance_layouts(
+        &self,
+        layouts: &mut BackendLayouts,
+        struct_instances: &[nia_backend_ir::BackendStructInstance],
+        union_instances: &[nia_backend_ir::BackendUnionInstance],
+    ) {
+        let array_lengths = |id| self.input.comptime.array_lengths.get(&id).copied();
+        let program = ProgramLayoutContext {
+            layouts: None,
+            array_lengths: Some(&array_lengths),
+            structs: Some(self.input.program_structs),
+            unions: Some(self.input.program_unions),
+        };
+
+        let mut seen_structs = layouts
+            .struct_instances
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
+        for instance in struct_instances {
+            if instance.def_id.module_id == self.input.module_id {
+                continue;
+            }
+            let key = BackendStructInstanceKey {
+                def_id: instance.def_id,
+                args: instance.args.clone(),
+            };
+            if !seen_structs.insert(key.clone()) {
+                continue;
+            }
+            if let Some(layout) = nia_layout::compute_struct_instance_layout_with_program_context(
+                self.input.defs,
+                &self.interner,
+                self.input.signatures,
+                &self.input.type_normalization.normalized,
+                &array_lengths,
+                self.input.layouts.target,
+                program,
+                instance.def_id,
+                &instance.args,
+            ) {
+                layouts.struct_instances.push((key, layout));
+            }
+        }
+
+        let mut seen_unions = layouts
+            .union_instances
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
+        for instance in union_instances {
+            if instance.def_id.module_id == self.input.module_id {
+                continue;
+            }
+            let key = BackendStructInstanceKey {
+                def_id: instance.def_id,
+                args: instance.args.clone(),
+            };
+            if !seen_unions.insert(key.clone()) {
+                continue;
+            }
+            if let Some(layout) = nia_layout::compute_union_instance_layout_with_program_context(
+                self.input.defs,
+                &self.interner,
+                self.input.signatures,
+                &self.input.type_normalization.normalized,
+                &array_lengths,
+                self.input.layouts.target,
+                program,
+                instance.def_id,
+                &instance.args,
+            ) {
+                layouts.union_instances.push((key, layout));
+            }
+        }
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
@@ -611,8 +705,12 @@ impl<'a> ModuleLowerer<'a> {
                 if let Some(name) = def_names.get(&def_id) {
                     return name.clone();
                 }
-                let name = defs
-                    .get(def_id.def_id)
+                let name = self
+                    .input
+                    .program_defs
+                    .get(&def_id.module_id)
+                    .and_then(|defs| defs.defs.get(def_id.def_id))
+                    .or_else(|| defs.get(def_id.def_id))
                     .map(|def| sanitize_symbol_part(&def.name))
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
                 def_names.insert(def_id, name.clone());
@@ -636,6 +734,20 @@ impl<'a> ModuleLowerer<'a> {
                 value
             },
         )
+    }
+
+    pub(crate) fn def_name(&self, def_id: GlobalDefId) -> String {
+        self.input
+            .program_defs
+            .get(&def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
+            .or_else(|| {
+                (def_id.module_id == self.input.module_id)
+                    .then(|| self.input.defs.defs.get(def_id.def_id))
+                    .flatten()
+            })
+            .map(|def| def.name.clone())
+            .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -919,16 +1031,16 @@ fn index_layout_instances_by_def<'a>(
 }
 
 fn append_missing_layout_instances(
-    module_id: ModuleId,
     output: &mut Vec<(BackendStructInstanceKey, nia_layout::StructLayout)>,
     computed: HashMap<StructLayoutKey, nia_layout::StructLayout>,
+    default_module_id: ModuleId,
 ) {
     let mut existing = output
         .iter()
         .map(|(key, _)| key.clone())
         .collect::<HashSet<_>>();
     for (key, layout) in computed {
-        let key = BackendStructInstanceKey::from_module_key(module_id, &key);
+        let key = BackendStructInstanceKey::from_module_key(default_module_id, &key);
         if existing.insert(key.clone()) {
             output.push((key, layout));
         }

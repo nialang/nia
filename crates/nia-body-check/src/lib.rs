@@ -26,6 +26,7 @@ use nia_item_signatures::{
     EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
     ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ProgramTypeAliasSignature,
     ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_layout::Layouts;
@@ -165,6 +166,7 @@ pub fn check_module_bodies(
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
     let empty_traits = HashMap::new();
+    let empty_type_aliases = HashMap::new();
     let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -198,6 +200,7 @@ pub fn check_module_bodies(
             unions: &empty_unions,
             enums: &empty_enums,
             traits: &empty_traits,
+            type_aliases: &empty_type_aliases,
             trait_impls: &empty_trait_impls,
         },
         program_comptime: ProgramComptimeMaps {
@@ -335,6 +338,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
         program_traits: input.program_signatures.traits,
+        program_type_aliases: input.program_signatures.type_aliases,
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         program_comptime_modules: input.program_comptime.modules,
@@ -419,6 +423,7 @@ struct BodyChecker<'a> {
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    program_type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,

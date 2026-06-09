@@ -90,6 +90,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
         program_comptime: ProgramComptimeMaps {
@@ -217,6 +218,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
         program_comptime: ProgramComptimeMaps {

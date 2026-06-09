@@ -7,8 +7,17 @@ comptime let ctrl_empty: u8 = 0xffu8;
 comptime let ctrl_deleted: u8 = 0x80u8;
 comptime let group_width: usize = 8usize;
 
-pub struct HashMap[K, V]
-where K: Sized, V: Sized
+pub trait HashMapContext[K] {
+    fn hash(&self, seed: u64, key: &K) u64;
+    fn eql(&self, left: &K, right: &K) bool;
+}
+
+pub struct DefaultHashMapContext {}
+
+pub type HashMap[K, V] = HashMapWithContext[K, V, DefaultHashMapContext];
+
+pub struct HashMapWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     ctrl: &mut [u8],
     keys: &mut [K],
@@ -16,6 +25,7 @@ where K: Sized, V: Sized
     len: usize,
     growth_left: usize,
     seed: u64,
+    context: C,
 }
 
 pub struct HashMapEntry[K, V]
@@ -40,24 +50,30 @@ where K: Sized, V: Sized
     found_existing: bool,
 }
 
-pub struct HashMapIter[K, V]
-where K: Sized, V: Sized
+pub type HashMapIter[K, V] = HashMapIterWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapKeys[K, V] = HashMapKeysWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapValues[K, V] = HashMapValuesWithContext[K, V, DefaultHashMapContext];
+
+pub struct HashMapIterWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    map: &HashMap[K, V],
+    map: &HashMapWithContext[K, V, C],
     index: usize,
     remaining: usize,
 }
 
-pub struct HashMapKeys[K, V]
-where K: Sized, V: Sized
+pub struct HashMapKeysWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    iter: HashMapIter[K, V],
+    iter: HashMapIterWithContext[K, V, C],
 }
 
-pub struct HashMapValues[K, V]
-where K: Sized, V: Sized
+pub struct HashMapValuesWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    iter: HashMapIter[K, V],
+    iter: HashMapIterWithContext[K, V, C],
 }
 
 fn dangling_slice[T]() &mut [T]
@@ -65,6 +81,28 @@ where T: Sized
 {
     var ptr = @align[T]() as &mut T;
     &mut ptr[0..0]
+}
+
+extend DefaultHashMapContext {
+    pub fn init() DefaultHashMapContext {
+        {}
+    }
+}
+
+extend[K] DefaultHashMapContext : HashMapContext[K]
+where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
+{
+    pub fn hash(&self, seed: u64, key: &K) u64 {
+        _ = self;
+        var hasher = hash::Wyhash::init(seed);
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn eql(&self, left: &K, right: &K) bool {
+        _ = self;
+        left.* == right.*
+    }
 }
 
 extend[K, V] HashMapEntry[K, V]
@@ -115,8 +153,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapIter[K, V]
-where K: Sized, V: Sized
+extend[K, V, C] HashMapIterWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn len(&self) usize {
         self.remaining
@@ -127,8 +165,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapIter[K, V] : Iterator
-where K: Sized, V: Sized
+extend[K, V, C] HashMapIterWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = HashMapEntryRef[K, V];
 
@@ -148,8 +186,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapKeys[K, V]
-where K: Sized, V: Sized
+extend[K, V, C] HashMapKeysWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn len(&self) usize {
         self.iter.len()
@@ -160,8 +198,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapKeys[K, V] : Iterator
-where K: Sized, V: Sized
+extend[K, V, C] HashMapKeysWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = &K;
 
@@ -173,8 +211,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapValues[K, V]
-where K: Sized, V: Sized
+extend[K, V, C] HashMapValuesWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn len(&self) usize {
         self.iter.len()
@@ -185,8 +223,8 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMapValues[K, V] : Iterator
-where K: Sized, V: Sized
+extend[K, V, C] HashMapValuesWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = &V;
 
@@ -198,7 +236,7 @@ where K: Sized, V: Sized
     }
 }
 
-extend[K, V] HashMap[K, V]
+extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 {
     pub fn init() os::Error!HashMap[K, V] {
@@ -207,14 +245,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
     }
 
     pub fn init_seed(seed: u64) HashMap[K, V] {
-        {
-            ctrl: dangling_slice[u8](),
-            keys: dangling_slice[K](),
-            values: dangling_slice[V](),
-            len: 0usize,
-            growth_left: 0usize,
-            seed: seed,
-        }
+        HashMapWithContext[K, V, DefaultHashMapContext]::init_context_seed(DefaultHashMapContext::init(), seed)
     }
 
     pub fn init_seed_capacity(
@@ -222,7 +253,42 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         seed: u64,
         capacity: usize,
     ) mem::Error!HashMap[K, V] {
-        var map = HashMap[K, V]::init_seed(seed);
+        HashMapWithContext[K, V, DefaultHashMapContext]::init_context_seed_capacity(
+            allocator,
+            DefaultHashMapContext::init(),
+            seed,
+            capacity,
+        )
+    }
+}
+
+extend[K, V, C] HashMapWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn init_context(context: C) os::Error!HashMapWithContext[K, V, C] {
+        let seed = random_seed().?;
+        !HashMapWithContext[K, V, C]::init_context_seed(context, seed)
+    }
+
+    pub fn init_context_seed(context: C, seed: u64) HashMapWithContext[K, V, C] {
+        {
+            ctrl: dangling_slice[u8](),
+            keys: dangling_slice[K](),
+            values: dangling_slice[V](),
+            len: 0usize,
+            growth_left: 0usize,
+            seed: seed,
+            context: context,
+        }
+    }
+
+    pub fn init_context_seed_capacity(
+        allocator: &mut mem::Allocator,
+        context: C,
+        seed: u64,
+        capacity: usize,
+    ) mem::Error!HashMapWithContext[K, V, C] {
+        var map = HashMapWithContext[K, V, C]::init_context_seed(context, seed);
         map.ensure_total_capacity(allocator, capacity).?;
         !map
     }
@@ -263,15 +329,15 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         self.deinit(allocator)
     }
 
-    pub fn iter(&self) HashMapIter[K, V] {
+    pub fn iter(&self) HashMapIterWithContext[K, V, C] {
         { map: self, index: 0usize, remaining: self.len }
     }
 
-    pub fn keys(&self) HashMapKeys[K, V] {
+    pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
         { iter: self.iter() }
     }
 
-    pub fn values(&self) HashMapValues[K, V] {
+    pub fn values(&self) HashMapValuesWithContext[K, V, C] {
         { iter: self.iter() }
     }
 
@@ -450,9 +516,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
     }
 
     fn hash_key(&self, key: &K) u64 {
-        var hasher = hash::Wyhash::init(self.seed);
-        key.hash(&mut hasher);
-        hasher.finish()
+        self.context.hash(self.seed, key)
     }
 
     fn find_index(&self, key: &K, value_hash: u64) ?usize {
@@ -471,7 +535,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             while offset < group_width {
                 let index = (pos + offset) & mask;
                 let control = self.ctrl[index];
-                if control == needle and self.keys[index] == key.* {
+                if control == needle and self.context.eql(&self.keys[index], key) {
                     return ?index;
                 }
                 if control == ctrl_empty {
@@ -518,7 +582,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
     }
 
     fn rehash_to_buckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!void {
-        var new_map = HashMap[K, V]::init_seed(self.seed);
+        var new_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
         new_map.allocate(allocator, target).?;
 
         var index = 0usize;
@@ -732,9 +796,8 @@ fn next_power_of_two(value: usize) mem::Error!usize {
     !n
 }
 
-extend[K, V, E] HashMap[K, V] : fmt::Format[E]
-where K: Sized + Eq[K] + hash::Hash[hash::Wyhash] + fmt::Format[E],
-      V: Sized + fmt::Format[E]
+extend[K, V, C, E] HashMapWithContext[K, V, C] : fmt::Format[E]
+where K: Sized + fmt::Format[E], V: Sized + fmt::Format[E], C: HashMapContext[K]
 {
     fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
         formatter.write_byte(b'{').?;
