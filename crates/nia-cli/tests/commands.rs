@@ -5407,6 +5407,22 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    var raw_entry = map.get_or_put(&mut gpa, 8).?;
+    if raw_entry.found_existing() {
+        return mem::Error::Invalid!;
+    }
+    raw_entry.value().* = 80;
+    raw_entry = map.get_or_put(&mut gpa, 8).?;
+    if not raw_entry.found_existing() or raw_entry.value().* != 80 {
+        return mem::Error::Invalid!;
+    }
+    raw_entry.value().* = 81;
+    switch map.get(&8) {
+        ?value => if value.* != 81 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
     map.clear_and_free(&mut gpa).?;
     if map.len() != 0usize or map.capacity() != 0usize {
         return mem::Error::Invalid!;
@@ -5555,6 +5571,139 @@ fn run(init: process::Init) mem::Error!void {
             null => return mem::Error::Invalid!,
         }
         key += 1;
+    }
+
+    var model_map = std::HashMap[i32, i32]::init_seed(557u64);
+    defer model_map.deinit(&mut gpa).?;
+    var expected: [40]i32 = [0; 40];
+    var present: [40]bool = [false; 40];
+    var expected_len = 0usize;
+    var step = 0;
+    while step < 240 {
+        let slot = (step * 17 + 3) % 40;
+        let op = step % 6;
+        if op == 0 {
+            let was_present = present[slot];
+            switch model_map.put(&mut gpa, slot, step + 1000) {
+                !old => switch old {
+                    ?value => if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    },
+                    null => if was_present {
+                        return mem::Error::Invalid!;
+                    },
+                },
+                err! => return err!,
+            }
+            if not was_present {
+                expected_len += 1usize;
+            }
+            present[slot] = true;
+            expected[slot] = step + 1000;
+        } else if op == 1 {
+            let was_present = present[slot];
+            switch model_map.remove(&slot) {
+                ?value => {
+                    if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    }
+                    present[slot] = false;
+                    expected_len -= 1usize;
+                },
+                null => if was_present {
+                    return mem::Error::Invalid!;
+                },
+            }
+        } else if op == 2 {
+            var entry = model_map.get_or_put(&mut gpa, slot).?;
+            if present[slot] {
+                if not entry.found_existing() or entry.value().* != expected[slot] {
+                    return mem::Error::Invalid!;
+                }
+            } else {
+                if entry.found_existing() {
+                    return mem::Error::Invalid!;
+                }
+                expected_len += 1usize;
+                present[slot] = true;
+            }
+            entry.value().* = step + 2000;
+            expected[slot] = step + 2000;
+        } else if op == 3 {
+            let was_present = present[slot];
+            switch model_map.put_if_absent(&mut gpa, slot, step + 3000) {
+                !inserted => {
+                    if inserted == was_present {
+                        return mem::Error::Invalid!;
+                    }
+                    if inserted {
+                        expected_len += 1usize;
+                        present[slot] = true;
+                        expected[slot] = step + 3000;
+                    }
+                },
+                err! => return err!,
+            }
+        } else if op == 4 {
+            switch model_map.get(&slot) {
+                ?value => if not present[slot] or value.* != expected[slot] {
+                    return mem::Error::Invalid!;
+                },
+                null => if present[slot] {
+                    return mem::Error::Invalid!;
+                },
+            }
+        } else {
+            let was_present = present[slot];
+            switch model_map.fetch_put(&mut gpa, slot, step + 4000) {
+                !old => switch old {
+                    ?value => if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    },
+                    null => if was_present {
+                        return mem::Error::Invalid!;
+                    },
+                },
+                err! => return err!,
+            }
+            if not was_present {
+                expected_len += 1usize;
+            }
+            present[slot] = true;
+            expected[slot] = step + 4000;
+        }
+
+        if model_map.len() != expected_len {
+            return mem::Error::Invalid!;
+        }
+        step += 1;
+    }
+    var model_count = 0usize;
+    var model_sum = 0;
+    for entry in model_map.iter() {
+        let entry_key = entry.key().*;
+        if entry_key < 0 or entry_key >= 40 {
+            return mem::Error::Invalid!;
+        }
+        if not present[entry_key] or entry.value().* != expected[entry_key] {
+            return mem::Error::Invalid!;
+        }
+        model_count += 1usize;
+        model_sum += entry.value().*;
+    }
+    if model_count != expected_len {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    var expected_sum = 0;
+    while key < 40 {
+        if present[key] {
+            expected_sum += expected[key];
+        }
+        key += 1;
+    }
+    if model_sum != expected_sum {
+        return mem::Error::Invalid!;
     }
 
     var collisions = std::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(

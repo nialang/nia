@@ -445,12 +445,43 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
+    pub fn get_or_put(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        key: K,
+    ) mem::Error!HashMapGetOrPutResult[K, V] {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return !{
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {},
+        }
+
+        let index = self.insert_new_uninitialized_index(allocator, key).?;
+        !{
+            key: &self.keys[index],
+            value: &mut self.values[index],
+            found_existing: false,
+        }
+    }
+
     fn insert_new(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!void {
         _ = self.insert_new_index(allocator, key, value).?;
         !{}
     }
 
     fn insert_new_index(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!usize {
+        let slot = self.insert_new_uninitialized_index(allocator, key).?;
+        self.values[slot] = value;
+        !slot
+    }
+
+    fn insert_new_uninitialized_index(&mut self, allocator: &mut mem::Allocator, key: K) mem::Error!usize {
         self.ensure_unused_capacity(allocator, 1usize).?;
         let hash_after_grow = self.hash_key(&key);
         let slot = self.find_insert_index(hash_after_grow);
@@ -459,7 +490,6 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
         self.ctrl[slot] = tag(hash_after_grow);
         self.keys[slot] = key;
-        self.values[slot] = value;
         self.len += 1usize;
         !slot
     }
