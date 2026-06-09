@@ -4236,6 +4236,114 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails() {
+    let root = temp_dir("emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+struct CountingAllocator {
+    buffer: &mut [u8],
+    end_index: usize,
+    free_count: usize,
+}
+
+extend CountingAllocator {
+    fn init(buffer: &mut [u8]) CountingAllocator {
+        { buffer: buffer, end_index: 0, free_count: 0 }
+    }
+}
+
+extend CountingAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if layout.is_empty() {
+            return !mem::Block::init(layout.align() as &mut u8, layout);
+        }
+        let base = self.buffer.get_ptr() as usize;
+        let current = base + self.end_index;
+        let aligned = switch current.align_forward(layout.align()) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        let offset = aligned - base;
+        let next = switch offset.checked_add(layout.size()) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        if next > self.buffer.len() {
+            return mem::Error::OutOfMemory!;
+        }
+        self.end_index = next;
+        !mem::Block::init(aligned as &mut u8, layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!void {
+        if block.is_empty() {
+            return !{};
+        }
+        self.free_count += 1usize;
+        if self.free_count == 1usize {
+            return mem::Error::Invalid!;
+        }
+        !{}
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var storage: [64]u8 = [_]u8[0; 64];
+    var allocator = CountingAllocator::init(storage);
+    let old_layout = mem::Layout::init(4, 1).exit().?;
+    let new_layout = mem::Layout::init(8, 1).exit().?;
+    var block = allocator.alloc(old_layout).exit().?;
+    var bytes = block.bytes();
+    bytes[0] = 10u8;
+    bytes[1] = 20u8;
+
+    switch allocator.realloc(block, new_layout) {
+        !new_block => {
+            _ = new_block;
+            return (1 as process::ExitCode)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return (2 as process::ExitCode)!;
+            }
+        },
+    }
+
+    if allocator.free_count != 2usize {
+        return (3 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics() {
     let root = temp_dir("emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics");
     let main = root.join("main.nia");
