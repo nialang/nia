@@ -5005,6 +5005,36 @@ pub fn main(init: process::Init) process::ExitCode!void {
         0xc39cab13b115aad3u64,
         7,
     ).?;
+
+    let long = b"12345678901234567890123456789012345678901234567890123456789012345678901234567890";
+    let expected = hash::wyhash(6u64, long);
+
+    var one = hash::Wyhash::init(6u64);
+    one.update(long);
+    if one.finish() != expected or one.finish() != expected {
+        return (8 as process::ExitCode)!;
+    }
+
+    var split = hash::Wyhash::init(6u64);
+    split.update(&long[0usize..1usize]);
+    split.update(&long[1usize..17usize]);
+    split.update(&long[17usize..48usize]);
+    split.update(&long[48usize..49usize]);
+    split.update(&long[49usize..]);
+    if split.finish() != expected {
+        return (9 as process::ExitCode)!;
+    }
+
+    var bytewise = hash::Wyhash::init(6u64);
+    var i = 0usize;
+    while i < long.len() {
+        bytewise.update(&long[i..(i + 1usize)]);
+        i += 1usize;
+    }
+    if bytewise.finish() != expected {
+        return (10 as process::ExitCode)!;
+    }
+
     !{}
 }
 "#,

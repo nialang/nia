@@ -12,6 +12,6 @@ import std.slice;
 
 pub using array_list::ArrayList;
 pub using atomic::Atomic;
-pub using hash::{Hash, Hasher};
+pub using hash::{Hash, Hasher, Wyhash};
 pub using range::{from, inclusive, range};
 pub using slice::SliceIter;
