@@ -5125,6 +5125,133 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_hash_map_supports_basic_operations() {
+    let root = temp_dir("emit_exe_std_hash_map_supports_basic_operations");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+fn run(init: process::Init) mem::Error!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    defer gpa.deinit().?.ok().?;
+
+    var map = std::HashMap[i32, i32]::init_seed(1234u64);
+    defer map.deinit(&mut gpa).?;
+
+    if map.len() != 0usize or not map.is_empty() {
+        return mem::Error::Invalid!;
+    }
+
+    var i = 0;
+    while i < 64 {
+        switch map.put(&mut gpa, i, i * 10) {
+            !old => switch old {
+                ?value => return mem::Error::Invalid!,
+                null => {},
+            },
+            err! => return err!,
+        }
+        i += 1;
+    }
+
+    if map.len() != 64usize or map.is_empty() {
+        return mem::Error::Invalid!;
+    }
+    if not map.contains_key(&42) {
+        return mem::Error::Invalid!;
+    }
+    switch map.get(&42) {
+        ?value => if value.* != 420 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    switch map.put(&mut gpa, 42, 7) {
+        !old => switch old {
+            ?value => if value != 420 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        },
+        err! => return err!,
+    }
+    switch map.get_mut(&42) {
+        ?value => value.* = value.* + 1,
+        null => return mem::Error::Invalid!,
+    }
+    switch map.get(&42) {
+        ?value => if value.* != 8 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    switch map.remove(&10) {
+        ?value => if value != 100 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    if map.contains_key(&10) or map.len() != 63usize {
+        return mem::Error::Invalid!;
+    }
+    switch map.put(&mut gpa, 74, 740) {
+        !old => switch old {
+            ?value => return mem::Error::Invalid!,
+            null => {},
+        },
+        err! => return err!,
+    }
+    switch map.get(&74) {
+        ?value => if value.* != 740 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    map.clear();
+    if map.len() != 0usize or map.contains_key(&42) {
+        return mem::Error::Invalid!;
+    }
+
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_copy_forwards_and_backwards() {
     let root = temp_dir("emit_exe_std_mem_copy_forwards_and_backwards");
     let main = root.join("main.nia");

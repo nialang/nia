@@ -1,0 +1,49 @@
+import std;
+import std.debug;
+import std.mem;
+import std.process;
+using process::{Init, ExitCode};
+
+fn run(init: Init) mem::Error!void {
+    _ = init;
+
+    var page = mem::PageAllocator::init();
+    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    defer gpa.deinit().?.ok().?;
+
+    var scores = std::HashMap[i32, i32]::init_seed(2024u64);
+    defer scores.deinit(&mut gpa).?;
+
+    _ = scores.put(&mut gpa, 7, 70).?;
+    _ = scores.put(&mut gpa, 42, 420).?;
+    _ = scores.put(&mut gpa, 9, 90).?;
+    _ = scores.put(&mut gpa, 42, 421).?;
+
+    var answer = 0;
+    switch scores.get(&42) {
+        ?value => answer = value.*,
+        null => return mem::Error::Invalid!,
+    }
+
+    var removed = 0;
+    switch scores.remove(&7) {
+        ?value => removed = value,
+        null => return mem::Error::Invalid!,
+    }
+
+    var len = scores.len();
+    var has_seven = scores.contains_key(&7);
+
+    debug::print("hash_map len={} answer={} removed={} has_seven={}\n", [
+        &len,
+        &answer,
+        &removed,
+        &has_seven,
+    ]);
+    !{}
+}
+
+pub fn main(init: Init) ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
