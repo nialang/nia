@@ -6033,6 +6033,31 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
+    var cloned_model = model_map.clone(&mut gpa).?;
+    defer cloned_model.deinit(&mut gpa).?;
+    if cloned_model.len() != model_map.len() or cloned_model.capacity() != model_map.capacity() {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 40 {
+        switch cloned_model.get(&key) {
+            ?value => if not present[key] or value.* != expected[key] {
+                return mem::Error::Invalid!;
+            },
+            null => if present[key] {
+                return mem::Error::Invalid!;
+            },
+        }
+        key += 1;
+    }
+    _ = model_map.put(&mut gpa, 3, 12345).?;
+    switch cloned_model.get(&3) {
+        ?value => if value.* == 12345 {
+            return mem::Error::Invalid!;
+        },
+        null => {},
+    }
+
     var fail_storage: [8192]u8 = [0; 8192];
     var fail_allocator = FailAllocator::init(fail_storage);
     var rollback = std::HashMap[i32, i32]::init_seed(558u64);
@@ -6047,6 +6072,41 @@ fn run(init: process::Init) mem::Error!void {
     switch rollback.put(&mut fail_allocator, 99, 990) {
         !old => {
             _ = old;
+            return mem::Error::Invalid!;
+        },
+        err! => if err as i32 != mem::Error::OutOfMemory as i32 {
+            return err!;
+        },
+    }
+    if rollback.len() != 14usize or rollback.contains_key(&99) {
+        return mem::Error::Invalid!;
+    }
+    fail_allocator.clear_failures();
+    key = 0;
+    while key < 14 {
+        switch rollback.get(&key) {
+            ?value => if value.* != key * 10 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    fail_allocator.fail_next_alloc();
+    switch rollback.clone(&mut fail_allocator) {
+        !cloned => {
+            _ = cloned;
+            return mem::Error::Invalid!;
+        },
+        err! => if err as i32 != mem::Error::OutOfMemory as i32 {
+            return err!;
+        },
+    }
+    fail_allocator.clear_failures();
+    fail_allocator.fail_alloc_at = fail_allocator.alloc_count + 2usize;
+    switch rollback.clone(&mut fail_allocator) {
+        !cloned => {
+            _ = cloned;
             return mem::Error::Invalid!;
         },
         err! => if err as i32 != mem::Error::OutOfMemory as i32 {
@@ -6234,6 +6294,20 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     let equivalent = Key::init(11);
+    switch modulo.get_key(&equivalent) {
+        ?stored_key => if stored_key.value != 1 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch modulo.get_key_value(&equivalent) {
+        ?entry => {
+            if entry.key().*.value != 1 or entry.value().* != 60 {
+                return mem::Error::Invalid!;
+            }
+        },
+        null => return mem::Error::Invalid!,
+    }
     switch modulo.get(&equivalent) {
         ?value => if value.* != 60 {
             return mem::Error::Invalid!;
