@@ -100,8 +100,10 @@ The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `import std.process;` or `import std.io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
-`std::inclusive`, `std::from`, `std::ArrayList`, `std::Atomic`, and
-`std::SliceIter`.
+`std::inclusive`, `std::from`, `std::ArrayList`, `std::HashMap`,
+`std::Atomic`, and `std::SliceIter`. Containers are organized under
+`std.collections` internally, but the root facade keeps the ordinary user-facing
+entry points at `std::ArrayList` and `std::HashMap`.
 
 - `std.process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.

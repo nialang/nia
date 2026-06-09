@@ -5376,7 +5376,6 @@ fn emit_exe_std_hash_map_supports_basic_operations() {
         &main,
         r#"
 import std;
-import std.debug;
 import std.mem;
 import std.process;
 
@@ -6541,7 +6540,6 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
-    debug::print("hash_map={}\n", [&tail_probe]);
 
     var tiny_storage: [16]u8 = [0; 16];
     var tiny = mem::FixedBufferAllocator::init(tiny_storage);
@@ -6581,6 +6579,59 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_hash_map_formats_entries() {
+    let root = temp_dir("emit_exe_std_hash_map_formats_entries");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.debug;
+import std.mem;
+import std.process;
+
+fn run(init: process::Init) mem::Error!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var map = std::HashMap[i32, i32]::init_seed(42u64);
+    defer map.deinit(&mut page).?;
+
+    _ = map.put(&mut page, 1, 10).?;
+    _ = map.put(&mut page, 2, 20).?;
+    debug::print("hash_map={}\n", [&map]);
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = Command::new(&exe).output_timeout("run emitted executable");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("hash_map={"), "{stderr}");
 }
 
 #[test]

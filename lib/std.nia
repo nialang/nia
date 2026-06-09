@@ -4,16 +4,34 @@
 // are intentionally available as `std::name`; it does not re-export the
 // standard-library implementation modules themselves.
 
-import std.array_list;
 import std.atomic;
+import std.collections;
 import std.hash;
-import std.hash_map;
 import std.range;
 import std.slice;
 
-pub using array_list::ArrayList;
 pub using atomic::Atomic;
+pub using collections::{
+    ArrayList,
+    DefaultHashMapContext,
+    HashMap,
+    HashMapContext,
+    HashMapEntry,
+    HashMapEntryMut,
+    HashMapEntryRef,
+    HashMapGetOrPutResult,
+    HashMapIter,
+    HashMapIterMut,
+    HashMapIterMutWithContext,
+    HashMapIterWithContext,
+    HashMapKeys,
+    HashMapKeysWithContext,
+    HashMapValues,
+    HashMapValuesMut,
+    HashMapValuesMutWithContext,
+    HashMapValuesWithContext,
+    HashMapWithContext,
+};
 pub using hash::{Hash, Hasher, Wyhash};
-pub using hash_map::{DefaultHashMapContext, HashMap, HashMapContext, HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult, HashMapIter, HashMapIterMut, HashMapIterMutWithContext, HashMapIterWithContext, HashMapKeys, HashMapKeysWithContext, HashMapValues, HashMapValuesMut, HashMapValuesMutWithContext, HashMapValuesWithContext, HashMapWithContext};
 pub using range::{from, inclusive, range};
 pub using slice::SliceIter;
