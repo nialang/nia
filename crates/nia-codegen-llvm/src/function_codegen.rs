@@ -351,6 +351,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 index,
                 value,
             } => self.emit_insert_element(expr, vector, index, value),
+            FunctionExprKind::Bitmask { vector } => self.emit_bitmask(expr, vector),
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }
@@ -492,6 +493,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_insert_element(vector, value, index, "insert")
             .map_err(|_| self.error(expr.span, "failed to insert vector lane"))
+    }
+
+    fn emit_bitmask(
+        &mut self,
+        expr: &FunctionExpr,
+        vector: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lanes = match self.module.ty_kind(vector.ty) {
+            Some(TyKind::Vector {
+                elem: PrimitiveTy::Bool,
+                lanes,
+            }) => *lanes,
+            _ => {
+                return Err(self.error(expr.span, "@bitmask argument must be a SIMD bool vector"));
+            }
+        };
+        if lanes > 64 {
+            return Err(self.error(expr.span, "@bitmask supports at most 64 SIMD mask lanes"));
+        }
+        let vector = self.emit_expr(vector)?;
+        let packed_ty = self.module.context.custom_width_int_type(lanes);
+        let packed = self
+            .builder
+            .build_bit_cast(vector, packed_ty, "bitmask.pack")
+            .map_err(|_| self.error(expr.span, "failed to pack SIMD mask"))?
+            .into_int_value()?;
+        if lanes == 64 {
+            return Ok(packed.into());
+        }
+        self.builder
+            .build_int_z_extend(packed, self.module.context.i64_type(), "bitmask")
+            .map(Into::into)
+            .map_err(|_| self.error(expr.span, "failed to widen SIMD mask"))
     }
 
     fn emit_trait_object_coercion(

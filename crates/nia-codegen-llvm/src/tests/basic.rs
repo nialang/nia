@@ -197,3 +197,37 @@ fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
         "expected vector comparison mask return:\n{ir}"
     );
 }
+
+#[test]
+fn emits_vector_bitmask_builtin() {
+    let root = temp_dir("emits_vector_bitmask_builtin");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn matching(v: u8x16, tag: u8) usize {
+    @bitmask(v == @splat[u8x16](tag))
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("icmp eq <16 x i8>"),
+        "expected vector integer compare:\n{ir}"
+    );
+    assert!(
+        ir.contains("bitcast <16 x i1>"),
+        "expected vector mask bitcast:\n{ir}"
+    );
+    assert!(
+        ir.contains("zext i16"),
+        "expected mask widening to usize:\n{ir}"
+    );
+}

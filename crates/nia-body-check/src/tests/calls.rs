@@ -326,3 +326,38 @@ fn invalid() u8 {
         checked.diagnostics
     );
 }
+
+#[test]
+fn checks_simd_bitmask_builtin() {
+    let checked = pipeline(
+        r#"
+fn mask(v: u8x16) usize {
+    @bitmask(v == @splat[u8x16](7u8))
+}
+
+fn invalid_value(v: u8x16) usize {
+    @bitmask(v)
+}
+
+fn invalid_type_arg(v: boolx16) usize {
+    @bitmask[usize](v)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("bool SIMD mask vector")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("builtin `@bitmask` does not take a type argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+}

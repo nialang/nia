@@ -192,6 +192,7 @@ impl BackendValidator<'_> {
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
             | FunctionExprKind::Splat { value: expr }
+            | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }

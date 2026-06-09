@@ -246,6 +246,9 @@ pub enum FunctionExprKind {
         index: Box<FunctionExpr>,
         value: Box<FunctionExpr>,
     },
+    Bitmask {
+        vector: Box<FunctionExpr>,
+    },
     CStringPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,

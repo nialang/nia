@@ -318,6 +318,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
                     value: Box::new(self.instantiate_expr(*value, substitutions)),
                 },
+                FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
+                    vector: Box::new(self.instantiate_expr(*vector, substitutions)),
+                },
                 FunctionExprKind::ExtractElement { vector, index } => {
                     FunctionExprKind::ExtractElement {
                         vector: Box::new(self.instantiate_expr(*vector, substitutions)),

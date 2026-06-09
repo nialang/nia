@@ -337,6 +337,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
                     value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
                 },
+                FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
+                    vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.resolve_builtin_operator_calls_in_place(place))
                 }

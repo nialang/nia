@@ -1348,6 +1348,54 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_simd_bitmask_matches_lane_bits() {
+    let root = temp_dir("emit_exe_simd_bitmask_matches_lane_bits");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    let values: u8x16 = @insert(@insert(@insert(@splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
+    let mask = @bitmask(values == @splat[u8x16](7u8));
+    if mask != 0x8012usize {
+        return (1 as process::ExitCode)!;
+    }
+
+    let other = @bitmask(values == @splat[u8x16](0u8));
+    if other != 0x7fedusize {
+        return (2 as process::ExitCode)!;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exit_code_is_open_enum() {
     let root = temp_dir("emit_exe_exit_code_is_open_enum");
     let main = root.join("main.nia");

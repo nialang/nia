@@ -805,6 +805,9 @@ impl<'a> BodyChecker<'a> {
                             index: Box::new(self.lower_expr(index)),
                             value: Box::new(self.lower_expr(value)),
                         },
+                        ("bitmask", [vector]) => TypedExprKind::Bitmask {
+                            vector: Box::new(self.lower_expr(vector)),
+                        },
                         ("atomic_load", [ptr, order]) => TypedExprKind::Atomic(TypedAtomic::Load {
                             ty: self.builtin_atomic_type_arg(callee),
                             ptr: Box::new(self.lower_expr(ptr)),
