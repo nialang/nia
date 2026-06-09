@@ -5140,6 +5140,8 @@ struct Unit {}
 
 struct ConstantHashContext {}
 
+struct UnitContext {}
+
 struct Key {
     value: i32,
 }
@@ -5151,6 +5153,12 @@ struct ModuloContext {
 
 extend ConstantHashContext {
     fn init() ConstantHashContext {
+        {}
+    }
+}
+
+extend UnitContext {
+    fn init() UnitContext {
         {}
     }
 }
@@ -5178,6 +5186,22 @@ extend ConstantHashContext : std::HashMapContext[i32] {
     fn eql(&self, left: &i32, right: &i32) bool {
         _ = self;
         left.* == right.*
+    }
+}
+
+extend UnitContext : std::HashMapContext[Unit] {
+    fn hash(&self, seed: u64, key: &Unit) u64 {
+        _ = self;
+        _ = seed;
+        _ = key;
+        0u64
+    }
+
+    fn eql(&self, left: &Unit, right: &Unit) bool {
+        _ = self;
+        _ = left;
+        _ = right;
+        true
     }
 }
 
@@ -5403,6 +5427,47 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
+    var unit_keys = std::HashMapWithContext[Unit, i32, UnitContext]::init_context_seed(
+        UnitContext::init(),
+        0u64,
+    );
+    defer unit_keys.deinit(&mut gpa).?;
+    switch unit_keys.put(&mut gpa, {}, 11) {
+        !old => switch old {
+            ?value => return mem::Error::Invalid!,
+            null => {},
+        },
+        err! => return err!,
+    }
+    switch unit_keys.put(&mut gpa, {}, 22) {
+        !old => switch old {
+            ?value => if value != 11 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        },
+        err! => return err!,
+    }
+    if unit_keys.len() != 1usize {
+        return mem::Error::Invalid!;
+    }
+    switch unit_keys.get(&{}) {
+        ?value => if value.* != 22 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch unit_keys.remove(&{}) {
+        ?value => if value != 22 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    unit_keys.clear_and_free(&mut gpa).?;
+    if unit_keys.len() != 0usize or unit_keys.capacity() != 0usize {
+        return mem::Error::Invalid!;
+    }
+
     var churn = std::HashMap[i32, i32]::init_seed(555u64);
     defer churn.deinit(&mut gpa).?;
     churn.reserve(&mut gpa, 32usize).?;
@@ -5439,6 +5504,52 @@ fn run(init: process::Init) mem::Error!void {
     while key < 128 {
         switch churn.get(&key) {
             ?value => if value.* != key * 2 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    churn.clear_retaining_capacity();
+    if churn.len() != 0usize or churn.capacity() != churn_capacity {
+        return mem::Error::Invalid!;
+    }
+
+    var tombstones = std::HashMap[i32, i32]::init_seed(556u64);
+    defer tombstones.deinit(&mut gpa).?;
+    tombstones.reserve(&mut gpa, 56usize).?;
+    let tombstone_capacity = tombstones.capacity();
+    key = 0;
+    while key < 56 {
+        _ = tombstones.put(&mut gpa, key, key).?;
+        key += 1;
+    }
+    key = 0;
+    while key < 56 {
+        switch tombstones.remove(&key) {
+            ?value => if value != key {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    tombstones.reserve(&mut gpa, 32usize).?;
+    if tombstones.capacity() != tombstone_capacity {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 32 {
+        _ = tombstones.put(&mut gpa, key + 200, key * 4).?;
+        key += 1;
+    }
+    if tombstones.len() != 32usize or tombstones.capacity() != tombstone_capacity {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 32 {
+        switch tombstones.get(&(key + 200)) {
+            ?value => if value.* != key * 4 {
                 return mem::Error::Invalid!;
             },
             null => return mem::Error::Invalid!,

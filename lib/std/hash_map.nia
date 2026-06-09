@@ -76,6 +76,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     iter: HashMapIterWithContext[K, V, C],
 }
 
+struct ProbeCursor {
+    pos: usize,
+    stride: usize,
+    visited: usize,
+    capacity: usize,
+}
+
 fn dangling_slice[T]() &mut [T]
 where T: Sized
 {
@@ -532,52 +539,42 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
 
         let needle = tag(value_hash);
-        let mask = self.capacity() - 1usize;
-        var pos = (value_hash as usize) & mask;
-        var stride = 0usize;
-        var visited = 0usize;
+        var cursor = ProbeCursor::init(value_hash, self.capacity());
 
-        while visited < self.capacity() {
+        while cursor.has_remaining() {
             var offset = 0usize;
             while offset < group_width {
-                let index = (pos + offset) & mask;
+                let index = cursor.index(offset);
                 let control = self.ctrl[index];
-                if control == needle and self.context.eql(&self.keys[index], key) {
+                if matches_tag(control, needle) and self.context.eql(&self.keys[index], key) {
                     return ?index;
                 }
-                if control == ctrl_empty {
+                if is_empty(control) {
                     return null;
                 }
                 offset += 1usize;
             }
 
-            stride += group_width;
-            pos = (pos + stride) & mask;
-            visited += group_width;
+            cursor.advance_group();
         }
         null
     }
 
     fn find_insert_index(&self, value_hash: u64) usize {
-        let mask = self.capacity() - 1usize;
-        var pos = (value_hash as usize) & mask;
-        var stride = 0usize;
-        var visited = 0usize;
+        var cursor = ProbeCursor::init(value_hash, self.capacity());
 
-        while visited < self.capacity() {
+        while cursor.has_remaining() {
             var offset = 0usize;
             while offset < group_width {
-                let index = (pos + offset) & mask;
+                let index = cursor.index(offset);
                 let control = self.ctrl[index];
-                if control == ctrl_empty or control == ctrl_deleted {
+                if is_available(control) {
                     return index;
                 }
                 offset += 1usize;
             }
 
-            stride += group_width;
-            pos = (pos + stride) & mask;
-            visited += group_width;
+            cursor.advance_group();
         }
 
         @trap()
@@ -719,6 +716,32 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 }
 
+extend ProbeCursor {
+    fn init(value_hash: u64, capacity: usize) ProbeCursor {
+        let mask = capacity - 1usize;
+        {
+            pos: (value_hash as usize) & mask,
+            stride: 0usize,
+            visited: 0usize,
+            capacity: capacity,
+        }
+    }
+
+    fn has_remaining(&self) bool {
+        self.visited < self.capacity
+    }
+
+    fn index(&self, offset: usize) usize {
+        (self.pos + offset) & (self.capacity - 1usize)
+    }
+
+    fn advance_group(&mut self) void {
+        self.stride += group_width;
+        self.pos = (self.pos + self.stride) & (self.capacity - 1usize);
+        self.visited += group_width;
+    }
+}
+
 fn dangling_len_slice[T](len: usize) &mut [T]
 where T: Sized
 {
@@ -749,6 +772,22 @@ fn tag(value_hash: u64) u8 {
 
 fn is_full(control: u8) bool {
     (control & 0x80u8) == 0u8
+}
+
+fn is_empty(control: u8) bool {
+    control == ctrl_empty
+}
+
+fn is_deleted(control: u8) bool {
+    control == ctrl_deleted
+}
+
+fn is_available(control: u8) bool {
+    is_empty(control) or is_deleted(control)
+}
+
+fn matches_tag(control: u8, needle: u8) bool {
+    control == needle
 }
 
 fn fill_ctrl(ctrl: &mut [u8], value: u8) void {
