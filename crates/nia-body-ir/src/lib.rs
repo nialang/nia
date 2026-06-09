@@ -199,6 +199,9 @@ pub enum TypedExprKind {
     InlineAsm(TypedInlineAsm),
     MemoryIntrinsic(TypedMemoryIntrinsic),
     Atomic(TypedAtomic),
+    Splat {
+        value: Box<TypedExpr>,
+    },
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,

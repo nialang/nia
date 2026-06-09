@@ -48,6 +48,9 @@ impl FunctionLowerer {
             TypedExprKind::Atomic(atomic) => {
                 FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
             }
+            TypedExprKind::Splat { value } => FunctionExprKind::Splat {
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+            },
             TypedExprKind::CStringPointer { array, is_readonly } => {
                 FunctionExprKind::CStringPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),

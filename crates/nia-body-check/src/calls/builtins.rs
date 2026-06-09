@@ -92,7 +92,10 @@ impl<'a> BodyChecker<'a> {
                 ));
                 return self.error();
             }
-            BuiltinResolution::MemCopy | BuiltinResolution::MemMove | BuiltinResolution::MemSet => {
+            BuiltinResolution::MemCopy
+            | BuiltinResolution::MemMove
+            | BuiltinResolution::MemSet
+            | BuiltinResolution::Splat => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
@@ -220,6 +223,9 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::MemSet => {
                 self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
+            BuiltinResolution::Splat => {
+                self.check_splat_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
             BuiltinResolution::AtomicLoad => {
                 self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
@@ -237,6 +243,57 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Reserved => self.error(),
         }
+    }
+
+    fn check_splat_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let Some(type_arg) = type_arg else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                builtin_span,
+                format!("builtin `@{name}` requires a vector type argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.error();
+        };
+        let vector_ty = self.ty_for_type(type_arg);
+        let lane_ty = match self.interner.get(vector_ty).cloned() {
+            Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
+            Some(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    type_arg.span,
+                    format!(
+                        "builtin `@{name}` requires a SIMD vector type, got {}",
+                        self.ty_name(vector_ty)
+                    ),
+                ));
+                self.error()
+            }
+            None => self.error(),
+        };
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly one value argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return vector_ty;
+        }
+        let actual = self.check_expr_with_expected(&args[0], Some(lane_ty));
+        self.expect_expr_type(&args[0], lane_ty, actual, "splat builtin argument");
+        vector_ty
     }
 
     fn require_sized_type(&mut self, span: Span, ty: InternedTyId, builtin_name: &str) {

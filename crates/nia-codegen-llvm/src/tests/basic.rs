@@ -91,3 +91,35 @@ fn id(v: u8x16) u8x16 {
         "expected vector parameter type in IR:\n{ir}"
     );
 }
+
+#[test]
+fn emits_splat_builtin() {
+    let root = temp_dir("emits_splat_builtin");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn make(value: u8) u8x16 {
+    @splat[u8x16](value)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define <16 x i8> @"),
+        "expected vector return type in IR:\n{ir}"
+    );
+    assert!(ir.contains("i8 %"), "expected scalar parameter:\n{ir}");
+    assert!(
+        ir.contains("shufflevector"),
+        "expected splat shuffle:\n{ir}"
+    );
+    assert!(ir.contains("<16 x i32>"), "expected vector mask:\n{ir}");
+}

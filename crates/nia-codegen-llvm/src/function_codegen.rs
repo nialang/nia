@@ -24,6 +24,7 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
     builder::Builder,
+    types::BasicTypeEnum,
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
 use nia_span::Span;
@@ -341,6 +342,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
             FunctionExprKind::Atomic(atomic) => self.emit_atomic_value(expr, atomic),
+            FunctionExprKind::Splat { value } => self.emit_splat(expr, value),
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }
@@ -423,6 +425,37 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "cannot emit erroneous expression"))
             }
         }
+    }
+
+    fn emit_splat(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lanes = match self.module.ty_kind(expr.ty) {
+            Some(TyKind::Vector { lanes, .. }) => *lanes,
+            _ => return Err(self.error(expr.span, "@splat result type is not a SIMD vector")),
+        };
+        let vector_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let zero = vector_ty
+            .const_zero()
+            .map_err(|_| self.error(expr.span, "failed to create zero vector"))?
+            .into_vector_value()?;
+        let lane = self.emit_expr(value)?;
+        let index = self.module.context.i32_type().const_int(0, false);
+        let inserted = self
+            .builder
+            .build_insert_element(zero, lane, index, "splat.insert")
+            .map_err(|_| self.error(expr.span, "failed to insert splat lane"))?
+            .into_vector_value()?;
+        let mask = BasicTypeEnum::from(self.module.context.i32_type())
+            .vector_type(lanes)
+            .const_zero()
+            .map_err(|_| self.error(expr.span, "failed to create splat mask"))?
+            .into_vector_value()?;
+        self.builder
+            .build_shuffle_vector(inserted, inserted, mask, "splat")
+            .map_err(|_| self.error(expr.span, "failed to build splat vector"))
     }
 
     fn emit_trait_object_coercion(

@@ -191,6 +191,7 @@ impl BackendValidator<'_> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }

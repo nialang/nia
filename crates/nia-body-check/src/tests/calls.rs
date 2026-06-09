@@ -251,3 +251,27 @@ fn main() void {
         .count();
     assert_eq!(count, 2, "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn checks_splat_builtin() {
+    let checked = pipeline(
+        r#"
+fn make() u8x16 {
+    @splat[u8x16](7u8)
+}
+
+fn invalid() u8 {
+    @splat[u8](1u8)
+}
+"#,
+    );
+
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("requires a SIMD vector type"),
+        "{:?}",
+        checked.diagnostics
+    );
+}

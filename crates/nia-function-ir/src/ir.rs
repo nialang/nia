@@ -234,6 +234,9 @@ pub enum FunctionExprKind {
     },
     InlineAsm(FunctionInlineAsm),
     Atomic(FunctionAtomic),
+    Splat {
+        value: Box<FunctionExpr>,
+    },
     CStringPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,
