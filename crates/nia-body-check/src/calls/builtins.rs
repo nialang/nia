@@ -63,6 +63,17 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        if matches!(
+            resolution,
+            BuiltinResolution::Extract | BuiltinResolution::Insert
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!("builtin `@{name}` must be called with value arguments"),
+            ));
+            return self.error();
+        }
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -95,7 +106,9 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::MemCopy
             | BuiltinResolution::MemMove
             | BuiltinResolution::MemSet
-            | BuiltinResolution::Splat => {
+            | BuiltinResolution::Splat
+            | BuiltinResolution::Extract
+            | BuiltinResolution::Insert => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
@@ -226,6 +239,12 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Splat => {
                 self.check_splat_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
+            BuiltinResolution::Extract => {
+                self.check_extract_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::Insert => {
+                self.check_insert_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
             BuiltinResolution::AtomicLoad => {
                 self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
@@ -294,6 +313,95 @@ impl<'a> BodyChecker<'a> {
         let actual = self.check_expr_with_expected(&args[0], Some(lane_ty));
         self.expect_expr_type(&args[0], lane_ty, actual, "splat builtin argument");
         vector_ty
+    }
+
+    fn check_extract_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly two value arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.error();
+        }
+        let vector_ty = self.check_expr(&args[0]);
+        let lane_ty = self.vector_lane_ty(args[0].span, name, vector_ty);
+        let index_ty = self.check_expr(&args[1]);
+        self.expect_integer(args[1].span, index_ty, "SIMD lane index");
+        lane_ty
+    }
+
+    fn check_insert_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 3 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly three value arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.error();
+        }
+        let vector_ty = self.check_expr(&args[0]);
+        let lane_ty = self.vector_lane_ty(args[0].span, name, vector_ty);
+        let index_ty = self.check_expr(&args[1]);
+        self.expect_integer(args[1].span, index_ty, "SIMD lane index");
+        let value_ty = self.check_expr_with_expected(&args[2], Some(lane_ty));
+        self.expect_expr_type(&args[2], lane_ty, value_ty, "SIMD lane value");
+        vector_ty
+    }
+
+    fn reject_simd_lane_builtin_type_arg(
+        &mut self,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+    ) {
+        if type_arg.is_some() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                builtin_span,
+                format!("builtin `@{name}` does not take a type argument"),
+            ));
+        }
+    }
+
+    fn vector_lane_ty(&mut self, span: Span, name: &str, vector_ty: InternedTyId) -> InternedTyId {
+        match self.interner.get(vector_ty).cloned() {
+            Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
+            Some(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    format!(
+                        "builtin `@{name}` requires a SIMD vector argument, got {}",
+                        self.ty_name(vector_ty)
+                    ),
+                ));
+                self.error()
+            }
+            None => self.error(),
+        }
     }
 
     fn require_sized_type(&mut self, span: Span, ty: InternedTyId, builtin_name: &str) {

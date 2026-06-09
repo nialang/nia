@@ -214,6 +214,19 @@ fn collect_function_refs_from_expr(
             collect_function_refs_from_expr(module_id, lhs, refs);
             collect_function_refs_from_expr(module_id, rhs, refs);
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            collect_function_refs_from_expr(module_id, vector, refs);
+            collect_function_refs_from_expr(module_id, index, refs);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_function_refs_from_expr(module_id, vector, refs);
+            collect_function_refs_from_expr(module_id, index, refs);
+            collect_function_refs_from_expr(module_id, value, refs);
+        }
         FunctionExprKind::Assign { place, rhs, .. } => {
             collect_function_refs_from_place(module_id, place, refs);
             collect_function_refs_from_expr(module_id, rhs, refs);

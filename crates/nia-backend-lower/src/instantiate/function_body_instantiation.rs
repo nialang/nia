@@ -318,6 +318,21 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
                     value: Box::new(self.instantiate_expr(*value, substitutions)),
                 },
+                FunctionExprKind::ExtractElement { vector, index } => {
+                    FunctionExprKind::ExtractElement {
+                        vector: Box::new(self.instantiate_expr(*vector, substitutions)),
+                        index: Box::new(self.instantiate_expr(*index, substitutions)),
+                    }
+                }
+                FunctionExprKind::InsertElement {
+                    vector,
+                    index,
+                    value,
+                } => FunctionExprKind::InsertElement {
+                    vector: Box::new(self.instantiate_expr(*vector, substitutions)),
+                    index: Box::new(self.instantiate_expr(*index, substitutions)),
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.instantiate_place(place, substitutions))
                 }

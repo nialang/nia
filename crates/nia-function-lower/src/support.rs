@@ -677,9 +677,22 @@ impl FunctionLowerer {
                 }
                 TypedExprKind::UnionLiteral { field, .. } => visit_expr(&field.value, max_id),
                 TypedExprKind::Binary { lhs, rhs, .. }
-                | TypedExprKind::Index { lhs, index: rhs } => {
+                | TypedExprKind::Index { lhs, index: rhs }
+                | TypedExprKind::ExtractElement {
+                    vector: lhs,
+                    index: rhs,
+                } => {
                     visit_expr(lhs, max_id);
                     visit_expr(rhs, max_id);
+                }
+                TypedExprKind::InsertElement {
+                    vector,
+                    index,
+                    value,
+                } => {
+                    visit_expr(vector, max_id);
+                    visit_expr(index, max_id);
+                    visit_expr(value, max_id);
                 }
                 TypedExprKind::Assign { place, rhs, .. } => {
                     visit_place(place, max_id);

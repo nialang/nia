@@ -202,6 +202,15 @@ pub enum TypedExprKind {
     Splat {
         value: Box<TypedExpr>,
     },
+    ExtractElement {
+        vector: Box<TypedExpr>,
+        index: Box<TypedExpr>,
+    },
+    InsertElement {
+        vector: Box<TypedExpr>,
+        index: Box<TypedExpr>,
+        value: Box<TypedExpr>,
+    },
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,

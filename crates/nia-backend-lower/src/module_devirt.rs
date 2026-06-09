@@ -191,6 +191,19 @@ impl<'a> ModuleLowerer<'a> {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(lhs);
                 changed |= self.devirtualize_direct_trait_calls_in_expr(rhs);
             }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(vector);
+                changed |= self.devirtualize_direct_trait_calls_in_expr(index);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(vector);
+                changed |= self.devirtualize_direct_trait_calls_in_expr(index);
+                changed |= self.devirtualize_direct_trait_calls_in_expr(value);
+            }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 changed |= self.devirtualize_direct_trait_calls_in_place(place);
                 changed |= self.devirtualize_direct_trait_calls_in_expr(rhs);

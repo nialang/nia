@@ -446,6 +446,18 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            is_pure_discardable_expr(vector) && is_pure_discardable_expr(index)
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            is_pure_discardable_expr(vector)
+                && is_pure_discardable_expr(index)
+                && is_pure_discardable_expr(value)
+        }
         FunctionExprKind::Field { lhs, .. } => is_pure_discardable_expr(lhs),
         FunctionExprKind::Slice { lhs, range, .. } => {
             is_pure_discardable_expr(lhs)
@@ -948,6 +960,19 @@ fn rewrite_local_copies_in_expr(
         FunctionExprKind::Binary { lhs, rhs, .. } => {
             rewrite_local_copies_in_expr(lhs, copies) | rewrite_local_copies_in_expr(rhs, copies)
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            rewrite_local_copies_in_expr(vector, copies)
+                | rewrite_local_copies_in_expr(index, copies)
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            rewrite_local_copies_in_expr(vector, copies)
+                | rewrite_local_copies_in_expr(index, copies)
+                | rewrite_local_copies_in_expr(value, copies)
+        }
         FunctionExprKind::Assign { rhs, .. } => rewrite_local_copies_in_expr(rhs, copies),
         FunctionExprKind::Call { callee, args } => {
             let mut changed = rewrite_local_copies_in_callee(callee, copies);
@@ -1281,6 +1306,19 @@ fn rewrite_local_constants_in_expr(
             rewrite_local_constants_in_expr(lhs, constants)
                 | rewrite_local_constants_in_expr(rhs, constants)
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            rewrite_local_constants_in_expr(vector, constants)
+                | rewrite_local_constants_in_expr(index, constants)
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            rewrite_local_constants_in_expr(vector, constants)
+                | rewrite_local_constants_in_expr(index, constants)
+                | rewrite_local_constants_in_expr(value, constants)
+        }
         FunctionExprKind::Assign { rhs, .. } => rewrite_local_constants_in_expr(rhs, constants),
         FunctionExprKind::Call { callee, args } => {
             let mut changed = rewrite_local_constants_in_callee(callee, constants);
@@ -1548,6 +1586,19 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
             changed |= simplify_constant_logical_expr(lhs);
             changed |= simplify_constant_logical_expr(rhs);
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            changed |= simplify_constant_logical_expr(vector);
+            changed |= simplify_constant_logical_expr(index);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            changed |= simplify_constant_logical_expr(vector);
+            changed |= simplify_constant_logical_expr(index);
+            changed |= simplify_constant_logical_expr(value);
+        }
         FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
@@ -1806,6 +1857,19 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
             collect_place_locals_in_expr(lhs, locals);
             collect_place_locals_in_expr(rhs, locals);
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            collect_place_locals_in_expr(vector, locals);
+            collect_place_locals_in_expr(index, locals);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_place_locals_in_expr(vector, locals);
+            collect_place_locals_in_expr(index, locals);
+            collect_place_locals_in_expr(value, locals);
+        }
         FunctionExprKind::Assign { place, rhs, .. } => {
             collect_place_locals_in_place(place, locals);
             collect_place_locals_in_expr(rhs, locals);
@@ -2050,6 +2114,19 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             collect_read_locals_in_expr(lhs, locals);
             collect_read_locals_in_expr(rhs, locals);
+        }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            collect_read_locals_in_expr(vector, locals);
+            collect_read_locals_in_expr(index, locals);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_read_locals_in_expr(vector, locals);
+            collect_read_locals_in_expr(index, locals);
+            collect_read_locals_in_expr(value, locals);
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
             collect_read_locals_in_place(place, locals);
@@ -2308,6 +2385,19 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         FunctionExprKind::Binary { lhs, rhs, .. } => {
             collect_referenced_locals_in_expr(lhs, refs);
             collect_referenced_locals_in_expr(rhs, refs);
+        }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            collect_referenced_locals_in_expr(vector, refs);
+            collect_referenced_locals_in_expr(index, refs);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_referenced_locals_in_expr(vector, refs);
+            collect_referenced_locals_in_expr(index, refs);
+            collect_referenced_locals_in_expr(value, refs);
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
             collect_referenced_locals_in_place(place, refs);
@@ -2603,6 +2693,18 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         FunctionExprKind::Binary { lhs, rhs, .. } => {
             simplify_same_type_casts_in_expr(lhs) | simplify_same_type_casts_in_expr(rhs)
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            simplify_same_type_casts_in_expr(vector) | simplify_same_type_casts_in_expr(index)
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            simplify_same_type_casts_in_expr(vector)
+                | simplify_same_type_casts_in_expr(index)
+                | simplify_same_type_casts_in_expr(value)
+        }
         FunctionExprKind::Assign { place, rhs, .. } => {
             simplify_same_type_casts_in_place(place) | simplify_same_type_casts_in_expr(rhs)
         }
@@ -2838,6 +2940,8 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::Unary { .. }
         | FunctionExprKind::Splat { .. }
+        | FunctionExprKind::ExtractElement { .. }
+        | FunctionExprKind::InsertElement { .. }
         | FunctionExprKind::Binary { .. }
         | FunctionExprKind::Cast { .. }
         | FunctionExprKind::InlineAsm(_)
