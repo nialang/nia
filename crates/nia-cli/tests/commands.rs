@@ -4986,6 +4986,55 @@ fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!v
     !{}
 }
 
+fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::ExitCode!void {
+    let expected = hash::wyhash(seed, input);
+
+    var one = hash::Wyhash::init(seed);
+    one.update(input);
+    if one.finish() != expected or one.finish() != expected {
+        return (code as process::ExitCode)!;
+    }
+
+    var split = hash::Wyhash::init(seed);
+    split.update(&input[0usize..split_at]);
+    split.update(&input[split_at..]);
+    if split.finish() != expected {
+        return ((code + 1) as process::ExitCode)!;
+    }
+
+    var bytewise = hash::Wyhash::init(seed);
+    var i = 0usize;
+    while i < input.len() {
+        bytewise.update(&input[i..(i + 1usize)]);
+        i += 1usize;
+    }
+    if bytewise.finish() != expected {
+        return ((code + 2) as process::ExitCode)!;
+    }
+
+    var chunks = hash::Wyhash::init(seed);
+    i = 0usize;
+    while i < input.len() {
+        var end = i + 7usize;
+        if end > input.len() {
+            end = input.len();
+        }
+        chunks.update(&input[i..end]);
+        i = end;
+    }
+    if chunks.finish() != expected {
+        return ((code + 3) as process::ExitCode)!;
+    }
+    !{}
+}
+
+fn hash_bytes(seed: u64, bytes: &[u8]) u64 {
+    var hasher = hash::Wyhash::init(seed);
+    bytes.len().hash(&mut hasher);
+    hasher.write(bytes);
+    hasher.finish()
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     expect(0u64, b"", 0x0409638ee2bde459u64, 1).?;
@@ -5033,6 +5082,49 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if bytewise.finish() != expected {
         return (10 as process::ExitCode)!;
+    }
+
+    let boundary = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/";
+    expect_stream(9u64, &boundary[0usize..0usize], 0usize, 20).?;
+    expect_stream(9u64, &boundary[0usize..1usize], 0usize, 24).?;
+    expect_stream(9u64, &boundary[0usize..15usize], 7usize, 28).?;
+    expect_stream(9u64, &boundary[0usize..16usize], 8usize, 32).?;
+    expect_stream(9u64, &boundary[0usize..17usize], 9usize, 36).?;
+    expect_stream(9u64, &boundary[0usize..47usize], 23usize, 40).?;
+    expect_stream(9u64, &boundary[0usize..48usize], 24usize, 44).?;
+    expect_stream(9u64, &boundary[0usize..49usize], 25usize, 48).?;
+    expect_stream(9u64, &boundary[0usize..63usize], 31usize, 52).?;
+    expect_stream(9u64, &boundary[0usize..64usize], 32usize, 56).?;
+    expect_stream(9u64, &boundary[0usize..65usize], 33usize, 60).?;
+
+    let pair: [2]u8 = [1u8, 2u8];
+    let slice_hash = hash_bytes(12u64, &pair[..]);
+    var raw_hasher = hash::Wyhash::init(12u64);
+    raw_hasher.write(pair);
+    if slice_hash == raw_hasher.finish() {
+        return (70 as process::ExitCode)!;
+    }
+
+    var manual_slice_hasher = hash::Wyhash::init(12u64);
+    (2usize).hash(&mut manual_slice_hasher);
+    manual_slice_hasher.write(pair);
+    if slice_hash != manual_slice_hasher.finish() {
+        return (71 as process::ExitCode)!;
+    }
+
+    var int_hasher = hash::Wyhash::init(13u64);
+    (0x01020304u32).hash(&mut int_hasher);
+    let little_endian: [4]u8 = [4u8, 3u8, 2u8, 1u8];
+    if int_hasher.finish() != hash::wyhash(13u64, little_endian) {
+        return (72 as process::ExitCode)!;
+    }
+
+    var bool_true = hash::Wyhash::init(14u64);
+    true.hash(&mut bool_true);
+    var one_byte = hash::Wyhash::init(14u64);
+    (1u8).hash(&mut one_byte);
+    if bool_true.finish() != one_byte.finish() {
+        return (73 as process::ExitCode)!;
     }
 
     !{}

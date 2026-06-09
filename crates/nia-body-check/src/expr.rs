@@ -94,7 +94,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_ptr_ty) =
-                        self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly))
+                        self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly), expected)
                 {
                     self.record_expr_node_type(expr, function_ptr_ty);
                     return function_ptr_ty;

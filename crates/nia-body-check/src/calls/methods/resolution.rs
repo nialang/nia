@@ -1208,7 +1208,12 @@ impl<'a> BodyChecker<'a> {
                     .copied()
                     .map(|param| self.substitute_generics(param, substitutions))
                 {
-                    self.check_expr_with_expected(arg, Some(expected))
+                    let expected = if self.type_contains_generic_param(expected) {
+                        None
+                    } else {
+                        Some(expected)
+                    };
+                    self.check_expr_with_expected(arg, expected)
                 } else {
                     self.check_expr(arg)
                 }

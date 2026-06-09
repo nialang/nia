@@ -216,7 +216,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let params: Vec<InternedTyId> = signature
+        let mut params: Vec<InternedTyId> = signature
             .params
             .iter()
             .skip(1)
@@ -228,6 +228,12 @@ impl<'a> BodyChecker<'a> {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
                 return Some(self.error());
             }
+            params = signature
+                .params
+                .iter()
+                .skip(1)
+                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .collect();
         }
         self.check_direct_call_args(call.span, call.args, &params, false);
         let target_args = self.extension_target_instance_args(method_id, &substitutions);
