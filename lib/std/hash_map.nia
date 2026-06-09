@@ -295,6 +295,16 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         }
     }
 
+    pub fn get_entry(&self, key: &K) ?HashMapEntryRef[K, V] {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => ?{
+                key: &self.keys[index],
+                value: &self.values[index],
+            },
+            null => null,
+        }
+    }
+
     pub fn put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
         let value_hash = self.hash_key(&key);
         switch self.find_index(&key, value_hash) {
@@ -308,6 +318,10 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 
         self.insert_new(allocator, key, value).?;
         !null
+    }
+
+    pub fn fetch_put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
+        self.put(allocator, key, value)
     }
 
     pub fn put_if_absent(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!bool {
@@ -394,6 +408,10 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         }
     }
 
+    pub fn fetch_remove(&mut self, key: &K) ?HashMapEntry[K, V] {
+        self.remove_entry(key)
+    }
+
     pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         self.ensure_unused_capacity(allocator, additional)
     }
@@ -414,6 +432,10 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
+        if needed <= usable_capacity(self.capacity()) {
+            self.rehash_to_buckets(allocator, self.capacity()).?;
+            return !{};
+        }
         self.grow_for_capacity(allocator, needed).?;
         !{}
     }
@@ -486,11 +508,15 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             visited += group_width;
         }
 
-        0usize
+        @trap()
     }
 
     fn grow_for_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
         let target = capacity_to_buckets(capacity).?;
+        self.rehash_to_buckets(allocator, target)
+    }
+
+    fn rehash_to_buckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!void {
         var new_map = HashMap[K, V]::init_seed(self.seed);
         new_map.allocate(allocator, target).?;
 
@@ -686,7 +712,11 @@ fn capacity_to_buckets(capacity: usize) mem::Error!usize {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let adjusted = (multiplied + 6usize) / 7usize;
+    let biased = switch multiplied.checked_add(6usize) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let adjusted = biased / 7usize;
     next_power_of_two(adjusted)
 }
 
