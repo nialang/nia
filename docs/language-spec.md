@@ -124,9 +124,10 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.mem` defines the `Allocator` trait plus `Layout` and `Block`, the
   explicit allocation contract used by standard containers. A block must be
   freed with the allocator that produced it, and with the current layout carried
-  by that block. `resize` and `remap` either keep the same pointer with an
-  updated layout or fail without moving the allocation; `realloc` may allocate a
-  new block, copy the shared prefix, and free the old block.
+  by that block. `resize` and `remap` may change the size but preserve the
+  allocation's alignment and either keep the same pointer with an updated size
+  or fail without moving the allocation; `realloc` may allocate a new block,
+  copy the shared prefix, and free the old block.
 - `std.mem.PageAllocator` maps each allocation through the OS page layer. It is
   useful as a low-level backing allocator, not as the default container
   allocator for many small objects.
