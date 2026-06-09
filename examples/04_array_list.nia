@@ -8,7 +8,7 @@ fn run(init: Init) mem::Error!void {
     _ = init;
 
     var storage: [256]u8 = [_]u8[0; 256];
-    var allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
+    var allocator = mem::FixedBufferAllocator::init(storage);
     var values = std::ArrayList[i32]::init();
     defer values.deinit(&mut allocator).?;
 
