@@ -70,6 +70,10 @@ extend Block {
         { ptr: ptr, layout: layout }
     }
 
+    pub fn empty(layout: Layout) Block {
+        Block::init(layout.align() as &mut u8, layout)
+    }
+
     pub fn ptr(&self) &mut u8 {
         self.ptr
     }
