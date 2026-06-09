@@ -121,11 +121,27 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.fmt` defines the formatting protocol used by writer `.print(...)`.
   Primitive integers, `bool`, `char`, character slices, byte slices, and
   `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
-- `std.mem` defines the `Allocator` trait, allocation layout and block types,
-  `PageAllocator` for OS page mappings, `FixedBufferAllocator` for
-  caller-provided backing storage, and `ArenaAllocator` for region-style
-  allocation with bulk reset/free operations. Arena reset and deinit invalidate
-  every block, slice, and container backing allocation obtained from that arena.
+- `std.mem` defines the `Allocator` trait plus `Layout` and `Block`, the
+  explicit allocation contract used by standard containers. A block must be
+  freed with the allocator that produced it, and with the current layout carried
+  by that block. `resize` and `remap` either keep the same pointer with an
+  updated layout or fail without moving the allocation; `realloc` may allocate a
+  new block, copy the shared prefix, and free the old block.
+- `std.mem.PageAllocator` maps each allocation through the OS page layer. It is
+  useful as a low-level backing allocator, not as the default container
+  allocator for many small objects.
+- `std.mem.FixedBufferAllocator` allocates from caller-provided storage and can
+  be reset as a whole. It is useful for examples, stack-backed scratch work, and
+  bounded programs where out-of-memory is part of normal control flow.
+- `std.mem.ArenaAllocator` provides region-style allocation over a child
+  allocator. `reset`, `reset_retain_capacity`, and `deinit` invalidate every
+  block, slice, and container backing allocation obtained from that arena; only
+  copied scalar values should be kept across those calls.
+- `std.mem.GeneralPurposeAllocator` is the ordinary heap allocator currently
+  provided by the standard library. It uses small-allocation slabs plus larger
+  child-backed allocations, performs basic invalid-free and double-free checks,
+  and is single-threaded/external-synchronization by contract. Wrap it later in
+  synchronization primitives rather than sharing one instance concurrently.
 - `std.atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
   load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
   standard-library facade over the compiler atomic builtins.

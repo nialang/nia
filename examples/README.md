@@ -41,6 +41,19 @@ does not need to exist before these commands run. The examples do not depend on
 libc or a C runtime; external C ABI interop belongs in dedicated interop
 examples, not in the default executable path.
 
+## Allocators
+
+Nia allocation is explicit. Containers receive `&mut mem::Allocator`, and the
+same allocator must later deinitialize or free the allocation.
+
+- Use `std.mem.FixedBufferAllocator` when storage is caller-provided and bounded.
+- Use `std.mem.ArenaAllocator` for phase-local allocations that can all be
+  invalidated together with `reset` or `deinit`.
+- Use `std.mem.GeneralPurposeAllocator` for ordinary heap-backed containers and
+  mixed allocation lifetimes.
+- Use `std.mem.PageAllocator` as low-level backing storage for other
+  allocators, or when whole page mappings are exactly what the program wants.
+
 ## Reading Order
 
 - `00_minimal.nia`: the smallest debug-printing executable entry.
