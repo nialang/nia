@@ -124,7 +124,8 @@ facade for selected direct names; it currently exposes `std::range`,
 - `std.mem` defines the `Allocator` trait, allocation layout and block types,
   `PageAllocator` for OS page mappings, `FixedBufferAllocator` for
   caller-provided backing storage, and `ArenaAllocator` for region-style
-  allocation with bulk reset/free operations.
+  allocation with bulk reset/free operations. Arena reset and deinit invalidate
+  every block, slice, and container backing allocation obtained from that arena.
 - `std.atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
   load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
   standard-library facade over the compiler atomic builtins.

@@ -33,6 +33,8 @@ fn run(init: Init) mem::Error!void {
     var first_capacity = arena.query_capacity();
     var first_used = arena.query_used();
 
+    // Every slice or container allocation from the arena becomes invalid after
+    // reset. Only keep copied scalar results across this boundary.
     arena.reset_retain_capacity().?;
 
     var labels = arena.alloc_slice[u8](16).?;
