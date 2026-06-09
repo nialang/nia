@@ -5147,6 +5147,11 @@ fn run(init: process::Init) mem::Error!void {
     var map = std::HashMap[i32, i32]::init_seed(1234u64);
     defer map.deinit(&mut gpa).?;
 
+    map.reserve(&mut gpa, 64usize).?;
+    if map.capacity() < 64usize {
+        return mem::Error::Invalid!;
+    }
+
     if map.len() != 0usize or not map.is_empty() {
         return mem::Error::Invalid!;
     }
@@ -5205,6 +5210,49 @@ fn run(init: process::Init) mem::Error!void {
     if map.contains_key(&10) or map.len() != 63usize {
         return mem::Error::Invalid!;
     }
+
+    var key_sum = 0;
+    for &key in map.keys() {
+        key_sum += key;
+        if key == 10 {
+            return mem::Error::Invalid!;
+        }
+    }
+    if key_sum != 2006 {
+        return mem::Error::Invalid!;
+    }
+
+    var value_sum = 0;
+    for &value in map.values() {
+        value_sum += value;
+    }
+    if value_sum != 19648 {
+        return mem::Error::Invalid!;
+    }
+
+    var entry_count = 0usize;
+    for entry in map.iter() {
+        entry_count += 1usize;
+        if entry.key().* == 42 and entry.value().* != 8 {
+            return mem::Error::Invalid!;
+        }
+    }
+    if entry_count != map.len() {
+        return mem::Error::Invalid!;
+    }
+
+    switch map.remove_entry(&42) {
+        ?entry => {
+            if entry.key().* != 42 or entry.value().* != 8 {
+                return mem::Error::Invalid!;
+            }
+        },
+        null => return mem::Error::Invalid!,
+    }
+    if map.contains_key(&42) or map.len() != 62usize {
+        return mem::Error::Invalid!;
+    }
+
     switch map.put(&mut gpa, 74, 740) {
         !old => switch old {
             ?value => return mem::Error::Invalid!,
@@ -5221,6 +5269,29 @@ fn run(init: process::Init) mem::Error!void {
 
     map.clear();
     if map.len() != 0usize or map.contains_key(&42) {
+        return mem::Error::Invalid!;
+    }
+
+    switch map.put_if_absent(&mut gpa, 5, 50) {
+        !inserted => if not inserted {
+            return mem::Error::Invalid!;
+        },
+        err! => return err!,
+    }
+    switch map.put_if_absent(&mut gpa, 5, 500) {
+        !inserted => if inserted {
+            return mem::Error::Invalid!;
+        },
+        err! => return err!,
+    }
+    switch map.get(&5) {
+        ?value => if value.* != 50 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    map.clear_and_free(&mut gpa).?;
+    if map.len() != 0usize or map.capacity() != 0usize {
         return mem::Error::Invalid!;
     }
 

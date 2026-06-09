@@ -14,6 +14,7 @@ fn run(init: Init) mem::Error!void {
     var scores = std::HashMap[i32, i32]::init_seed(2024u64);
     defer scores.deinit(&mut gpa).?;
 
+    scores.reserve(&mut gpa, 8usize).?;
     _ = scores.put(&mut gpa, 7, 70).?;
     _ = scores.put(&mut gpa, 42, 420).?;
     _ = scores.put(&mut gpa, 9, 90).?;
@@ -25,19 +26,30 @@ fn run(init: Init) mem::Error!void {
         null => return mem::Error::Invalid!,
     }
 
-    var removed = 0;
-    switch scores.remove(&7) {
-        ?value => removed = value,
+    var removed_key = 0;
+    var removed_value = 0;
+    switch scores.remove_entry(&7) {
+        ?entry => {
+            removed_key = entry.key().*;
+            removed_value = entry.value().*;
+        },
         null => return mem::Error::Invalid!,
+    }
+
+    var total = 0;
+    for entry in scores.iter() {
+        total += entry.value().*;
     }
 
     var len = scores.len();
     var has_seven = scores.contains_key(&7);
 
-    debug::print("hash_map len={} answer={} removed={} has_seven={}\n", [
+    debug::print("hash_map len={} answer={} removed_key={} removed_value={} total={} has_seven={}\n", [
         &len,
         &answer,
-        &removed,
+        &removed_key,
+        &removed_value,
+        &total,
         &has_seven,
     ]);
     !{}
