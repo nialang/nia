@@ -5208,7 +5208,6 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
-
     switch map.remove(&10) {
         ?value => if value != 100 {
             return mem::Error::Invalid!;

@@ -157,33 +157,31 @@ impl<'a> ModuleLowerer<'a> {
             return Vec::new();
         };
         let mut assumptions = self.current_method_owner_trait_assumptions(current);
-        let Some((predicates, source_interner)) = self.current_function_where_predicates(current)
-        else {
-            return assumptions;
-        };
-        let predicates = self.import_where_predicates(&predicates, &source_interner);
         let substitutions = self
             .type_substitutions
             .get(substitutions.0)
             .cloned()
             .unwrap_or_default();
-        let predicates = predicates
-            .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
-            .collect::<Vec<_>>();
-        for predicate in predicates {
-            for bound in predicate.bounds {
-                if let Some((trait_id, trait_args)) = Self::trait_id_and_args_from(
-                    &self.interner,
-                    self.input.type_normalization,
-                    self.input.program_traits,
-                    bound.trait_ty,
-                ) {
-                    assumptions.push(TraitGoal {
-                        self_ty: predicate.ty,
-                        trait_id,
-                        trait_args,
-                    });
+        for (predicates, source_interner) in self.current_where_predicate_sources(current) {
+            let predicates = self.import_where_predicates(&predicates, &source_interner);
+            let predicates = predicates
+                .iter()
+                .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+                .collect::<Vec<_>>();
+            for predicate in predicates {
+                for bound in predicate.bounds {
+                    if let Some((trait_id, trait_args)) = Self::trait_id_and_args_from(
+                        &self.interner,
+                        self.input.type_normalization,
+                        self.input.program_traits,
+                        bound.trait_ty,
+                    ) {
+                        assumptions.push(TraitGoal {
+                            self_ty: predicate.ty,
+                            trait_id,
+                            trait_args,
+                        });
+                    }
                 }
             }
         }
@@ -239,24 +237,46 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn current_function_where_predicates(
+    fn current_where_predicate_sources(
+        &self,
+        current: GlobalDefId,
+    ) -> Vec<(
+        Vec<nia_item_signatures::WherePredicateSignature>,
+        nia_ty::TyInterner,
+    )> {
+        let mut sources = Vec::new();
+        if let Some(source) = self.current_extension_where_predicates(current) {
+            sources.push(source);
+        }
+        if current.module_id == self.input.module_id
+            && let Some(signature) = self.input.signatures.functions.get(&current.def_id)
+        {
+            sources.push((
+                signature.where_predicates.clone(),
+                self.input.body_ir.interner.clone(),
+            ));
+            return sources;
+        }
+        if let Some(signature) = self.input.program_functions.get(&current) {
+            sources.push((
+                signature.signature.where_predicates.clone(),
+                signature.interner.clone(),
+            ));
+        }
+        sources
+    }
+
+    fn current_extension_where_predicates(
         &self,
         current: GlobalDefId,
     ) -> Option<(
         Vec<nia_item_signatures::WherePredicateSignature>,
         nia_ty::TyInterner,
     )> {
-        if current.module_id == self.input.module_id
-            && let Some(signature) = self.input.signatures.functions.get(&current.def_id)
-        {
-            return Some((
-                signature.where_predicates.clone(),
-                self.input.body_ir.interner.clone(),
-            ));
-        }
-        self.input.program_functions.get(&current).map(|signature| {
+        let program_index = self.trait_impls_by_method.get(&current).copied()?;
+        self.input.trait_impls.get(program_index).map(|signature| {
             (
-                signature.signature.where_predicates.clone(),
+                signature.where_predicates.clone(),
                 signature.interner.clone(),
             )
         })
@@ -349,10 +369,7 @@ impl<'a> ModuleLowerer<'a> {
                 [],
                 [],
             ) => {
-                if !matches!(
-                    self.resolve_builtin_trait_goal(self_ty, trait_id, Vec::new()),
-                    TraitResolution::Intrinsic(_)
-                ) {
+                if !self.intrinsic_builtin_trait_goal_exists(self_ty, trait_id, &[]) {
                     return None;
                 }
                 let elem = self.pointer_elem_ty(self_ty)?;
@@ -384,10 +401,7 @@ impl<'a> ModuleLowerer<'a> {
                 [index_ty],
                 [index],
             ) => {
-                if !matches!(
-                    self.resolve_builtin_trait_goal(self_ty, trait_id, vec![*index_ty]),
-                    TraitResolution::Intrinsic(_)
-                ) {
+                if !self.intrinsic_builtin_trait_goal_exists(self_ty, trait_id, &[*index_ty]) {
                     return None;
                 }
                 let elem = self.index_elem_ty(self_ty)?;
@@ -419,10 +433,7 @@ impl<'a> ModuleLowerer<'a> {
                 [_range_ty],
                 [range],
             ) => {
-                if !matches!(
-                    self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.to_vec()),
-                    TraitResolution::Intrinsic(_)
-                ) {
+                if !self.intrinsic_builtin_trait_goal_exists(self_ty, trait_id, trait_args) {
                     return None;
                 }
                 let base = FunctionExpr {
@@ -456,6 +467,31 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn intrinsic_builtin_trait_goal_exists(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+    ) -> bool {
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
+        };
+        let mut solver = context.solver(&mut self.interner, &[]);
+        matches!(
+            solver.resolve(TraitGoal {
+                self_ty,
+                trait_id: TraitId::Builtin(trait_id),
+                trait_args: trait_args.to_vec(),
+            }),
+            TraitResolution::Intrinsic(_)
+        )
+    }
+
     pub(super) fn resolve_builtin_trait_goal(
         &mut self,
         self_ty: InternedTyId,
@@ -467,7 +503,10 @@ impl<'a> ModuleLowerer<'a> {
             trait_id,
             trait_args,
         };
-        if let Some(resolution) = self.builtin_trait_resolutions.get(&key) {
+        let assumptions = self.current_trait_assumptions();
+        if assumptions.is_empty()
+            && let Some(resolution) = self.builtin_trait_resolutions.get(&key)
+        {
             return resolution.clone();
         }
         let context = TraitSolverContext {
@@ -478,15 +517,16 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let assumptions = self.current_trait_assumptions();
         let mut solver = context.solver(&mut self.interner, &assumptions);
         let resolution = solver.resolve(TraitGoal {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),
             trait_args: key.trait_args.clone(),
         });
-        self.builtin_trait_resolutions
-            .insert(key, resolution.clone());
+        if assumptions.is_empty() {
+            self.builtin_trait_resolutions
+                .insert(key, resolution.clone());
+        }
         resolution
     }
 
