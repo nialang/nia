@@ -12,13 +12,8 @@ pub using hash_map::{
     HashMapGetOrPutResult,
     HashMapIter,
     HashMapIterMut,
-    HashMapIterMutWithContext,
-    HashMapIterWithContext,
     HashMapKeys,
-    HashMapKeysWithContext,
     HashMapValues,
     HashMapValuesMut,
-    HashMapValuesMutWithContext,
-    HashMapValuesWithContext,
     HashMapWithContext,
 };

@@ -22,14 +22,9 @@ pub using collections::{
     HashMapGetOrPutResult,
     HashMapIter,
     HashMapIterMut,
-    HashMapIterMutWithContext,
-    HashMapIterWithContext,
     HashMapKeys,
-    HashMapKeysWithContext,
     HashMapValues,
     HashMapValuesMut,
-    HashMapValuesMutWithContext,
-    HashMapValuesWithContext,
     HashMapWithContext,
 };
 pub using hash::{Hash, Hasher, Wyhash};
