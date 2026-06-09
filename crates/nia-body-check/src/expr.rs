@@ -738,9 +738,7 @@ impl<'a> BodyChecker<'a> {
             | BinaryOp::Gt
             | BinaryOp::Ge
             | BinaryOp::Eq
-            | BinaryOp::Ne => {
-                self.check_builtin_operator_expr(span, lhs, op, rhs, Some(self.bool()))
-            }
+            | BinaryOp::Ne => self.check_builtin_operator_expr(span, lhs, op, rhs, expected),
             BinaryOp::And | BinaryOp::Or => {
                 let expected = self.bool();
                 let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
@@ -770,8 +768,10 @@ impl<'a> BodyChecker<'a> {
         let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() else {
             return self.error();
         };
-        let output_is_bool = builtin_trait_output_is_bool(trait_id);
-        if output_is_bool && self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs)
+        let output_is_boolean = builtin_trait_output_is_boolean(trait_id);
+        if output_is_boolean
+            && self.is_numeric_literal_expr(lhs)
+            && !self.is_numeric_literal_expr(rhs)
         {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
@@ -788,7 +788,7 @@ impl<'a> BodyChecker<'a> {
             });
         }
 
-        let lhs_expected = (!output_is_bool).then_some(()).and_then(|_| {
+        let lhs_expected = (!output_is_boolean).then_some(()).and_then(|_| {
             expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
         });
         let lhs_actual = if let Some(expected) = lhs_expected {
@@ -841,8 +841,8 @@ impl<'a> BodyChecker<'a> {
             ));
         }
 
-        let output = if builtin_trait_output_is_bool(finish.trait_id) {
-            self.bool()
+        let output = if builtin_trait_output_is_boolean(finish.trait_id) {
+            self.vector_bool_mask(lhs_ty).unwrap_or_else(|| self.bool())
         } else {
             let output = self.interner.intern(TyKind::Projection {
                 self_ty: lhs_ty,
@@ -884,8 +884,10 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        if builtin_trait_output_is_bool(trait_id) {
-            return self.bool();
+        if builtin_trait_output_is_boolean(trait_id) {
+            return self
+                .vector_bool_mask(inner_ty)
+                .unwrap_or_else(|| self.bool());
         }
         let output = self.interner.intern(TyKind::Projection {
             self_ty: inner_ty,
@@ -1114,7 +1116,7 @@ struct ExpectedRangeParts {
     bound: Option<InternedTyId>,
 }
 
-fn builtin_trait_output_is_bool(trait_id: BuiltinTrait) -> bool {
+fn builtin_trait_output_is_boolean(trait_id: BuiltinTrait) -> bool {
     matches!(
         trait_id,
         BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
