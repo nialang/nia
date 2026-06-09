@@ -57,5 +57,8 @@ examples, not in the default executable path.
   printed success/error state.
 - `07_arena_allocator.nia`: `std.mem.ArenaAllocator` over `PageAllocator`,
   `ArrayList` allocation, retained-capacity reset, and scratch slices.
+- `08_general_purpose_allocator.nia`: `std.mem.GeneralPurposeAllocator` over
+  `PageAllocator`, ordinary heap allocation, `ArrayList`, and cleanup with
+  `defer`.
 - `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
   formatted results from imported code.
