@@ -83,6 +83,12 @@ struct ProbeCursor {
     capacity: usize,
 }
 
+struct ProbeGroup {
+    match_mask: usize,
+    empty_mask: usize,
+    available_mask: usize,
+}
+
 fn dangling_slice[T]() &mut [T]
 where T: Sized
 {
@@ -572,17 +578,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         var cursor = ProbeCursor::init(value_hash, self.capacity());
 
         while cursor.has_remaining() {
-            var offset = 0usize;
-            while offset < group_width {
+            let group = ProbeGroup::load(self.ctrl, &cursor, needle);
+            var matches = group.match_mask;
+            while matches != 0usize {
+                let offset = first_set(matches);
                 let index = cursor.index(offset);
-                let control = self.ctrl[index];
-                if matches_tag(control, needle) and self.context.eql(&self.keys[index], key) {
+                if self.context.eql(&self.keys[index], key) {
                     return ?index;
                 }
-                if is_empty(control) {
-                    return null;
-                }
-                offset += 1usize;
+                matches = clear_lowest_set(matches);
+            }
+            if group.empty_mask != 0usize {
+                return null;
             }
 
             cursor.advance_group();
@@ -594,14 +601,9 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         var cursor = ProbeCursor::init(value_hash, self.capacity());
 
         while cursor.has_remaining() {
-            var offset = 0usize;
-            while offset < group_width {
-                let index = cursor.index(offset);
-                let control = self.ctrl[index];
-                if is_available(control) {
-                    return index;
-                }
-                offset += 1usize;
+            let group = ProbeGroup::load(self.ctrl, &cursor, tag(value_hash));
+            if group.available_mask != 0usize {
+                return cursor.index(first_set(group.available_mask));
             }
 
             cursor.advance_group();
@@ -751,6 +753,27 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 }
 
+extend ProbeGroup {
+    fn load(ctrl: &[u8], cursor: &ProbeCursor, needle: u8) ProbeGroup {
+        var bytes = @splat[u8x8](0u8);
+        var offset = 0usize;
+        while offset < group_width {
+            bytes = @insert(bytes, offset, ctrl[cursor.index(offset)]);
+            offset += 1usize;
+        }
+
+        let match_mask = @bitmask(bytes == @splat[u8x8](needle));
+        let empty_mask = @bitmask(bytes == @splat[u8x8](ctrl_empty));
+        let deleted_mask = @bitmask(bytes == @splat[u8x8](ctrl_deleted));
+
+        {
+            match_mask: match_mask,
+            empty_mask: empty_mask,
+            available_mask: empty_mask | deleted_mask,
+        }
+    }
+}
+
 extend ProbeCursor {
     fn init(value_hash: u64, capacity: usize) ProbeCursor {
         let mask = capacity - 1usize;
@@ -819,6 +842,14 @@ fn is_deleted(control: u8) bool {
 
 fn is_available(control: u8) bool {
     is_empty(control) or is_deleted(control)
+}
+
+fn first_set(mask: usize) usize {
+    @ctz[usize](mask)
+}
+
+fn clear_lowest_set(mask: usize) usize {
+    mask & (mask - 1usize)
 }
 
 fn matches_tag(control: u8, needle: u8) bool {
