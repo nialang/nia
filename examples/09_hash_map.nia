@@ -53,6 +53,7 @@ fn run(init: Init) mem::Error!void {
         &total,
         &has_seven,
     ]);
+    debug::print("hash_map entries={}\n", [&scores]);
     !{}
 }
 

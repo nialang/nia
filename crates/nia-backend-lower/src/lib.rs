@@ -748,23 +748,35 @@ fn insert_known_type_interner(
 }
 
 fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, usize> {
-    let local_impls = input
+    let impls = input
         .trait_impls
         .iter()
         .enumerate()
-        .filter_map(|(program_index, impl_signature)| {
-            (impl_signature.module_id == input.module_id)
-                .then_some((impl_signature.local_index, program_index))
+        .map(|(program_index, impl_signature)| {
+            (
+                (impl_signature.module_id, impl_signature.local_index),
+                program_index,
+            )
         })
         .collect::<HashMap<_, _>>();
     let mut impls_by_method = HashMap::new();
     for target in input.extensions.targets() {
         for method in &target.methods {
-            let Some(program_index) = local_impls.get(&method.impl_index).copied() else {
+            let Some(program_index) = impls.get(&(input.module_id, method.impl_index)).copied()
+            else {
                 continue;
             };
             impls_by_method.insert(method.def_id, program_index);
         }
+    }
+    for method in input.program_extension_methods.all_methods() {
+        let Some(program_index) = impls
+            .get(&(method.def_id.module_id, method.impl_index))
+            .copied()
+        else {
+            continue;
+        };
+        impls_by_method.insert(method.def_id, program_index);
     }
     impls_by_method
 }

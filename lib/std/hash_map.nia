@@ -1,3 +1,4 @@
+import std.fmt;
 import std.hash;
 import std.mem;
 import std.os;
@@ -729,4 +730,25 @@ fn next_power_of_two(value: usize) mem::Error!usize {
         };
     }
     !n
+}
+
+extend[K, V, E] HashMap[K, V] : fmt::Format[E]
+where K: Sized + Eq[K] + hash::Hash[hash::Wyhash] + fmt::Format[E],
+      V: Sized + fmt::Format[E]
+{
+    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+        formatter.write_byte(b'{').?;
+        var first = true;
+        for entry in self.iter() {
+            if first {
+                first = false;
+            } else {
+                formatter.write_text(", ").?;
+            }
+            entry.key().*.format(formatter).?;
+            formatter.write_text(": ").?;
+            entry.value().*.format(formatter).?;
+        }
+        formatter.write_byte(b'}')
+    }
 }
