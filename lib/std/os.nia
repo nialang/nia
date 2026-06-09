@@ -175,6 +175,10 @@ pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
     platform::unmap_pages(ptr, len).as_os_error()
 }
 
+pub fn random(bytes: &mut [u8]) Error!void {
+    platform::random(bytes).as_os_error()
+}
+
 pub fn exit(code: i32) void {
     platform::exit(code);
 }

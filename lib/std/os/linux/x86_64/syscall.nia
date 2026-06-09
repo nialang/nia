@@ -13,6 +13,7 @@ pub comptime let openat: usize = 257usize;
 pub comptime let mkdirat: usize = 258usize;
 pub comptime let unlinkat: usize = 263usize;
 pub comptime let renameat: usize = 264usize;
+pub comptime let getrandom: usize = 318usize;
 pub comptime let statx: usize = 332usize;
 
 pub fn syscall1(number: usize, arg0: usize) isize {

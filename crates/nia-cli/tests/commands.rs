@@ -4968,6 +4968,133 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_hash_wyhash_matches_test_vectors() {
+    let root = temp_dir("emit_exe_std_hash_wyhash_matches_test_vectors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.hash;
+import std.process;
+
+fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!void {
+    let actual = hash::wyhash(seed, input);
+    if actual != expected {
+        return (code as process::ExitCode)!;
+    }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    expect(0u64, b"", 0x0409638ee2bde459u64, 1).?;
+    expect(1u64, b"a", 0xa8412d091b5fe0a9u64, 2).?;
+    expect(2u64, b"abc", 0x32dd92e4b2915153u64, 3).?;
+    expect(3u64, b"message digest", 0x8619124089a3a16bu64, 4).?;
+    expect(4u64, b"abcdefghijklmnopqrstuvwxyz", 0x7a43afb61d7f5f40u64, 5).?;
+    expect(
+        5u64,
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+        0xff42329b90e50d58u64,
+        6,
+    ).?;
+    expect(
+        6u64,
+        b"12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+        0xc39cab13b115aad3u64,
+        7,
+    ).?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_os_random_fills_requested_bytes() {
+    let root = temp_dir("emit_exe_std_os_random_fills_requested_bytes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.os;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var empty: [0]u8 = [];
+    switch os::random(&mut empty[..]) {
+        !ok => _ = ok,
+        error! => return (2 as process::ExitCode)!,
+    }
+
+    var bytes: [32]u8 = [
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+        0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+    ];
+    switch os::random(&mut bytes[..]) {
+        !ok => _ = ok,
+        error! => return (3 as process::ExitCode)!,
+    }
+
+    var any_nonzero = false;
+    var i = 0usize;
+    while i < 32usize {
+        if bytes[i] != 0u8 {
+            any_nonzero = true;
+        }
+        i += 1usize;
+    }
+    if not any_nonzero {
+        return (1 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_copy_forwards_and_backwards() {
     let root = temp_dir("emit_exe_std_mem_copy_forwards_and_backwards");
     let main = root.join("main.nia");
