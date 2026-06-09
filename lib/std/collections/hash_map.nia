@@ -604,6 +604,35 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !true
     }
 
+    pub fn put_assume_capacity(&mut self, key: K, value: V) ?V {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                let old = self.values[index];
+                self.values[index] = value;
+                return ?old;
+            },
+            null => {},
+        }
+
+        self.insert_new_assume_capacity(key, value);
+        null
+    }
+
+    pub fn put_if_absent_assume_capacity(&mut self, key: K, value: V) bool {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                _ = index;
+                return false;
+            },
+            null => {},
+        }
+
+        self.insert_new_assume_capacity(key, value);
+        true
+    }
+
     pub fn get_or_put_value(
         &mut self,
         allocator: &mut mem::Allocator,
@@ -624,6 +653,31 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
         let index = self.insert_new_index(allocator, key, value).?;
         !{
+            key: &self.keys[index],
+            value: &mut self.values[index],
+            found_existing: false,
+        }
+    }
+
+    pub fn get_or_put_value_assume_capacity(
+        &mut self,
+        key: K,
+        value: V,
+    ) HashMapGetOrPutResult[K, V] {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return {
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {},
+        }
+
+        let index = self.insert_new_index_assume_capacity(key, value);
+        {
             key: &self.keys[index],
             value: &mut self.values[index],
             found_existing: false,
@@ -655,6 +709,30 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
+    pub fn get_or_put_assume_capacity(
+        &mut self,
+        key: K,
+    ) HashMapGetOrPutResult[K, V] {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                return {
+                    key: &self.keys[index],
+                    value: &mut self.values[index],
+                    found_existing: true,
+                };
+            },
+            null => {},
+        }
+
+        let index = self.insert_new_uninitialized_index_assume_capacity(key);
+        {
+            key: &self.keys[index],
+            value: &mut self.values[index],
+            found_existing: false,
+        }
+    }
+
     fn insert_new(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!void {
         _ = self.insert_new_index(allocator, key, value).?;
         !{}
@@ -677,6 +755,32 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.keys[slot] = key;
         self.len += 1usize;
         !slot
+    }
+
+    fn insert_new_assume_capacity(&mut self, key: K, value: V) void {
+        let slot = self.insert_new_index_assume_capacity(key, value);
+        _ = slot;
+    }
+
+    fn insert_new_index_assume_capacity(&mut self, key: K, value: V) usize {
+        let slot = self.insert_new_uninitialized_index_assume_capacity(key);
+        self.values[slot] = value;
+        slot
+    }
+
+    fn insert_new_uninitialized_index_assume_capacity(&mut self, key: K) usize {
+        if self.growth_left == 0usize {
+            @trap()
+        }
+        let value_hash = self.hash_key(&key);
+        let slot = self.find_insert_index(value_hash);
+        if self.ctrl[slot] == ctrl_empty {
+            self.growth_left -= 1usize;
+        }
+        self.set_ctrl(slot, tag(value_hash));
+        self.keys[slot] = key;
+        self.len += 1usize;
+        slot
     }
 
     pub fn remove(&mut self, key: &K) ?V {
