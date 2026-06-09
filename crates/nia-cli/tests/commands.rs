@@ -6635,6 +6635,132 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_hash_map_reserve_exact_compacts_tombstones() {
+    let root = temp_dir("emit_exe_std_hash_map_reserve_exact_compacts_tombstones");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+struct FailAllocator {
+    backing: mem::FixedBufferAllocator,
+    alloc_count: usize,
+    fail_alloc_at: usize,
+}
+
+extend FailAllocator {
+    fn init(buffer: &mut [u8]) FailAllocator {
+        {
+            backing: mem::FixedBufferAllocator::init(buffer),
+            alloc_count: 0usize,
+            fail_alloc_at: 0usize,
+        }
+    }
+
+    fn fail_next_alloc(&mut self) void {
+        self.fail_alloc_at = self.alloc_count + 1usize;
+    }
+}
+
+extend FailAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if not layout.is_empty() {
+            self.alloc_count += 1usize;
+            if self.fail_alloc_at == self.alloc_count {
+                return mem::Error::OutOfMemory!;
+            }
+        }
+        self.backing.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!void {
+        self.backing.free(block)
+    }
+
+    fn resize(&mut self, block: mem::Block, new_layout: mem::Layout) bool {
+        self.backing.resize(block, new_layout)
+    }
+}
+
+fn run(init: process::Init) mem::Error!void {
+    _ = init;
+    var storage: [32768]u8 = [0; 32768];
+    var allocator = FailAllocator::init(storage);
+    var map = std::HashMap[i32, i32]::init_seed(123u64);
+    defer map.deinit(&mut allocator).?;
+
+    map.reserve_exact(&mut allocator, 14usize).?;
+    var key = 0;
+    while key < 14 {
+        _ = map.put(&mut allocator, key, key).?;
+        key += 1;
+    }
+
+    key = 0;
+    while key < 14 {
+        switch map.remove(&key) {
+            ?value => if value != key {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+
+    map.reserve_exact(&mut allocator, 2usize).?;
+    allocator.fail_next_alloc();
+    _ = map.put(&mut allocator, 100, 1000).?;
+    _ = map.put(&mut allocator, 101, 1010).?;
+
+    if map.len() != 2usize {
+        return mem::Error::Invalid!;
+    }
+    switch map.get(&100) {
+        ?value => if value.* != 1000 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch map.get(&101) {
+        ?value => if value.* != 1010 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_copy_forwards_and_backwards() {
     let root = temp_dir("emit_exe_std_mem_copy_forwards_and_backwards");
     let main = root.join("main.nia");
