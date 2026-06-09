@@ -331,7 +331,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     )
                 };
                 let Some(function) = function else {
-                    return Err(self.error(expr.span, "missing method function"));
+                    return Err(self.error(
+                        expr.span,
+                        format!(
+                            "missing method function for def {:?} in arg module {:?} with args {:?}",
+                            def_id, arg_module_id, type_args
+                        ),
+                    ));
                 };
                 let Some(param_tys) = param_tys else {
                     return Err(self.error(expr.span, "missing method metadata"));

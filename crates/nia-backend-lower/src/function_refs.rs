@@ -327,6 +327,7 @@ fn collect_function_refs_from_callee(
             def_id,
             arg_module_id,
             args,
+            receiver,
             ..
         } => {
             if args.is_empty() {
@@ -339,6 +340,7 @@ fn collect_function_refs_from_callee(
                     span,
                 });
             }
+            collect_function_refs_from_expr(module_id, receiver, refs);
         }
         FunctionCallee::TraitMethod {
             method_id,
