@@ -6764,6 +6764,104 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_hash_map_assume_capacity_operations() {
+    let root = temp_dir("emit_exe_std_hash_map_assume_capacity_operations");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+fn run(init: process::Init) mem::Error!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var map = std::HashMap[i32, i32]::init_seed(321u64);
+    defer map.deinit(&mut page).?;
+
+    map.reserve(&mut page, 4usize).?;
+    switch map.put_assume_capacity(1, 10) {
+        ?old => return mem::Error::Invalid!,
+        null => {},
+    }
+    switch map.put_assume_capacity(1, 11) {
+        ?old => if old != 10 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    if map.put_if_absent_assume_capacity(1, 99) {
+        return mem::Error::Invalid!;
+    }
+    if not map.put_if_absent_assume_capacity(2, 20) {
+        return mem::Error::Invalid!;
+    }
+
+    var existing = map.get_or_put_value_assume_capacity(1, 111);
+    if not existing.found_existing() or existing.value().* != 11 {
+        return mem::Error::Invalid!;
+    }
+    existing.value().* = 12;
+
+    var inserted = map.get_or_put_assume_capacity(3);
+    if inserted.found_existing() {
+        return mem::Error::Invalid!;
+    }
+    inserted.value().* = 30;
+
+    if map.len() != 3usize {
+        return mem::Error::Invalid!;
+    }
+    switch map.get(&1) {
+        ?value => if value.* != 12 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch map.get(&2) {
+        ?value => if value.* != 20 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    switch map.get(&3) {
+        ?value => if value.* != 30 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_copy_forwards_and_backwards() {
     let root = temp_dir("emit_exe_std_mem_copy_forwards_and_backwards");
     let main = root.join("main.nia");
