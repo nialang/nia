@@ -808,6 +808,18 @@ impl<'a> BodyChecker<'a> {
                         ("bitmask", [vector]) => TypedExprKind::Bitmask {
                             vector: Box::new(self.lower_expr(vector)),
                         },
+                        ("ctz", [value]) => TypedExprKind::BitIntrinsic {
+                            op: nia_body_ir::TypedBitIntrinsicOp::Ctz,
+                            value: Box::new(self.lower_expr(value)),
+                        },
+                        ("clz", [value]) => TypedExprKind::BitIntrinsic {
+                            op: nia_body_ir::TypedBitIntrinsicOp::Clz,
+                            value: Box::new(self.lower_expr(value)),
+                        },
+                        ("popcount", [value]) => TypedExprKind::BitIntrinsic {
+                            op: nia_body_ir::TypedBitIntrinsicOp::Popcount,
+                            value: Box::new(self.lower_expr(value)),
+                        },
                         ("atomic_load", [ptr, order]) => TypedExprKind::Atomic(TypedAtomic::Load {
                             ty: self.builtin_atomic_type_arg(callee),
                             ptr: Box::new(self.lower_expr(ptr)),

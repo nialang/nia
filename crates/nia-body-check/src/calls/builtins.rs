@@ -109,7 +109,10 @@ impl<'a> BodyChecker<'a> {
             | BuiltinResolution::Splat
             | BuiltinResolution::Extract
             | BuiltinResolution::Insert
-            | BuiltinResolution::Bitmask => {
+            | BuiltinResolution::Bitmask
+            | BuiltinResolution::Ctz
+            | BuiltinResolution::Clz
+            | BuiltinResolution::Popcount => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
@@ -248,6 +251,9 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Bitmask => {
                 self.check_bitmask_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::Ctz | BuiltinResolution::Clz | BuiltinResolution::Popcount => {
+                self.check_bit_intrinsic_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
             BuiltinResolution::AtomicLoad => {
                 self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
@@ -429,6 +435,63 @@ impl<'a> BodyChecker<'a> {
             None => {}
         }
         self.primitive(PrimitiveTy::Usize)
+    }
+
+    fn check_bit_intrinsic_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let result_ty = self.check_integer_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly one value argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return result_ty;
+        }
+        let actual = self.check_expr_with_expected(&args[0], Some(result_ty));
+        self.expect_expr_type(&args[0], result_ty, actual, "bit intrinsic argument");
+        result_ty
+    }
+
+    fn check_integer_builtin_type_arg(
+        &mut self,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+    ) -> InternedTyId {
+        let Some(type_arg) = type_arg else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                builtin_span,
+                format!("builtin `@{name}` requires an integer type argument"),
+            ));
+            return self.error();
+        };
+        let ty = self.ty_for_type(type_arg);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Primitive(primitive)) if primitive.is_integer() => ty,
+            Some(TyKind::Primitive(_)) | Some(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    type_arg.span,
+                    format!(
+                        "builtin `@{name}` requires an integer type argument, got {}",
+                        self.ty_name(ty)
+                    ),
+                ));
+                self.error()
+            }
+            None => self.error(),
+        }
     }
 
     fn reject_simd_lane_builtin_type_arg(

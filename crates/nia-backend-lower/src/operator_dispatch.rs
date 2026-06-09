@@ -340,6 +340,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
                     vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
                 },
+                FunctionExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
+                    op,
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.resolve_builtin_operator_calls_in_place(place))
                 }

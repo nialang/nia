@@ -193,6 +193,7 @@ impl BackendValidator<'_> {
             | FunctionExprKind::Try { expr }
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
+            | FunctionExprKind::BitIntrinsic { value: expr, .. }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }

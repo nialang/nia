@@ -214,6 +214,10 @@ pub enum TypedExprKind {
     Bitmask {
         vector: Box<TypedExpr>,
     },
+    BitIntrinsic {
+        op: TypedBitIntrinsicOp,
+        value: Box<TypedExpr>,
+    },
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,
@@ -294,6 +298,13 @@ pub enum TypedExprKind {
         else_branch: Option<Box<TypedExpr>>,
     },
     Switch(Box<TypedSwitch>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedBitIntrinsicOp {
+    Ctz,
+    Clz,
+    Popcount,
 }
 
 #[derive(Debug, Clone, PartialEq)]

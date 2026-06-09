@@ -249,6 +249,10 @@ pub enum FunctionExprKind {
     Bitmask {
         vector: Box<FunctionExpr>,
     },
+    BitIntrinsic {
+        op: FunctionBitIntrinsicOp,
+        value: Box<FunctionExpr>,
+    },
     CStringPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,
@@ -329,6 +333,13 @@ pub enum FunctionExprKind {
         range: FunctionSliceRange,
         is_readonly: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionBitIntrinsicOp {
+    Ctz,
+    Clz,
+    Popcount,
 }
 
 #[derive(Debug, Clone, PartialEq)]

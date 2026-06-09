@@ -353,6 +353,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Try { expr: inner }
             | FunctionExprKind::Splat { value: inner }
             | FunctionExprKind::Bitmask { vector: inner }
+            | FunctionExprKind::BitIntrinsic { value: inner, .. }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }

@@ -231,3 +231,41 @@ fn matching(v: u8x16, tag: u8) usize {
         "expected mask widening to usize:\n{ir}"
     );
 }
+
+#[test]
+fn emits_bit_intrinsic_builtins() {
+    let root = temp_dir("emits_bit_intrinsic_builtins");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn scan(mask: usize) usize {
+    @ctz[usize](mask) + @clz[usize](mask) + @popcount[usize](mask)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("@llvm.cttz.i64"),
+        "expected ctz intrinsic:\n{ir}"
+    );
+    assert!(
+        ir.contains("@llvm.ctlz.i64"),
+        "expected clz intrinsic:\n{ir}"
+    );
+    assert!(
+        ir.contains("@llvm.ctpop.i64"),
+        "expected popcount intrinsic:\n{ir}"
+    );
+    assert!(
+        ir.contains("call i64 @llvm.cttz.i64(i64 %") && ir.contains("i1 false"),
+        "expected zero-defined ctz call:\n{ir}"
+    );
+}

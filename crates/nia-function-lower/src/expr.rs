@@ -67,6 +67,10 @@ impl FunctionLowerer {
             TypedExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
                 vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
             },
+            TypedExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
+                op: self.lower_bit_intrinsic_op(*op),
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+            },
             TypedExprKind::CStringPointer { array, is_readonly } => {
                 FunctionExprKind::CStringPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
@@ -1094,6 +1098,19 @@ impl FunctionLowerer {
                 .collect(),
             clobbers: asm.clobbers.clone(),
             options: asm.options.iter().map(Self::lower_asm_option).collect(),
+        }
+    }
+}
+
+impl FunctionLowerer {
+    fn lower_bit_intrinsic_op(
+        &self,
+        op: nia_body_ir::TypedBitIntrinsicOp,
+    ) -> FunctionBitIntrinsicOp {
+        match op {
+            nia_body_ir::TypedBitIntrinsicOp::Ctz => FunctionBitIntrinsicOp::Ctz,
+            nia_body_ir::TypedBitIntrinsicOp::Clz => FunctionBitIntrinsicOp::Clz,
+            nia_body_ir::TypedBitIntrinsicOp::Popcount => FunctionBitIntrinsicOp::Popcount,
         }
     }
 }

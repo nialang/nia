@@ -13,14 +13,14 @@ use nia_ty::{BuiltinTrait, TyInterner, TyKind};
 
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
-    FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBlock, FunctionBlockId,
-    FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator, FunctionBuiltinOperatorOp,
-    FunctionBuiltinValue, FunctionCallee, FunctionDeferBody, FunctionErrorUnionTag, FunctionExpr,
-    FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm, FunctionLocal,
-    FunctionLocalKind, FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp,
-    FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag, FunctionPlace,
-    FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope, FunctionScopeId,
-    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
+    FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBitIntrinsicOp, FunctionBlock,
+    FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
+    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
+    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionMemoryIntrinsic,
+    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
+    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
+    FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
 };
 
 mod expr;
