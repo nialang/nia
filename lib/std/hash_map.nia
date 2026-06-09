@@ -353,6 +353,17 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.deinit(allocator)
     }
 
+    pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        if self.capacity() == 0usize {
+            return !{};
+        }
+        if self.len() == 0usize {
+            self.clear();
+            return !{};
+        }
+        self.rehash_to_buckets(allocator, self.capacity())
+    }
+
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
         { map: self, index: 0usize, remaining: self.len }
     }

@@ -5899,6 +5899,41 @@ fn run(init: process::Init) mem::Error!void {
         }
         key += 1;
     }
+    tombstones.compact(&mut gpa).?;
+    if tombstones.len() != 32usize or tombstones.capacity() != tombstone_capacity {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 32 {
+        switch tombstones.get(&(key + 200)) {
+            ?value => if value.* != key * 4 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    key = 0;
+    while key < 32 {
+        switch tombstones.remove(&(key + 200)) {
+            ?value => if value != key * 4 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    tombstones.compact(&mut gpa).?;
+    if tombstones.len() != 0usize or tombstones.capacity() != tombstone_capacity {
+        return mem::Error::Invalid!;
+    }
+    _ = tombstones.put(&mut gpa, 777, 888).?;
+    switch tombstones.get(&777) {
+        ?value => if value.* != 888 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
 
     var model_map = std::HashMap[i32, i32]::init_seed(557u64);
     defer model_map.deinit(&mut gpa).?;
@@ -6188,6 +6223,27 @@ fn run(init: process::Init) mem::Error!void {
         },
     }
     if free_fail.capacity() <= old_free_fail_capacity or free_fail.len() != 14usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 14 {
+        switch free_fail.get(&key) {
+            ?value => if value.* != key + 5 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    let free_fail_grown_capacity = free_fail.capacity();
+    free_fail_allocator.fail_next_free();
+    switch free_fail.compact(&mut free_fail_allocator) {
+        !ok => return mem::Error::Invalid!,
+        err! => if err as i32 != mem::Error::Invalid as i32 {
+            return err!;
+        },
+    }
+    if free_fail.capacity() != free_fail_grown_capacity or free_fail.len() != 14usize {
         return mem::Error::Invalid!;
     }
     key = 0;
