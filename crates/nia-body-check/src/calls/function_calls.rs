@@ -43,8 +43,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         is_readonly: bool,
+        expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let item = self.function_item_ref(expr)?;
+        let item = self.function_item_ref(expr, expected)?;
         if !is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -85,10 +86,14 @@ impl<'a> BodyChecker<'a> {
         }))
     }
 
-    fn function_item_ref(&mut self, expr: &Expr) -> Option<FunctionItemRef> {
+    fn function_item_ref(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<FunctionItemRef> {
         match &expr.kind {
             ExprKind::BracketSuffix { callee, args } => {
-                let mut item = self.function_item_ref(callee)?;
+                let mut item = self.function_item_ref(callee, expected)?;
                 self.record_bracket_suffix_node_resolution(
                     expr,
                     BracketSuffixResolution::GenericCall,
@@ -98,7 +103,8 @@ impl<'a> BodyChecker<'a> {
                 Some(item)
             }
             ExprKind::Qualified { lhs, name } => {
-                if let Some(item) = self.associated_method_item_ref(expr.span, lhs, name) {
+                if let Some(item) = self.associated_method_item_ref(expr.span, lhs, name, expected)
+                {
                     return Some(item);
                 }
                 self.qualified_callee_signature(expr)
@@ -124,8 +130,9 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         ty_expr: &Expr,
         name: &str,
+        expected: Option<InternedTyId>,
     ) -> Option<FunctionItemRef> {
-        let target_ty = self.associated_target_ty(ty_expr, None, name)?;
+        let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let method_id = self.single_method_candidate(span, name, candidates)?;
         let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
@@ -462,7 +469,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn type_contains_generic_param(&self, ty: InternedTyId) -> bool {
+    pub(crate) fn type_contains_generic_param(&self, ty: InternedTyId) -> bool {
         match self.interner.get(self.normalization.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { elem, .. })
@@ -535,7 +542,9 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(pattern).cloned() {
             Some(TyKind::GenericParam(name)) => {
                 if let Some(existing) = substitutions.get(&name).copied() {
-                    if !self.types_match(existing, actual) {
+                    if self.generic_substitution_is_self_mapping(&name, existing) {
+                        substitutions.insert(name, actual);
+                    } else if !self.types_match(existing, actual) {
                         self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                             span,
                             format!(
@@ -784,5 +793,12 @@ impl<'a> BodyChecker<'a> {
             )
             | None => {}
         }
+    }
+
+    fn generic_substitution_is_self_mapping(&self, name: &str, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalization.normalize(ty)),
+            Some(TyKind::GenericParam(existing)) if existing == name
+        )
     }
 }

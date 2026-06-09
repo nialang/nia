@@ -195,7 +195,7 @@ impl<'a> BodyChecker<'a> {
         let (nominal_def_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
         if type_args.is_empty()
             && let Some(expected) = expected
-            && let Some(prefix_ty) = self.associated_nominal_target_ty(nominal_def_id, Vec::new())
+            && let Some(prefix_ty) = self.associated_nominal_generic_target_ty(nominal_def_id)
             && let Some(nia_ty::TyKind::Nominal {
                 def_id: normalized_def_id,
                 ..
@@ -225,11 +225,20 @@ impl<'a> BodyChecker<'a> {
         if let Some(target) = self.expand_type_alias_instance(def_id, &args) {
             return Some(target);
         }
-        let ty = self.interner.intern(TyKind::Nominal {
-            def_id,
-            args,
-        });
+        let ty = self.interner.intern(TyKind::Nominal { def_id, args });
         Some(self.normalization.normalize(ty))
+    }
+
+    fn associated_nominal_generic_target_ty(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
+        let args = self
+            .nominal_type_generics(def_id)?
+            .into_iter()
+            .map(|generic| self.interner.intern(TyKind::GenericParam(generic)))
+            .collect();
+        self.associated_nominal_target_ty(def_id, args)
     }
 
     fn infer_associated_type_args_from_expected_return(
@@ -238,7 +247,7 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         expected: InternedTyId,
     ) -> Option<Vec<InternedTyId>> {
-        let expected = self.normalization.normalize(expected);
+        let expected = self.associated_expected_return_ty(expected);
         let Some(nia_ty::TyKind::Nominal {
             def_id: expected_def,
             args: expected_args,
@@ -256,6 +265,25 @@ impl<'a> BodyChecker<'a> {
             Some(expected_args)
         } else {
             None
+        }
+    }
+
+    fn associated_expected_return_ty(&mut self, expected: InternedTyId) -> InternedTyId {
+        let expected = self.normalization.normalize(expected);
+        match self.interner.get(expected).cloned() {
+            Some(TyKind::Pointer { elem, .. }) => {
+                let elem = self.normalization.normalize(elem);
+                match self.interner.get(elem).cloned() {
+                    Some(TyKind::FunctionPointer { return_type, .. }) => {
+                        self.normalization.normalize(return_type)
+                    }
+                    _ => expected,
+                }
+            }
+            Some(TyKind::FunctionPointer { return_type, .. }) => {
+                self.normalization.normalize(return_type)
+            }
+            _ => expected,
         }
     }
 

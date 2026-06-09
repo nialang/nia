@@ -72,7 +72,7 @@ impl<'a> BodyChecker<'a> {
             let expected = self.normalize_projection(expected);
             self.infer_generics_from_type(return_type, expected, &mut substitutions, call.span);
         }
-        let params: Vec<InternedTyId> = candidate
+        let mut params: Vec<InternedTyId> = candidate
             .signature
             .params
             .iter()
@@ -85,11 +85,23 @@ impl<'a> BodyChecker<'a> {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
                 return Some(self.error());
             }
+            params = candidate
+                .signature
+                .params
+                .iter()
+                .skip(1)
+                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .collect();
         }
         self.check_direct_call_args(call.span, call.args, &params, false);
+        let trait_args = candidate
+            .trait_args
+            .iter()
+            .map(|arg| self.substitute_generics(*arg, &substitutions))
+            .collect::<Vec<_>>();
         if candidate.has_default {
             let mut instance_args = vec![candidate.self_ty];
-            instance_args.extend(candidate.trait_args.iter().copied());
+            instance_args.extend(trait_args.iter().copied());
             instance_args.extend(method_instantiation_args.iter().copied());
             self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);
         }
@@ -101,7 +113,7 @@ impl<'a> BodyChecker<'a> {
                 method_id: candidate.method_id,
                 method_name: call.name.to_string(),
                 self_ty: candidate.self_ty,
-                trait_args: candidate.trait_args.clone(),
+                trait_args,
                 args: method_instantiation_args,
                 receiver_kind,
             },

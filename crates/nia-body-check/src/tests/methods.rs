@@ -391,6 +391,58 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_trait_method_impl_generics_from_method_arguments() {
+    let checked = pipeline(
+        r#"
+trait Writer {}
+
+trait Hash[H]
+where H: Writer
+{
+    fn hash(&self, writer: &mut H) void;
+}
+
+struct H {}
+
+extend H {
+    fn init() H {
+        {}
+    }
+}
+
+extend H : Writer {}
+
+extend[H] u32 : Hash[H]
+where H: Writer
+{
+    fn hash(&self, writer: &mut H) void {
+        _ = self;
+        _ = writer;
+    }
+}
+
+fn main() void {
+    var hasher = H::init();
+    (7u32).hash(&mut hasher);
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
+            .summary
+            .contains("conflicting inferred type")
+            && !diagnostic
+                .summary
+                .contains("type mismatch in call argument")
+            && !diagnostic
+                .summary
+                .contains("cannot infer generic parameter")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_function_pointer_calls() {
     let checked = pipeline(
         r#"
@@ -561,15 +613,15 @@ extend[T] Box[T] {
 }
 
 fn main() {
-    var bad_make: &fn(i32) Box[i32] = & Box::make;
+    var make: &fn(i32) Box[i32] = & Box::make;
     var bad_replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace;
 }
 "#,
     );
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
             .summary
-            .contains("generic function pointer requires explicit type arguments")),
+            .contains("generic argument count mismatch for `Box`")),
         "{:?}",
         checked.diagnostics
     );
