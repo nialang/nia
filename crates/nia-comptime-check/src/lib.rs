@@ -1914,6 +1914,7 @@ impl Analyzer<'_> {
             nia_layout::ProgramLayoutContext {
                 layouts: Some(&layout_query),
                 array_lengths: Some(&array_lengths),
+                ..Default::default()
             },
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
@@ -2094,6 +2095,7 @@ impl Analyzer<'_> {
             nia_layout::ProgramLayoutContext {
                 layouts: Some(&layout_query),
                 array_lengths: Some(&array_lengths_for_layout),
+                ..Default::default()
             },
         ))
     }

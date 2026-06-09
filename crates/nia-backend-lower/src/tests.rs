@@ -211,6 +211,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
@@ -251,8 +252,11 @@ fn main() i32 {
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
+        program_defs: &HashMap::new(),
         program_type_interners: &HashMap::new(),
         program_functions: &HashMap::new(),
+        program_structs: &HashMap::new(),
+        program_unions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],
@@ -4356,7 +4360,7 @@ fn append_missing_layout_instances_uses_existing_keys_as_set() {
         (key_new.clone(), new_layout.clone()),
     ]);
 
-    append_missing_layout_instances(module_id, &mut output, computed);
+    append_missing_layout_instances(&mut output, computed, module_id);
 
     assert_eq!(output.len(), 2);
     assert_eq!(output[0].1, existing_layout);
@@ -4531,6 +4535,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
@@ -4597,8 +4602,11 @@ fn lower_source_with_body_check_mutation_and_optimization(
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
+        program_defs: &HashMap::new(),
         program_type_interners: &HashMap::new(),
         program_functions: &HashMap::new(),
+        program_structs: &HashMap::new(),
+        program_unions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],

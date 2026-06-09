@@ -6,7 +6,7 @@ use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
     BackendUnionInstance,
 };
-use nia_defs::{DefId, DefKind};
+use nia_defs::DefKind;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionForHeader, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace,
@@ -574,10 +574,9 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in &args {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
-                if def_id.module_id == self.input.module_id
-                    && !args.is_empty()
+                if !args.is_empty()
                     && seen.insert((def_id, args.clone()))
-                    && let Some(item) = self.lower_struct_instance(def_id.def_id, args)
+                    && let Some(item) = self.lower_struct_instance(def_id, args)
                 {
                     out.push(item);
                 }
@@ -630,28 +629,76 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_struct_instance(
         &mut self,
-        def_id: DefId,
+        def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     ) -> Option<BackendStructInstance> {
-        let signature = self.input.signatures.structs.get(&def_id)?.clone();
+        if def_id.module_id != self.input.module_id {
+            return self.lower_foreign_struct_instance(def_id, args);
+        }
+        let signature = self.input.signatures.structs.get(&def_id.def_id)?.clone();
         if signature.generics.is_empty() || signature.generics.len() != args.len() {
             return None;
         }
-        let def = self.input.defs.defs.get(def_id)?;
+        let def = self.input.defs.defs.get(def_id.def_id)?;
         let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
         Some(BackendStructInstance {
-            def_id: self.global_def_id(def_id),
+            def_id,
             name: def.name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(self.global_def_id(def_id), &def.name, &args),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
-                    def_id: self.global_def_id(field.def_id),
+                    def_id: GlobalDefId {
+                        module_id: self.input.module_id,
+                        def_id: field.def_id,
+                    },
                     name: field.name.clone(),
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
+                })
+                .collect(),
+            is_extern: signature.is_extern,
+            span: signature.span,
+        })
+    }
+
+    fn lower_foreign_struct_instance(
+        &mut self,
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+    ) -> Option<BackendStructInstance> {
+        let program_signature = self.input.program_structs.get(&def_id)?.clone();
+        let signature = program_signature.signature;
+        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+            return None;
+        }
+        let name = self.def_name(def_id);
+        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        Some(BackendStructInstance {
+            def_id,
+            name: name.clone(),
+            args: args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &name, &args),
+            fields: signature
+                .fields
+                .iter()
+                .map(|field| {
+                    let ty = nia_ty::import_type_into(
+                        &mut self.interner,
+                        &program_signature.interner,
+                        field.ty,
+                    );
+                    BackendField {
+                        def_id: GlobalDefId {
+                            module_id: def_id.module_id,
+                            def_id: field.def_id,
+                        },
+                        name: field.name.clone(),
+                        ty: self.instantiate_ty(ty, &substitutions),
+                        span: field.span,
+                    }
                 })
                 .collect(),
             is_extern: signature.is_extern,
@@ -1066,10 +1113,9 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in &args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
-                if def_id.module_id == self.input.module_id
-                    && !args.is_empty()
+                if !args.is_empty()
                     && seen.insert((def_id, args.clone()))
-                    && let Some(item) = self.lower_union_instance(def_id.def_id, args)
+                    && let Some(item) = self.lower_union_instance(def_id, args)
                 {
                     out.push(item);
                 }
@@ -1122,28 +1168,76 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_union_instance(
         &mut self,
-        def_id: DefId,
+        def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     ) -> Option<BackendUnionInstance> {
-        let signature = self.input.signatures.unions.get(&def_id)?.clone();
+        if def_id.module_id != self.input.module_id {
+            return self.lower_foreign_union_instance(def_id, args);
+        }
+        let signature = self.input.signatures.unions.get(&def_id.def_id)?.clone();
         if signature.generics.is_empty() || signature.generics.len() != args.len() {
             return None;
         }
-        let def = self.input.defs.defs.get(def_id)?;
+        let def = self.input.defs.defs.get(def_id.def_id)?;
         let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
         Some(BackendUnionInstance {
-            def_id: self.global_def_id(def_id),
+            def_id,
             name: def.name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(self.global_def_id(def_id), &def.name, &args),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
-                    def_id: self.global_def_id(field.def_id),
+                    def_id: GlobalDefId {
+                        module_id: self.input.module_id,
+                        def_id: field.def_id,
+                    },
                     name: field.name.clone(),
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
+                })
+                .collect(),
+            is_extern: signature.is_extern,
+            span: signature.span,
+        })
+    }
+
+    fn lower_foreign_union_instance(
+        &mut self,
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+    ) -> Option<BackendUnionInstance> {
+        let program_signature = self.input.program_unions.get(&def_id)?.clone();
+        let signature = program_signature.signature;
+        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+            return None;
+        }
+        let name = self.def_name(def_id);
+        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        Some(BackendUnionInstance {
+            def_id,
+            name: name.clone(),
+            args: args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &name, &args),
+            fields: signature
+                .fields
+                .iter()
+                .map(|field| {
+                    let ty = nia_ty::import_type_into(
+                        &mut self.interner,
+                        &program_signature.interner,
+                        field.ty,
+                    );
+                    BackendField {
+                        def_id: GlobalDefId {
+                            module_id: def_id.module_id,
+                            def_id: field.def_id,
+                        },
+                        name: field.name.clone(),
+                        ty: self.instantiate_ty(ty, &substitutions),
+                        span: field.span,
+                    }
                 })
                 .collect(),
             is_extern: signature.is_extern,

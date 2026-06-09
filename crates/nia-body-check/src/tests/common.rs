@@ -72,11 +72,16 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         "{:?}",
         comptime.diagnostics
     );
-    let normalization = TypeNormalization {
-        interner: lowered.interner.clone(),
-        normalized: HashMap::new(),
-        diagnostics: Vec::new(),
-    };
+    let normalization = nia_type_normalize::normalize_module_types(
+        ModuleId(0),
+        &lowered.interner,
+        &signatures,
+    );
+    assert!(
+        normalization.diagnostics.is_empty(),
+        "{:?}",
+        normalization.diagnostics
+    );
     let mut extensions = VisibleExtensionMethods::default();
     for item in &module.items {
         let nia_ast::ItemKind::Extend(extend) = &item.kind else {
@@ -151,6 +156,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            type_aliases: &HashMap::new(),
             trait_impls: &trait_impls,
         },
         program_comptime: ProgramComptimeMaps {

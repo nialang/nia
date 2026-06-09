@@ -191,6 +191,31 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
 }
 
 #[test]
+fn resolves_associated_functions_through_type_aliases() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+type Alias[T] = Box[T];
+
+extend[T] Box[T] {
+    fn init(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+fn main() i32 {
+    let box = Alias[i32]::init(42);
+    box.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn accepts_local_binding_declarations() {
     let checked = pipeline(
         r#"

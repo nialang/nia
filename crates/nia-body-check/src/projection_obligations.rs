@@ -54,6 +54,7 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> TraitResolution {
+        let self_ty = self.normalize_aliases_in_type(self_ty);
         let obligations = self.current_trait_obligations();
         let required = TraitObligation {
             self_ty,

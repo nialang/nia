@@ -77,6 +77,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         let return_type = self.normalize_projection(return_type);
+        let return_type = self.normalize_aliases_in_type(return_type);
         Some(self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -124,41 +125,17 @@ impl<'a> BodyChecker<'a> {
         ty_expr: &Expr,
         name: &str,
     ) -> Option<FunctionItemRef> {
-        let (target_ty, method_id, target_substitutions) = if let ExprKind::TypeTarget { ty } =
-            &ty_expr.kind
-        {
-            let target_ty = self.ty_for_type(ty);
-            let candidates = self.method_candidates_for_target(target_ty, name);
-            let method_id = self.single_method_candidate(span, name, candidates)?;
-            let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
-            (Some(target_ty), method_id, target_substitutions)
-        } else {
-            let (nominal_def_id, type_args) = self.type_prefix_instance(ty_expr)?;
-            let candidates = self.method_candidates_for_nominal_def(nominal_def_id, name);
-            let method_id = self.single_method_candidate(span, name, candidates)?;
-            let target_ty = (!type_args.is_empty()
-                || self.nominal_type_prefix_has_no_generics(nominal_def_id))
-            .then(|| {
-                self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
-                self.interner.intern(TyKind::Nominal {
-                    def_id: nominal_def_id,
-                    args: type_args,
-                })
-            });
-            let target_substitutions = target_ty
-                .and_then(|target_ty| self.extension_target_substitutions(method_id, target_ty))
-                .unwrap_or_default();
-            (target_ty, method_id, target_substitutions)
-        };
+        let target_ty = self.associated_target_ty(ty_expr, None, name)?;
+        let candidates = self.method_candidates_for_target(target_ty, name);
+        let method_id = self.single_method_candidate(span, name, candidates)?;
+        let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
         let resolved = self.resolved_function_signature(method_id)?;
-        let receiver_ty = target_ty.and_then(|target_ty| {
-            resolved
-                .signature
-                .params
-                .first()
-                .and_then(|param| param.receiver)
-                .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
-        });
+        let receiver_ty = resolved
+            .signature
+            .params
+            .first()
+            .and_then(|param| param.receiver)
+            .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
         Some(FunctionItemRef {
             resolved,
             type_args: self.extension_target_instance_args(method_id, &target_substitutions),
@@ -392,7 +369,8 @@ impl<'a> BodyChecker<'a> {
             .collect();
         self.check_direct_call_args(span, args, &params, signature.is_variadic);
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        self.normalize_projection(return_type)
+        let return_type = self.normalize_projection(return_type);
+        self.normalize_aliases_in_type(return_type)
     }
 
     fn check_inferred_generic_function_call(
@@ -472,7 +450,8 @@ impl<'a> BodyChecker<'a> {
             }
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        self.normalize_projection(return_type)
+        let return_type = self.normalize_projection(return_type);
+        self.normalize_aliases_in_type(return_type)
     }
 
     fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {

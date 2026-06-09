@@ -4,7 +4,10 @@ use std::collections::{HashMap, HashSet};
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
+use nia_item_signatures::{
+    EnumSignature, FieldSignature, ItemSignatures, ProgramStructSignature, ProgramUnionSignature,
+    StructSignature, UnionSignature,
+};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
 
@@ -162,6 +165,8 @@ pub fn compute_layouts_with_normalized_types(
 pub struct ProgramLayoutContext<'a> {
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
+    pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
+    pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,
 }
 
 pub fn compute_layouts_with_program_context(
@@ -173,25 +178,76 @@ pub fn compute_layouts_with_program_context(
     target: TargetDataLayout,
     program: ProgramLayoutContext<'_>,
 ) -> Layouts {
-    LayoutComputer {
-        module_id: defs.module_id,
-        interner: interner.clone(),
+    LayoutComputer::new(
+        defs,
+        interner,
         signatures,
         normalized,
         array_lengths,
         target,
-        types: HashMap::new(),
-        structs: HashMap::new(),
-        unions: HashMap::new(),
-        struct_instances: HashMap::new(),
-        union_instances: HashMap::new(),
-        diagnostics: Vec::new(),
-        visiting: HashSet::new(),
-        visiting_structs: HashSet::new(),
-        visiting_unions: HashSet::new(),
         program,
-    }
+    )
     .compute()
+}
+
+pub fn compute_struct_instance_layout_with_program_context(
+    defs: &DefCollection,
+    interner: &TyInterner,
+    signatures: &ItemSignatures,
+    normalized: &HashMap<InternedTyId, InternedTyId>,
+    array_lengths: &dyn ArrayLengthValues,
+    target: TargetDataLayout,
+    program: ProgramLayoutContext<'_>,
+    def_id: GlobalDefId,
+    args: &[InternedTyId],
+) -> Option<StructLayout> {
+    let mut computer = LayoutComputer::new(
+        defs,
+        interner,
+        signatures,
+        normalized,
+        array_lengths,
+        target,
+        program,
+    );
+    computer.nominal_layout(Span::default(), def_id, args)?;
+    computer
+        .struct_instances
+        .get(&StructLayoutKey {
+            def_id: def_id.def_id,
+            args: args.to_vec(),
+        })
+        .cloned()
+}
+
+pub fn compute_union_instance_layout_with_program_context(
+    defs: &DefCollection,
+    interner: &TyInterner,
+    signatures: &ItemSignatures,
+    normalized: &HashMap<InternedTyId, InternedTyId>,
+    array_lengths: &dyn ArrayLengthValues,
+    target: TargetDataLayout,
+    program: ProgramLayoutContext<'_>,
+    def_id: GlobalDefId,
+    args: &[InternedTyId],
+) -> Option<StructLayout> {
+    let mut computer = LayoutComputer::new(
+        defs,
+        interner,
+        signatures,
+        normalized,
+        array_lengths,
+        target,
+        program,
+    );
+    computer.nominal_layout(Span::default(), def_id, args)?;
+    computer
+        .union_instances
+        .get(&StructLayoutKey {
+            def_id: def_id.def_id,
+            args: args.to_vec(),
+        })
+        .cloned()
 }
 
 struct LayoutComputer<'a> {
@@ -214,6 +270,35 @@ struct LayoutComputer<'a> {
 }
 
 impl<'a> LayoutComputer<'a> {
+    fn new(
+        defs: &DefCollection,
+        interner: &TyInterner,
+        signatures: &'a ItemSignatures,
+        normalized: &'a HashMap<InternedTyId, InternedTyId>,
+        array_lengths: &'a dyn ArrayLengthValues,
+        target: TargetDataLayout,
+        program: ProgramLayoutContext<'a>,
+    ) -> Self {
+        Self {
+            module_id: defs.module_id,
+            interner: interner.clone(),
+            signatures,
+            normalized,
+            array_lengths,
+            target,
+            types: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            struct_instances: HashMap::new(),
+            union_instances: HashMap::new(),
+            diagnostics: Vec::new(),
+            visiting: HashSet::new(),
+            visiting_structs: HashSet::new(),
+            visiting_unions: HashSet::new(),
+            program,
+        }
+    }
+
     fn compute(mut self) -> Layouts {
         let mut next = 0usize;
         while next < self.interner.len() {
@@ -455,7 +540,7 @@ impl<'a> LayoutComputer<'a> {
         args: &[InternedTyId],
     ) -> Option<TypeLayout> {
         if def_id.module_id != self.module_id {
-            return self.external_nominal_layout(def_id, args);
+            return self.external_nominal_layout(span, def_id, args);
         }
         if let Some(signature) = self.signatures.structs.get(&def_id.def_id).cloned() {
             return self.struct_layout(span, def_id.def_id, &signature, args);
@@ -470,15 +555,29 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn external_nominal_layout(
-        &self,
+        &mut self,
+        span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<TypeLayout> {
-        let layouts = self
-            .program
-            .layouts
-            .and_then(|query| query(def_id.module_id))?;
-        layouts.nominal_type_layout(def_id, args)
+        if let Some(layouts) = self.program.layouts.and_then(|query| query(def_id.module_id))
+            && let Some(layout) = layouts.nominal_type_layout(def_id, args)
+        {
+            return Some(layout);
+        }
+        if let Some(program_structs) = self.program.structs
+            && let Some(signature) = program_structs.get(&def_id).cloned()
+        {
+            let signature = import_struct_signature(&mut self.interner, &signature);
+            return self.struct_layout(span, def_id.def_id, &signature, args);
+        }
+        if let Some(program_unions) = self.program.unions
+            && let Some(signature) = program_unions.get(&def_id).cloned()
+        {
+            let signature = import_union_signature(&mut self.interner, &signature);
+            return self.union_layout(span, def_id.def_id, &signature, args);
+        }
+        None
     }
 
     fn enum_layout(&mut self, span: Span, signature: &EnumSignature) -> Option<TypeLayout> {
@@ -678,6 +777,45 @@ impl<'a> LayoutComputer<'a> {
         };
         Some(StructLayout { layout, fields })
     }
+}
+
+fn import_struct_signature(
+    target: &mut TyInterner,
+    source: &ProgramStructSignature,
+) -> StructSignature {
+    StructSignature {
+        generics: source.signature.generics.clone(),
+        where_predicates: source.signature.where_predicates.clone(),
+        fields: import_fields(target, &source.interner, &source.signature.fields),
+        is_extern: source.signature.is_extern,
+        span: source.signature.span,
+    }
+}
+
+fn import_union_signature(target: &mut TyInterner, source: &ProgramUnionSignature) -> UnionSignature {
+    UnionSignature {
+        generics: source.signature.generics.clone(),
+        where_predicates: source.signature.where_predicates.clone(),
+        fields: import_fields(target, &source.interner, &source.signature.fields),
+        is_extern: source.signature.is_extern,
+        span: source.signature.span,
+    }
+}
+
+fn import_fields(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    fields: &[FieldSignature],
+) -> Vec<FieldSignature> {
+    fields
+        .iter()
+        .map(|field| FieldSignature {
+            def_id: field.def_id,
+            name: field.name.clone(),
+            ty: nia_ty::import_type_into(target, source, field.ty),
+            span: field.span,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]

@@ -13,7 +13,8 @@ use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature, TraitSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, TraitSignature,
 };
 use nia_trait_solve::IntrinsicOverlap;
 use nia_ty::{
@@ -259,6 +260,27 @@ pub(crate) fn collect_program_traits(
         }
     }
     traits
+}
+
+pub(crate) fn collect_program_type_aliases(
+    modules: &[ModuleSignatureInput<'_>],
+) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
+    let mut type_aliases = HashMap::new();
+    for module in modules {
+        for (def_id, signature) in &module.signatures.type_aliases {
+            type_aliases.insert(
+                GlobalDefId {
+                    module_id: module.module_id,
+                    def_id: *def_id,
+                },
+                ProgramTypeAliasSignature {
+                    signature: signature.clone(),
+                    interner: module.lowering.interner.clone(),
+                },
+            );
+        }
+    }
+    type_aliases
 }
 
 pub(crate) fn collect_program_trait_impls(

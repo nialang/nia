@@ -762,6 +762,7 @@ impl<'a> BodyChecker<'a> {
             program_unions: self.program_unions,
             program_enums: self.program_enums,
             program_traits: self.program_traits,
+            program_type_aliases: self.program_type_aliases,
             program_trait_impls: self.program_trait_impls,
             program_comptime: self.program_comptime,
             program_comptime_modules: self.program_comptime_modules,

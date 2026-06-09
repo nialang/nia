@@ -62,6 +62,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 {
                     return Ok(base_ptr);
                 }
+                if self.is_zero_sized_field(lhs.ty, *field, span)? {
+                    return Ok(base_ptr);
+                }
                 let field_index = self.field_index(lhs.ty, *field, span)?;
                 self.builder
                     .build_struct_gep(base_ty, base_ptr, field_index, "fieldptr")
@@ -404,6 +407,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     }
                     let base_ty = self.module.llvm_basic_type(current_ty, place.span)?;
                     if !self.is_union_ty(current_ty) {
+                        if self.is_zero_sized_field(current_ty, *field, place.span)? {
+                            current_ty = self.field_ty(current_ty, *field, place.span)?;
+                            continue;
+                        }
                         let field_index = self.field_index(current_ty, *field, place.span)?;
                         ptr = self
                             .builder
@@ -420,6 +427,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         }
         Ok(ptr)
+    }
+
+    fn is_zero_sized_field(
+        &self,
+        base_ty: InternedTyId,
+        field: nia_ids::GlobalDefId,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
+        let field_ty = self.field_ty(base_ty, field, span)?;
+        Ok(self.is_zero_sized(field_ty))
     }
 
     fn emit_struct_base_addr(

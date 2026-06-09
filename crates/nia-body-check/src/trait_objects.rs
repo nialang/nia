@@ -29,7 +29,7 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected);
-        let actual = self.normalization.normalize(actual);
+        let actual = self.normalize_aliases_in_type(actual);
         let Some(TyKind::TraitObject {
             is_readonly: expected_const,
             trait_id: expected_trait,
@@ -140,6 +140,7 @@ impl<'a> BodyChecker<'a> {
         ) {
             return None;
         }
+        let self_ty = self.normalize_aliases_in_type(self_ty);
         if !self.trait_object_bindings_match_impl(
             self_ty,
             trait_id,
@@ -177,6 +178,7 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
+        let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
         let context = TraitSolverContext {

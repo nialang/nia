@@ -107,7 +107,8 @@ impl<'a> BodyChecker<'a> {
             },
         );
         let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
-        Some(self.normalize_projection(return_type))
+        let return_type = self.normalize_projection(return_type);
+        Some(self.normalize_aliases_in_type(return_type))
     }
 
     pub(in crate::calls::methods) fn check_dynamic_trait_method_call_with_receiver_ty(
@@ -200,7 +201,8 @@ impl<'a> BodyChecker<'a> {
                 receiver_kind,
             },
         );
-        Some(self.normalize_projection(return_type))
+        let return_type = self.normalize_projection(return_type);
+        Some(self.normalize_aliases_in_type(return_type))
     }
 
     fn normalize_dynamic_trait_object_projection(
