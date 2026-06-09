@@ -278,6 +278,7 @@ impl<'a> LayoutComputer<'a> {
         }
         let layout = match self.interner.get(ty_id).cloned() {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(primitive),
+            Some(TyKind::Vector { elem, lanes }) => self.vector_layout(span, elem, lanes),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => Some(TypeLayout {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
@@ -333,6 +334,22 @@ impl<'a> LayoutComputer<'a> {
             PrimitiveTy::Void | PrimitiveTy::Never => (0, 1),
         };
         Some(TypeLayout { size, align })
+    }
+
+    fn vector_layout(&mut self, span: Span, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
+        let elem_layout = self.primitive_layout(elem)?;
+        let Some(size) = elem_layout.size.checked_mul(lanes as u64) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
+                span,
+                "SIMD vector layout size overflowed",
+            ));
+            return None;
+        };
+        Some(TypeLayout {
+            size,
+            align: elem_layout.align,
+        })
     }
 
     fn array_layout(

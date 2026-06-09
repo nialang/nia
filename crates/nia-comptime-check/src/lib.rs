@@ -1404,7 +1404,7 @@ impl Analyzer<'_> {
                         span,
                         format!(
                             "comptime integer value {value} is out of range for {}",
-                            primitive_ty_name(primitive)
+                            primitive.name()
                         ),
                     ));
                 }
@@ -1497,7 +1497,7 @@ impl Analyzer<'_> {
             span,
             format!(
                 "comptime value does not match primitive type {}",
-                primitive_ty_name(primitive)
+                primitive.name()
             ),
         ));
     }
@@ -2066,7 +2066,8 @@ impl Analyzer<'_> {
                 | TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
-                | TyKind::Primitive(_),
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. },
             )
             | None => {}
         }
@@ -2947,7 +2948,10 @@ impl Analyzer<'_> {
                         .into_iter()
                         .any(|arg| self.type_contains_generic_inner(arg, seen))
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => false,
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => false,
         }
     }
 
@@ -4453,7 +4457,8 @@ impl Analyzer<'_> {
                     }
                 }
             }
-            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) => {}
+            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. } => {
+            }
         }
         Ok(())
     }
@@ -4654,7 +4659,10 @@ fn substitute_ty_generics_in_interner(
                 name,
             })
         }
-        Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
+        Some(
+            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+        )
+        | None => ty,
     }
 }
 
@@ -4694,7 +4702,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                             span,
                             message: format!(
                                 "comptime cast result cannot be represented as `{}`",
-                                primitive_ty_name(primitive)
+                                primitive.name()
                             ),
                         });
                     };
@@ -4707,7 +4715,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                             span,
                             message: format!(
                                 "comptime cast result cannot be represented as `{}`",
-                                primitive_ty_name(primitive)
+                                primitive.name()
                             ),
                         });
                     };
@@ -4721,7 +4729,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                             span,
                             message: format!(
                                 "comptime cast result cannot be represented as `{}`",
-                                primitive_ty_name(primitive)
+                                primitive.name()
                             ),
                         });
                     };
@@ -4736,7 +4744,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                             span,
                             message: format!(
                                 "comptime cast result cannot be represented as `{}`",
-                                primitive_ty_name(primitive)
+                                primitive.name()
                             ),
                         });
                     };
@@ -5233,29 +5241,6 @@ fn sign_extend_integer(raw: u128, bits: u32) -> i128 {
     }
 }
 
-fn primitive_ty_name(primitive: PrimitiveTy) -> &'static str {
-    match primitive {
-        PrimitiveTy::I8 => "i8",
-        PrimitiveTy::I16 => "i16",
-        PrimitiveTy::I32 => "i32",
-        PrimitiveTy::I64 => "i64",
-        PrimitiveTy::I128 => "i128",
-        PrimitiveTy::Isize => "isize",
-        PrimitiveTy::U8 => "u8",
-        PrimitiveTy::U16 => "u16",
-        PrimitiveTy::U32 => "u32",
-        PrimitiveTy::U64 => "u64",
-        PrimitiveTy::U128 => "u128",
-        PrimitiveTy::Usize => "usize",
-        PrimitiveTy::F32 => "f32",
-        PrimitiveTy::F64 => "f64",
-        PrimitiveTy::Bool => "bool",
-        PrimitiveTy::Char => "char",
-        PrimitiveTy::Void => "void",
-        PrimitiveTy::Never => "!",
-    }
-}
-
 fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {
     match ty {
         PrimitiveTy::I8 => Some((i8::MIN as i128, i8::MAX as i128)),
@@ -5280,29 +5265,13 @@ fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {
 }
 
 fn integer_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
-    Some(match numeric_literal_suffix(text)? {
-        "i8" => PrimitiveTy::I8,
-        "i16" => PrimitiveTy::I16,
-        "i32" => PrimitiveTy::I32,
-        "i64" => PrimitiveTy::I64,
-        "i128" => PrimitiveTy::I128,
-        "isize" => PrimitiveTy::Isize,
-        "u8" => PrimitiveTy::U8,
-        "u16" => PrimitiveTy::U16,
-        "u32" => PrimitiveTy::U32,
-        "u64" => PrimitiveTy::U64,
-        "u128" => PrimitiveTy::U128,
-        "usize" => PrimitiveTy::Usize,
-        _ => return None,
-    })
+    let primitive = PrimitiveTy::from_name(numeric_literal_suffix(text)?)?;
+    primitive.is_integer().then_some(primitive)
 }
 
 fn float_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
-    Some(match numeric_literal_suffix(text)? {
-        "f32" => PrimitiveTy::F32,
-        "f64" => PrimitiveTy::F64,
-        _ => return None,
-    })
+    let primitive = PrimitiveTy::from_name(numeric_literal_suffix(text)?)?;
+    primitive.is_float().then_some(primitive)
 }
 
 fn numeric_literal_suffix(text: &str) -> Option<&str> {

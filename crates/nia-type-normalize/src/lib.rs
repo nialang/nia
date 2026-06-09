@@ -200,6 +200,7 @@ impl<'a> TypeNormalizer<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )
             | None => ty_id,
@@ -405,9 +406,10 @@ impl<'a> TypeNormalizer<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
-                self.normalize_ty(ty_id, stack)
-            }
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => self.normalize_ty(ty_id, stack),
         }
     }
 

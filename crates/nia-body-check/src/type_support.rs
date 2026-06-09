@@ -223,6 +223,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )
             | None => ty,
@@ -877,7 +878,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn ty_name(&self, ty: InternedTyId) -> String {
         match self.interner.get(ty) {
-            Some(TyKind::Primitive(primitive)) => primitive_ty_name(*primitive).to_string(),
+            Some(TyKind::Primitive(primitive)) => primitive.name().to_string(),
+            Some(TyKind::Vector { elem, lanes }) => format!("{}x{lanes}", elem.name()),
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let mut_part = if *is_readonly { "" } else { "mut " };
                 format!("&{mut_part}{}", self.ty_name(*elem))
@@ -1309,28 +1311,5 @@ fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
             expr,
         } => numeric_literal_suffix_for_expr(expr),
         _ => None,
-    }
-}
-
-fn primitive_ty_name(primitive: PrimitiveTy) -> &'static str {
-    match primitive {
-        PrimitiveTy::I8 => "i8",
-        PrimitiveTy::I16 => "i16",
-        PrimitiveTy::I32 => "i32",
-        PrimitiveTy::I64 => "i64",
-        PrimitiveTy::I128 => "i128",
-        PrimitiveTy::Isize => "isize",
-        PrimitiveTy::U8 => "u8",
-        PrimitiveTy::U16 => "u16",
-        PrimitiveTy::U32 => "u32",
-        PrimitiveTy::U64 => "u64",
-        PrimitiveTy::U128 => "u128",
-        PrimitiveTy::Usize => "usize",
-        PrimitiveTy::F32 => "f32",
-        PrimitiveTy::F64 => "f64",
-        PrimitiveTy::Bool => "bool",
-        PrimitiveTy::Char => "char",
-        PrimitiveTy::Void => "void",
-        PrimitiveTy::Never => "!",
     }
 }

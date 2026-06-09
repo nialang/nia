@@ -260,6 +260,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match self.ty_kind(ty) {
             Some(
                 TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
@@ -303,6 +304,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match self.ty_kind(ty) {
             Some(
                 TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
@@ -382,6 +384,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
+            Some(TyKind::Vector { elem, lanes }) => self.vector_type(*elem, *lanes, span),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => {
                 Ok(self.context.ptr_type(Default::default()).into())
             }
@@ -552,6 +555,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         };
         Ok(ty)
+    }
+
+    fn vector_type(
+        &self,
+        elem: PrimitiveTy,
+        lanes: u32,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        if !elem.is_vector_element() {
+            return Err(self.error(
+                span,
+                format!("`{}` is not a valid SIMD vector element type", elem.name()),
+            ));
+        }
+        if lanes == 0 {
+            return Err(self.error(span, "SIMD vector type requires at least one lane"));
+        }
+        Ok(self.primitive_type(elem, span)?.vector_type(lanes).into())
     }
 
     pub(super) fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {

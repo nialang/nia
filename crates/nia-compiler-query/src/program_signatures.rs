@@ -1785,9 +1785,10 @@ fn substitute_imported_type(
                 name: name.clone(),
             })
         }
-        Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
-            import_type_into(target_interner, source_interner, ty)
-        }
+        Some(
+            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+        )
+        | None => import_type_into(target_interner, source_interner, ty),
     }
 }
 
@@ -1816,6 +1817,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
         Some(TyKind::Array { len, .. }) => !matches!(len, nia_ty::ArrayLenTy::Infer),
         Some(
             TyKind::Primitive(_)
+            | TyKind::Vector { .. }
             | TyKind::Pointer { .. }
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
