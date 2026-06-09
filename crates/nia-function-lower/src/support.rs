@@ -783,6 +783,25 @@ impl FunctionLowerer {
                         }
                     }
                 }
+                TypedExprKind::Atomic(atomic) => match atomic {
+                    nia_body_ir::TypedAtomic::Load { ptr, .. } => visit_expr(ptr, max_id),
+                    nia_body_ir::TypedAtomic::Store { ptr, value, .. }
+                    | nia_body_ir::TypedAtomic::Rmw { ptr, value, .. } => {
+                        visit_expr(ptr, max_id);
+                        visit_expr(value, max_id);
+                    }
+                    nia_body_ir::TypedAtomic::Cmpxchg {
+                        ptr,
+                        expected,
+                        desired,
+                        ..
+                    } => {
+                        visit_expr(ptr, max_id);
+                        visit_expr(expected, max_id);
+                        visit_expr(desired, max_id);
+                    }
+                    nia_body_ir::TypedAtomic::Fence { .. } => {}
+                },
                 TypedExprKind::Error
                 | TypedExprKind::Integer(_)
                 | TypedExprKind::Float(_)

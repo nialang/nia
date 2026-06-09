@@ -172,6 +172,9 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::InlineAsm(asm) => {
             collect_function_refs_from_inline_asm(module_id, asm, refs)
         }
+        FunctionExprKind::Atomic(atomic) => {
+            collect_function_refs_from_atomic(module_id, atomic, refs)
+        }
         FunctionExprKind::CStringPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
@@ -250,6 +253,34 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Trap => {}
+    }
+}
+
+fn collect_function_refs_from_atomic(
+    module_id: ModuleId,
+    atomic: &nia_function_ir::FunctionAtomic,
+    refs: &mut FunctionRefs,
+) {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            collect_function_refs_from_expr(module_id, ptr, refs)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            collect_function_refs_from_expr(module_id, ptr, refs);
+            collect_function_refs_from_expr(module_id, value, refs);
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_function_refs_from_expr(module_id, ptr, refs);
+            collect_function_refs_from_expr(module_id, expected, refs);
+            collect_function_refs_from_expr(module_id, desired, refs);
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => {}
     }
 }
 

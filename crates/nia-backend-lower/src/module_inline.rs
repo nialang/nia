@@ -312,6 +312,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::InlineAsm(asm) => {
                 self.inline_leaf_calls_in_inline_asm(asm, function_candidates, instance_candidates);
             }
+            FunctionExprKind::Atomic(atomic) => {
+                self.inline_leaf_calls_in_atomic(atomic, function_candidates, instance_candidates);
+            }
             FunctionExprKind::CStringPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
@@ -400,6 +403,35 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
             | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn inline_leaf_calls_in_atomic(
+        &mut self,
+        atomic: &mut nia_function_ir::FunctionAtomic,
+        function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
+        instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+    ) {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
+            }
+            nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(expected, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(desired, function_candidates, instance_candidates);
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
     }
 
@@ -806,6 +838,9 @@ fn substitute_inline_locals(
                 substitute_inline_locals(end, substitutions, require_local_match)?;
             }
         }
+        FunctionExprKind::Atomic(atomic) => {
+            substitute_inline_locals_in_atomic(atomic, substitutions, require_local_match)?;
+        }
         FunctionExprKind::Error
         | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
@@ -830,6 +865,34 @@ fn substitute_inline_locals(
         | FunctionExprKind::Call { .. } => return None,
     }
     Some(())
+}
+
+fn substitute_inline_locals_in_atomic(
+    atomic: &mut nia_function_ir::FunctionAtomic,
+    substitutions: &HashMap<LocalId, FunctionExpr>,
+    require_local_match: bool,
+) -> Option<()> {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            substitute_inline_locals(ptr, substitutions, require_local_match)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            substitute_inline_locals(ptr, substitutions, require_local_match)?;
+            substitute_inline_locals(value, substitutions, require_local_match)
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            substitute_inline_locals(ptr, substitutions, require_local_match)?;
+            substitute_inline_locals(expected, substitutions, require_local_match)?;
+            substitute_inline_locals(desired, substitutions, require_local_match)
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => Some(()),
+    }
 }
 
 fn is_constant_inline_expr(expr: &FunctionExpr) -> bool {
@@ -944,6 +1007,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::Atomic(_)
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }

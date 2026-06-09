@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod aggregate;
 mod asm;
+mod atomic;
 mod call;
 mod defer;
 mod function_body;
@@ -339,6 +340,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
+            FunctionExprKind::Atomic(atomic) => self.emit_atomic_value(expr, atomic),
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }

@@ -233,6 +233,7 @@ pub enum FunctionExprKind {
         bound: FunctionRangeBound,
     },
     InlineAsm(FunctionInlineAsm),
+    Atomic(FunctionAtomic),
     CStringPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,
@@ -357,6 +358,65 @@ pub enum FunctionBuiltinValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionAsmOption {
     Volatile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionAtomic {
+    Load {
+        ty: InternedTyId,
+        ptr: Box<FunctionExpr>,
+        order: AtomicOrder,
+    },
+    Store {
+        ty: InternedTyId,
+        ptr: Box<FunctionExpr>,
+        value: Box<FunctionExpr>,
+        order: AtomicOrder,
+    },
+    Rmw {
+        ty: InternedTyId,
+        ptr: Box<FunctionExpr>,
+        op: AtomicRmwOp,
+        value: Box<FunctionExpr>,
+        order: AtomicOrder,
+    },
+    Cmpxchg {
+        ty: InternedTyId,
+        ptr: Box<FunctionExpr>,
+        expected: Box<FunctionExpr>,
+        desired: Box<FunctionExpr>,
+        success: AtomicOrder,
+        failure: AtomicOrder,
+        weak: bool,
+    },
+    Fence {
+        order: AtomicOrder,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicOrder {
+    Unordered,
+    Monotonic,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicRmwOp {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+    UMax,
+    UMin,
 }
 
 #[derive(Debug, Clone, PartialEq)]

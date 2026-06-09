@@ -175,3 +175,79 @@ fn main() i32 {
     );
     assert_eq!(counts, (1, 1, 1));
 }
+
+#[test]
+fn checks_atomic_builtin_ordering_rules() {
+    let checked = pipeline(
+        r#"
+fn main() void {
+    var value = 0i32;
+    _ = @atomic_load[i32](&value, 3usize);
+    @atomic_store[i32](&mut value, 1i32, 2usize);
+    _ = @cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
+    @fence(1usize);
+}
+"#,
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("atomic ordering `Release` is invalid for atomic load")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        messages.iter().any(
+            |message| message.contains("atomic ordering `Acquire` is invalid for atomic store")
+        ),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        messages.iter().any(|message| {
+            message.contains("atomic ordering `Release` is invalid for cmpxchg failure")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        messages.iter().any(|message| {
+            message.contains("atomic ordering `Monotonic` is invalid for atomic fence")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_non_atomic_builtin_value_types() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+}
+
+fn main() void {
+    var point: Point = { x: 1 };
+    _ = @atomic_load[Point](&point, 1usize);
+    var pair = [1i32, 2i32];
+    _ = @atomic_rmw[[2]i32](&mut pair, 1usize, [3i32, 4i32], 1usize);
+}
+"#,
+    );
+    let count = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.summary.contains(
+                "supports only bool, integer, enum, and pointer types up to the native pointer width",
+            )
+        })
+        .count();
+    assert_eq!(count, 2, "{:?}", checked.diagnostics);
+}

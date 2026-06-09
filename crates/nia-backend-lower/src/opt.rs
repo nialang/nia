@@ -452,6 +452,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
                 && range.end.as_deref().is_none_or(is_pure_discardable_expr)
         }
         FunctionExprKind::InlineAsm(_)
+        | FunctionExprKind::Atomic(_)
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
@@ -910,6 +911,7 @@ fn rewrite_local_copies_in_expr(
         }
         FunctionExprKind::Range(range) => rewrite_local_copies_in_range(range, copies),
         FunctionExprKind::InlineAsm(asm) => rewrite_local_copies_in_inline_asm(asm, copies),
+        FunctionExprKind::Atomic(atomic) => rewrite_local_copies_in_atomic(atomic, copies),
         FunctionExprKind::CStringPointer { array, .. } => {
             rewrite_local_copies_in_expr(array, copies)
         }
@@ -975,6 +977,32 @@ fn rewrite_local_copies_in_expr(
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => false,
+    }
+}
+
+fn rewrite_local_copies_in_atomic(
+    atomic: &mut nia_function_ir::FunctionAtomic,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            rewrite_local_copies_in_expr(ptr, copies)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            rewrite_local_copies_in_expr(ptr, copies) | rewrite_local_copies_in_expr(value, copies)
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            rewrite_local_copies_in_expr(ptr, copies)
+                | rewrite_local_copies_in_expr(expected, copies)
+                | rewrite_local_copies_in_expr(desired, copies)
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => false,
     }
 }
 
@@ -1212,6 +1240,7 @@ fn rewrite_local_constants_in_expr(
         }
         FunctionExprKind::Range(range) => rewrite_local_constants_in_range(range, constants),
         FunctionExprKind::InlineAsm(asm) => rewrite_local_constants_in_inline_asm(asm, constants),
+        FunctionExprKind::Atomic(atomic) => rewrite_local_constants_in_atomic(atomic, constants),
         FunctionExprKind::CStringPointer { array, .. } => {
             rewrite_local_constants_in_expr(array, constants)
         }
@@ -1281,6 +1310,33 @@ fn rewrite_local_constants_in_expr(
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => false,
+    }
+}
+
+fn rewrite_local_constants_in_atomic(
+    atomic: &mut nia_function_ir::FunctionAtomic,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            rewrite_local_constants_in_expr(ptr, constants)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            rewrite_local_constants_in_expr(ptr, constants)
+                | rewrite_local_constants_in_expr(value, constants)
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            rewrite_local_constants_in_expr(ptr, constants)
+                | rewrite_local_constants_in_expr(expected, constants)
+                | rewrite_local_constants_in_expr(desired, constants)
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => false,
     }
 }
 
@@ -1518,6 +1574,9 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
                 changed |= simplify_constant_logical_expr(&mut input.value);
             }
         }
+        FunctionExprKind::Atomic(atomic) => {
+            changed |= simplify_constant_logical_exprs_in_atomic(atomic);
+        }
         FunctionExprKind::Error
         | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
@@ -1548,6 +1607,27 @@ fn bool_literal_value(expr: &FunctionExpr) -> Option<bool> {
     match expr.kind {
         FunctionExprKind::Bool(value) => Some(value),
         _ => None,
+    }
+}
+
+fn simplify_constant_logical_exprs_in_atomic(atomic: &mut nia_function_ir::FunctionAtomic) -> bool {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => simplify_constant_logical_expr(ptr),
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            simplify_constant_logical_expr(ptr) | simplify_constant_logical_expr(value)
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            simplify_constant_logical_expr(ptr)
+                | simplify_constant_logical_expr(expected)
+                | simplify_constant_logical_expr(desired)
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => false,
     }
 }
 
@@ -1687,6 +1767,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
     match &expr.kind {
         FunctionExprKind::Range(range) => collect_place_locals_in_range(range, locals),
         FunctionExprKind::InlineAsm(asm) => collect_place_locals_in_inline_asm(asm, locals),
+        FunctionExprKind::Atomic(atomic) => collect_place_locals_in_atomic(atomic, locals),
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_place_locals_in_expr(array, locals)
         }
@@ -1751,6 +1832,33 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => {}
+    }
+}
+
+fn collect_place_locals_in_atomic(
+    atomic: &nia_function_ir::FunctionAtomic,
+    locals: &mut HashSet<LocalId>,
+) {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            collect_place_locals_in_expr(ptr, locals)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            collect_place_locals_in_expr(ptr, locals);
+            collect_place_locals_in_expr(value, locals);
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_place_locals_in_expr(ptr, locals);
+            collect_place_locals_in_expr(expected, locals);
+            collect_place_locals_in_expr(desired, locals);
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => {}
     }
 }
 
@@ -1903,6 +2011,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         }
         FunctionExprKind::Range(range) => collect_read_locals_in_range(range, locals),
         FunctionExprKind::InlineAsm(asm) => collect_read_locals_in_inline_asm(asm, locals),
+        FunctionExprKind::Atomic(atomic) => collect_read_locals_in_atomic(atomic, locals),
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_read_locals_in_expr(array, locals)
         }
@@ -1966,6 +2075,33 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => {}
+    }
+}
+
+fn collect_read_locals_in_atomic(
+    atomic: &nia_function_ir::FunctionAtomic,
+    locals: &mut HashSet<LocalId>,
+) {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            collect_read_locals_in_expr(ptr, locals)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            collect_read_locals_in_expr(ptr, locals);
+            collect_read_locals_in_expr(value, locals);
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_read_locals_in_expr(ptr, locals);
+            collect_read_locals_in_expr(expected, locals);
+            collect_read_locals_in_expr(desired, locals);
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => {}
     }
 }
 
@@ -2130,6 +2266,7 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         }
         FunctionExprKind::Range(range) => collect_referenced_locals_in_range(range, refs),
         FunctionExprKind::InlineAsm(asm) => collect_referenced_locals_in_inline_asm(asm, refs),
+        FunctionExprKind::Atomic(atomic) => collect_referenced_locals_in_atomic(atomic, refs),
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_referenced_locals_in_expr(array, refs)
         }
@@ -2199,6 +2336,33 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => {}
+    }
+}
+
+fn collect_referenced_locals_in_atomic(
+    atomic: &nia_function_ir::FunctionAtomic,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            collect_referenced_locals_in_expr(ptr, refs)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            collect_referenced_locals_in_expr(ptr, refs);
+            collect_referenced_locals_in_expr(value, refs);
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_referenced_locals_in_expr(ptr, refs);
+            collect_referenced_locals_in_expr(expected, refs);
+            collect_referenced_locals_in_expr(desired, refs);
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => {}
     }
 }
 
@@ -2398,6 +2562,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::BuiltinValue(_) => false,
         FunctionExprKind::Range(range) => simplify_same_type_casts_in_range(range),
         FunctionExprKind::InlineAsm(asm) => simplify_same_type_casts_in_inline_asm(asm),
+        FunctionExprKind::Atomic(atomic) => simplify_same_type_casts_in_atomic(atomic),
         FunctionExprKind::CStringPointer { array, .. } => simplify_same_type_casts_in_expr(array),
         FunctionExprKind::ArrayLiteral { elems } => {
             simplify_same_type_casts_in_array_elements(elems)
@@ -2447,6 +2612,27 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         FunctionExprKind::Slice { lhs, range, .. } => {
             simplify_same_type_casts_in_expr(lhs) | simplify_same_type_casts_in_slice_range(range)
         }
+    }
+}
+
+fn simplify_same_type_casts_in_atomic(atomic: &mut nia_function_ir::FunctionAtomic) -> bool {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => simplify_same_type_casts_in_expr(ptr),
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            simplify_same_type_casts_in_expr(ptr) | simplify_same_type_casts_in_expr(value)
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            simplify_same_type_casts_in_expr(ptr)
+                | simplify_same_type_casts_in_expr(expected)
+                | simplify_same_type_casts_in_expr(desired)
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => false,
     }
 }
 
@@ -2652,6 +2838,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::Call { .. }
+        | FunctionExprKind::Atomic(_)
         | FunctionExprKind::Field { .. }
         | FunctionExprKind::Index { .. }
         | FunctionExprKind::Slice { .. } => None,

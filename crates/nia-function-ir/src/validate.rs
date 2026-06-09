@@ -5,10 +5,10 @@ use nia_ids::LocalId;
 use nia_span::Span;
 
 use crate::{
-    FunctionArrayElements, FunctionBinding, FunctionBlock, FunctionBlockId, FunctionBody,
-    FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader,
-    FunctionLocal, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionTerminator,
+    FunctionArrayElements, FunctionAtomic, FunctionBinding, FunctionBlock, FunctionBlockId,
+    FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
+    FunctionForHeader, FunctionLocal, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionTerminator,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -414,6 +414,7 @@ impl<'a> FunctionIrValidator<'a> {
                     self.validate_place(&output.place)?;
                 }
             }
+            FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic)?,
             FunctionExprKind::Error
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -431,6 +432,27 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Trap => {}
         }
         Ok(())
+    }
+
+    fn validate_atomic(&self, atomic: &FunctionAtomic) -> Result<(), FunctionIrError> {
+        match atomic {
+            FunctionAtomic::Load { ptr, .. } => self.validate_expr(ptr),
+            FunctionAtomic::Store { ptr, value, .. } | FunctionAtomic::Rmw { ptr, value, .. } => {
+                self.validate_expr(ptr)?;
+                self.validate_expr(value)
+            }
+            FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.validate_expr(ptr)?;
+                self.validate_expr(expected)?;
+                self.validate_expr(desired)
+            }
+            FunctionAtomic::Fence { .. } => Ok(()),
+        }
     }
 
     fn validate_callee(&self, callee: &FunctionCallee) -> Result<(), FunctionIrError> {

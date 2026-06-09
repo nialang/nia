@@ -417,14 +417,14 @@ impl<'ctx> Builder<'ctx> {
         }))
     }
 
-    pub fn build_atomicrmw(
+    pub fn build_atomicrmw<V: BasicValue<'ctx>>(
         &self,
         op: AtomicRMWBinOp,
         ptr: PointerValue<'ctx>,
-        value: IntValue<'ctx>,
+        value: V,
         ordering: AtomicOrdering,
-    ) -> LlvmResult<IntValue<'ctx>> {
-        Ok(IntValue::new(unsafe {
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        BasicValueEnum::new(unsafe {
             LLVMBuildAtomicRMW(
                 self.raw,
                 op.into(),
@@ -433,7 +433,7 @@ impl<'ctx> Builder<'ctx> {
                 ordering.into(),
                 0,
             )
-        }))
+        })
     }
 
     pub fn build_cmpxchg<V: BasicValue<'ctx>>(
@@ -443,8 +443,9 @@ impl<'ctx> Builder<'ctx> {
         desired: V,
         success: AtomicOrdering,
         failure: AtomicOrdering,
+        weak: bool,
     ) -> LlvmResult<StructValue<'ctx>> {
-        Ok(StructValue::new(unsafe {
+        let value = StructValue::new(unsafe {
             LLVMBuildAtomicCmpXchg(
                 self.raw,
                 ptr.as_value_ref(),
@@ -454,7 +455,11 @@ impl<'ctx> Builder<'ctx> {
                 failure.into(),
                 0,
             )
-        }))
+        });
+        if weak && let Some(inst) = value.as_instruction() {
+            inst.set_weak(true);
+        }
+        Ok(value)
     }
 
     pub fn build_int_add(

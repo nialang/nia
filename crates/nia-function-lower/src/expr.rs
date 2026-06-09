@@ -45,6 +45,9 @@ impl FunctionLowerer {
                 ops.push(op);
                 FunctionExprKind::Error
             }
+            TypedExprKind::Atomic(atomic) => {
+                FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
+            }
             TypedExprKind::CStringPointer { array, is_readonly } => {
                 FunctionExprKind::CStringPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
@@ -322,6 +325,16 @@ impl FunctionLowerer {
                 let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
                 ops.push(op);
             }
+            TypedExprKind::Atomic(atomic) => {
+                let expr = FunctionExpr {
+                    span: expr.span,
+                    ty: expr.ty,
+                    kind: FunctionExprKind::Atomic(
+                        self.lower_atomic(atomic, scope, current, ops, blocks),
+                    ),
+                };
+                ops.push(FunctionOp::Expr(expr));
+            }
             _ => {
                 let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
                 ops.push(FunctionOp::Expr(expr));
@@ -362,6 +375,67 @@ impl FunctionLowerer {
             dest,
             source,
         })
+    }
+
+    fn lower_atomic(
+        &mut self,
+        atomic: &TypedAtomic,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionAtomic {
+        match atomic {
+            TypedAtomic::Load { ty, ptr, order } => FunctionAtomic::Load {
+                ty: *ty,
+                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
+                order: lower_atomic_order(*order),
+            },
+            TypedAtomic::Store {
+                ty,
+                ptr,
+                value,
+                order,
+            } => FunctionAtomic::Store {
+                ty: *ty,
+                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+                order: lower_atomic_order(*order),
+            },
+            TypedAtomic::Rmw {
+                ty,
+                ptr,
+                op,
+                value,
+                order,
+            } => FunctionAtomic::Rmw {
+                ty: *ty,
+                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
+                op: lower_atomic_rmw_op(*op),
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+                order: lower_atomic_order(*order),
+            },
+            TypedAtomic::Cmpxchg {
+                ty,
+                ptr,
+                expected,
+                desired,
+                success,
+                failure,
+                weak,
+            } => FunctionAtomic::Cmpxchg {
+                ty: *ty,
+                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
+                expected: Box::new(self.lower_value_expr(expected, scope, current, ops, blocks)),
+                desired: Box::new(self.lower_value_expr(desired, scope, current, ops, blocks)),
+                success: lower_atomic_order(*success),
+                failure: lower_atomic_order(*failure),
+                weak: *weak,
+            },
+            TypedAtomic::Fence { order } => FunctionAtomic::Fence {
+                order: lower_atomic_order(*order),
+            },
+        }
     }
 
     pub(super) fn lower_value_block_expr(
@@ -1002,5 +1076,32 @@ impl FunctionLowerer {
             clobbers: asm.clobbers.clone(),
             options: asm.options.iter().map(Self::lower_asm_option).collect(),
         }
+    }
+}
+
+fn lower_atomic_order(order: nia_body_ir::AtomicOrder) -> AtomicOrder {
+    match order {
+        nia_body_ir::AtomicOrder::Unordered => AtomicOrder::Unordered,
+        nia_body_ir::AtomicOrder::Monotonic => AtomicOrder::Monotonic,
+        nia_body_ir::AtomicOrder::Acquire => AtomicOrder::Acquire,
+        nia_body_ir::AtomicOrder::Release => AtomicOrder::Release,
+        nia_body_ir::AtomicOrder::AcqRel => AtomicOrder::AcqRel,
+        nia_body_ir::AtomicOrder::SeqCst => AtomicOrder::SeqCst,
+    }
+}
+
+fn lower_atomic_rmw_op(op: nia_body_ir::AtomicRmwOp) -> AtomicRmwOp {
+    match op {
+        nia_body_ir::AtomicRmwOp::Xchg => AtomicRmwOp::Xchg,
+        nia_body_ir::AtomicRmwOp::Add => AtomicRmwOp::Add,
+        nia_body_ir::AtomicRmwOp::Sub => AtomicRmwOp::Sub,
+        nia_body_ir::AtomicRmwOp::And => AtomicRmwOp::And,
+        nia_body_ir::AtomicRmwOp::Nand => AtomicRmwOp::Nand,
+        nia_body_ir::AtomicRmwOp::Or => AtomicRmwOp::Or,
+        nia_body_ir::AtomicRmwOp::Xor => AtomicRmwOp::Xor,
+        nia_body_ir::AtomicRmwOp::Max => AtomicRmwOp::Max,
+        nia_body_ir::AtomicRmwOp::Min => AtomicRmwOp::Min,
+        nia_body_ir::AtomicRmwOp::UMax => AtomicRmwOp::UMax,
+        nia_body_ir::AtomicRmwOp::UMin => AtomicRmwOp::UMin,
     }
 }

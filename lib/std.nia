@@ -5,9 +5,11 @@
 // standard-library implementation modules themselves.
 
 import std.array_list;
+import std.atomic;
 import std.range;
 import std.slice;
 
 pub using array_list::ArrayList;
+pub using atomic::Atomic;
 pub using range::{from, inclusive, range};
 pub using slice::SliceIter;

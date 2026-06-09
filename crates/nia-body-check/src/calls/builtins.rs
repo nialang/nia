@@ -8,6 +8,31 @@ use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::BuiltinResolution;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckedAtomicOrder {
+    Unordered,
+    Monotonic,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckedAtomicRmwOp {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+    UMax,
+    UMin,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_builtin(
         &mut self,
@@ -68,6 +93,19 @@ impl<'a> BodyChecker<'a> {
                 return self.error();
             }
             BuiltinResolution::MemCopy | BuiltinResolution::MemMove | BuiltinResolution::MemSet => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    format!("builtin `@{name}` must be called with value arguments"),
+                ));
+                return self.error();
+            }
+            BuiltinResolution::AtomicLoad
+            | BuiltinResolution::AtomicStore
+            | BuiltinResolution::AtomicRmw
+            | BuiltinResolution::CmpxchgStrong
+            | BuiltinResolution::CmpxchgWeak
+            | BuiltinResolution::Fence => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
@@ -181,6 +219,21 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::MemSet => {
                 self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::AtomicLoad => {
+                self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::AtomicStore => {
+                self.check_atomic_store_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::AtomicRmw => {
+                self.check_atomic_rmw_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::CmpxchgStrong | BuiltinResolution::CmpxchgWeak => {
+                self.check_cmpxchg_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::Fence => {
+                self.check_fence_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
             BuiltinResolution::Reserved => self.error(),
         }
@@ -356,6 +409,508 @@ impl<'a> BodyChecker<'a> {
                 ));
                 None
             }
+        }
+    }
+
+    fn check_atomic_load_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly two arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return ty;
+        }
+        self.check_atomic_value_type(builtin_span, name, ty);
+        self.check_atomic_ptr_arg(&args[0], ty, true, name);
+        self.check_atomic_order_arg(&args[1], name, AtomicOrderContext::Load);
+        ty
+    }
+
+    fn check_atomic_store_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        if args.len() != 3 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly three arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.void();
+        }
+        self.check_atomic_value_type(builtin_span, name, ty);
+        self.check_atomic_ptr_arg(&args[0], ty, false, name);
+        let value_actual = self.check_expr_with_expected(&args[1], Some(ty));
+        self.expect_expr_type(&args[1], ty, value_actual, "atomic store value");
+        self.check_atomic_order_arg(&args[2], name, AtomicOrderContext::Store);
+        self.void()
+    }
+
+    fn check_atomic_rmw_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        if args.len() != 4 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly four arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return ty;
+        }
+        self.check_atomic_value_type(builtin_span, name, ty);
+        self.check_atomic_ptr_arg(&args[0], ty, false, name);
+        self.check_atomic_rmw_op_arg(&args[1], name, ty);
+        let value_actual = self.check_expr_with_expected(&args[2], Some(ty));
+        self.expect_expr_type(&args[2], ty, value_actual, "atomic read-modify-write value");
+        self.check_atomic_order_arg(&args[3], name, AtomicOrderContext::Rmw);
+        ty
+    }
+
+    fn check_cmpxchg_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        let optional_ty = self.interner.intern(TyKind::Optional { elem: ty });
+        if args.len() != 5 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly five arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return optional_ty;
+        }
+        self.check_atomic_value_type(builtin_span, name, ty);
+        self.check_atomic_ptr_arg(&args[0], ty, false, name);
+        let expected_actual = self.check_expr_with_expected(&args[1], Some(ty));
+        self.expect_expr_type(&args[1], ty, expected_actual, "cmpxchg expected value");
+        let desired_actual = self.check_expr_with_expected(&args[2], Some(ty));
+        self.expect_expr_type(&args[2], ty, desired_actual, "cmpxchg desired value");
+        let success =
+            self.check_atomic_order_arg(&args[3], name, AtomicOrderContext::CmpxchgSuccess);
+        let failure =
+            self.check_atomic_order_arg(&args[4], name, AtomicOrderContext::CmpxchgFailure);
+        if let (Some(success), Some(failure)) = (success, failure) {
+            self.check_cmpxchg_order_pair(args[4].span, success, failure);
+        }
+        optional_ty
+    }
+
+    fn check_fence_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                "builtin `@fence` requires exactly one argument",
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.void();
+        }
+        self.check_atomic_order_arg(&args[0], name, AtomicOrderContext::Fence);
+        self.void()
+    }
+
+    fn atomic_type_arg(
+        &mut self,
+        span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+    ) -> InternedTyId {
+        let Some(type_arg) = type_arg else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!("builtin `@{name}` requires a type argument"),
+            ));
+            return self.error();
+        };
+        self.ty_for_type(type_arg)
+    }
+
+    fn check_atomic_ptr_arg(
+        &mut self,
+        expr: &Expr,
+        ty: InternedTyId,
+        allow_readonly: bool,
+        name: &str,
+    ) {
+        let expected = self.interner.intern(TyKind::Pointer {
+            is_readonly: allow_readonly,
+            elem: ty,
+        });
+        let actual = self.check_expr_with_expected(expr, Some(expected));
+        let actual = self.normalization.normalize(actual);
+        match self.interner.get(actual) {
+            Some(TyKind::Pointer { is_readonly, elem })
+                if *elem == ty && (allow_readonly || !*is_readonly) => {}
+            Some(TyKind::Pointer {
+                is_readonly: true, ..
+            }) if !allow_readonly => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    format!("builtin `@{name}` pointer argument must be mutable"),
+                ));
+            }
+            Some(TyKind::Error) => {}
+            _ => {
+                self.expect_expr_type(expr, expected, actual, "atomic pointer argument");
+            }
+        }
+    }
+
+    fn check_atomic_value_type(&mut self, span: Span, name: &str, ty: InternedTyId) {
+        let ty = self.normalization.normalize(ty);
+        if matches!(self.interner.get(ty), Some(TyKind::GenericParam(_))) {
+            return;
+        }
+        if self.atomic_value_bits(ty).is_some() {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
+            span,
+            format!(
+                "builtin `@{name}` supports only bool, integer, enum, and pointer types up to the native pointer width"
+            ),
+        ));
+    }
+
+    fn atomic_value_bits(&mut self, ty: InternedTyId) -> Option<u32> {
+        match self.interner.get(ty)? {
+            TyKind::Primitive(primitive) => match primitive {
+                PrimitiveTy::Bool => Some(1),
+                PrimitiveTy::I8 | PrimitiveTy::U8 => Some(8),
+                PrimitiveTy::I16 | PrimitiveTy::U16 => Some(16),
+                PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => Some(32),
+                PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => {
+                    Some(64)
+                }
+                PrimitiveTy::I128
+                | PrimitiveTy::U128
+                | PrimitiveTy::F32
+                | PrimitiveTy::F64
+                | PrimitiveTy::Void
+                | PrimitiveTy::Never => None,
+            },
+            TyKind::Pointer { .. } => Some(self.target.pointer_width),
+            TyKind::GenericParam(_) => Some(self.target.pointer_width),
+            TyKind::Nominal { .. } if self.is_enum(ty) => {
+                let enum_id = self.enum_global_def_id(ty)?;
+                let backing_type = self
+                    .resolved_enum_signature(enum_id)
+                    .map(|resolved| resolved.signature.backing_type)?;
+                self.atomic_value_bits(self.normalization.normalize(backing_type))
+            }
+            _ => None,
+        }
+        .filter(|bits| *bits <= self.target.pointer_width)
+    }
+
+    fn check_atomic_order_arg(
+        &mut self,
+        expr: &Expr,
+        name: &str,
+        context: AtomicOrderContext,
+    ) -> Option<CheckedAtomicOrder> {
+        self.check_expr(expr);
+        let value = self.comptime_int_arg(expr, "atomic ordering")?;
+        let order = match value {
+            0 => CheckedAtomicOrder::Unordered,
+            1 => CheckedAtomicOrder::Monotonic,
+            2 => CheckedAtomicOrder::Acquire,
+            3 => CheckedAtomicOrder::Release,
+            4 => CheckedAtomicOrder::AcqRel,
+            5 => CheckedAtomicOrder::SeqCst,
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    format!("invalid atomic ordering `{value}` for builtin `@{name}`"),
+                ));
+                return None;
+            }
+        };
+        if !context.allows(order) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                expr.span,
+                format!(
+                    "atomic ordering `{}` is invalid for {}",
+                    order.name(),
+                    context.name()
+                ),
+            ));
+            return None;
+        }
+        Some(order)
+    }
+
+    fn check_atomic_rmw_op_arg(
+        &mut self,
+        expr: &Expr,
+        name: &str,
+        ty: InternedTyId,
+    ) -> Option<CheckedAtomicRmwOp> {
+        self.check_expr(expr);
+        let value = self.comptime_int_arg(expr, "atomic read-modify-write operation")?;
+        let op = match value {
+            0 => CheckedAtomicRmwOp::Xchg,
+            1 => CheckedAtomicRmwOp::Add,
+            2 => CheckedAtomicRmwOp::Sub,
+            3 => CheckedAtomicRmwOp::And,
+            4 => CheckedAtomicRmwOp::Nand,
+            5 => CheckedAtomicRmwOp::Or,
+            6 => CheckedAtomicRmwOp::Xor,
+            7 => CheckedAtomicRmwOp::Max,
+            8 => CheckedAtomicRmwOp::Min,
+            9 => CheckedAtomicRmwOp::UMax,
+            10 => CheckedAtomicRmwOp::UMin,
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    format!("invalid atomic RMW operation `{value}` for builtin `@{name}`"),
+                ));
+                return None;
+            }
+        };
+        if matches!(
+            op,
+            CheckedAtomicRmwOp::Add
+                | CheckedAtomicRmwOp::Sub
+                | CheckedAtomicRmwOp::And
+                | CheckedAtomicRmwOp::Nand
+                | CheckedAtomicRmwOp::Or
+                | CheckedAtomicRmwOp::Xor
+                | CheckedAtomicRmwOp::Max
+                | CheckedAtomicRmwOp::Min
+                | CheckedAtomicRmwOp::UMax
+                | CheckedAtomicRmwOp::UMin
+        ) && !self.atomic_rmw_integer_like(ty)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                expr.span,
+                format!(
+                    "atomic RMW operation `{}` requires an integer, bool, or enum type",
+                    op.name()
+                ),
+            ));
+            return None;
+        }
+        Some(op)
+    }
+
+    fn atomic_rmw_integer_like(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Primitive(
+                PrimitiveTy::Bool
+                | PrimitiveTy::I8
+                | PrimitiveTy::I16
+                | PrimitiveTy::I32
+                | PrimitiveTy::I64
+                | PrimitiveTy::Isize
+                | PrimitiveTy::U8
+                | PrimitiveTy::U16
+                | PrimitiveTy::U32
+                | PrimitiveTy::U64
+                | PrimitiveTy::Usize
+                | PrimitiveTy::Char,
+            )) => true,
+            Some(TyKind::Nominal { .. }) => self.is_enum(ty),
+            _ => false,
+        }
+    }
+
+    fn check_cmpxchg_order_pair(
+        &mut self,
+        span: Span,
+        success: CheckedAtomicOrder,
+        failure: CheckedAtomicOrder,
+    ) {
+        if failure.strength() > success.strength() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                "cmpxchg failure ordering cannot be stronger than success ordering",
+            ));
+        }
+    }
+
+    fn comptime_int_arg(&mut self, expr: &Expr, context: &str) -> Option<i128> {
+        let value = self
+            .with_comptime_context(|this| {
+                let expr = this.lower_comptime_expr(expr).map_err(|err| {
+                    nia_comptime_engine::ComptimeError {
+                        span: err.span,
+                        message: err.message,
+                    }
+                })?;
+                nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
+            })
+            .ok();
+        match value {
+            Some(nia_comptime_engine::ComptimeValue::Int(value)) => Some(value),
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    format!("{context} must be a compile-time integer constant"),
+                ));
+                None
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AtomicOrderContext {
+    Load,
+    Store,
+    Rmw,
+    CmpxchgSuccess,
+    CmpxchgFailure,
+    Fence,
+}
+
+impl AtomicOrderContext {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Load => "atomic load",
+            Self::Store => "atomic store",
+            Self::Rmw => "atomic read-modify-write",
+            Self::CmpxchgSuccess => "cmpxchg success",
+            Self::CmpxchgFailure => "cmpxchg failure",
+            Self::Fence => "atomic fence",
+        }
+    }
+
+    fn allows(self, order: CheckedAtomicOrder) -> bool {
+        match self {
+            Self::Load => matches!(
+                order,
+                CheckedAtomicOrder::Unordered
+                    | CheckedAtomicOrder::Monotonic
+                    | CheckedAtomicOrder::Acquire
+                    | CheckedAtomicOrder::SeqCst
+            ),
+            Self::Store => matches!(
+                order,
+                CheckedAtomicOrder::Unordered
+                    | CheckedAtomicOrder::Monotonic
+                    | CheckedAtomicOrder::Release
+                    | CheckedAtomicOrder::SeqCst
+            ),
+            Self::Rmw | Self::CmpxchgSuccess => matches!(
+                order,
+                CheckedAtomicOrder::Monotonic
+                    | CheckedAtomicOrder::Acquire
+                    | CheckedAtomicOrder::Release
+                    | CheckedAtomicOrder::AcqRel
+                    | CheckedAtomicOrder::SeqCst
+            ),
+            Self::CmpxchgFailure => matches!(
+                order,
+                CheckedAtomicOrder::Monotonic
+                    | CheckedAtomicOrder::Acquire
+                    | CheckedAtomicOrder::SeqCst
+            ),
+            Self::Fence => matches!(
+                order,
+                CheckedAtomicOrder::Acquire
+                    | CheckedAtomicOrder::Release
+                    | CheckedAtomicOrder::AcqRel
+                    | CheckedAtomicOrder::SeqCst
+            ),
+        }
+    }
+}
+
+impl CheckedAtomicOrder {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Unordered => "Unordered",
+            Self::Monotonic => "Monotonic",
+            Self::Acquire => "Acquire",
+            Self::Release => "Release",
+            Self::AcqRel => "AcqRel",
+            Self::SeqCst => "SeqCst",
+        }
+    }
+
+    fn strength(self) -> u8 {
+        match self {
+            Self::Unordered => 0,
+            Self::Monotonic => 1,
+            Self::Acquire | Self::Release => 2,
+            Self::AcqRel => 3,
+            Self::SeqCst => 4,
+        }
+    }
+}
+
+impl CheckedAtomicRmwOp {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Xchg => "Xchg",
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::And => "And",
+            Self::Nand => "Nand",
+            Self::Or => "Or",
+            Self::Xor => "Xor",
+            Self::Max => "Max",
+            Self::Min => "Min",
+            Self::UMax => "UMax",
+            Self::UMin => "UMin",
         }
     }
 }

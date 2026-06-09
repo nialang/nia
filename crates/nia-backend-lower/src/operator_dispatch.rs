@@ -273,6 +273,9 @@ impl<'a> ModuleLowerer<'a> {
                         options: asm.options,
                     })
                 }
+                FunctionExprKind::Atomic(atomic) => {
+                    FunctionExprKind::Atomic(self.resolve_builtin_operator_calls_in_atomic(atomic))
+                }
                 FunctionExprKind::CStringPointer { array, is_readonly } => {
                     FunctionExprKind::CStringPointer {
                         array: Box::new(self.resolve_builtin_operator_calls_in_expr(*array)),
@@ -414,6 +417,65 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly,
                 },
             },
+        }
+    }
+
+    fn resolve_builtin_operator_calls_in_atomic(
+        &mut self,
+        atomic: nia_function_ir::FunctionAtomic,
+    ) -> nia_function_ir::FunctionAtomic {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ty, ptr, order } => {
+                nia_function_ir::FunctionAtomic::Load {
+                    ty,
+                    ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
+                    order,
+                }
+            }
+            nia_function_ir::FunctionAtomic::Store {
+                ty,
+                ptr,
+                value,
+                order,
+            } => nia_function_ir::FunctionAtomic::Store {
+                ty,
+                ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
+                value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                order,
+            },
+            nia_function_ir::FunctionAtomic::Rmw {
+                ty,
+                ptr,
+                op,
+                value,
+                order,
+            } => nia_function_ir::FunctionAtomic::Rmw {
+                ty,
+                ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
+                op,
+                value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                order,
+            },
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty,
+                ptr,
+                expected,
+                desired,
+                success,
+                failure,
+                weak,
+            } => nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty,
+                ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
+                expected: Box::new(self.resolve_builtin_operator_calls_in_expr(*expected)),
+                desired: Box::new(self.resolve_builtin_operator_calls_in_expr(*desired)),
+                success,
+                failure,
+                weak,
+            },
+            nia_function_ir::FunctionAtomic::Fence { order } => {
+                nia_function_ir::FunctionAtomic::Fence { order }
+            }
         }
     }
 
