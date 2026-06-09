@@ -17,7 +17,7 @@ extend PageAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) types::Error!Block {
         _ = self;
         if layout.is_empty() {
-            !empty_block(layout)
+            !Block::empty(layout)
         } else {
             let ptr = os::map_pages(layout.size(), layout.align()).as_page_allocator_error().?;
             !Block::init(ptr, layout)
@@ -50,7 +50,7 @@ extend PageAllocator : Allocator {
         if self.resize(block, new_layout) {
             ?Block::init(block.ptr(), new_layout)
         } else if block.is_empty() and new_layout.is_empty() {
-            ?empty_block(new_layout)
+            ?Block::empty(new_layout)
         } else {
             null
         }
@@ -64,10 +64,6 @@ extend PageAllocator : Allocator {
             os::unmap_pages(block.ptr(), block.size()).as_page_allocator_error()
         }
     }
-}
-
-fn empty_block(layout: Layout) Block {
-    Block::init(layout.align() as &mut u8, layout)
 }
 
 extend os::Error {

@@ -20,7 +20,7 @@ pub trait Allocator {
         if self.resize(block, new_layout) {
             ?Block::init(block.ptr(), new_layout)
         } else if block.is_empty() and new_layout.is_empty() {
-            ?empty_block(new_layout)
+            ?Block::empty(new_layout)
         } else {
             null
         }
@@ -81,10 +81,6 @@ where T: Sized
 {
     var ptr = @align[T]() as &mut T;
     &mut ptr[0..len]
-}
-
-fn empty_block(layout: Layout) Block {
-    Block::init(layout.align() as &mut u8, layout)
 }
 
 extend Block {
