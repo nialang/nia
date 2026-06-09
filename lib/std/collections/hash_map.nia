@@ -1018,18 +1018,6 @@ fn is_full(control: u8) bool {
     (control & 0x80u8) == 0u8
 }
 
-fn is_empty(control: u8) bool {
-    control == ctrl_empty
-}
-
-fn is_deleted(control: u8) bool {
-    control == ctrl_deleted
-}
-
-fn is_available(control: u8) bool {
-    is_empty(control) or is_deleted(control)
-}
-
 fn first_set(mask: usize) usize {
     @ctz[usize](mask)
 }
@@ -1057,10 +1045,6 @@ fn mirror_ctrl_tail(ctrl: &mut [u8], bucket_count: usize) void {
         ctrl[bucket_count + index] = ctrl[index];
         index += 1usize;
     }
-}
-
-fn matches_tag(control: u8, needle: u8) bool {
-    control == needle
 }
 
 fn fill_ctrl(ctrl: &mut [u8], value: u8) void {
