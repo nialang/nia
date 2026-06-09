@@ -5140,9 +5140,30 @@ struct Unit {}
 
 struct ConstantHashContext {}
 
+struct Key {
+    value: i32,
+}
+
+struct ModuloContext {
+    modulus: i32,
+    salt: u64,
+}
+
 extend ConstantHashContext {
     fn init() ConstantHashContext {
         {}
+    }
+}
+
+extend Key {
+    fn init(value: i32) Key {
+        { value: value }
+    }
+}
+
+extend ModuloContext {
+    fn init(modulus: i32, salt: u64) ModuloContext {
+        { modulus: modulus, salt: salt }
     }
 }
 
@@ -5157,6 +5178,16 @@ extend ConstantHashContext : std::HashMapContext[i32] {
     fn eql(&self, left: &i32, right: &i32) bool {
         _ = self;
         left.* == right.*
+    }
+}
+
+extend ModuloContext : std::HashMapContext[Key] {
+    fn hash(&self, seed: u64, key: &Key) u64 {
+        ((key.value % self.modulus) as u64) + seed + self.salt
+    }
+
+    fn eql(&self, left: &Key, right: &Key) bool {
+        (left.value % self.modulus) == (right.value % self.modulus)
     }
 }
 
@@ -5473,6 +5504,53 @@ fn run(init: process::Init) mem::Error!void {
             null => return mem::Error::Invalid!,
         }
         key += 1;
+    }
+
+    var modulo = std::HashMapWithContext[Key, i32, ModuloContext]::init_context_seed(
+        ModuloContext::init(5, 0x9e3779b97f4a7c15u64),
+        19u64,
+    );
+    defer modulo.deinit(&mut gpa).?;
+    switch modulo.put(&mut gpa, Key::init(1), 10) {
+        !old => switch old {
+            ?value => return mem::Error::Invalid!,
+            null => {},
+        },
+        err! => return err!,
+    }
+    switch modulo.put(&mut gpa, Key::init(6), 60) {
+        !old => switch old {
+            ?value => if value != 10 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        },
+        err! => return err!,
+    }
+    if modulo.len() != 1usize {
+        return mem::Error::Invalid!;
+    }
+    let equivalent = Key::init(11);
+    switch modulo.get(&equivalent) {
+        ?value => if value.* != 60 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    key = 20;
+    while key < 60 {
+        _ = modulo.put(&mut gpa, Key::init(key), key * 3).?;
+        key += 1;
+    }
+    if modulo.len() != 5usize {
+        return mem::Error::Invalid!;
+    }
+    let replaced = Key::init(46);
+    switch modulo.get(&replaced) {
+        ?value => if value.* != 56 * 3 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
     }
 
     var tiny_storage: [16]u8 = [0; 16];
