@@ -185,7 +185,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = HashMapEntryRef[K, V];
 
     pub fn next(&mut self) ?HashMapEntryRef[K, V] {
-        while self.index < self.map.capacity() {
+        while self.index < self.map.bucket_capacity() {
             let index = self.index;
             self.index += 1usize;
             if is_full(self.map.ctrl[index]) {
@@ -331,7 +331,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn capacity(&self) usize {
-        self.bucket_count
+        usable_capacity(self.bucket_count)
     }
 
     pub fn is_empty(&self) bool {
@@ -342,7 +342,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         fill_ctrl(&mut self.ctrl[0..self.bucket_count], ctrl_empty);
         mirror_ctrl_tail(self.ctrl, self.bucket_count);
         self.len = 0usize;
-        self.growth_left = usable_capacity(self.capacity());
+        self.growth_left = self.capacity();
     }
 
     pub fn clear_retaining_capacity(&mut self) void {
@@ -365,21 +365,21 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
 
         let target = capacity_to_buckets(target_capacity).?;
-        if target >= self.capacity() {
+        if target >= self.bucket_capacity() {
             return self.compact(allocator);
         }
         self.rehash_to_buckets(allocator, target)
     }
 
     pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
-        if self.capacity() == 0usize {
+        if self.bucket_capacity() == 0usize {
             return !{};
         }
         if self.len() == 0usize {
             self.clear();
             return !{};
         }
-        self.rehash_to_buckets(allocator, self.capacity())
+        self.rehash_to_buckets(allocator, self.bucket_capacity())
     }
 
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
@@ -438,13 +438,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
         var cloned = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
-        if self.capacity() == 0usize {
+        if self.bucket_capacity() == 0usize {
             return !cloned;
         }
-        cloned.allocate(allocator, self.capacity()).?;
+        cloned.allocate(allocator, self.bucket_capacity()).?;
 
         var index = 0usize;
-        while index < self.capacity() {
+        while index < self.bucket_capacity() {
             if is_full(self.ctrl[index]) {
                 cloned.insert_existing(self.keys[index], self.values[index]);
             }
@@ -611,8 +611,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
-        if needed <= usable_capacity(self.capacity()) {
-            self.rehash_to_buckets(allocator, self.capacity()).?;
+        if needed <= self.capacity() {
+            self.rehash_to_buckets(allocator, self.bucket_capacity()).?;
             return !{};
         }
         self.grow_for_capacity(allocator, needed).?;
@@ -620,11 +620,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
-        if capacity <= usable_capacity(self.capacity()) {
+        if capacity <= self.capacity() {
             return !{};
         }
         self.grow_for_capacity(allocator, capacity).?;
         !{}
+    }
+
+    fn bucket_capacity(&self) usize {
+        self.bucket_count
     }
 
     fn hash_key(&self, key: &K) u64 {
@@ -632,12 +636,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn find_index(&self, key: &K, value_hash: u64) ?usize {
-        if self.capacity() == 0usize {
+        if self.bucket_capacity() == 0usize {
             return null;
         }
 
         let needle = tag(value_hash);
-        var cursor = ProbeCursor::init(value_hash, self.capacity());
+        var cursor = ProbeCursor::init(value_hash, self.bucket_capacity());
 
         while cursor.has_remaining() {
             let group = ProbeGroup::load(self.ctrl, &cursor, needle);
@@ -660,7 +664,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn find_insert_index(&self, value_hash: u64) usize {
-        var cursor = ProbeCursor::init(value_hash, self.capacity());
+        var cursor = ProbeCursor::init(value_hash, self.bucket_capacity());
 
         while cursor.has_remaining() {
             let group = ProbeGroup::load(self.ctrl, &cursor, tag(value_hash));
@@ -684,7 +688,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         new_map.allocate(allocator, target).?;
 
         var index = 0usize;
-        while index < self.capacity() {
+        while index < self.bucket_capacity() {
             if is_full(self.ctrl[index]) {
                 let key = self.keys[index];
                 let value = self.values[index];
