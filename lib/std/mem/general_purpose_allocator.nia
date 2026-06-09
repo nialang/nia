@@ -11,6 +11,16 @@ pub enum DeinitStatus: i32 {
     Leak = 1,
 }
 
+extend DeinitStatus {
+    pub fn ok(self) Error!void {
+        if self == DeinitStatus::Ok {
+            !{}
+        } else {
+            Error::Invalid!
+        }
+    }
+}
+
 comptime let max_small_size: usize = 2048usize;
 comptime let min_slot_size: usize = 16usize;
 comptime let small_magic: usize = 0x6e69615f67707331usize;
