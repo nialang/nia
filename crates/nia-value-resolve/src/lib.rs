@@ -56,6 +56,12 @@ pub enum BuiltinResolution {
     MemCopy,
     MemMove,
     MemSet,
+    AtomicLoad,
+    AtomicStore,
+    AtomicRmw,
+    CmpxchgStrong,
+    CmpxchgWeak,
+    Fence,
     Reserved,
 }
 
@@ -732,6 +738,12 @@ impl<'a> ValueResolver<'a> {
             "memcpy" => BuiltinResolution::MemCopy,
             "memmove" => BuiltinResolution::MemMove,
             "memset" => BuiltinResolution::MemSet,
+            "atomic_load" => BuiltinResolution::AtomicLoad,
+            "atomic_store" => BuiltinResolution::AtomicStore,
+            "atomic_rmw" => BuiltinResolution::AtomicRmw,
+            "cmpxchg_strong" => BuiltinResolution::CmpxchgStrong,
+            "cmpxchg_weak" => BuiltinResolution::CmpxchgWeak,
+            "fence" => BuiltinResolution::Fence,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0201",

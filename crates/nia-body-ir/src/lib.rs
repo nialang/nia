@@ -198,6 +198,7 @@ pub enum TypedExprKind {
     Range(TypedRange),
     InlineAsm(TypedInlineAsm),
     MemoryIntrinsic(TypedMemoryIntrinsic),
+    Atomic(TypedAtomic),
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,
@@ -351,6 +352,65 @@ pub enum MemoryIntrinsicOp {
     Copy,
     Move,
     Set,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedAtomic {
+    Load {
+        ty: InternedTyId,
+        ptr: Box<TypedExpr>,
+        order: AtomicOrder,
+    },
+    Store {
+        ty: InternedTyId,
+        ptr: Box<TypedExpr>,
+        value: Box<TypedExpr>,
+        order: AtomicOrder,
+    },
+    Rmw {
+        ty: InternedTyId,
+        ptr: Box<TypedExpr>,
+        op: AtomicRmwOp,
+        value: Box<TypedExpr>,
+        order: AtomicOrder,
+    },
+    Cmpxchg {
+        ty: InternedTyId,
+        ptr: Box<TypedExpr>,
+        expected: Box<TypedExpr>,
+        desired: Box<TypedExpr>,
+        success: AtomicOrder,
+        failure: AtomicOrder,
+        weak: bool,
+    },
+    Fence {
+        order: AtomicOrder,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicOrder {
+    Unordered,
+    Monotonic,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicRmwOp {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+    UMax,
+    UMin,
 }
 
 #[derive(Debug, Clone, PartialEq)]

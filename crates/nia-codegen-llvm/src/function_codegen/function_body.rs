@@ -1239,6 +1239,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionExprKind::Trap => self.emit_trap(expr.span),
             FunctionExprKind::InlineAsm(asm) => self.emit_inline_asm(asm),
+            FunctionExprKind::Atomic(atomic) => self.emit_atomic_effect(expr, atomic),
             FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal_effects(elems),
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {

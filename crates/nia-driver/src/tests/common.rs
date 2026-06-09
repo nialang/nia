@@ -149,6 +149,26 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
             .inputs
             .iter()
             .any(|input| function_expr_contains_builtin_eq(&input.value)),
+        FunctionExprKind::Atomic(atomic) => match atomic {
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+                function_expr_contains_builtin_eq(ptr)
+            }
+            nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+                function_expr_contains_builtin_eq(ptr) || function_expr_contains_builtin_eq(value)
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                function_expr_contains_builtin_eq(ptr)
+                    || function_expr_contains_builtin_eq(expected)
+                    || function_expr_contains_builtin_eq(desired)
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => false,
+        },
         FunctionExprKind::Error
         | FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)

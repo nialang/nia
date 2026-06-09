@@ -350,6 +350,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_place(&output.place, seen, out);
                 }
             }
+            FunctionExprKind::Atomic(atomic) => {
+                self.collect_struct_instances_atomic(atomic, seen, out);
+            }
             FunctionExprKind::Call { callee, args } => {
                 self.collect_struct_instances_callee(callee, seen, out);
                 for arg in args {
@@ -392,6 +395,39 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariant(_)
             | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn collect_struct_instances_atomic(
+        &mut self,
+        atomic: &nia_function_ir::FunctionAtomic,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ty, ptr, .. } => {
+                self.collect_struct_instance_ty(*ty, seen, out);
+                self.collect_struct_instances_expr(ptr, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Store { ty, ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ty, ptr, value, .. } => {
+                self.collect_struct_instance_ty(*ty, seen, out);
+                self.collect_struct_instances_expr(ptr, seen, out);
+                self.collect_struct_instances_expr(value, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty,
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*ty, seen, out);
+                self.collect_struct_instances_expr(ptr, seen, out);
+                self.collect_struct_instances_expr(expected, seen, out);
+                self.collect_struct_instances_expr(desired, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
     }
 
@@ -791,6 +827,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_place(&output.place, seen, out);
                 }
             }
+            FunctionExprKind::Atomic(atomic) => {
+                self.collect_union_instances_atomic(atomic, seen, out);
+            }
             FunctionExprKind::Call { callee, args } => {
                 self.collect_union_instances_callee(callee, seen, out);
                 for arg in args {
@@ -833,6 +872,39 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariant(_)
             | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn collect_union_instances_atomic(
+        &mut self,
+        atomic: &nia_function_ir::FunctionAtomic,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ty, ptr, .. } => {
+                self.collect_union_instance_ty(*ty, seen, out);
+                self.collect_union_instances_expr(ptr, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Store { ty, ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ty, ptr, value, .. } => {
+                self.collect_union_instance_ty(*ty, seen, out);
+                self.collect_union_instances_expr(ptr, seen, out);
+                self.collect_union_instances_expr(value, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty,
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.collect_union_instance_ty(*ty, seen, out);
+                self.collect_union_instances_expr(ptr, seen, out);
+                self.collect_union_instances_expr(expected, seen, out);
+                self.collect_union_instances_expr(desired, seen, out);
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
     }
 

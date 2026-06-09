@@ -254,6 +254,9 @@ impl<'a> ModuleLowerer<'a> {
                         options: asm.options,
                     })
                 }
+                FunctionExprKind::Atomic(atomic) => {
+                    FunctionExprKind::Atomic(self.instantiate_atomic(atomic, substitutions))
+                }
                 FunctionExprKind::CStringPointer { array, is_readonly } => {
                     FunctionExprKind::CStringPointer {
                         array: Box::new(self.instantiate_expr(*array, substitutions)),
@@ -496,6 +499,66 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly,
                 },
             },
+        }
+    }
+
+    fn instantiate_atomic(
+        &mut self,
+        atomic: nia_function_ir::FunctionAtomic,
+        substitutions: TypeSubstitutionId,
+    ) -> nia_function_ir::FunctionAtomic {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ty, ptr, order } => {
+                nia_function_ir::FunctionAtomic::Load {
+                    ty: self.instantiate_ty_with_id(ty, substitutions),
+                    ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
+                    order,
+                }
+            }
+            nia_function_ir::FunctionAtomic::Store {
+                ty,
+                ptr,
+                value,
+                order,
+            } => nia_function_ir::FunctionAtomic::Store {
+                ty: self.instantiate_ty_with_id(ty, substitutions),
+                ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
+                value: Box::new(self.instantiate_expr(*value, substitutions)),
+                order,
+            },
+            nia_function_ir::FunctionAtomic::Rmw {
+                ty,
+                ptr,
+                op,
+                value,
+                order,
+            } => nia_function_ir::FunctionAtomic::Rmw {
+                ty: self.instantiate_ty_with_id(ty, substitutions),
+                ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
+                op,
+                value: Box::new(self.instantiate_expr(*value, substitutions)),
+                order,
+            },
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty,
+                ptr,
+                expected,
+                desired,
+                success,
+                failure,
+                weak,
+            } => nia_function_ir::FunctionAtomic::Cmpxchg {
+                ty: self.instantiate_ty_with_id(ty, substitutions),
+                ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
+                expected: Box::new(self.instantiate_expr(*expected, substitutions)),
+                desired: Box::new(self.instantiate_expr(*desired, substitutions)),
+                success,
+                failure,
+                weak,
+            },
+            nia_function_ir::FunctionAtomic::Fence { order } => {
+                nia_function_ir::FunctionAtomic::Fence { order }
+            }
         }
     }
 

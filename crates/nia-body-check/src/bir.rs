@@ -5,12 +5,12 @@ use nia_ast::{
     StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
-    BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp, PlaceBase, PlaceElem,
-    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
-    TypedFieldInit, TypedForBinding, TypedForIn, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace, TypedRange, TypedSliceRange,
-    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
-    TypedWhile,
+    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp,
+    PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee,
+    TypedExpr, TypedExprKind, TypedFieldInit, TypedForBinding, TypedForIn, TypedLocal,
+    TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace,
+    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
+    TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -793,6 +793,53 @@ impl<'a> BodyChecker<'a> {
                                 )),
                             })
                         }
+                        ("atomic_load", [ptr, order]) => TypedExprKind::Atomic(TypedAtomic::Load {
+                            ty: self.builtin_atomic_type_arg(callee),
+                            ptr: Box::new(self.lower_expr(ptr)),
+                            order: self.lower_atomic_order(order),
+                        }),
+                        ("atomic_store", [ptr, value, order]) => {
+                            TypedExprKind::Atomic(TypedAtomic::Store {
+                                ty: self.builtin_atomic_type_arg(callee),
+                                ptr: Box::new(self.lower_expr(ptr)),
+                                value: Box::new(self.lower_expr(value)),
+                                order: self.lower_atomic_order(order),
+                            })
+                        }
+                        ("atomic_rmw", [ptr, op, value, order]) => {
+                            TypedExprKind::Atomic(TypedAtomic::Rmw {
+                                ty: self.builtin_atomic_type_arg(callee),
+                                ptr: Box::new(self.lower_expr(ptr)),
+                                op: self.lower_atomic_rmw_op(op),
+                                value: Box::new(self.lower_expr(value)),
+                                order: self.lower_atomic_order(order),
+                            })
+                        }
+                        ("cmpxchg_strong", [ptr, expected, desired, success, failure]) => {
+                            TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
+                                ty: self.builtin_atomic_type_arg(callee),
+                                ptr: Box::new(self.lower_expr(ptr)),
+                                expected: Box::new(self.lower_expr(expected)),
+                                desired: Box::new(self.lower_expr(desired)),
+                                success: self.lower_atomic_order(success),
+                                failure: self.lower_atomic_order(failure),
+                                weak: false,
+                            })
+                        }
+                        ("cmpxchg_weak", [ptr, expected, desired, success, failure]) => {
+                            TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
+                                ty: self.builtin_atomic_type_arg(callee),
+                                ptr: Box::new(self.lower_expr(ptr)),
+                                expected: Box::new(self.lower_expr(expected)),
+                                desired: Box::new(self.lower_expr(desired)),
+                                success: self.lower_atomic_order(success),
+                                failure: self.lower_atomic_order(failure),
+                                weak: true,
+                            })
+                        }
+                        ("fence", [order]) => TypedExprKind::Atomic(TypedAtomic::Fence {
+                            order: self.lower_atomic_order(order),
+                        }),
                         _ => TypedExprKind::Call {
                             callee: self.lower_callee(expr, callee),
                             args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
@@ -955,6 +1002,64 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(self.normalization.normalize(dest_ty)) {
             Some(TyKind::Slice { elem, .. }) | Some(TyKind::Array { elem, .. }) => *elem,
             _ => self.error(),
+        }
+    }
+
+    fn builtin_atomic_type_arg(&self, builtin: &Expr) -> nia_ids::InternedTyId {
+        let ExprKind::Builtin {
+            type_arg: Some(type_arg),
+            ..
+        } = &builtin.kind
+        else {
+            return self.error();
+        };
+        self.ty_for_type(type_arg)
+    }
+
+    fn lower_atomic_order(&mut self, expr: &Expr) -> AtomicOrder {
+        match self.lower_comptime_int(expr) {
+            Some(0) => AtomicOrder::Unordered,
+            Some(1) => AtomicOrder::Monotonic,
+            Some(2) => AtomicOrder::Acquire,
+            Some(3) => AtomicOrder::Release,
+            Some(4) => AtomicOrder::AcqRel,
+            Some(5) => AtomicOrder::SeqCst,
+            _ => AtomicOrder::Monotonic,
+        }
+    }
+
+    fn lower_atomic_rmw_op(&mut self, expr: &Expr) -> AtomicRmwOp {
+        match self.lower_comptime_int(expr) {
+            Some(0) => AtomicRmwOp::Xchg,
+            Some(1) => AtomicRmwOp::Add,
+            Some(2) => AtomicRmwOp::Sub,
+            Some(3) => AtomicRmwOp::And,
+            Some(4) => AtomicRmwOp::Nand,
+            Some(5) => AtomicRmwOp::Or,
+            Some(6) => AtomicRmwOp::Xor,
+            Some(7) => AtomicRmwOp::Max,
+            Some(8) => AtomicRmwOp::Min,
+            Some(9) => AtomicRmwOp::UMax,
+            Some(10) => AtomicRmwOp::UMin,
+            _ => AtomicRmwOp::Xchg,
+        }
+    }
+
+    fn lower_comptime_int(&mut self, expr: &Expr) -> Option<i128> {
+        match self
+            .with_comptime_context(|this| {
+                let expr = this.lower_comptime_expr(expr).map_err(|err| {
+                    nia_comptime_engine::ComptimeError {
+                        span: err.span,
+                        message: err.message,
+                    }
+                })?;
+                nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
+            })
+            .ok()?
+        {
+            nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
+            _ => None,
         }
     }
 

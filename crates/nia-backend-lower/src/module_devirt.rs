@@ -147,6 +147,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::InlineAsm(asm) => {
                 changed |= self.devirtualize_direct_trait_calls_in_inline_asm(asm);
             }
+            FunctionExprKind::Atomic(atomic) => {
+                changed |= self.devirtualize_direct_trait_calls_in_atomic(atomic);
+            }
             FunctionExprKind::CStringPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
@@ -225,6 +228,33 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::BuiltinValue(_) => {}
         }
         changed
+    }
+
+    fn devirtualize_direct_trait_calls_in_atomic(
+        &mut self,
+        atomic: &mut nia_function_ir::FunctionAtomic,
+    ) -> bool {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+                self.devirtualize_direct_trait_calls_in_expr(ptr)
+            }
+            nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+                self.devirtualize_direct_trait_calls_in_expr(ptr)
+                    | self.devirtualize_direct_trait_calls_in_expr(value)
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.devirtualize_direct_trait_calls_in_expr(ptr)
+                    | self.devirtualize_direct_trait_calls_in_expr(expected)
+                    | self.devirtualize_direct_trait_calls_in_expr(desired)
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => false,
+        }
     }
 
     fn devirtualize_direct_trait_calls_in_callee(&mut self, callee: &mut FunctionCallee) -> bool {

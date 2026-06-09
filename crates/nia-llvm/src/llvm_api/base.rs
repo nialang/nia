@@ -23,7 +23,8 @@ use llvm_sys::core::{
     LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
     LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
     LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMSetVolatile, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
+    LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -172,6 +173,8 @@ impl From<FloatPredicate> for LLVMRealPredicate {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtomicOrdering {
+    NotAtomic,
+    Unordered,
     Monotonic,
     Acquire,
     Release,
@@ -182,6 +185,8 @@ pub enum AtomicOrdering {
 impl From<AtomicOrdering> for LLVMAtomicOrdering {
     fn from(value: AtomicOrdering) -> Self {
         match value {
+            AtomicOrdering::NotAtomic => LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic,
+            AtomicOrdering::Unordered => LLVMAtomicOrdering::LLVMAtomicOrderingUnordered,
             AtomicOrdering::Monotonic => LLVMAtomicOrdering::LLVMAtomicOrderingMonotonic,
             AtomicOrdering::Acquire => LLVMAtomicOrdering::LLVMAtomicOrderingAcquire,
             AtomicOrdering::Release => LLVMAtomicOrdering::LLVMAtomicOrderingRelease,
@@ -1271,6 +1276,10 @@ impl<'ctx> InstructionValue<'ctx> {
 
     pub fn set_volatile(self, is_volatile: bool) {
         unsafe { LLVMSetVolatile(self.raw, bool_to_llvm(is_volatile)) };
+    }
+
+    pub fn set_weak(self, is_weak: bool) {
+        unsafe { LLVMSetWeak(self.raw, bool_to_llvm(is_weak)) };
     }
 
     pub fn get_next_instruction(self) -> Option<InstructionValue<'ctx>> {

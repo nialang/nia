@@ -154,6 +154,7 @@ impl BackendValidator<'_> {
                     self.validate_place(&output.place);
                 }
             }
+            FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic),
             FunctionExprKind::CStringPointer { array, .. } => self.validate_expr(array),
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
@@ -250,6 +251,30 @@ impl BackendValidator<'_> {
                     "backend IR expression references missing enum variant",
                 );
             }
+        }
+    }
+
+    fn validate_atomic(&mut self, atomic: &nia_function_ir::FunctionAtomic) {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+                self.validate_expr(ptr);
+            }
+            nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+                self.validate_expr(ptr);
+                self.validate_expr(value);
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.validate_expr(ptr);
+                self.validate_expr(expected);
+                self.validate_expr(desired);
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
     }
 

@@ -356,6 +356,13 @@ fn propagate_cross_function_constants_in_expr(
                 instance_constants,
             );
         }
+        FunctionExprKind::Atomic(atomic) => {
+            changed |= propagate_cross_function_constants_in_atomic(
+                atomic,
+                function_constants,
+                instance_constants,
+            );
+        }
         FunctionExprKind::CStringPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
@@ -498,6 +505,46 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::BuiltinValue(_) => {}
     }
     changed
+}
+
+fn propagate_cross_function_constants_in_atomic(
+    atomic: &mut nia_function_ir::FunctionAtomic,
+    function_constants: &HashMap<GlobalDefId, FunctionExpr>,
+    instance_constants: &HashMap<FunctionInstanceKey, FunctionExpr>,
+) -> bool {
+    match atomic {
+        nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+            propagate_cross_function_constants_in_expr(ptr, function_constants, instance_constants)
+        }
+        nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+        | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+            propagate_cross_function_constants_in_expr(ptr, function_constants, instance_constants)
+                | propagate_cross_function_constants_in_expr(
+                    value,
+                    function_constants,
+                    instance_constants,
+                )
+        }
+        nia_function_ir::FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            propagate_cross_function_constants_in_expr(ptr, function_constants, instance_constants)
+                | propagate_cross_function_constants_in_expr(
+                    expected,
+                    function_constants,
+                    instance_constants,
+                )
+                | propagate_cross_function_constants_in_expr(
+                    desired,
+                    function_constants,
+                    instance_constants,
+                )
+        }
+        nia_function_ir::FunctionAtomic::Fence { .. } => false,
+    }
 }
 
 fn propagate_cross_function_constants_in_callee(

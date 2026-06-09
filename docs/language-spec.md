@@ -100,7 +100,8 @@ The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `import std.process;` or `import std.io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
-`std::inclusive`, `std::from`, `std::ArrayList`, and `std::SliceIter`.
+`std::inclusive`, `std::from`, `std::ArrayList`, `std::Atomic`, and
+`std::SliceIter`.
 
 - `std.process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
@@ -124,6 +125,9 @@ facade for selected direct names; it currently exposes `std::range`,
   `PageAllocator` for OS page mappings, `FixedBufferAllocator` for
   caller-provided backing storage, and `ArenaAllocator` for region-style
   allocation with bulk reset/free operations.
+- `std.atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
+  load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
+  standard-library facade over the compiler atomic builtins.
 - `std.slice` defines `SliceIter`, and slices provide `.iter()` for explicit
   read-only iteration.
 - `std.range` defines range-to-iterator adapters for integer ranges. Its
@@ -1795,6 +1799,12 @@ range.start()
 range.end()
 slice.get_ptr_read()
 slice.get_ptr()
+@atomic_load[T](ptr, order)
+@atomic_store[T](ptr, value, order)
+@atomic_rmw[T](ptr, op, value, order)
+@cmpxchg_strong[T](ptr, expected, desired, success, failure)
+@cmpxchg_weak[T](ptr, expected, desired, success, failure)
+@fence(order)
 @asm({...})
 ```
 
@@ -1834,6 +1844,33 @@ and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
 intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
 with `&array[..]`. User types may implement these traits for custom contiguous
 storage abstractions, but may not overlap compiler-proven slice implementations.
+
+Atomic builtins provide the low-level primitive operations behind `std.atomic`.
+Their `order` and `op` arguments must be compile-time integer constants. The
+standard library exposes named constants for these values:
+
+```text
+ordering: Unordered=0, Monotonic=1, Acquire=2, Release=3, AcqRel=4, SeqCst=5
+rmw op:   Xchg=0, Add=1, Sub=2, And=3, Nand=4, Or=5, Xor=6,
+          Max=7, Min=8, UMax=9, UMin=10
+```
+
+`@atomic_load[T]` takes `&T` or `&mut T` and returns `T`.
+`@atomic_store[T]` takes `&mut T` and returns `void`.
+`@atomic_rmw[T]` takes `&mut T`, applies an atomic read-modify-write operation,
+and returns the previous value. `@cmpxchg_strong[T]` and
+`@cmpxchg_weak[T]` return `null` on success or `?old_value` on failure.
+`@fence(order)` emits an atomic fence and returns `void`.
+
+The current supported atomic value types are bool, integer, enum, and pointer
+types whose width does not exceed the target pointer width. Floating point,
+slices, structs, arrays, and unions are not atomic value types. Legal ordering
+sets follow the operation kind: loads allow Unordered, Monotonic, Acquire, and
+SeqCst; stores allow Unordered, Monotonic, Release, and SeqCst; read-modify-write
+and cmpxchg success orderings allow Monotonic, Acquire, Release, AcqRel, and
+SeqCst; cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must
+not be stronger than the success ordering; fences allow Acquire, Release,
+AcqRel, and SeqCst.
 
 `@asm({...})` is the inline assembly escape hatch for syscalls, special
 registers, port I/O, CPU instructions, and freestanding runtime glue. Its

@@ -264,6 +264,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_trait_object_vtables_from_expr(&input.value, out, seen);
                 }
             }
+            FunctionExprKind::Atomic(atomic) => {
+                self.collect_trait_object_vtables_from_atomic(atomic, out, seen);
+            }
             FunctionExprKind::Error
             | FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
@@ -280,6 +283,35 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
             | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn collect_trait_object_vtables_from_atomic(
+        &mut self,
+        atomic: &nia_function_ir::FunctionAtomic,
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        match atomic {
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
+                self.collect_trait_object_vtables_from_expr(ptr, out, seen)
+            }
+            nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
+            | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
+                self.collect_trait_object_vtables_from_expr(ptr, out, seen);
+                self.collect_trait_object_vtables_from_expr(value, out, seen);
+            }
+            nia_function_ir::FunctionAtomic::Cmpxchg {
+                ptr,
+                expected,
+                desired,
+                ..
+            } => {
+                self.collect_trait_object_vtables_from_expr(ptr, out, seen);
+                self.collect_trait_object_vtables_from_expr(expected, out, seen);
+                self.collect_trait_object_vtables_from_expr(desired, out, seen);
+            }
+            nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
     }
 
