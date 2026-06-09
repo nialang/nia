@@ -134,6 +134,9 @@ extend GeneralPurposeAllocator : Allocator {
                 if new_layout.is_empty() {
                     return false;
                 }
+                if block.align() != new_layout.align() {
+                    return false;
+                }
                 var slot = switch small_page_slot_for_ptr(page, block.ptr()) {
                     ?value => value,
                     null => return false,

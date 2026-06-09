@@ -4362,7 +4362,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let align_layout = mem::Layout::init(1, 1).exit().?;
     let align_block = allocator.alloc(align_layout).exit().?;
-    if allocator.resize(align_block, mem::Layout::init(1, 64).exit().?) {
+    if allocator.resize(align_block, mem::Layout::init(1, 2).exit().?) {
         return (11 as process::ExitCode)!;
     }
     allocator.free(align_block).exit().?;
