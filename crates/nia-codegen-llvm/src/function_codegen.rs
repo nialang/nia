@@ -18,8 +18,9 @@ use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBody, FunctionBuiltinValue, FunctionErrorUnionTag, FunctionExpr, FunctionExprKind,
-    FunctionLocal, FunctionLocalKind, FunctionRange, FunctionScopeId,
+    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionErrorUnionTag,
+    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionRange,
+    FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -352,6 +353,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 value,
             } => self.emit_insert_element(expr, vector, index, value),
             FunctionExprKind::Bitmask { vector } => self.emit_bitmask(expr, vector),
+            FunctionExprKind::BitIntrinsic { op, value } => {
+                self.emit_bit_intrinsic(expr, *op, value)
+            }
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }
@@ -526,6 +530,38 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_int_z_extend(packed, self.module.context.i64_type(), "bitmask")
             .map(Into::into)
             .map_err(|_| self.error(expr.span, "failed to widen SIMD mask"))
+    }
+
+    fn emit_bit_intrinsic(
+        &mut self,
+        expr: &FunctionExpr,
+        op: FunctionBitIntrinsicOp,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let value = self.emit_expr(value)?;
+        let ty = value.get_type()?;
+        let intrinsic_name = match op {
+            FunctionBitIntrinsicOp::Ctz => "llvm.cttz",
+            FunctionBitIntrinsicOp::Clz => "llvm.ctlz",
+            FunctionBitIntrinsicOp::Popcount => "llvm.ctpop",
+        };
+        let intrinsic = nia_llvm::intrinsics::Intrinsic::find(intrinsic_name)
+            .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[ty]))
+            .ok_or_else(|| self.error(expr.span, "failed to declare bit intrinsic"))?;
+        let call = match op {
+            FunctionBitIntrinsicOp::Ctz | FunctionBitIntrinsicOp::Clz => {
+                let zero_is_poison = self.module.context.bool_type().const_int(0, false);
+                self.builder
+                    .build_call(intrinsic, &[value, zero_is_poison.into()], "bitintr")
+            }
+            FunctionBitIntrinsicOp::Popcount => {
+                self.builder.build_call(intrinsic, &[value], "bitintr")
+            }
+        }
+        .map_err(|_| self.error(expr.span, "failed to build bit intrinsic call"))?;
+        call.try_as_basic_value()
+            .unwrap_basic()
+            .map_err(|_| self.error(expr.span, "bit intrinsic did not produce a value"))
     }
 
     fn emit_trait_object_coercion(

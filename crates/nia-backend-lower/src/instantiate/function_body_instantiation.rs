@@ -321,6 +321,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
                     vector: Box::new(self.instantiate_expr(*vector, substitutions)),
                 },
+                FunctionExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
+                    op,
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                },
                 FunctionExprKind::ExtractElement { vector, index } => {
                     FunctionExprKind::ExtractElement {
                         vector: Box::new(self.instantiate_expr(*vector, substitutions)),

@@ -1396,6 +1396,59 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_bit_intrinsics_are_zero_defined() {
+    let root = temp_dir("emit_exe_bit_intrinsics_are_zero_defined");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    if @ctz[usize](0usize) != 64usize {
+        return (1 as process::ExitCode)!;
+    }
+    if @clz[usize](0usize) != 64usize {
+        return (2 as process::ExitCode)!;
+    }
+    if @ctz[usize](0x8010usize) != 4usize {
+        return (3 as process::ExitCode)!;
+    }
+    if @clz[usize](0x8010usize) != 48usize {
+        return (4 as process::ExitCode)!;
+    }
+    if @popcount[usize](0x8010usize) != 2usize {
+        return (5 as process::ExitCode)!;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exit_code_is_open_enum() {
     let root = temp_dir("emit_exe_exit_code_is_open_enum");
     let main = root.join("main.nia");

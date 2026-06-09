@@ -443,6 +443,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::Cast { expr, .. } => is_pure_discardable_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
@@ -952,6 +953,7 @@ fn rewrite_local_copies_in_expr(
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -1298,6 +1300,7 @@ fn rewrite_local_constants_in_expr(
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -1585,6 +1588,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::Discard(expr) => changed |= simplify_constant_logical_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             changed |= simplify_constant_logical_expr(lhs);
@@ -1838,7 +1842,10 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr } => collect_place_locals_in_expr(expr, locals),
+        | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
+            collect_place_locals_in_expr(expr, locals)
+        }
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_place_locals_in_array_elements(elems, locals)
         }
@@ -2097,7 +2104,10 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr } => collect_read_locals_in_expr(expr, locals),
+        | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
+            collect_read_locals_in_expr(expr, locals)
+        }
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_read_locals_in_array_elements(elems, locals)
         }
@@ -2369,7 +2379,8 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr } => {
+        | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
             collect_referenced_locals_in_expr(expr, refs)
         }
         FunctionExprKind::ArrayLiteral { elems } => {
@@ -2692,6 +2703,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
+        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -2951,6 +2963,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::Unary { .. }
         | FunctionExprKind::Splat { .. }
         | FunctionExprKind::Bitmask { .. }
+        | FunctionExprKind::BitIntrinsic { .. }
         | FunctionExprKind::ExtractElement { .. }
         | FunctionExprKind::InsertElement { .. }
         | FunctionExprKind::Binary { .. }

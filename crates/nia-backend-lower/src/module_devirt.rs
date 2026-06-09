@@ -161,6 +161,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Try { expr: array }
             | FunctionExprKind::Splat { value: array }
             | FunctionExprKind::Bitmask { vector: array }
+            | FunctionExprKind::BitIntrinsic { value: array, .. }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }

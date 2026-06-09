@@ -1822,6 +1822,13 @@ range.start()
 range.end()
 slice.get_ptr_read()
 slice.get_ptr()
+@splat[Vec](value)
+@extract(vector, index)
+@insert(vector, index, value)
+@bitmask(mask)
+@ctz[T](value)
+@clz[T](value)
+@popcount[T](value)
 @atomic_load[T](ptr, order)
 @atomic_store[T](ptr, value, order)
 @atomic_rmw[T](ptr, op, value, order)
@@ -1867,6 +1874,23 @@ and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
 intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
 with `&array[..]`. User types may implement these traits for custom contiguous
 storage abstractions, but may not overlap compiler-proven slice implementations.
+
+SIMD vector builtins operate on primitive vector types such as `u8x16` and
+`boolx16`. `@splat[Vec](value)` constructs a vector whose lanes all contain
+`value`; `Vec` must be a SIMD vector type and `value` must have its lane type.
+`@extract(vector, index)` reads one lane, and `@insert(vector, index, value)`
+returns a copy of `vector` with one lane replaced. Lane indexes are integer
+values. Out-of-range indexes have backend-defined behavior.
+
+Vector comparisons return boolean mask vectors such as `boolx16`. `@bitmask`
+packs a boolean mask vector into `usize`, with lane 0 in the least significant
+bit. It currently supports masks up to 64 lanes.
+
+Bit-counting builtins operate on integer primitive types. `@ctz[T](value)`
+returns the number of trailing zero bits, `@clz[T](value)` returns the number
+of leading zero bits, and `@popcount[T](value)` returns the number of set bits.
+The argument and result both have type `T`. `@ctz[T](0)` and `@clz[T](0)` are
+defined to return the bit width of `T`.
 
 Atomic builtins provide the low-level primitive operations behind `std.atomic`.
 Their `order` and `op` arguments must be compile-time integer constants. The

@@ -361,3 +361,38 @@ fn invalid_type_arg(v: boolx16) usize {
         checked.diagnostics
     );
 }
+
+#[test]
+fn checks_bit_intrinsic_builtins() {
+    let checked = pipeline(
+        r#"
+fn bits(mask: usize) usize {
+    @ctz[usize](mask) + @clz[usize](mask) + @popcount[usize](mask)
+}
+
+fn invalid_type(value: bool) usize {
+    @ctz[bool](value)
+}
+
+fn missing_type(value: usize) usize {
+    @popcount(value)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("got bool")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("builtin `@popcount` requires an integer type argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
