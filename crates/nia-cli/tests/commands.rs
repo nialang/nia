@@ -5934,6 +5934,53 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    tombstones.shrink_to_fit(&mut gpa).?;
+    if tombstones.len() != 1usize or tombstones.capacity() != 8usize {
+        return mem::Error::Invalid!;
+    }
+    switch tombstones.get(&777) {
+        ?value => if value.* != 888 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    tombstones.shrink_to_capacity(&mut gpa, 14usize).?;
+    if tombstones.len() != 1usize or tombstones.capacity() != 8usize {
+        return mem::Error::Invalid!;
+    }
+    switch tombstones.remove(&777) {
+        ?value => if value != 888 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+    tombstones.shrink_to_fit(&mut gpa).?;
+    if tombstones.len() != 0usize or tombstones.capacity() != 0usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 10 {
+        _ = tombstones.put(&mut gpa, key, key * 11).?;
+        key += 1;
+    }
+    tombstones.reserve(&mut gpa, 64usize).?;
+    if tombstones.capacity() < 64usize {
+        return mem::Error::Invalid!;
+    }
+    tombstones.shrink_to_capacity(&mut gpa, 14usize).?;
+    if tombstones.len() != 10usize or tombstones.capacity() != 16usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 10 {
+        switch tombstones.get(&key) {
+            ?value => if value.* != key * 11 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
 
     var model_map = std::HashMap[i32, i32]::init_seed(557u64);
     defer model_map.deinit(&mut gpa).?;
@@ -6244,6 +6291,27 @@ fn run(init: process::Init) mem::Error!void {
         },
     }
     if free_fail.capacity() != free_fail_grown_capacity or free_fail.len() != 14usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 14 {
+        switch free_fail.get(&key) {
+            ?value => if value.* != key + 5 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    free_fail_allocator.clear_failures();
+    free_fail_allocator.fail_next_free();
+    switch free_fail.shrink_to_fit(&mut free_fail_allocator) {
+        !ok => return mem::Error::Invalid!,
+        err! => if err as i32 != mem::Error::Invalid as i32 {
+            return err!;
+        },
+    }
+    if free_fail.capacity() != 16usize or free_fail.len() != 14usize {
         return mem::Error::Invalid!;
     }
     key = 0;
