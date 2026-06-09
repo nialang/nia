@@ -1,6 +1,7 @@
 import std.os.linux.fd;
 import std.os.linux.mem as memory;
 import std.os.linux.process;
+import std.os.linux.random as random_impl;
 import std.os.linux.stat;
 import std.os.linux.types;
 
@@ -75,6 +76,10 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
 
 pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!void {
     memory::unmap_pages(ptr, len)
+}
+
+pub fn random(bytes: &mut [u8]) Errno!void {
+    random_impl::random(bytes)
 }
 
 pub fn exit(code: i32) void {
