@@ -269,3 +269,29 @@ fn scan(mask: usize) usize {
         "expected zero-defined ctz call:\n{ir}"
     );
 }
+
+#[test]
+fn emits_unaligned_vector_load_builtin() {
+    let root = temp_dir("emits_unaligned_vector_load_builtin");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn load(ptr: &u8) u8x8 {
+    @load_unaligned[u8x8](ptr)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("load <8 x i8>, ptr %") && ir.contains("align 1"),
+        "expected explicit align-1 vector load:\n{ir}"
+    );
+}

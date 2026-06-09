@@ -647,6 +647,7 @@ impl FunctionLowerer {
                 | TypedExprKind::ErrorOk { expr: inner }
                 | TypedExprKind::ErrorErr { expr: inner }
                 | TypedExprKind::Try { expr: inner }
+                | TypedExprKind::LoadUnaligned { ptr: inner, .. }
                 | TypedExprKind::Splat { value: inner }
                 | TypedExprKind::Bitmask { vector: inner }
                 | TypedExprKind::BitIntrinsic { value: inner, .. }

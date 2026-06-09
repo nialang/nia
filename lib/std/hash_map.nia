@@ -22,6 +22,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ctrl: &mut [u8],
     keys: &mut [K],
     values: &mut [V],
+    bucket_count: usize,
     len: usize,
     growth_left: usize,
     seed: u64,
@@ -184,7 +185,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = HashMapEntryRef[K, V];
 
     pub fn next(&mut self) ?HashMapEntryRef[K, V] {
-        while self.index < self.map.ctrl.len() {
+        while self.index < self.map.capacity() {
             let index = self.index;
             self.index += 1usize;
             if is_full(self.map.ctrl[index]) {
@@ -288,6 +289,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             ctrl: dangling_slice[u8](),
             keys: dangling_slice[K](),
             values: dangling_slice[V](),
+            bucket_count: 0usize,
             len: 0usize,
             growth_left: 0usize,
             seed: seed,
@@ -315,6 +317,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.ctrl = dangling_slice[u8]();
         self.keys = dangling_slice[K]();
         self.values = dangling_slice[V]();
+        self.bucket_count = 0usize;
         self.len = 0usize;
         self.growth_left = 0usize;
         switch result {
@@ -328,7 +331,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn capacity(&self) usize {
-        self.ctrl.len()
+        self.bucket_count
     }
 
     pub fn is_empty(&self) bool {
@@ -336,7 +339,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn clear(&mut self) void {
-        fill_ctrl(self.ctrl, ctrl_empty);
+        fill_ctrl(&mut self.ctrl[0..self.bucket_count], ctrl_empty);
+        mirror_ctrl_tail(self.ctrl, self.bucket_count);
         self.len = 0usize;
         self.growth_left = usable_capacity(self.capacity());
     }
@@ -494,7 +498,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.ctrl[slot] == ctrl_empty {
             self.growth_left -= 1usize;
         }
-        self.ctrl[slot] = tag(hash_after_grow);
+        self.set_ctrl(slot, tag(hash_after_grow));
         self.keys[slot] = key;
         self.len += 1usize;
         !slot
@@ -504,7 +508,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         switch self.find_index(key, self.hash_key(key)) {
             ?index => {
                 let value = self.values[index];
-                self.ctrl[index] = ctrl_deleted;
+                self.set_ctrl(index, ctrl_deleted);
                 self.len -= 1usize;
                 ?value
             },
@@ -517,7 +521,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             ?index => {
                 let found_key = self.keys[index];
                 let value = self.values[index];
-                self.ctrl[index] = ctrl_deleted;
+                self.set_ctrl(index, ctrl_deleted);
                 self.len -= 1usize;
                 ?{ key: found_key, value: value }
             },
@@ -635,31 +639,42 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         old_map.ctrl = self.ctrl;
         old_map.keys = self.keys;
         old_map.values = self.values;
+        old_map.bucket_count = self.bucket_count;
         old_map.len = self.len;
         old_map.growth_left = self.growth_left;
         self.ctrl = new_map.ctrl;
         self.keys = new_map.keys;
         self.values = new_map.values;
+        self.bucket_count = new_map.bucket_count;
         self.len = new_map.len;
         self.growth_left = new_map.growth_left;
         new_map.ctrl = dangling_slice[u8]();
         new_map.keys = dangling_slice[K]();
         new_map.values = dangling_slice[V]();
+        new_map.bucket_count = 0usize;
         old_map.free_allocations(allocator)
     }
 
     fn insert_existing(&mut self, key: K, value: V) void {
         let value_hash = self.hash_key(&key);
         let slot = self.find_insert_index(value_hash);
-        self.ctrl[slot] = tag(value_hash);
+        self.set_ctrl(slot, tag(value_hash));
         self.keys[slot] = key;
         self.values[slot] = value;
         self.len += 1usize;
         self.growth_left -= 1usize;
     }
 
+    fn set_ctrl(&mut self, index: usize, value: u8) void {
+        self.ctrl[index] = value;
+        if index < group_width - 1usize {
+            self.ctrl[self.bucket_count + index] = value;
+        }
+    }
+
     fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
-        let ctrl_layout = mem::Layout::array[u8](capacity).?;
+        let ctrl_len = ctrl_allocation_len(capacity).?;
+        let ctrl_layout = mem::Layout::array[u8](ctrl_len).?;
         let keys_layout = mem::Layout::array[K](capacity).?;
         let values_layout = mem::Layout::array[V](capacity).?;
         let ctrl_block = allocator.alloc(ctrl_layout).?;
@@ -704,6 +719,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
         self.ctrl = ctrl_block.as_slice[u8]();
         fill_ctrl(self.ctrl, ctrl_empty);
+        self.bucket_count = capacity;
         self.len = 0usize;
         self.growth_left = usable_capacity(capacity);
         !{}
@@ -719,7 +735,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             }
         }
         if self.keys.len() != 0usize {
-            let layout = mem::Layout::array[K](self.keys.len()).?;
+            let layout = mem::Layout::array[K](self.bucket_count).?;
             if not layout.is_empty() {
                 switch allocator.free(mem::Block::init(self.keys.get_ptr() as &mut u8, layout)) {
                     !ok => _ = ok,
@@ -733,7 +749,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             }
         }
         if self.values.len() != 0usize {
-            let layout = mem::Layout::array[V](self.values.len()).?;
+            let layout = mem::Layout::array[V](self.bucket_count).?;
             if not layout.is_empty() {
                 switch allocator.free(mem::Block::init(self.values.get_ptr() as &mut u8, layout)) {
                     !ok => _ = ok,
@@ -755,12 +771,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
 extend ProbeGroup {
     fn load(ctrl: &[u8], cursor: &ProbeCursor, needle: u8) ProbeGroup {
-        var bytes = @splat[u8x8](0u8);
-        var offset = 0usize;
-        while offset < group_width {
-            bytes = @insert(bytes, offset, ctrl[cursor.index(offset)]);
-            offset += 1usize;
-        }
+        let bytes = @load_unaligned[u8x8](&ctrl[cursor.pos]);
 
         let match_mask = @bitmask(bytes == @splat[u8x8](needle));
         let empty_mask = @bitmask(bytes == @splat[u8x8](ctrl_empty));
@@ -850,6 +861,27 @@ fn first_set(mask: usize) usize {
 
 fn clear_lowest_set(mask: usize) usize {
     mask & (mask - 1usize)
+}
+
+fn ctrl_allocation_len(capacity: usize) mem::Error!usize {
+    if capacity == 0usize {
+        return !0usize;
+    }
+    switch capacity.checked_add(group_width - 1usize) {
+        ?value => !value,
+        null => mem::Error::OutOfMemory!,
+    }
+}
+
+fn mirror_ctrl_tail(ctrl: &mut [u8], bucket_count: usize) void {
+    if bucket_count == 0usize {
+        return;
+    }
+    var index = 0usize;
+    while index < group_width - 1usize {
+        ctrl[bucket_count + index] = ctrl[index];
+        index += 1usize;
+    }
 }
 
 fn matches_tag(control: u8, needle: u8) bool {

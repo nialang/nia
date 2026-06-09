@@ -468,6 +468,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         }
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::Atomic(_)
+        | FunctionExprKind::LoadUnaligned { .. }
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
@@ -951,6 +952,7 @@ fn rewrite_local_copies_in_expr(
             rewrite_local_copies_in_expr(&mut field.value, copies)
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -1298,6 +1300,7 @@ fn rewrite_local_constants_in_expr(
             rewrite_local_constants_in_expr(&mut field.value, constants)
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -1586,6 +1589,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -1841,6 +1845,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
@@ -2103,6 +2108,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
@@ -2378,6 +2384,7 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. } => {
@@ -2701,6 +2708,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
@@ -2961,6 +2969,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::TaggedUnionPayload { .. }
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::Unary { .. }
+        | FunctionExprKind::LoadUnaligned { .. }
         | FunctionExprKind::Splat { .. }
         | FunctionExprKind::Bitmask { .. }
         | FunctionExprKind::BitIntrinsic { .. }

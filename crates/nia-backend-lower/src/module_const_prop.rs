@@ -372,6 +372,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::TaggedUnionTag { expr: array }
         | FunctionExprKind::TaggedUnionPayload { expr: array }
         | FunctionExprKind::Try { expr: array }
+        | FunctionExprKind::LoadUnaligned { ptr: array, .. }
         | FunctionExprKind::Splat { value: array }
         | FunctionExprKind::Bitmask { vector: array }
         | FunctionExprKind::BitIntrinsic { value: array, .. }

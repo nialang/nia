@@ -315,6 +315,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
+                FunctionExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
+                    ty: self.instantiate_ty_with_id(ty, substitutions),
+                    ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
+                },
                 FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
                     value: Box::new(self.instantiate_expr(*value, substitutions)),
                 },

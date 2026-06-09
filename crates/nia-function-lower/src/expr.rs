@@ -48,6 +48,10 @@ impl FunctionLowerer {
             TypedExprKind::Atomic(atomic) => {
                 FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
             }
+            TypedExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
+                ty: *ty,
+                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
+            },
             TypedExprKind::Splat { value } => FunctionExprKind::Splat {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },

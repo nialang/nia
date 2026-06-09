@@ -107,6 +107,20 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    pub fn build_aligned_load<T: AsTypeRef>(
+        &self,
+        ty: T,
+        ptr: PointerValue<'ctx>,
+        align: u32,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let value = self.build_load(ty, ptr, name)?;
+        value
+            .as_instruction_value()
+            .map(|inst| inst.set_alignment(align));
+        Ok(value)
+    }
+
     pub fn build_volatile_store<V: BasicValue<'ctx>>(
         &self,
         ptr: PointerValue<'ctx>,
