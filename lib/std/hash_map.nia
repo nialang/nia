@@ -353,6 +353,24 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.deinit(allocator)
     }
 
+    pub fn shrink_to_fit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.shrink_to_capacity(allocator, self.len())
+    }
+
+    pub fn shrink_to_capacity(&mut self, allocator: &mut mem::Allocator, min_capacity: usize) mem::Error!void {
+        let target_capacity = max_usize(self.len(), min_capacity);
+        if target_capacity == 0usize {
+            self.clear_and_free(allocator).?;
+            return !{};
+        }
+
+        let target = capacity_to_buckets(target_capacity).?;
+        if target >= self.capacity() {
+            return self.compact(allocator);
+        }
+        self.rehash_to_buckets(allocator, target)
+    }
+
     pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
         if self.capacity() == 0usize {
             return !{};
@@ -967,6 +985,14 @@ fn capacity_to_buckets(capacity: usize) mem::Error!usize {
     };
     let adjusted = biased / 7usize;
     next_power_of_two(adjusted)
+}
+
+fn max_usize(left: usize, right: usize) usize {
+    if left > right {
+        left
+    } else {
+        right
+    }
 }
 
 fn next_power_of_two(value: usize) mem::Error!usize {
