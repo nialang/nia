@@ -543,6 +543,16 @@ impl<'a> BodyChecker<'a> {
                 self.interner.get(specific),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
+            Some(TyKind::Vector {
+                elem: general_elem,
+                lanes: general_lanes,
+            }) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::Vector {
+                    elem: specific_elem,
+                    lanes: specific_lanes,
+                }) if general_elem == specific_elem && general_lanes == specific_lanes
+            ),
             Some(TyKind::Pointer {
                 is_readonly: general_const,
                 elem: general_elem,
@@ -1185,9 +1195,9 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::Primitive(_)) | Some(TyKind::ComptimeOnly | TyKind::Error) | None => {
-                self.types_match(pattern, actual)
-            }
+            Some(TyKind::Primitive(_) | TyKind::Vector { .. })
+            | Some(TyKind::ComptimeOnly | TyKind::Error)
+            | None => self.types_match(pattern, actual),
         }
     }
 

@@ -349,7 +349,9 @@ impl MonoCollector<'_> {
                         .iter()
                         .any(|arg| self.ty_contains_generic_param(module_id, *arg))
             }
-            TyKind::Primitive(_) | TyKind::ComptimeOnly | TyKind::Error => false,
+            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ComptimeOnly | TyKind::Error => {
+                false
+            }
         }
     }
 
@@ -569,6 +571,7 @@ impl MonoCollector<'_> {
             }
             TyKind::GenericParam(_)
             | TyKind::Primitive(_)
+            | TyKind::Vector { .. }
             | TyKind::ComptimeOnly
             | TyKind::Error => false,
         }
@@ -898,7 +901,9 @@ impl MonoCollector<'_> {
                     },
                 )
             }
-            TyKind::Primitive(_) | TyKind::ComptimeOnly | TyKind::Error => ty,
+            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ComptimeOnly | TyKind::Error => {
+                ty
+            }
         };
         if can_use_cache {
             self.type_instantiations.insert(key, instantiated);
@@ -955,6 +960,7 @@ impl MonoCollector<'_> {
             TyKind::Error => TyKind::Error,
             TyKind::ComptimeOnly => TyKind::ComptimeOnly,
             TyKind::Primitive(primitive) => TyKind::Primitive(primitive),
+            TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
             TyKind::GenericParam(name) => TyKind::GenericParam(name),
             TyKind::Pointer { is_readonly, elem } => TyKind::Pointer {
                 is_readonly,

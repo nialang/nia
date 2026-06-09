@@ -15,7 +15,7 @@ use nia_imports::ImportAliasMap;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;
-use nia_ty::BuiltinTrait;
+use nia_ty::{BuiltinTrait, PrimitiveTypeSpelling};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
@@ -26,35 +26,13 @@ pub struct TypeResolution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeNameResolution {
-    Primitive(PrimitiveType),
+    Primitive(PrimitiveTypeSpelling),
     BuiltinTrait(BuiltinTrait),
     Def(DefId),
     External(GlobalDefId),
     GenericParam,
     AssociatedType,
     Error,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrimitiveType {
-    I8,
-    I16,
-    I32,
-    I64,
-    I128,
-    Isize,
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    Usize,
-    F32,
-    F64,
-    Bool,
-    Char,
-    Void,
-    Never,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -698,7 +676,7 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         node_key: &NodeKey,
     ) -> TypeNameResolution {
-        if let Some(primitive) = primitive_type(&segment.name) {
+        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
             return TypeNameResolution::Primitive(primitive);
         }
         if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
@@ -801,30 +779,6 @@ fn type_path_text(segments: &[TypePathSegment]) -> String {
         .map(|segment| segment.name.as_str())
         .collect::<Vec<_>>()
         .join("::")
-}
-
-fn primitive_type(name: &str) -> Option<PrimitiveType> {
-    Some(match name {
-        "i8" => PrimitiveType::I8,
-        "i16" => PrimitiveType::I16,
-        "i32" => PrimitiveType::I32,
-        "i64" => PrimitiveType::I64,
-        "i128" => PrimitiveType::I128,
-        "isize" => PrimitiveType::Isize,
-        "u8" => PrimitiveType::U8,
-        "u16" => PrimitiveType::U16,
-        "u32" => PrimitiveType::U32,
-        "u64" => PrimitiveType::U64,
-        "u128" => PrimitiveType::U128,
-        "usize" => PrimitiveType::Usize,
-        "f32" => PrimitiveType::F32,
-        "f64" => PrimitiveType::F64,
-        "bool" => PrimitiveType::Bool,
-        "char" => PrimitiveType::Char,
-        "void" => PrimitiveType::Void,
-        "!" => PrimitiveType::Never,
-        _ => return None,
-    })
 }
 
 #[cfg(test)]

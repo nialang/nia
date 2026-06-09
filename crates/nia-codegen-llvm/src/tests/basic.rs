@@ -61,3 +61,33 @@ fn main() i32 {
     assert!(ir.contains("add i32"));
     assert!(ir.contains("ret i32"));
 }
+
+#[test]
+fn emits_primitive_vector_param_and_return_types() {
+    let root = temp_dir("emits_primitive_vector_param_and_return_types");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn id(v: u8x16) u8x16 {
+    v
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define <16 x i8> @"),
+        "expected vector return type in IR:\n{ir}"
+    );
+    assert!(
+        ir.contains("<16 x i8> %"),
+        "expected vector parameter type in IR:\n{ir}"
+    );
+}

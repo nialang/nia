@@ -1266,9 +1266,10 @@ where
                 }
                 _ => false,
             },
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
-                self.types_equivalent(pattern, actual)
-            }
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => self.types_equivalent(pattern, actual),
         }
     }
 
@@ -1416,7 +1417,10 @@ where
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => ty,
         }
     }
 

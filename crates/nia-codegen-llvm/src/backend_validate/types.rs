@@ -6,7 +6,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_layout::TypeLayout;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, RangeTyKind, TyKind, TypeEquivalence};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEquivalence};
 
 use super::{BackendValidator, align_to, primitive_layout};
 
@@ -130,7 +130,34 @@ impl BackendValidator<'_> {
                 span,
                 format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
             )),
+            TyKind::Vector { elem, lanes } => self.validate_vector_type(ty, span, elem, lanes),
             TyKind::Primitive(_) | TyKind::GenericParam(_) | TyKind::Error => {}
+        }
+    }
+
+    fn validate_vector_type(
+        &mut self,
+        ty: InternedTyId,
+        span: Span,
+        elem: PrimitiveTy,
+        lanes: u32,
+    ) {
+        if !elem.is_vector_element() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!(
+                    "backend IR SIMD vector type {ty:?} has invalid element type `{}`",
+                    elem.name()
+                ),
+            ));
+        }
+        if lanes == 0 {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("backend IR SIMD vector type {ty:?} has zero lanes"),
+            ));
         }
     }
 
@@ -205,6 +232,7 @@ impl BackendValidator<'_> {
         }
         match owner.interner.get(ty)? {
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
+            TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
             TyKind::Pointer { .. } | TyKind::FunctionPointer { .. } => {
                 Some(TypeLayout { size: 8, align: 8 })
             }
@@ -342,6 +370,17 @@ impl BackendValidator<'_> {
             | TyKind::GenericParam(_)
             | TyKind::Error => None,
         }
+    }
+
+    fn vector_layout(&self, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
+        if !elem.is_vector_element() || lanes == 0 {
+            return None;
+        }
+        let elem_layout = primitive_layout(elem);
+        Some(TypeLayout {
+            size: elem_layout.size.checked_mul(lanes as u64)?,
+            align: elem_layout.align,
+        })
     }
 
     fn zero_sized_aggregate_layout(

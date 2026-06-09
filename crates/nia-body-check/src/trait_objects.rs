@@ -429,6 +429,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )
             | None => {}
@@ -715,6 +716,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )
             | None => ty,
@@ -790,6 +792,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )
             | None => false,

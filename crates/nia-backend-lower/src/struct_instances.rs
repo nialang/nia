@@ -607,7 +607,8 @@ impl<'a> ModuleLowerer<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
-                | TyKind::Primitive(_),
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. },
             )
             | None => {}
         }
@@ -1084,7 +1085,8 @@ impl<'a> ModuleLowerer<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
-                | TyKind::Primitive(_),
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. },
             )
             | None => {}
         }

@@ -487,7 +487,7 @@ impl<'a> ValueResolver<'a> {
             self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
-        if let Some(primitive) = primitive_type(segment.name) {
+        if let Some(primitive) = PrimitiveTy::from_name(segment.name) {
             return Some(ResolvedNamespace::Primitive(primitive));
         }
         None
@@ -826,30 +826,6 @@ fn qualified_path_text(segments: &[PathSegment<'_>]) -> String {
         .map(|segment| segment.name)
         .collect::<Vec<_>>()
         .join("::")
-}
-
-fn primitive_type(name: &str) -> Option<PrimitiveTy> {
-    Some(match name {
-        "i8" => PrimitiveTy::I8,
-        "i16" => PrimitiveTy::I16,
-        "i32" => PrimitiveTy::I32,
-        "i64" => PrimitiveTy::I64,
-        "i128" => PrimitiveTy::I128,
-        "isize" => PrimitiveTy::Isize,
-        "u8" => PrimitiveTy::U8,
-        "u16" => PrimitiveTy::U16,
-        "u32" => PrimitiveTy::U32,
-        "u64" => PrimitiveTy::U64,
-        "u128" => PrimitiveTy::U128,
-        "usize" => PrimitiveTy::Usize,
-        "f32" => PrimitiveTy::F32,
-        "f64" => PrimitiveTy::F64,
-        "bool" => PrimitiveTy::Bool,
-        "char" => PrimitiveTy::Char,
-        "void" => PrimitiveTy::Void,
-        "!" => PrimitiveTy::Never,
-        _ => return None,
-    })
 }
 
 fn primitive_associated_value(

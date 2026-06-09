@@ -208,6 +208,11 @@ impl AbiChecker<'_> {
                 ))
             }
             Some(TyKind::Primitive(_)) | Some(TyKind::Pointer { .. }) => {}
+            Some(TyKind::Vector { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
+                span,
+                format!("{context_desc} cannot use SIMD vector by value"),
+            )),
             Some(TyKind::Slice { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,

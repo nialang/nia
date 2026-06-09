@@ -152,6 +152,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         match owner.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
+            Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => Some(TypeLayout {
                 size: owner.layouts.target.pointer_size,
                 align: owner.layouts.target.pointer_align,
@@ -254,6 +255,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 size: self.source.layouts.target.pointer_size,
                 align: self.source.layouts.target.pointer_align,
             },
+        })
+    }
+
+    fn vector_layout(&self, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
+        if !elem.is_vector_element() || lanes == 0 {
+            return None;
+        }
+        let elem_layout = self.primitive_layout(elem)?;
+        Some(TypeLayout {
+            size: elem_layout.size.checked_mul(lanes as u64)?,
+            align: elem_layout.align,
         })
     }
 

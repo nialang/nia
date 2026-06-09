@@ -13,10 +13,10 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::{
-    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind,
-    TraitId, TyInterner, TyKind,
+    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy,
+    PrimitiveTypeSpelling, RangeTyKind, TraitId, TyInterner, TyKind,
 };
-use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
+use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
@@ -620,7 +620,7 @@ impl<'a> TypeLowerer<'a> {
                 };
                 match self.resolved.node_type_names.get(&ty.node_key).copied() {
                     Some(TypeNameResolution::Primitive(primitive)) => {
-                        self.interner.primitive(lower_primitive(primitive))
+                        self.lower_primitive_type(primitive)
                     }
                     Some(TypeNameResolution::BuiltinTrait(trait_id)) => self
                         .lower_builtin_trait_or_extend_target_type(
@@ -1421,26 +1421,14 @@ fn type_name_segment(segments: &[TypePathSegment]) -> Option<&TypePathSegment> {
     segments.last()
 }
 
-fn lower_primitive(primitive: PrimitiveType) -> PrimitiveTy {
-    match primitive {
-        PrimitiveType::I8 => PrimitiveTy::I8,
-        PrimitiveType::I16 => PrimitiveTy::I16,
-        PrimitiveType::I32 => PrimitiveTy::I32,
-        PrimitiveType::I64 => PrimitiveTy::I64,
-        PrimitiveType::I128 => PrimitiveTy::I128,
-        PrimitiveType::Isize => PrimitiveTy::Isize,
-        PrimitiveType::U8 => PrimitiveTy::U8,
-        PrimitiveType::U16 => PrimitiveTy::U16,
-        PrimitiveType::U32 => PrimitiveTy::U32,
-        PrimitiveType::U64 => PrimitiveTy::U64,
-        PrimitiveType::U128 => PrimitiveTy::U128,
-        PrimitiveType::Usize => PrimitiveTy::Usize,
-        PrimitiveType::F32 => PrimitiveTy::F32,
-        PrimitiveType::F64 => PrimitiveTy::F64,
-        PrimitiveType::Bool => PrimitiveTy::Bool,
-        PrimitiveType::Char => PrimitiveTy::Char,
-        PrimitiveType::Void => PrimitiveTy::Void,
-        PrimitiveType::Never => PrimitiveTy::Never,
+impl TypeLowerer<'_> {
+    fn lower_primitive_type(&mut self, primitive: PrimitiveTypeSpelling) -> InternedTyId {
+        match primitive {
+            PrimitiveTypeSpelling::Scalar(primitive) => self.interner.primitive(primitive),
+            PrimitiveTypeSpelling::Vector { elem, lanes } => {
+                self.interner.intern(TyKind::Vector { elem, lanes })
+            }
+        }
     }
 }
 

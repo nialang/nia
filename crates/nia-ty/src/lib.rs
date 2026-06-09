@@ -24,6 +24,10 @@ pub enum TyKind {
         len: ArrayLenTy,
         elem: InternedTyId,
     },
+    Vector {
+        elem: PrimitiveTy,
+        lanes: u32,
+    },
     Range {
         kind: RangeTyKind,
         bound: Option<InternedTyId>,
@@ -106,6 +110,12 @@ pub enum PrimitiveTy {
     Char,
     Void,
     Never,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimitiveTypeSpelling {
+    Scalar(PrimitiveTy),
+    Vector { elem: PrimitiveTy, lanes: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -246,6 +256,10 @@ pub fn import_type_into(
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Array { len, elem })
         }
+        Some(TyKind::Vector { elem, lanes }) => target.intern(TyKind::Vector {
+            elem: *elem,
+            lanes: *lanes,
+        }),
         Some(TyKind::Range { kind, bound }) => {
             let bound = bound.map(|bound| import_type_into(target, source, bound));
             target.intern(TyKind::Range { kind: *kind, bound })
@@ -622,6 +636,118 @@ impl PrimitiveTy {
         Self::Void,
         Self::Never,
     ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "i8" => Self::I8,
+            "i16" => Self::I16,
+            "i32" => Self::I32,
+            "i64" => Self::I64,
+            "i128" => Self::I128,
+            "isize" => Self::Isize,
+            "u8" => Self::U8,
+            "u16" => Self::U16,
+            "u32" => Self::U32,
+            "u64" => Self::U64,
+            "u128" => Self::U128,
+            "usize" => Self::Usize,
+            "f32" => Self::F32,
+            "f64" => Self::F64,
+            "bool" => Self::Bool,
+            "char" => Self::Char,
+            "void" => Self::Void,
+            "!" => Self::Never,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+            Self::Bool => "bool",
+            Self::Char => "char",
+            Self::Void => "void",
+            Self::Never => "!",
+        }
+    }
+
+    pub fn vector_element_from_name(name: &str) -> Option<Self> {
+        match Self::from_name(name)? {
+            primitive if primitive.is_vector_element() => Some(primitive),
+            _ => None,
+        }
+    }
+
+    pub fn is_vector_element(self) -> bool {
+        !matches!(self, Self::Char | Self::Void | Self::Never)
+    }
+
+    pub fn is_integer(self) -> bool {
+        matches!(
+            self,
+            Self::I8
+                | Self::I16
+                | Self::I32
+                | Self::I64
+                | Self::I128
+                | Self::Isize
+                | Self::U8
+                | Self::U16
+                | Self::U32
+                | Self::U64
+                | Self::U128
+                | Self::Usize
+        )
+    }
+
+    pub fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+}
+
+impl PrimitiveTypeSpelling {
+    pub fn from_name(name: &str) -> Option<Self> {
+        if let Some(primitive) = PrimitiveTy::from_name(name) {
+            return Some(Self::Scalar(primitive));
+        }
+        vector_type_spelling(name)
+    }
+}
+
+fn vector_type_spelling(name: &str) -> Option<PrimitiveTypeSpelling> {
+    let (elem, lane_text) = if let Some(rest) = name.strip_prefix("boolx") {
+        (PrimitiveTy::Bool, rest)
+    } else {
+        let split = name.rfind('x')?;
+        let elem_text = &name[..split];
+        let lane_text = &name[(split + 1)..];
+        let elem = PrimitiveTy::vector_element_from_name(elem_text)?;
+        if elem == PrimitiveTy::Bool {
+            return None;
+        }
+        (elem, lane_text)
+    };
+    if lane_text.is_empty() || !lane_text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let lanes = lane_text.parse::<u32>().ok()?;
+    if lanes == 0 {
+        return None;
+    }
+    Some(PrimitiveTypeSpelling::Vector { elem, lanes })
 }
 
 #[cfg(test)]
@@ -644,6 +770,34 @@ mod tests {
             let id = interner.primitive(primitive);
             assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));
         }
+    }
+
+    #[test]
+    fn primitive_type_spelling_resolves_scalar_and_vector_names() {
+        assert_eq!(
+            PrimitiveTypeSpelling::from_name("i32"),
+            Some(PrimitiveTypeSpelling::Scalar(PrimitiveTy::I32))
+        );
+        assert_eq!(
+            PrimitiveTypeSpelling::from_name("u8x16"),
+            Some(PrimitiveTypeSpelling::Vector {
+                elem: PrimitiveTy::U8,
+                lanes: 16,
+            })
+        );
+        assert_eq!(
+            PrimitiveTypeSpelling::from_name("boolx4"),
+            Some(PrimitiveTypeSpelling::Vector {
+                elem: PrimitiveTy::Bool,
+                lanes: 4,
+            })
+        );
+
+        assert_eq!(PrimitiveTypeSpelling::from_name("boolx"), None);
+        assert_eq!(PrimitiveTypeSpelling::from_name("boolx0"), None);
+        assert_eq!(PrimitiveTypeSpelling::from_name("charx4"), None);
+        assert_eq!(PrimitiveTypeSpelling::from_name("voidx4"), None);
+        assert_eq!(PrimitiveTypeSpelling::from_name("!x4"), None);
     }
 
     #[test]

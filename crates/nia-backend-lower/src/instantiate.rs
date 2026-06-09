@@ -699,9 +699,9 @@ impl<'a> ModuleLowerer<'a> {
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly) | Some(TyKind::Primitive(_)) | None => {
-                self.finish_type_instantiation(key, ty, can_use_cache)
-            }
+            Some(TyKind::Error | TyKind::ComptimeOnly)
+            | Some(TyKind::Primitive(_) | TyKind::Vector { .. })
+            | None => self.finish_type_instantiation(key, ty, can_use_cache),
         }
     }
 
@@ -1123,9 +1123,9 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::Primitive(_)) | Some(TyKind::ComptimeOnly | TyKind::Error) | None => {
-                self.types_match(pattern, actual)
-            }
+            Some(TyKind::Primitive(_) | TyKind::Vector { .. })
+            | Some(TyKind::ComptimeOnly | TyKind::Error)
+            | None => self.types_match(pattern, actual),
         }
     }
 
@@ -1196,7 +1196,10 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => true,
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => true,
         }
     }
 

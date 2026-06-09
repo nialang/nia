@@ -167,29 +167,13 @@ pub(super) fn numeric_literal_suffix(text: &str) -> Option<&str> {
 }
 
 fn integer_suffix_ty(text: &str) -> Option<PrimitiveTy> {
-    Some(match numeric_literal_suffix(text)? {
-        "i8" => PrimitiveTy::I8,
-        "i16" => PrimitiveTy::I16,
-        "i32" => PrimitiveTy::I32,
-        "i64" => PrimitiveTy::I64,
-        "i128" => PrimitiveTy::I128,
-        "isize" => PrimitiveTy::Isize,
-        "u8" => PrimitiveTy::U8,
-        "u16" => PrimitiveTy::U16,
-        "u32" => PrimitiveTy::U32,
-        "u64" => PrimitiveTy::U64,
-        "u128" => PrimitiveTy::U128,
-        "usize" => PrimitiveTy::Usize,
-        _ => return None,
-    })
+    let primitive = PrimitiveTy::from_name(numeric_literal_suffix(text)?)?;
+    primitive.is_integer().then_some(primitive)
 }
 
 fn float_suffix_ty(text: &str) -> Option<PrimitiveTy> {
-    Some(match numeric_literal_suffix(text)? {
-        "f32" => PrimitiveTy::F32,
-        "f64" => PrimitiveTy::F64,
-        _ => return None,
-    })
+    let primitive = PrimitiveTy::from_name(numeric_literal_suffix(text)?)?;
+    primitive.is_float().then_some(primitive)
 }
 
 fn numeric_suffix_start(text: &str) -> Option<usize> {

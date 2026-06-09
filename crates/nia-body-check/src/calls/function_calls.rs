@@ -537,7 +537,10 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .any(|arg| self.type_contains_generic_param(*arg))
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => false,
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => false,
         }
     }
 
@@ -797,7 +800,10 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
+            Some(
+                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            )
+            | None => {}
         }
     }
 }

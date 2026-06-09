@@ -111,6 +111,9 @@ where
             mangle_array_len(len, interner, nominal_name, array_len),
             mangle_type_inner(interner, *elem, nominal_name, array_len)
         ),
+        Some(TyKind::Vector { elem, lanes }) => {
+            format!("vec__len__{lanes}__{}", mangle_primitive(*elem))
+        }
         Some(TyKind::Range { kind, bound }) => {
             let kind = match kind {
                 RangeTyKind::Exclusive => "range",
@@ -359,23 +362,7 @@ where
 
 fn mangle_primitive(primitive: PrimitiveTy) -> String {
     match primitive {
-        PrimitiveTy::I8 => "i8".to_string(),
-        PrimitiveTy::I16 => "i16".to_string(),
-        PrimitiveTy::I32 => "i32".to_string(),
-        PrimitiveTy::I64 => "i64".to_string(),
-        PrimitiveTy::I128 => "i128".to_string(),
-        PrimitiveTy::Isize => "isize".to_string(),
-        PrimitiveTy::U8 => "u8".to_string(),
-        PrimitiveTy::U16 => "u16".to_string(),
-        PrimitiveTy::U32 => "u32".to_string(),
-        PrimitiveTy::U64 => "u64".to_string(),
-        PrimitiveTy::U128 => "u128".to_string(),
-        PrimitiveTy::Usize => "usize".to_string(),
-        PrimitiveTy::F32 => "f32".to_string(),
-        PrimitiveTy::F64 => "f64".to_string(),
-        PrimitiveTy::Bool => "bool".to_string(),
-        PrimitiveTy::Char => "char".to_string(),
-        PrimitiveTy::Void => "void".to_string(),
         PrimitiveTy::Never => "never".to_string(),
+        _ => primitive.name().to_string(),
     }
 }
