@@ -5142,6 +5142,14 @@ struct ConstantHashContext {}
 
 struct UnitContext {}
 
+struct FailAllocator {
+    backing: mem::FixedBufferAllocator,
+    alloc_count: usize,
+    free_count: usize,
+    fail_alloc_at: usize,
+    fail_free_at: usize,
+}
+
 struct Key {
     value: i32,
 }
@@ -5160,6 +5168,31 @@ extend ConstantHashContext {
 extend UnitContext {
     fn init() UnitContext {
         {}
+    }
+}
+
+extend FailAllocator {
+    fn init(buffer: &mut [u8]) FailAllocator {
+        {
+            backing: mem::FixedBufferAllocator::init(buffer),
+            alloc_count: 0usize,
+            free_count: 0usize,
+            fail_alloc_at: 0usize,
+            fail_free_at: 0usize,
+        }
+    }
+
+    fn fail_next_alloc(&mut self) void {
+        self.fail_alloc_at = self.alloc_count + 1usize;
+    }
+
+    fn fail_next_free(&mut self) void {
+        self.fail_free_at = self.free_count + 1usize;
+    }
+
+    fn clear_failures(&mut self) void {
+        self.fail_alloc_at = 0usize;
+        self.fail_free_at = 0usize;
     }
 }
 
@@ -5202,6 +5235,36 @@ extend UnitContext : std::HashMapContext[Unit] {
         _ = left;
         _ = right;
         true
+    }
+}
+
+extend FailAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if not layout.is_empty() {
+            self.alloc_count += 1usize;
+            if self.fail_alloc_at == self.alloc_count {
+                return mem::Error::OutOfMemory!;
+            }
+        }
+        self.backing.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!void {
+        if not block.is_empty() {
+            self.free_count += 1usize;
+            if self.fail_free_at == self.free_count {
+                return mem::Error::Invalid!;
+            }
+        }
+        self.backing.free(block)
+    }
+
+    fn resize(&mut self, block: mem::Block, new_layout: mem::Layout) bool {
+        self.backing.resize(block, new_layout)
+    }
+
+    fn remap(&mut self, block: mem::Block, new_layout: mem::Layout) ?mem::Block {
+        self.backing.remap(block, new_layout)
     }
 }
 
@@ -5704,6 +5767,122 @@ fn run(init: process::Init) mem::Error!void {
     }
     if model_sum != expected_sum {
         return mem::Error::Invalid!;
+    }
+
+    var fail_storage: [8192]u8 = [0; 8192];
+    var fail_allocator = FailAllocator::init(fail_storage);
+    var rollback = std::HashMap[i32, i32]::init_seed(558u64);
+    defer rollback.deinit(&mut fail_allocator).?;
+    rollback.reserve(&mut fail_allocator, 14usize).?;
+    key = 0;
+    while key < 14 {
+        _ = rollback.put(&mut fail_allocator, key, key * 10).?;
+        key += 1;
+    }
+    fail_allocator.fail_next_alloc();
+    switch rollback.put(&mut fail_allocator, 99, 990) {
+        !old => {
+            _ = old;
+            return mem::Error::Invalid!;
+        },
+        err! => if err as i32 != mem::Error::OutOfMemory as i32 {
+            return err!;
+        },
+    }
+    if rollback.len() != 14usize or rollback.contains_key(&99) {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 14 {
+        switch rollback.get(&key) {
+            ?value => if value.* != key * 10 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    fail_allocator.clear_failures();
+    _ = rollback.put(&mut fail_allocator, 99, 990).?;
+    switch rollback.get(&99) {
+        ?value => if value.* != 990 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    var rollback_get = std::HashMap[i32, i32]::init_seed(559u64);
+    defer rollback_get.deinit(&mut fail_allocator).?;
+    rollback_get.reserve(&mut fail_allocator, 7usize).?;
+    key = 0;
+    while key < 7 {
+        _ = rollback_get.put(&mut fail_allocator, key, key).?;
+        key += 1;
+    }
+    fail_allocator.fail_next_alloc();
+    switch rollback_get.get_or_put(&mut fail_allocator, 77) {
+        !entry => {
+            _ = entry;
+            return mem::Error::Invalid!;
+        },
+        err! => if err as i32 != mem::Error::OutOfMemory as i32 {
+            return err!;
+        },
+    }
+    if rollback_get.len() != 7usize or rollback_get.contains_key(&77) {
+        return mem::Error::Invalid!;
+    }
+    fail_allocator.clear_failures();
+    var rollback_entry = rollback_get.get_or_put(&mut fail_allocator, 77).?;
+    if rollback_entry.found_existing() {
+        return mem::Error::Invalid!;
+    }
+    rollback_entry.value().* = 770;
+    switch rollback_get.get(&77) {
+        ?value => if value.* != 770 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
+
+    var free_fail_storage: [8192]u8 = [0; 8192];
+    var free_fail_allocator = FailAllocator::init(free_fail_storage);
+    var free_fail = std::HashMap[i32, i32]::init_seed(560u64);
+    defer free_fail.deinit(&mut free_fail_allocator).?;
+    free_fail.reserve(&mut free_fail_allocator, 14usize).?;
+    key = 0;
+    while key < 14 {
+        _ = free_fail.put(&mut free_fail_allocator, key, key + 5).?;
+        key += 1;
+    }
+    let old_free_fail_capacity = free_fail.capacity();
+    free_fail_allocator.fail_next_free();
+    switch free_fail.reserve(&mut free_fail_allocator, 64usize) {
+        !ok => return mem::Error::Invalid!,
+        err! => if err as i32 != mem::Error::Invalid as i32 {
+            return err!;
+        },
+    }
+    if free_fail.capacity() <= old_free_fail_capacity or free_fail.len() != 14usize {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 14 {
+        switch free_fail.get(&key) {
+            ?value => if value.* != key + 5 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
+    }
+    free_fail_allocator.clear_failures();
+    _ = free_fail.put(&mut free_fail_allocator, 90, 900).?;
+    switch free_fail.get(&90) {
+        ?value => if value.* != 900 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
     }
 
     var collisions = std::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
