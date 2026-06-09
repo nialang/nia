@@ -17,11 +17,160 @@ where K: Sized, V: Sized
     seed: u64,
 }
 
+pub struct HashMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    key: K,
+    value: V,
+}
+
+pub struct HashMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &V,
+}
+
+pub struct HashMapIter[K, V]
+where K: Sized, V: Sized
+{
+    map: &HashMap[K, V],
+    index: usize,
+    remaining: usize,
+}
+
+pub struct HashMapKeys[K, V]
+where K: Sized, V: Sized
+{
+    iter: HashMapIter[K, V],
+}
+
+pub struct HashMapValues[K, V]
+where K: Sized, V: Sized
+{
+    iter: HashMapIter[K, V],
+}
+
 fn dangling_slice[T]() &mut [T]
 where T: Sized
 {
     var ptr = @align[T]() as &mut T;
     &mut ptr[0..0]
+}
+
+extend[K, V] HashMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        &self.key
+    }
+
+    pub fn value(&self) &V {
+        &self.value
+    }
+
+    pub fn into_key(self) K {
+        self.key
+    }
+
+    pub fn into_value(self) V {
+        self.value
+    }
+}
+
+extend[K, V] HashMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        self.key
+    }
+
+    pub fn value(&self) &V {
+        self.value
+    }
+}
+
+extend[K, V] HashMapIter[K, V]
+where K: Sized, V: Sized
+{
+    pub fn len(&self) usize {
+        self.remaining
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len() == 0usize
+    }
+}
+
+extend[K, V] HashMapIter[K, V] : Iterator
+where K: Sized, V: Sized
+{
+    type Item = HashMapEntryRef[K, V];
+
+    pub fn next(&mut self) ?HashMapEntryRef[K, V] {
+        while self.index < self.map.ctrl.len() {
+            let index = self.index;
+            self.index += 1usize;
+            if is_full(self.map.ctrl[index]) {
+                self.remaining -= 1usize;
+                return ?{
+                    key: &self.map.keys[index],
+                    value: &self.map.values[index],
+                };
+            }
+        }
+        null
+    }
+}
+
+extend[K, V] HashMapKeys[K, V]
+where K: Sized, V: Sized
+{
+    pub fn len(&self) usize {
+        self.iter.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.iter.is_empty()
+    }
+}
+
+extend[K, V] HashMapKeys[K, V] : Iterator
+where K: Sized, V: Sized
+{
+    type Item = &K;
+
+    pub fn next(&mut self) ?&K {
+        switch self.iter.next() {
+            ?entry => ?entry.key(),
+            null => null,
+        }
+    }
+}
+
+extend[K, V] HashMapValues[K, V]
+where K: Sized, V: Sized
+{
+    pub fn len(&self) usize {
+        self.iter.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.iter.is_empty()
+    }
+}
+
+extend[K, V] HashMapValues[K, V] : Iterator
+where K: Sized, V: Sized
+{
+    type Item = &V;
+
+    pub fn next(&mut self) ?&V {
+        switch self.iter.next() {
+            ?entry => ?entry.value(),
+            null => null,
+        }
+    }
 }
 
 extend[K, V] HashMap[K, V]
@@ -81,6 +230,26 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         self.growth_left = usable_capacity(self.capacity());
     }
 
+    pub fn clear_retaining_capacity(&mut self) void {
+        self.clear();
+    }
+
+    pub fn clear_and_free(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.deinit(allocator)
+    }
+
+    pub fn iter(&self) HashMapIter[K, V] {
+        { map: self, index: 0usize, remaining: self.len }
+    }
+
+    pub fn keys(&self) HashMapKeys[K, V] {
+        { iter: self.iter() }
+    }
+
+    pub fn values(&self) HashMapValues[K, V] {
+        { iter: self.iter() }
+    }
+
     pub fn contains_key(&self, key: &K) bool {
         switch self.find_index(key, self.hash_key(key)) {
             ?index => true,
@@ -113,6 +282,25 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             null => {},
         }
 
+        self.insert_new(allocator, key, value).?;
+        !null
+    }
+
+    pub fn put_if_absent(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!bool {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                _ = index;
+                return !false;
+            },
+            null => {},
+        }
+
+        self.insert_new(allocator, key, value).?;
+        !true
+    }
+
+    fn insert_new(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!void {
         self.ensure_unused_capacity(allocator, 1usize).?;
         let hash_after_grow = self.hash_key(&key);
         let slot = self.find_insert_index(hash_after_grow);
@@ -123,7 +311,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         self.keys[slot] = key;
         self.values[slot] = value;
         self.len += 1usize;
-        !null
+        !{}
     }
 
     pub fn remove(&mut self, key: &K) ?V {
@@ -136,6 +324,31 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
             },
             null => null,
         }
+    }
+
+    pub fn remove_entry(&mut self, key: &K) ?HashMapEntry[K, V] {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                let found_key = self.keys[index];
+                let value = self.values[index];
+                self.ctrl[index] = ctrl_deleted;
+                self.len -= 1usize;
+                ?{ key: found_key, value: value }
+            },
+            null => null,
+        }
+    }
+
+    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        self.ensure_unused_capacity(allocator, additional)
+    }
+
+    pub fn reserve_exact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        let needed = switch self.len.checked_add(additional) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        self.ensure_total_capacity(allocator, needed)
     }
 
     pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
