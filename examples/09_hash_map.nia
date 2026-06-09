@@ -18,7 +18,8 @@ fn run(init: Init) mem::Error!void {
     _ = scores.put(&mut gpa, 7, 70).?;
     _ = scores.put(&mut gpa, 42, 420).?;
     _ = scores.put(&mut gpa, 9, 90).?;
-    _ = scores.put(&mut gpa, 42, 421).?;
+    var answer_slot = scores.get_or_put_value(&mut gpa, 42, 0).?;
+    answer_slot.value().* = answer_slot.value().* + 1;
 
     var answer = 0;
     switch scores.get(&42) {
