@@ -65,7 +65,7 @@ impl<'a> BodyChecker<'a> {
         }
         if matches!(
             resolution,
-            BuiltinResolution::Extract | BuiltinResolution::Insert
+            BuiltinResolution::Extract | BuiltinResolution::Insert | BuiltinResolution::Bitmask
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -108,7 +108,8 @@ impl<'a> BodyChecker<'a> {
             | BuiltinResolution::MemSet
             | BuiltinResolution::Splat
             | BuiltinResolution::Extract
-            | BuiltinResolution::Insert => {
+            | BuiltinResolution::Insert
+            | BuiltinResolution::Bitmask => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
@@ -245,6 +246,9 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Insert => {
                 self.check_insert_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
+            BuiltinResolution::Bitmask => {
+                self.check_bitmask_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
             BuiltinResolution::AtomicLoad => {
                 self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
@@ -369,6 +373,62 @@ impl<'a> BodyChecker<'a> {
         let value_ty = self.check_expr_with_expected(&args[2], Some(lane_ty));
         self.expect_expr_type(&args[2], lane_ty, value_ty, "SIMD lane value");
         vector_ty
+    }
+
+    fn check_bitmask_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly one value argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.primitive(PrimitiveTy::Usize);
+        }
+        let vector_ty = self.check_expr(&args[0]);
+        match self.interner.get(vector_ty).cloned() {
+            Some(TyKind::Vector { elem, lanes }) if elem == PrimitiveTy::Bool => {
+                if lanes > 64 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        args[0].span,
+                        "builtin `@bitmask` supports at most 64 SIMD mask lanes",
+                    ));
+                }
+            }
+            Some(TyKind::Vector { .. }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    args[0].span,
+                    format!(
+                        "builtin `@{name}` requires a bool SIMD mask vector, got {}",
+                        self.ty_name(vector_ty)
+                    ),
+                ));
+            }
+            Some(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    args[0].span,
+                    format!(
+                        "builtin `@{name}` requires a SIMD vector argument, got {}",
+                        self.ty_name(vector_ty)
+                    ),
+                ));
+            }
+            None => {}
+        }
+        self.primitive(PrimitiveTy::Usize)
     }
 
     fn reject_simd_lane_builtin_type_arg(

@@ -211,6 +211,9 @@ pub enum TypedExprKind {
         index: Box<TypedExpr>,
         value: Box<TypedExpr>,
     },
+    Bitmask {
+        vector: Box<TypedExpr>,
+    },
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,

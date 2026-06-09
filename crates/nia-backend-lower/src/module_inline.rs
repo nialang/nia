@@ -325,6 +325,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionPayload { expr: array }
             | FunctionExprKind::Try { expr: array }
             | FunctionExprKind::Splat { value: array }
+            | FunctionExprKind::Bitmask { vector: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -828,6 +829,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
         | FunctionExprKind::Splat { value: expr }
+        | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. } => {
@@ -1008,6 +1010,7 @@ fn small_pure_inline_expr_cost_with_local(
         }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Splat { value: expr }
+        | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. } => {
