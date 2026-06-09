@@ -5200,6 +5200,14 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    switch map.get_entry(&42) {
+        ?entry => {
+            if entry.key().* != 42 or entry.value().* != 8 {
+                return mem::Error::Invalid!;
+            }
+        },
+        null => return mem::Error::Invalid!,
+    }
 
     switch map.remove(&10) {
         ?value => if value != 100 {
@@ -5266,6 +5274,23 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    switch map.fetch_put(&mut gpa, 74, 741) {
+        !old => switch old {
+            ?value => if value != 740 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        },
+        err! => return err!,
+    }
+    switch map.fetch_remove(&74) {
+        ?entry => {
+            if entry.key().* != 74 or entry.value().* != 741 {
+                return mem::Error::Invalid!;
+            }
+        },
+        null => return mem::Error::Invalid!,
+    }
 
     map.clear();
     if map.len() != 0usize or map.contains_key(&42) {
@@ -5324,6 +5349,49 @@ fn run(init: process::Init) mem::Error!void {
     }
     if set_like.contains_key(&1) or set_like.len() != 1usize {
         return mem::Error::Invalid!;
+    }
+
+    var churn = std::HashMap[i32, i32]::init_seed(555u64);
+    defer churn.deinit(&mut gpa).?;
+    churn.reserve(&mut gpa, 32usize).?;
+    let churn_capacity = churn.capacity();
+    var round = 0;
+    while round < 4 {
+        var key = 0;
+        while key < 28 {
+            _ = churn.put(&mut gpa, key, key + round).?;
+            key += 1;
+        }
+        key = 0;
+        while key < 28 {
+            switch churn.remove(&key) {
+                ?value => _ = value,
+                null => return mem::Error::Invalid!,
+            }
+            key += 1;
+        }
+        round += 1;
+    }
+    if churn.len() != 0usize or churn.capacity() != churn_capacity {
+        return mem::Error::Invalid!;
+    }
+    var key = 100;
+    while key < 128 {
+        _ = churn.put(&mut gpa, key, key * 2).?;
+        key += 1;
+    }
+    if churn.len() != 28usize {
+        return mem::Error::Invalid!;
+    }
+    key = 100;
+    while key < 128 {
+        switch churn.get(&key) {
+            ?value => if value.* != key * 2 {
+                return mem::Error::Invalid!;
+            },
+            null => return mem::Error::Invalid!,
+        }
+        key += 1;
     }
 
     !{}
