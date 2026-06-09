@@ -50,7 +50,9 @@ same allocator must later deinitialize or free the allocation.
 - Use `std.mem.ArenaAllocator` for phase-local allocations that can all be
   invalidated together with `reset` or `deinit`.
 - Use `std.mem.GeneralPurposeAllocator` for ordinary heap-backed containers and
-  mixed allocation lifetimes.
+  mixed allocation lifetimes. Its `deinit` returns `mem::DeinitStatus::Leak`
+  when allocations are still live, so examples that expect clean shutdown check
+  for `mem::DeinitStatus::Ok`.
 - Use `std.mem.PageAllocator` as low-level backing storage for other
   allocators, or when whole page mappings are exactly what the program wants.
 

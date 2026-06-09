@@ -11,5 +11,5 @@ pub using arena_allocator::ArenaAllocator;
 pub using allocator::Allocator;
 pub using copy::{copy_backwards, copy_forwards, equal, order};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
-pub using general_purpose_allocator::GeneralPurposeAllocator;
+pub using general_purpose_allocator::{DeinitStatus, GeneralPurposeAllocator};
 pub using page_allocator::PageAllocator;
