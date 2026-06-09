@@ -7,11 +7,13 @@
 import std.array_list;
 import std.atomic;
 import std.hash;
+import std.hash_map;
 import std.range;
 import std.slice;
 
 pub using array_list::ArrayList;
 pub using atomic::Atomic;
 pub using hash::{Hash, Hasher, Wyhash};
+pub using hash_map::HashMap;
 pub using range::{from, inclusive, range};
 pub using slice::SliceIter;

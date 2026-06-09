@@ -1,0 +1,411 @@
+import std.hash;
+import std.mem;
+import std.os;
+
+comptime let ctrl_empty: u8 = 0xffu8;
+comptime let ctrl_deleted: u8 = 0x80u8;
+comptime let group_width: usize = 8usize;
+
+pub struct HashMap[K, V]
+where K: Sized, V: Sized
+{
+    ctrl: &mut [u8],
+    keys: &mut [K],
+    values: &mut [V],
+    len: usize,
+    growth_left: usize,
+    seed: u64,
+}
+
+fn dangling_slice[T]() &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..0]
+}
+
+extend[K, V] HashMap[K, V]
+where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
+{
+    pub fn init() os::Error!HashMap[K, V] {
+        let seed = random_seed().?;
+        !HashMap[K, V]::init_seed(seed)
+    }
+
+    pub fn init_seed(seed: u64) HashMap[K, V] {
+        {
+            ctrl: dangling_slice[u8](),
+            keys: dangling_slice[K](),
+            values: dangling_slice[V](),
+            len: 0usize,
+            growth_left: 0usize,
+            seed: seed,
+        }
+    }
+
+    pub fn init_seed_capacity(
+        allocator: &mut mem::Allocator,
+        seed: u64,
+        capacity: usize,
+    ) mem::Error!HashMap[K, V] {
+        var map = HashMap[K, V]::init_seed(seed);
+        map.ensure_total_capacity(allocator, capacity).?;
+        !map
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.free_allocations(allocator).?;
+        self.ctrl = dangling_slice[u8]();
+        self.keys = dangling_slice[K]();
+        self.values = dangling_slice[V]();
+        self.len = 0usize;
+        self.growth_left = 0usize;
+        !{}
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.ctrl.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len == 0usize
+    }
+
+    pub fn clear(&mut self) void {
+        fill_ctrl(self.ctrl, ctrl_empty);
+        self.len = 0usize;
+        self.growth_left = usable_capacity(self.capacity());
+    }
+
+    pub fn contains_key(&self, key: &K) bool {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => true,
+            null => false,
+        }
+    }
+
+    pub fn get(&self, key: &K) ?&V {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => ?&self.values[index],
+            null => null,
+        }
+    }
+
+    pub fn get_mut(&mut self, key: &K) ?&mut V {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => ?&mut self.values[index],
+            null => null,
+        }
+    }
+
+    pub fn put(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
+        let value_hash = self.hash_key(&key);
+        switch self.find_index(&key, value_hash) {
+            ?index => {
+                let old = self.values[index];
+                self.values[index] = value;
+                return !?old;
+            },
+            null => {},
+        }
+
+        self.ensure_unused_capacity(allocator, 1usize).?;
+        let hash_after_grow = self.hash_key(&key);
+        let slot = self.find_insert_index(hash_after_grow);
+        if self.ctrl[slot] == ctrl_empty {
+            self.growth_left -= 1usize;
+        }
+        self.ctrl[slot] = tag(hash_after_grow);
+        self.keys[slot] = key;
+        self.values[slot] = value;
+        self.len += 1usize;
+        !null
+    }
+
+    pub fn remove(&mut self, key: &K) ?V {
+        switch self.find_index(key, self.hash_key(key)) {
+            ?index => {
+                let value = self.values[index];
+                self.ctrl[index] = ctrl_deleted;
+                self.len -= 1usize;
+                ?value
+            },
+            null => null,
+        }
+    }
+
+    pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        if additional <= self.growth_left {
+            return !{};
+        }
+        let needed = switch self.len.checked_add(additional) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        self.grow_for_capacity(allocator, needed).?;
+        !{}
+    }
+
+    pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+        if capacity <= usable_capacity(self.capacity()) {
+            return !{};
+        }
+        self.grow_for_capacity(allocator, capacity).?;
+        !{}
+    }
+
+    fn hash_key(&self, key: &K) u64 {
+        var hasher = hash::Wyhash::init(self.seed);
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn find_index(&self, key: &K, value_hash: u64) ?usize {
+        if self.capacity() == 0usize {
+            return null;
+        }
+
+        let needle = tag(value_hash);
+        let mask = self.capacity() - 1usize;
+        var pos = (value_hash as usize) & mask;
+        var stride = 0usize;
+        var visited = 0usize;
+
+        while visited < self.capacity() {
+            var offset = 0usize;
+            while offset < group_width {
+                let index = (pos + offset) & mask;
+                let control = self.ctrl[index];
+                if control == needle and self.keys[index] == key.* {
+                    return ?index;
+                }
+                if control == ctrl_empty {
+                    return null;
+                }
+                offset += 1usize;
+            }
+
+            stride += group_width;
+            pos = (pos + stride) & mask;
+            visited += group_width;
+        }
+        null
+    }
+
+    fn find_insert_index(&self, value_hash: u64) usize {
+        let mask = self.capacity() - 1usize;
+        var pos = (value_hash as usize) & mask;
+        var stride = 0usize;
+        var visited = 0usize;
+
+        while visited < self.capacity() {
+            var offset = 0usize;
+            while offset < group_width {
+                let index = (pos + offset) & mask;
+                let control = self.ctrl[index];
+                if control == ctrl_empty or control == ctrl_deleted {
+                    return index;
+                }
+                offset += 1usize;
+            }
+
+            stride += group_width;
+            pos = (pos + stride) & mask;
+            visited += group_width;
+        }
+
+        0usize
+    }
+
+    fn grow_for_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+        let target = capacity_to_buckets(capacity).?;
+        var new_map = HashMap[K, V]::init_seed(self.seed);
+        new_map.allocate(allocator, target).?;
+
+        var index = 0usize;
+        while index < self.capacity() {
+            if is_full(self.ctrl[index]) {
+                let key = self.keys[index];
+                let value = self.values[index];
+                new_map.insert_existing(key, value);
+            }
+            index += 1usize;
+        }
+
+        self.free_allocations(allocator).?;
+        self.ctrl = new_map.ctrl;
+        self.keys = new_map.keys;
+        self.values = new_map.values;
+        self.len = new_map.len;
+        self.growth_left = new_map.growth_left;
+        new_map.ctrl = dangling_slice[u8]();
+        new_map.keys = dangling_slice[K]();
+        new_map.values = dangling_slice[V]();
+        !{}
+    }
+
+    fn insert_existing(&mut self, key: K, value: V) void {
+        let value_hash = self.hash_key(&key);
+        let slot = self.find_insert_index(value_hash);
+        self.ctrl[slot] = tag(value_hash);
+        self.keys[slot] = key;
+        self.values[slot] = value;
+        self.len += 1usize;
+        self.growth_left -= 1usize;
+    }
+
+    fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+        let ctrl_layout = mem::Layout::array[u8](capacity).?;
+        let keys_layout = mem::Layout::array[K](capacity).?;
+        let values_layout = mem::Layout::array[V](capacity).?;
+        let ctrl_block = allocator.alloc(ctrl_layout).?;
+        let keys_block = switch allocator.alloc(keys_layout) {
+            !block => block,
+            err! => {
+                switch allocator.free(ctrl_block) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                return err!;
+            },
+        };
+        switch allocator.alloc(values_layout) {
+            !values_block => {
+                self.ctrl = ctrl_block.as_slice[u8]();
+                self.keys = keys_block.as_slice[K]();
+                self.values = values_block.as_slice[V]();
+            },
+            err! => {
+                switch allocator.free(ctrl_block) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                switch allocator.free(keys_block) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                return err!;
+            },
+        }
+        fill_ctrl(self.ctrl, ctrl_empty);
+        self.len = 0usize;
+        self.growth_left = usable_capacity(capacity);
+        !{}
+    }
+
+    fn free_allocations(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        var first_error: ?mem::Error = null;
+        if self.ctrl.len() != 0usize {
+            let layout = mem::Layout::array[u8](self.ctrl.len()).?;
+            switch allocator.free(mem::Block::init(self.ctrl.get_ptr() as &mut u8, layout)) {
+                !ok => _ = ok,
+                err! => first_error = ?err,
+            }
+        }
+        if self.keys.len() != 0usize {
+            let layout = mem::Layout::array[K](self.keys.len()).?;
+            switch allocator.free(mem::Block::init(self.keys.get_ptr() as &mut u8, layout)) {
+                !ok => _ = ok,
+                err! => {
+                    switch first_error {
+                        ?value => {},
+                        null => first_error = ?err,
+                    }
+                },
+            }
+        }
+        if self.values.len() != 0usize {
+            let layout = mem::Layout::array[V](self.values.len()).?;
+            switch allocator.free(mem::Block::init(self.values.get_ptr() as &mut u8, layout)) {
+                !ok => _ = ok,
+                err! => {
+                    switch first_error {
+                        ?value => {},
+                        null => first_error = ?err,
+                    }
+                },
+            }
+        }
+        switch first_error {
+            ?err => err!,
+            null => !{},
+        }
+    }
+}
+
+fn random_seed() os::Error!u64 {
+    var bytes: [8]u8 = [0; 8];
+    os::random(&mut bytes[..]).?;
+    !read_u64(&bytes[..])
+}
+
+fn read_u64(bytes: &[u8]) u64 {
+    (bytes[0] as u64)
+        | ((bytes[1] as u64) << 8u64)
+        | ((bytes[2] as u64) << 16u64)
+        | ((bytes[3] as u64) << 24u64)
+        | ((bytes[4] as u64) << 32u64)
+        | ((bytes[5] as u64) << 40u64)
+        | ((bytes[6] as u64) << 48u64)
+        | ((bytes[7] as u64) << 56u64)
+}
+
+fn tag(value_hash: u64) u8 {
+    ((value_hash >> 57u64) as u8) & 0x7fu8
+}
+
+fn is_full(control: u8) bool {
+    (control & 0x80u8) == 0u8
+}
+
+fn fill_ctrl(ctrl: &mut [u8], value: u8) void {
+    var index = 0usize;
+    while index < ctrl.len() {
+        ctrl[index] = value;
+        index += 1usize;
+    }
+}
+
+fn usable_capacity(buckets: usize) usize {
+    if buckets == 0usize {
+        0usize
+    } else if buckets < 8usize {
+        buckets - 1usize
+    } else {
+        (buckets / 8usize) * 7usize
+    }
+}
+
+fn capacity_to_buckets(capacity: usize) mem::Error!usize {
+    if capacity == 0usize {
+        return !0usize;
+    }
+    if capacity <= 7usize {
+        return !8usize;
+    }
+    if capacity <= 14usize {
+        return !16usize;
+    }
+
+    let multiplied = switch capacity.checked_mul(8usize) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let adjusted = (multiplied + 6usize) / 7usize;
+    next_power_of_two(adjusted)
+}
+
+fn next_power_of_two(value: usize) mem::Error!usize {
+    var n = 1usize;
+    while n < value {
+        n = switch n.checked_mul(2usize) {
+            ?next => next,
+            null => return mem::Error::OutOfMemory!,
+        };
+    }
+    !n
+}

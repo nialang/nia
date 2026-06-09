@@ -75,5 +75,7 @@ same allocator must later deinitialize or free the allocation.
 - `08_general_purpose_allocator.nia`: `std.mem.GeneralPurposeAllocator` over
   `PageAllocator`, ordinary heap allocation, `ArrayList`, and cleanup with
   `defer`.
+- `09_hash_map.nia`: `std::HashMap` with explicit allocator ownership,
+  insertion, replacement, lookup, removal, and terminal output.
 - `modules/main.nia`: file modules, aliases, selected `using`, `pub using`, and
   formatted results from imported code.
