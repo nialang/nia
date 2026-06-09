@@ -4338,6 +4338,35 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
+    var resized = allocator.alloc(small_layout).exit().?;
+    let resized_layout = mem::Layout::init(40, 8).exit().?;
+    if not allocator.resize(resized, resized_layout) {
+        return (7 as process::ExitCode)!;
+    }
+    if allocator.query_used() != 40usize {
+        return (8 as process::ExitCode)!;
+    }
+    switch allocator.free(resized) {
+        !ok => {
+            _ = ok;
+            return (9 as process::ExitCode)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return (10 as process::ExitCode)!;
+            }
+        },
+    }
+    resized = mem::Block::init(resized.ptr(), resized_layout);
+    allocator.free(resized).exit().?;
+
+    let align_layout = mem::Layout::init(1, 1).exit().?;
+    let align_block = allocator.alloc(align_layout).exit().?;
+    if allocator.resize(align_block, mem::Layout::init(1, 64).exit().?) {
+        return (11 as process::ExitCode)!;
+    }
+    allocator.free(align_block).exit().?;
+
     let large_layout = mem::Layout::init(4096, 4096).exit().?;
     let large = allocator.alloc(large_layout).exit().?;
     let wrong_layout = mem::Layout::init(2048, 4096).exit().?;

@@ -134,14 +134,36 @@ extend GeneralPurposeAllocator : Allocator {
                 if new_layout.is_empty() {
                     return false;
                 }
-                let slot = switch small_page_slot_for_ptr(page, block.ptr()) {
+                var slot = switch small_page_slot_for_ptr(page, block.ptr()) {
                     ?value => value,
                     null => return false,
                 };
                 if not small_slot_matches(slot, block) {
                     return false;
                 }
-                return new_layout.align() <= page.slot_size and new_layout.size() <= page.slot_size;
+                let new_ptr = switch small_slot_user_ptr(slot, new_layout.align()) {
+                    ?value => value,
+                    null => return false,
+                };
+                if new_ptr as usize != block.ptr() as usize {
+                    return false;
+                }
+                let slot_end = switch (slot as usize).checked_add(page.slot_size) {
+                    ?value => value,
+                    null => return false,
+                };
+                let block_end = switch (new_ptr as usize).checked_add(new_layout.size()) {
+                    ?value => value,
+                    null => return false,
+                };
+                if block_end > slot_end {
+                    return false;
+                }
+                page.used_bytes -= block.size();
+                page.used_bytes = saturating_add(page.used_bytes, new_layout.size());
+                slot.size = new_layout.size();
+                slot.align = new_layout.align();
+                return true;
             },
             null => _ = small_page,
         }
