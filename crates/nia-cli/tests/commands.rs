@@ -4201,9 +4201,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (5 as process::ExitCode)!;
     }
     list.deinit(&mut allocator).exit().?;
-    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
-        return (6 as process::ExitCode)!;
-    }
+    allocator.deinit().exit().?.ok().exit().?;
     !{}
 }
 "#,
@@ -4279,9 +4277,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not allocator.is_empty() {
         return (6 as process::ExitCode)!;
     }
-    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
-        return (7 as process::ExitCode)!;
-    }
+    allocator.deinit().exit().?.ok().exit().?;
     !{}
 }
 "#,
@@ -4389,9 +4385,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not allocator.is_empty() {
         return (6 as process::ExitCode)!;
     }
-    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
-        return (12 as process::ExitCode)!;
-    }
+    allocator.deinit().exit().?.ok().exit().?;
     var leaking = mem::GeneralPurposeAllocator::init(&mut page);
     _ = leaking.alloc(small_layout).exit().?;
     if leaking.deinit().exit().? != mem::DeinitStatus::Leak {

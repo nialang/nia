@@ -4,19 +4,12 @@ import std.mem;
 import std.process;
 using process::{Init, ExitCode};
 
-fn deinit_clean(gpa: &mut mem::GeneralPurposeAllocator) mem::Error!void {
-    if gpa.deinit().? != mem::DeinitStatus::Ok {
-        return mem::Error::Invalid!;
-    }
-    !{}
-}
-
 fn run(init: Init) mem::Error!void {
     _ = init;
 
     var page = mem::PageAllocator::init();
     var gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer deinit_clean(&mut gpa).?;
+    defer gpa.deinit().?.ok().?;
 
     var values = std::ArrayList[i32]::init();
     defer values.deinit(&mut gpa).?;
