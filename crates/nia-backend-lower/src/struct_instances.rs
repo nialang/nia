@@ -325,6 +325,19 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instances_expr(lhs, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
             }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.collect_struct_instances_expr(vector, seen, out);
+                self.collect_struct_instances_expr(index, seen, out);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.collect_struct_instances_expr(vector, seen, out);
+                self.collect_struct_instances_expr(index, seen, out);
+                self.collect_struct_instances_expr(value, seen, out);
+            }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.collect_struct_instances_place(place, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
@@ -803,6 +816,19 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_union_instances_expr(lhs, seen, out);
                 self.collect_union_instances_expr(rhs, seen, out);
+            }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.collect_union_instances_expr(vector, seen, out);
+                self.collect_union_instances_expr(index, seen, out);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.collect_union_instances_expr(vector, seen, out);
+                self.collect_union_instances_expr(index, seen, out);
+                self.collect_union_instances_expr(value, seen, out);
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.collect_union_instances_place(place, seen, out);

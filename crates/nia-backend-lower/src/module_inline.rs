@@ -368,6 +368,19 @@ impl<'a> ModuleLowerer<'a> {
                 self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
                 self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
             }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.inline_leaf_calls_in_expr(vector, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.inline_leaf_calls_in_expr(vector, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+            }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
                 self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
@@ -824,6 +837,19 @@ fn substitute_inline_locals(
             substitute_inline_locals(lhs, substitutions, require_local_match)?;
             substitute_inline_locals(rhs, substitutions, require_local_match)?;
         }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            substitute_inline_locals(vector, substitutions, require_local_match)?;
+            substitute_inline_locals(index, substitutions, require_local_match)?;
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            substitute_inline_locals(vector, substitutions, require_local_match)?;
+            substitute_inline_locals(index, substitutions, require_local_match)?;
+            substitute_inline_locals(value, substitutions, require_local_match)?;
+        }
         FunctionExprKind::Field { lhs, .. } => {
             substitute_inline_locals(lhs, substitutions, require_local_match)?;
         }
@@ -990,6 +1016,19 @@ fn small_pure_inline_expr_cost_with_local(
         FunctionExprKind::Binary { lhs, rhs, .. } => {
             1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
                 + small_pure_inline_expr_cost_with_local(rhs, budget, local_allowed)?
+        }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            1 + small_pure_inline_expr_cost_with_local(vector, budget, local_allowed)?
+                + small_pure_inline_expr_cost_with_local(index, budget, local_allowed)?
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            1 + small_pure_inline_expr_cost_with_local(vector, budget, local_allowed)?
+                + small_pure_inline_expr_cost_with_local(index, budget, local_allowed)?
+                + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
         }
         FunctionExprKind::Field { lhs, .. } => {
             1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?

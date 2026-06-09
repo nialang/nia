@@ -177,6 +177,57 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_simd_lane_builtins() {
+    let checked = pipeline(
+        r#"
+fn lane(v: u8x16, i: usize) u8 {
+    @extract(v, i)
+}
+
+fn changed(v: u8x16, i: usize) u8x16 {
+    @insert(v, i, 9u8)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_invalid_simd_lane_builtins() {
+    let checked = pipeline(
+        r#"
+fn invalid(v: u8x16) void {
+    _ = @extract[u8](v, 0usize);
+    _ = @extract(1u8, 0usize);
+    _ = @insert(v, 0usize, true);
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("builtin `@extract` does not take a type argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("requires a SIMD vector argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("SIMD lane value")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_atomic_builtin_ordering_rules() {
     let checked = pipeline(
         r#"

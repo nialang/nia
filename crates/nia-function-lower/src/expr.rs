@@ -51,6 +51,19 @@ impl FunctionLowerer {
             TypedExprKind::Splat { value } => FunctionExprKind::Splat {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },
+            TypedExprKind::ExtractElement { vector, index } => FunctionExprKind::ExtractElement {
+                vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
+                index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
+            },
+            TypedExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => FunctionExprKind::InsertElement {
+                vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
+                index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+            },
             TypedExprKind::CStringPointer { array, is_readonly } => {
                 FunctionExprKind::CStringPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),

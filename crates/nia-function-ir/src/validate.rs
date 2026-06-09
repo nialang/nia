@@ -383,9 +383,22 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionExprKind::UnionLiteral { field, .. } => self.validate_expr(&field.value)?,
             FunctionExprKind::Binary { lhs, rhs, .. }
-            | FunctionExprKind::Index { lhs, index: rhs } => {
+            | FunctionExprKind::Index { lhs, index: rhs }
+            | FunctionExprKind::ExtractElement {
+                vector: lhs,
+                index: rhs,
+            } => {
                 self.validate_expr(lhs)?;
                 self.validate_expr(rhs)?;
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.validate_expr(vector)?;
+                self.validate_expr(index)?;
+                self.validate_expr(value)?;
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.validate_place(place)?;

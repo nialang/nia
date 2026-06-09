@@ -125,6 +125,40 @@ fn make(value: u8) u8x16 {
 }
 
 #[test]
+fn emits_vector_lane_builtins() {
+    let root = temp_dir("emits_vector_lane_builtins");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn lane(v: u8x16, i: usize) u8 {
+    @extract(v, i)
+}
+
+fn changed(v: u8x16, i: usize, x: u8) u8x16 {
+    @insert(v, i, x)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("extractelement <16 x i8>"),
+        "expected vector lane extract:\n{ir}"
+    );
+    assert!(
+        ir.contains("insertelement <16 x i8>"),
+        "expected vector lane insert:\n{ir}"
+    );
+}
+
+#[test]
 fn emits_vector_builtin_operators() {
     let root = temp_dir("emits_vector_builtin_operators");
     let main = root.join("main.nia");

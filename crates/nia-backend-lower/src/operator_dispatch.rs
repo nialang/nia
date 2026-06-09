@@ -345,6 +345,21 @@ impl<'a> ModuleLowerer<'a> {
                     op,
                     rhs: Box::new(self.resolve_builtin_operator_calls_in_expr(*rhs)),
                 },
+                FunctionExprKind::ExtractElement { vector, index } => {
+                    FunctionExprKind::ExtractElement {
+                        vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
+                        index: Box::new(self.resolve_builtin_operator_calls_in_expr(*index)),
+                    }
+                }
+                FunctionExprKind::InsertElement {
+                    vector,
+                    index,
+                    value,
+                } => FunctionExprKind::InsertElement {
+                    vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
+                    index: Box::new(self.resolve_builtin_operator_calls_in_expr(*index)),
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                },
                 FunctionExprKind::Assign { place, op, rhs } => FunctionExprKind::Assign {
                     place: self.resolve_builtin_operator_calls_in_place(place),
                     op,

@@ -343,6 +343,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionExprKind::Atomic(atomic) => self.emit_atomic_value(expr, atomic),
             FunctionExprKind::Splat { value } => self.emit_splat(expr, value),
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.emit_extract_element(expr, vector, index)
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => self.emit_insert_element(expr, vector, index, value),
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }
@@ -456,6 +464,34 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_shuffle_vector(inserted, inserted, mask, "splat")
             .map_err(|_| self.error(expr.span, "failed to build splat vector"))
+    }
+
+    fn emit_extract_element(
+        &mut self,
+        expr: &FunctionExpr,
+        vector: &FunctionExpr,
+        index: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let vector = self.emit_expr(vector)?.into_vector_value()?;
+        let index = self.emit_expr(index)?.into_int_value()?;
+        self.builder
+            .build_extract_element(vector, index, "extract")
+            .map_err(|_| self.error(expr.span, "failed to extract vector lane"))
+    }
+
+    fn emit_insert_element(
+        &mut self,
+        expr: &FunctionExpr,
+        vector: &FunctionExpr,
+        index: &FunctionExpr,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let vector = self.emit_expr(vector)?.into_vector_value()?;
+        let index = self.emit_expr(index)?.into_int_value()?;
+        let value = self.emit_expr(value)?;
+        self.builder
+            .build_insert_element(vector, value, index, "insert")
+            .map_err(|_| self.error(expr.span, "failed to insert vector lane"))
     }
 
     fn emit_trait_object_coercion(

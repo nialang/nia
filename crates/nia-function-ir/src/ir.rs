@@ -237,6 +237,15 @@ pub enum FunctionExprKind {
     Splat {
         value: Box<FunctionExpr>,
     },
+    ExtractElement {
+        vector: Box<FunctionExpr>,
+        index: Box<FunctionExpr>,
+    },
+    InsertElement {
+        vector: Box<FunctionExpr>,
+        index: Box<FunctionExpr>,
+        value: Box<FunctionExpr>,
+    },
     CStringPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,

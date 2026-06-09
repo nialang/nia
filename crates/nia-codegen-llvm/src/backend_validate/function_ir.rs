@@ -201,6 +201,19 @@ impl BackendValidator<'_> {
                 self.validate_expr(lhs);
                 self.validate_expr(rhs);
             }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.validate_expr(vector);
+                self.validate_expr(index);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.validate_expr(vector);
+                self.validate_expr(index);
+                self.validate_expr(value);
+            }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.validate_place(place);
                 self.validate_expr(rhs);

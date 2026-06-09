@@ -205,6 +205,19 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_trait_object_vtables_from_expr(lhs, out, seen);
                 self.collect_trait_object_vtables_from_expr(rhs, out, seen);
             }
+            FunctionExprKind::ExtractElement { vector, index } => {
+                self.collect_trait_object_vtables_from_expr(vector, out, seen);
+                self.collect_trait_object_vtables_from_expr(index, out, seen);
+            }
+            FunctionExprKind::InsertElement {
+                vector,
+                index,
+                value,
+            } => {
+                self.collect_trait_object_vtables_from_expr(vector, out, seen);
+                self.collect_trait_object_vtables_from_expr(index, out, seen);
+                self.collect_trait_object_vtables_from_expr(value, out, seen);
+            }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.collect_trait_object_vtables_from_place(place, out, seen);
                 self.collect_trait_object_vtables_from_expr(rhs, out, seen);

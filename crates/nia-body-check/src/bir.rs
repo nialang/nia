@@ -796,6 +796,15 @@ impl<'a> BodyChecker<'a> {
                         ("splat", [value]) => TypedExprKind::Splat {
                             value: Box::new(self.lower_expr(value)),
                         },
+                        ("extract", [vector, index]) => TypedExprKind::ExtractElement {
+                            vector: Box::new(self.lower_expr(vector)),
+                            index: Box::new(self.lower_expr(index)),
+                        },
+                        ("insert", [vector, index, value]) => TypedExprKind::InsertElement {
+                            vector: Box::new(self.lower_expr(vector)),
+                            index: Box::new(self.lower_expr(index)),
+                            value: Box::new(self.lower_expr(value)),
+                        },
                         ("atomic_load", [ptr, order]) => TypedExprKind::Atomic(TypedAtomic::Load {
                             ty: self.builtin_atomic_type_arg(callee),
                             ptr: Box::new(self.lower_expr(ptr)),
