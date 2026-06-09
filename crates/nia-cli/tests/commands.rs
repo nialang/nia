@@ -5290,6 +5290,22 @@ fn run(init: process::Init) mem::Error!void {
         },
         null => return mem::Error::Invalid!,
     }
+    var inserted_entry = map.get_or_put_value(&mut gpa, 6, 60).?;
+    if inserted_entry.found_existing() or inserted_entry.key().* != 6 {
+        return mem::Error::Invalid!;
+    }
+    inserted_entry.value().* = 61;
+    var existing_entry = map.get_or_put_value(&mut gpa, 6, 600).?;
+    if not existing_entry.found_existing() or existing_entry.value().* != 61 {
+        return mem::Error::Invalid!;
+    }
+    existing_entry.value().* = 62;
+    switch map.get(&6) {
+        ?value => if value.* != 62 {
+            return mem::Error::Invalid!;
+        },
+        null => return mem::Error::Invalid!,
+    }
     map.clear_and_free(&mut gpa).?;
     if map.len() != 0usize or map.capacity() != 0usize {
         return mem::Error::Invalid!;
