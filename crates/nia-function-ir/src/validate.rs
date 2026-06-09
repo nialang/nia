@@ -351,6 +351,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: inner }
             | FunctionExprKind::TaggedUnionPayload { expr: inner }
             | FunctionExprKind::Try { expr: inner }
+            | FunctionExprKind::Splat { value: inner }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }

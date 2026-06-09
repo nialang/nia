@@ -647,6 +647,7 @@ impl FunctionLowerer {
                 | TypedExprKind::ErrorOk { expr: inner }
                 | TypedExprKind::ErrorErr { expr: inner }
                 | TypedExprKind::Try { expr: inner }
+                | TypedExprKind::Splat { value: inner }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. }
                 | TypedExprKind::TraitObjectUpcast { expr: inner, .. }

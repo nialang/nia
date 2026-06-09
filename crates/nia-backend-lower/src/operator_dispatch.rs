@@ -334,6 +334,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                 },
+                FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.resolve_builtin_operator_calls_in_place(place))
                 }

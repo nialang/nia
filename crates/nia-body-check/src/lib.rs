@@ -994,6 +994,21 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        self.iterator_item_projection(iter_ty)
+    }
+
+    fn lower_for_iterator_item_type(&mut self, iter_ty: InternedTyId) -> InternedTyId {
+        if !self.current_context_proves_trait_obligation(
+            iter_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            Vec::new(),
+        ) {
+            return self.error();
+        }
+        self.iterator_item_projection(iter_ty)
+    }
+
+    fn iterator_item_projection(&mut self, iter_ty: InternedTyId) -> InternedTyId {
         let item = self.interner.intern(TyKind::Projection {
             self_ty: iter_ty,
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),

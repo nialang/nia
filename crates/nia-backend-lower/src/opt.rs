@@ -441,6 +441,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Cast { expr, .. } => is_pure_discardable_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
@@ -936,6 +937,7 @@ fn rewrite_local_copies_in_expr(
             rewrite_local_copies_in_expr(&mut field.value, copies)
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -1267,6 +1269,7 @@ fn rewrite_local_constants_in_expr(
             rewrite_local_constants_in_expr(&mut field.value, constants)
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -1539,6 +1542,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Discard(expr) => changed |= simplify_constant_logical_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             changed |= simplify_constant_logical_expr(lhs);
@@ -1777,7 +1781,8 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         | FunctionExprKind::ErrorErr { expr }
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
-        | FunctionExprKind::Try { expr } => collect_place_locals_in_expr(expr, locals),
+        | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Splat { value: expr } => collect_place_locals_in_expr(expr, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_place_locals_in_array_elements(elems, locals)
         }
@@ -2021,7 +2026,8 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         | FunctionExprKind::ErrorErr { expr }
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
-        | FunctionExprKind::Try { expr } => collect_read_locals_in_expr(expr, locals),
+        | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Splat { value: expr } => collect_read_locals_in_expr(expr, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_read_locals_in_array_elements(elems, locals)
         }
@@ -2278,7 +2284,8 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         | FunctionExprKind::ErrorErr { expr }
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
-        | FunctionExprKind::Try { expr } => collect_referenced_locals_in_expr(expr, refs),
+        | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Splat { value: expr } => collect_referenced_locals_in_expr(expr, refs),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_referenced_locals_in_array_elements(elems, refs)
         }
@@ -2584,6 +2591,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -2829,6 +2837,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::TaggedUnionPayload { .. }
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::Unary { .. }
+        | FunctionExprKind::Splat { .. }
         | FunctionExprKind::Binary { .. }
         | FunctionExprKind::Cast { .. }
         | FunctionExprKind::InlineAsm(_)

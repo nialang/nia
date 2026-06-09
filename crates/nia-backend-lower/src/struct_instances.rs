@@ -311,6 +311,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
@@ -789,6 +790,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
+            | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }

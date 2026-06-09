@@ -315,6 +315,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
+                FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.instantiate_place(place, substitutions))
                 }

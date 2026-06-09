@@ -184,6 +184,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::TaggedUnionTag { expr: array }
         | FunctionExprKind::TaggedUnionPayload { expr: array }
         | FunctionExprKind::Try { expr: array }
+        | FunctionExprKind::Splat { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
