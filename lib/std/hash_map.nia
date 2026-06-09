@@ -294,13 +294,20 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
-        self.free_allocations(allocator).?;
+        var result: ?mem::Error = null;
+        switch self.free_allocations(allocator) {
+            !ok => _ = ok,
+            err! => result = ?err,
+        }
         self.ctrl = dangling_slice[u8]();
         self.keys = dangling_slice[K]();
         self.values = dangling_slice[V]();
         self.len = 0usize;
         self.growth_left = 0usize;
-        !{}
+        switch result {
+            ?err => err!,
+            null => !{},
+        }
     }
 
     pub fn len(&self) usize {
