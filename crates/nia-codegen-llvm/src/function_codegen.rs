@@ -727,7 +727,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | PrimitiveTy::Usize
                     | PrimitiveTy::Bool
                     | PrimitiveTy::Char
-            ))
+            )) | Some(TyKind::Vector {
+                elem: PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+                    | PrimitiveTy::Bool,
+                ..
+            })
         )
     }
 
@@ -735,6 +750,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         matches!(
             self.module.ty_kind(ty),
             Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                | Some(TyKind::Vector {
+                    elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                    ..
+                })
         )
     }
 
@@ -814,7 +833,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | PrimitiveTy::I128
                     | PrimitiveTy::Isize
                     | PrimitiveTy::Char
-            ))
+            )) | Some(TyKind::Vector {
+                elem: PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize,
+                ..
+            })
         )
     }
 

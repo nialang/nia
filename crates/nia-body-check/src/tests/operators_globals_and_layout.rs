@@ -17,6 +17,27 @@ fn main(flag: bool, bits: u32, x: i32) bool {
 }
 
 #[test]
+fn checks_vector_operator_builtin_traits() {
+    let checked = pipeline(
+        r#"
+fn add(lhs: u8x16, rhs: u8x16) u8x16 {
+    lhs + rhs
+}
+
+fn bitwise(lhs: boolx16, rhs: boolx16) boolx16 {
+    lhs & rhs
+}
+
+fn compare(lhs: f32x4, rhs: f32x4) boolx4 {
+    lhs < rhs
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn rejects_unary_operators_without_builtin_trait_impls() {
     let checked = pipeline(
         r#"

@@ -123,3 +123,43 @@ fn make(value: u8) u8x16 {
     );
     assert!(ir.contains("<16 x i32>"), "expected vector mask:\n{ir}");
 }
+
+#[test]
+fn emits_vector_builtin_operators() {
+    let root = temp_dir("emits_vector_builtin_operators");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn add_u8(lhs: u8x16, rhs: u8x16) u8x16 {
+    lhs + rhs
+}
+
+fn and_mask(lhs: boolx16, rhs: boolx16) boolx16 {
+    lhs & rhs
+}
+
+fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
+    lhs < rhs
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("add <16 x i8>"), "expected vector add:\n{ir}");
+    assert!(ir.contains("and <16 x i1>"), "expected vector and:\n{ir}");
+    assert!(
+        ir.contains("fcmp olt <4 x float>"),
+        "expected vector float compare:\n{ir}"
+    );
+    assert!(
+        ir.contains("define <4 x i1> @"),
+        "expected vector comparison mask return:\n{ir}"
+    );
+}

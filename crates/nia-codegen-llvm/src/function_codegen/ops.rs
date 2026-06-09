@@ -258,7 +258,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         op: BinaryOp,
         rhs: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if lhs.is_float_value() || rhs.is_float_value() {
+        if self.is_float(operand_ty) {
             return self.emit_float_binary(span, lhs, op, rhs);
         }
         let is_signed = self.is_signed_integer(operand_ty);

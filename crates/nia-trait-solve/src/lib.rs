@@ -311,6 +311,10 @@ where
                 self.interner.get(self.normalize(ty)),
                 Some(TyKind::GenericParam(_))
                     | Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                    | Some(TyKind::Vector {
+                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                        ..
+                    })
             )
     }
 
@@ -332,6 +336,22 @@ where
                         | PrimitiveTy::U128
                         | PrimitiveTy::Usize
                 ))
+                | Some(TyKind::Vector {
+                    elem: PrimitiveTy::I8
+                        | PrimitiveTy::I16
+                        | PrimitiveTy::I32
+                        | PrimitiveTy::I64
+                        | PrimitiveTy::I128
+                        | PrimitiveTy::Isize
+                        | PrimitiveTy::U8
+                        | PrimitiveTy::U16
+                        | PrimitiveTy::U32
+                        | PrimitiveTy::U64
+                        | PrimitiveTy::U128
+                        | PrimitiveTy::Usize
+                        | PrimitiveTy::Bool,
+                    ..
+                })
         )
     }
 
@@ -1500,6 +1520,10 @@ where
             || matches!(
                 self.kind(ty),
                 Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                    | Some(TyKind::Vector {
+                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                        ..
+                    })
             )
     }
 
@@ -1519,7 +1543,22 @@ where
                     | PrimitiveTy::U64
                     | PrimitiveTy::U128
                     | PrimitiveTy::Usize
-            ))
+            )) | Some(TyKind::Vector {
+                elem: PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+                    | PrimitiveTy::Bool,
+                ..
+            })
         )
     }
 

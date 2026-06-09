@@ -1226,7 +1226,22 @@ impl<'a> BodyChecker<'a> {
                     | PrimitiveTy::U64
                     | PrimitiveTy::U128
                     | PrimitiveTy::Usize
-            ))
+            )) | Some(TyKind::Vector {
+                elem: PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+                    | PrimitiveTy::Bool,
+                ..
+            })
         )
     }
 
@@ -1249,7 +1264,22 @@ impl<'a> BodyChecker<'a> {
             || matches!(
                 self.interner.get(ty),
                 Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                    | Some(TyKind::Vector {
+                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                        ..
+                    })
             )
+    }
+
+    pub(crate) fn vector_bool_mask(&mut self, ty: InternedTyId) -> Option<InternedTyId> {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Vector { lanes, .. }) = self.interner.get(ty) else {
+            return None;
+        };
+        Some(self.interner.intern(TyKind::Vector {
+            elem: PrimitiveTy::Bool,
+            lanes: *lanes,
+        }))
     }
 
     pub(crate) fn is_pointer(&self, ty: InternedTyId) -> bool {

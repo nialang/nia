@@ -479,7 +479,9 @@ impl<'a> BodyChecker<'a> {
             trait_id,
             BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
         ) {
-            return self.bool();
+            return self
+                .vector_bool_mask(self_ty)
+                .unwrap_or_else(|| self.bool());
         }
         let output = self.interner.intern(TyKind::Projection {
             self_ty,
