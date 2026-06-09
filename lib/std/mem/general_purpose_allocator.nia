@@ -6,6 +6,11 @@ import std.os;
 using allocator::Allocator;
 using types::{Block, Error, Layout};
 
+pub enum DeinitStatus: i32 {
+    Ok = 0,
+    Leak = 1,
+}
+
 comptime let max_small_size: usize = 2048usize;
 comptime let min_slot_size: usize = 16usize;
 comptime let small_magic: usize = 0x6e69615f67707331usize;
@@ -48,7 +53,17 @@ extend GeneralPurposeAllocator {
         { child: child, small_pages: null, large_allocations: null }
     }
 
-    pub fn deinit(&mut self) Error!void {
+    pub fn deinit(&mut self) Error!DeinitStatus {
+        let leaked = not self.is_empty();
+        self.deinit_without_leak_check().?;
+        if leaked {
+            !DeinitStatus::Leak
+        } else {
+            !DeinitStatus::Ok
+        }
+    }
+
+    pub fn deinit_without_leak_check(&mut self) Error!void {
         let small = self.small_pages;
         let large = self.large_allocations;
         self.small_pages = null;

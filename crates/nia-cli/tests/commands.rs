@@ -4164,7 +4164,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var page = mem::PageAllocator::init();
     var allocator = mem::GeneralPurposeAllocator::init(&mut page);
-    defer allocator.deinit().exit().?;
 
     let layout = mem::Layout::init(24, 8).exit().?;
     var first = allocator.alloc(layout).exit().?;
@@ -4187,7 +4186,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var list = std::ArrayList[i32]::init();
-    defer list.deinit(&mut allocator).exit().?;
     list.push(&mut allocator, 10).exit().?;
     list.push(&mut allocator, 20).exit().?;
     list.push(&mut allocator, 30).exit().?;
@@ -4201,6 +4199,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if allocator.query_used() == 0usize or allocator.query_capacity() == 0usize {
         return (5 as process::ExitCode)!;
+    }
+    list.deinit(&mut allocator).exit().?;
+    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
+        return (6 as process::ExitCode)!;
     }
     !{}
 }
@@ -4242,7 +4244,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var page = mem::PageAllocator::init();
     var allocator = mem::GeneralPurposeAllocator::init(&mut page);
-    defer allocator.deinit().exit().?;
 
     let layout = mem::Layout::init(3000, 4096).exit().?;
     var block = allocator.alloc(layout).exit().?;
@@ -4277,6 +4278,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     allocator.free(block).exit().?;
     if not allocator.is_empty() {
         return (6 as process::ExitCode)!;
+    }
+    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
+        return (7 as process::ExitCode)!;
     }
     !{}
 }
@@ -4318,7 +4322,6 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var page = mem::PageAllocator::init();
     var allocator = mem::GeneralPurposeAllocator::init(&mut page);
-    defer allocator.deinit().exit().?;
 
     let small_layout = mem::Layout::init(32, 8).exit().?;
     let small = allocator.alloc(small_layout).exit().?;
@@ -4385,6 +4388,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     allocator.free(large).exit().?;
     if not allocator.is_empty() {
         return (6 as process::ExitCode)!;
+    }
+    if allocator.deinit().exit().? != mem::DeinitStatus::Ok {
+        return (12 as process::ExitCode)!;
+    }
+    var leaking = mem::GeneralPurposeAllocator::init(&mut page);
+    _ = leaking.alloc(small_layout).exit().?;
+    if leaking.deinit().exit().? != mem::DeinitStatus::Leak {
+        return (13 as process::ExitCode)!;
     }
     !{}
 }
