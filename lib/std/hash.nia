@@ -210,6 +210,14 @@ where H: Hasher
     }
 }
 
+extend[H] i8 : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        (self.* as u8).hash(hasher)
+    }
+}
+
 extend[H] u16 : Hash[H]
 where H: Hasher
 {
@@ -218,6 +226,14 @@ where H: Hasher
             self.* as u8,
             (self.* >> 8u16) as u8,
         ])
+    }
+}
+
+extend[H] i16 : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        (self.* as u16).hash(hasher)
     }
 }
 
@@ -231,6 +247,14 @@ where H: Hasher
             (self.* >> 16u32) as u8,
             (self.* >> 24u32) as u8,
         ])
+    }
+}
+
+extend[H] i32 : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        (self.* as u32).hash(hasher)
     }
 }
 
@@ -251,6 +275,14 @@ where H: Hasher
     }
 }
 
+extend[H] i64 : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        (self.* as u64).hash(hasher)
+    }
+}
+
 extend[H] usize : Hash[H]
 where H: Hasher
 {
@@ -259,7 +291,27 @@ where H: Hasher
     }
 }
 
-extend[H] i32 : Hash[H]
+extend[H] isize : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        (self.* as usize).hash(hasher)
+    }
+}
+
+extend[H] bool : Hash[H]
+where H: Hasher
+{
+    pub fn hash(&self, hasher: &mut H) void {
+        if self.* {
+            1u8.hash(hasher)
+        } else {
+            0u8.hash(hasher)
+        }
+    }
+}
+
+extend[H] char : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
@@ -271,6 +323,7 @@ extend[H] [u8] : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
+        self.len().hash(hasher);
         hasher.write(self)
     }
 }
