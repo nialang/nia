@@ -1,0 +1,92 @@
+pub struct HashMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    key: K,
+    value: V,
+}
+
+pub struct HashMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &V,
+}
+
+pub struct HashMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &mut V,
+}
+
+pub struct HashMapGetOrPutResult[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &mut V,
+    found_existing: bool,
+}
+
+extend[K, V] HashMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        &self.key
+    }
+
+    pub fn value(&self) &V {
+        &self.value
+    }
+
+    pub fn into_key(self) K {
+        self.key
+    }
+
+    pub fn into_value(self) V {
+        self.value
+    }
+}
+
+extend[K, V] HashMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        self.key
+    }
+
+    pub fn value(&self) &V {
+        self.value
+    }
+}
+
+extend[K, V] HashMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        self.key
+    }
+
+    pub fn value(&self) &V {
+        self.value
+    }
+
+    pub fn value_mut(&mut self) &mut V {
+        self.value
+    }
+}
+
+extend[K, V] HashMapGetOrPutResult[K, V]
+where K: Sized, V: Sized
+{
+    pub fn key(&self) &K {
+        self.key
+    }
+
+    pub fn value(&mut self) &mut V {
+        self.value
+    }
+
+    pub fn found_existing(&self) bool {
+        self.found_existing
+    }
+}

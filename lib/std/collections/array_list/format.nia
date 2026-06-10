@@ -1,0 +1,21 @@
+using package::fmt;
+using package::collections::array_list::list;
+
+using list::ArrayList;
+
+extend[T, E] ArrayList[T] : fmt::Format[E]
+where T: Sized + fmt::Format[E]
+{
+    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+        formatter.write_byte(b'[').?;
+        var index = 0usize;
+        while index < self.len() {
+            if index != 0usize {
+                formatter.write_text(", ").?;
+            }
+            self.as_slice()[index].format(formatter).?;
+            index += 1usize;
+        }
+        formatter.write_byte(b']')
+    }
+}

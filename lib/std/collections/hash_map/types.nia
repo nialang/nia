@@ -1,0 +1,4 @@
+pub trait HashMapContext[K] {
+    fn hash(&self, seed: u64, key: &K) u64;
+    fn eql(&self, left: &K, right: &K) bool;
+}

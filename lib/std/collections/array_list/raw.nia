@@ -1,0 +1,15 @@
+using package::mem;
+
+pub fn dangling_slice[T](len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..len]
+}
+
+pub fn block_items[T](block: mem::Block, len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = block.ptr() as &mut T;
+    &mut ptr[0..len]
+}
