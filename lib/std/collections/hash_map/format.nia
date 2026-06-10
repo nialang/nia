@@ -1,0 +1,26 @@
+using package::fmt;
+using package::collections::hash_map::map;
+using package::collections::hash_map::types;
+
+using map::HashMapWithContext;
+using types::HashMapContext;
+
+extend[K, V, C, E] HashMapWithContext[K, V, C] : fmt::Format[E]
+where K: Sized + fmt::Format[E], V: Sized + fmt::Format[E], C: HashMapContext[K]
+{
+    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+        formatter.write_byte(b'{').?;
+        var first = true;
+        for entry in self.iter() {
+            if first {
+                first = false;
+            } else {
+                formatter.write_text(", ").?;
+            }
+            entry.key().*.format(formatter).?;
+            formatter.write_text(": ").?;
+            entry.value().*.format(formatter).?;
+        }
+        formatter.write_byte(b'}')
+    }
+}

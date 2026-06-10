@@ -1682,6 +1682,49 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
         return (11 as process::ExitCode)!;
     }
+    switch list.first() {
+        ?value => {
+            if value.* != 0 {
+                return (64 as process::ExitCode)!;
+            }
+        },
+        null => return (65 as process::ExitCode)!,
+    }
+    switch list.last() {
+        ?value => {
+            if value.* != 50 {
+                return (66 as process::ExitCode)!;
+            }
+        },
+        null => return (67 as process::ExitCode)!,
+    }
+    switch list.get(3) {
+        ?value => {
+            if value.* != 30 {
+                return (68 as process::ExitCode)!;
+            }
+        },
+        null => return (69 as process::ExitCode)!,
+    }
+    switch list.get(6) {
+        ?value => {
+            _ = value;
+            return (70 as process::ExitCode)!;
+        },
+        null => {},
+    }
+    switch list.get_mut(4) {
+        ?value => value.* = 44,
+        null => return (71 as process::ExitCode)!,
+    }
+    switch list.last_mut() {
+        ?value => value.* = 55,
+        null => return (72 as process::ExitCode)!,
+    }
+    let expected_after_accessors: [6]i32 = [0, 10, 20, 30, 44, 55];
+    if not mem::equal[i32](list.as_slice(), &expected_after_accessors[..]) {
+        return (73 as process::ExitCode)!;
+    }
 
     let more: [3]i32 = [60, 70, 80];
     switch list.append_slice(page, &more[..]) {
@@ -1797,6 +1840,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (18 as process::ExitCode)!;
     }
 
+    switch list.reserve_exact(page, 2) {
+        !ok => _ = ok,
+        error! => return (74 as process::ExitCode)!,
+    }
     let tail: [2]i32 = [100, 110];
     list.append_slice_assume_capacity(&tail[..]);
     if list.len() != 12 or list.as_slice()[10] != 100 or list.as_slice()[11] != 110 {

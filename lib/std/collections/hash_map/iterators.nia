@@ -1,0 +1,219 @@
+using package::collections::hash_map::context;
+using package::collections::hash_map::entries;
+using package::collections::hash_map::map;
+using package::collections::hash_map::raw;
+using package::collections::hash_map::types;
+
+using context::DefaultHashMapContext;
+using entries::{HashMapEntryMut, HashMapEntryRef};
+using map::HashMapWithContext;
+using types::HashMapContext;
+
+pub type HashMapIter[K, V] = HashMapIterWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapIterMut[K, V] = HashMapIterMutWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapKeys[K, V] = HashMapKeysWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapValues[K, V] = HashMapValuesWithContext[K, V, DefaultHashMapContext];
+
+pub type HashMapValuesMut[K, V] = HashMapValuesMutWithContext[K, V, DefaultHashMapContext];
+
+pub struct HashMapIterWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    map: &HashMapWithContext[K, V, C],
+    index: usize,
+    remaining: usize,
+}
+
+pub struct HashMapIterMutWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    map: &mut HashMapWithContext[K, V, C],
+    index: usize,
+    remaining: usize,
+}
+
+pub struct HashMapKeysWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    iter: HashMapIterWithContext[K, V, C],
+}
+
+pub struct HashMapValuesWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    iter: HashMapIterWithContext[K, V, C],
+}
+
+pub struct HashMapValuesMutWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    iter: HashMapIterMutWithContext[K, V, C],
+}
+
+extend[K, V, C] HashMapWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn iter(&self) HashMapIterWithContext[K, V, C] {
+        { map: self, index: 0usize, remaining: self.len }
+    }
+
+    pub fn iter_mut(&mut self) HashMapIterMutWithContext[K, V, C] {
+        { map: self, index: 0usize, remaining: self.len }
+    }
+
+    pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
+        { iter: self.iter() }
+    }
+
+    pub fn values(&self) HashMapValuesWithContext[K, V, C] {
+        { iter: self.iter() }
+    }
+
+    pub fn values_mut(&mut self) HashMapValuesMutWithContext[K, V, C] {
+        { iter: self.iter_mut() }
+    }
+}
+
+extend[K, V, C] HashMapIterWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn len(&self) usize {
+        self.remaining
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len() == 0usize
+    }
+}
+
+extend[K, V, C] HashMapIterWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = HashMapEntryRef[K, V];
+
+    pub fn next(&mut self) ?HashMapEntryRef[K, V] {
+        while self.index < self.map.bucket_count {
+            let index = self.index;
+            self.index += 1usize;
+            if raw::is_full(self.map.ctrl[index]) {
+                self.remaining -= 1usize;
+                return ?{
+                    key: &self.map.keys[index],
+                    value: &self.map.values[index],
+                };
+            }
+        }
+        null
+    }
+}
+
+extend[K, V, C] HashMapIterMutWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn len(&self) usize {
+        self.remaining
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len() == 0usize
+    }
+}
+
+extend[K, V, C] HashMapIterMutWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = HashMapEntryMut[K, V];
+
+    pub fn next(&mut self) ?HashMapEntryMut[K, V] {
+        while self.index < self.map.bucket_count {
+            let index = self.index;
+            self.index += 1usize;
+            if raw::is_full(self.map.ctrl[index]) {
+                self.remaining -= 1usize;
+                return ?{
+                    key: &self.map.keys[index],
+                    value: &mut self.map.values[index],
+                };
+            }
+        }
+        null
+    }
+}
+
+extend[K, V, C] HashMapKeysWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn len(&self) usize {
+        self.iter.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.iter.is_empty()
+    }
+}
+
+extend[K, V, C] HashMapKeysWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = &K;
+
+    pub fn next(&mut self) ?&K {
+        switch self.iter.next() {
+            ?entry => ?entry.key(),
+            null => null,
+        }
+    }
+}
+
+extend[K, V, C] HashMapValuesWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn len(&self) usize {
+        self.iter.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.iter.is_empty()
+    }
+}
+
+extend[K, V, C] HashMapValuesWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = &V;
+
+    pub fn next(&mut self) ?&V {
+        switch self.iter.next() {
+            ?entry => ?entry.value(),
+            null => null,
+        }
+    }
+}
+
+extend[K, V, C] HashMapValuesMutWithContext[K, V, C]
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    pub fn len(&self) usize {
+        self.iter.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.iter.is_empty()
+    }
+}
+
+extend[K, V, C] HashMapValuesMutWithContext[K, V, C] : Iterator
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = &mut V;
+
+    pub fn next(&mut self) ?&mut V {
+        switch self.iter.next() {
+            ?entry => ?entry.value_mut(),
+            null => null,
+        }
+    }
+}

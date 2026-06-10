@@ -1022,9 +1022,57 @@ fn main() void {}
 "#,
         ),
         (
+            "std_collections_array_list",
+            r#"
+using std::collections::array_list;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_array_list_list",
+            r#"
+using std::collections::array_list::list;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_array_list_raw",
+            r#"
+using std::collections::array_list::raw;
+
+fn main() void {}
+"#,
+        ),
+        (
             "std_collections_hash_map",
             r#"
 using std::collections::hash_map;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_hash_map_raw",
+            r#"
+using std::collections::hash_map::raw;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_hash_map_map",
+            r#"
+using std::collections::hash_map::map;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_hash_map_iterators",
+            r#"
+using std::collections::hash_map::iterators;
 
 fn main() void {}
 "#,
@@ -1048,7 +1096,8 @@ fn main() void {}
             program.diagnostics.iter().any(|diagnostic| diagnostic
                 .diagnostic
                 .summary
-                .contains("could not be resolved")),
+                .contains("could not be resolved")
+                || diagnostic.diagnostic.summary.contains("unknown namespace")),
             "{name}: {:?}",
             program.diagnostics
         );
