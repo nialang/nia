@@ -553,14 +553,13 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
             nia_ast::StmtKind::ForIn(for_stmt) => {
-                if for_stmt.pattern.name().is_some() {
-                    if let Some(local_id) = self
+                if for_stmt.pattern.name().is_some()
+                    && let Some(local_id) = self
                         .input
                         .semantic_uses
                         .node_local_def(&for_stmt.pattern.node_key)
-                    {
-                        out.insert(local_id);
-                    }
+                {
+                    out.insert(local_id);
                 }
                 self.collect_expr_locals(&for_stmt.iter, out);
                 self.collect_block_locals(&for_stmt.body, out);

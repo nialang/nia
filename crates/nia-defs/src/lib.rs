@@ -680,7 +680,7 @@ impl Collector {
         span: Span,
         generics: Vec<String>,
     ) -> DefId {
-        let def_id = self.push_def(Def {
+        self.push_def(Def {
             name,
             kind,
             module_id: self.module_id,
@@ -688,8 +688,7 @@ impl Collector {
             generics,
             visibility,
             span,
-        });
-        def_id
+        })
     }
 
     fn push_def(&mut self, def: Def) -> DefId {

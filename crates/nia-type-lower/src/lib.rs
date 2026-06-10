@@ -1289,9 +1289,7 @@ impl<'a> TypeLowerer<'a> {
         trait_ty: InternedTyId,
     ) -> Option<AssociatedTypeScope> {
         let trait_ty = self.normalize_if_known(trait_ty);
-        let Some((trait_id, trait_args)) = self.projection_trait_id(trait_ty) else {
-            return None;
-        };
+        let (trait_id, trait_args) = self.projection_trait_id(trait_ty)?;
         let names = match trait_id {
             TraitId::Source(def_id) => self.source_trait_associated_type_names(def_id),
             TraitId::Builtin(_) => Vec::new(),

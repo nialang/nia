@@ -442,16 +442,16 @@ pub(super) fn provide_visible_extensions(
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
     let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let extensions = db.query(ExtensionMethodsQuery);
-    visible_extensions_for_module(
+    visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
-        &graph,
+        graph: &graph,
         using_scope,
-        &public.surfaces,
-        &defs,
-        &normalizations,
-        &extensions.methods,
-        &extensions.associated_values,
-    )
+        public_surfaces: &public.surfaces,
+        defs_by_module: &defs,
+        normalizations: &normalizations,
+        extensions: &extensions.methods,
+        associated_values: &extensions.associated_values,
+    })
 }
 
 pub(super) fn provide_value_resolution(
@@ -728,18 +728,18 @@ pub(super) fn provide_static_check(
     let comptime = db.query(ComptimeQuery(module_id));
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
-    nia_static_check::check_module_static_initializers(
-        &loaded.module,
-        &defs,
-        &values,
-        &locals,
-        &semantic_uses,
-        &signatures,
-        &comptime,
-        &program_defs,
-        &program_comptime,
-        &db.context().target,
-    )
+    nia_static_check::check_module_static_initializers(nia_static_check::StaticCheckInput {
+        module: &loaded.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        signatures: &signatures,
+        comptime: &comptime,
+        program_defs: &program_defs,
+        program_comptime: &program_comptime,
+        target: &db.context().target,
+    })
 }
 
 pub(super) fn provide_flow_check(

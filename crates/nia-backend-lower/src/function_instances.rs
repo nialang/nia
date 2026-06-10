@@ -16,6 +16,13 @@ use nia_ty::TyKind;
 
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
 
+struct PlannedFunctionInstance {
+    def_id: GlobalDefId,
+    arg_module_id: ModuleId,
+    args: Vec<InternedTyId>,
+    symbol: String,
+}
+
 const MAX_BACKEND_FUNCTION_INSTANCES: usize = 4096;
 const MAX_BACKEND_INSTANCE_TYPE_DEPTH: usize = 256;
 
@@ -154,10 +161,12 @@ impl<'a> ModuleLowerer<'a> {
                 &mut functions_by_def,
                 &mut seen,
                 &mut instances,
-                instance.def_id,
-                instance.arg_module_id,
-                args,
-                symbol,
+                PlannedFunctionInstance {
+                    def_id: instance.def_id,
+                    arg_module_id: instance.arg_module_id,
+                    args,
+                    symbol,
+                },
             ) else {
                 continue;
             };
@@ -367,11 +376,14 @@ impl<'a> ModuleLowerer<'a> {
         functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
         seen: &mut HashSet<InstanceKey>,
         instances: &mut Vec<BackendFunctionInstance>,
-        def_id: GlobalDefId,
-        arg_module_id: ModuleId,
-        args: Vec<InternedTyId>,
-        symbol: String,
+        plan: PlannedFunctionInstance,
     ) -> Option<nia_function_ir::FunctionBody> {
+        let PlannedFunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+            symbol,
+        } = plan;
         if !seen.insert((def_id, arg_module_id, args.clone())) {
             return None;
         }
@@ -380,9 +392,7 @@ impl<'a> ModuleLowerer<'a> {
         {
             functions_by_def.insert(def_id, function);
         }
-        let Some(base) = functions_by_def.get(&def_id).cloned() else {
-            return None;
-        };
+        let base = functions_by_def.get(&def_id).cloned()?;
         let imported_args = args
             .iter()
             .map(|arg| self.import_instance_arg_type(*arg))

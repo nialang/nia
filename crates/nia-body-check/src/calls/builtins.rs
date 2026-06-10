@@ -411,7 +411,10 @@ impl<'a> BodyChecker<'a> {
         }
         let vector_ty = self.check_expr(&args[0]);
         match self.interner.get(vector_ty).cloned() {
-            Some(TyKind::Vector { elem, lanes }) if elem == PrimitiveTy::Bool => {
+            Some(TyKind::Vector {
+                elem: PrimitiveTy::Bool,
+                lanes,
+            }) => {
                 if lanes > 64 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0301",

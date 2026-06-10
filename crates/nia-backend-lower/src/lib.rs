@@ -638,6 +638,15 @@ impl<'a> ModuleLowerer<'a> {
             structs: Some(self.input.program_structs),
             unions: Some(self.input.program_unions),
         };
+        let layout_input = nia_layout::LayoutComputationInput {
+            defs: self.input.defs,
+            interner: &self.interner,
+            signatures: self.input.signatures,
+            normalized: &self.input.type_normalization.normalized,
+            array_lengths: &array_lengths,
+            target: self.input.layouts.target,
+            program,
+        };
 
         let mut seen_structs = layouts
             .struct_instances
@@ -656,15 +665,11 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             if let Some(layout) = nia_layout::compute_struct_instance_layout_with_program_context(
-                self.input.defs,
-                &self.interner,
-                self.input.signatures,
-                &self.input.type_normalization.normalized,
-                &array_lengths,
-                self.input.layouts.target,
-                program,
-                instance.def_id,
-                &instance.args,
+                layout_input,
+                nia_layout::InstanceLayoutRequest {
+                    def_id: instance.def_id,
+                    args: &instance.args,
+                },
             ) {
                 layouts.struct_instances.push((key, layout));
             }
@@ -687,15 +692,11 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             if let Some(layout) = nia_layout::compute_union_instance_layout_with_program_context(
-                self.input.defs,
-                &self.interner,
-                self.input.signatures,
-                &self.input.type_normalization.normalized,
-                &array_lengths,
-                self.input.layouts.target,
-                program,
-                instance.def_id,
-                &instance.args,
+                layout_input,
+                nia_layout::InstanceLayoutRequest {
+                    def_id: instance.def_id,
+                    args: &instance.args,
+                },
             ) {
                 layouts.union_instances.push((key, layout));
             }
@@ -919,10 +920,10 @@ fn index_shared_known_type_interners(
             insert_known_type_interner(&mut interners, interner);
         }
         for interner in input.program_type_interners.values() {
-            insert_known_type_interner(&mut interners, *interner);
+            insert_known_type_interner(&mut interners, interner);
         }
         for (_, interner) in input.program_extensions.values() {
-            insert_known_type_interner(&mut interners, *interner);
+            insert_known_type_interner(&mut interners, interner);
         }
     }
     for interner in monomorphization.type_interners.values() {

@@ -1857,16 +1857,30 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
     }
 }
 
+pub(crate) struct VisibleExtensionsInput<'a> {
+    pub module_id: nia_ids::ModuleId,
+    pub graph: &'a nia_imports::ModuleGraph,
+    pub using_scope: &'a nia_defs::ModuleUsingScope,
+    pub public_surfaces: &'a PublicSurfaces,
+    pub defs_by_module: &'a HashMap<nia_ids::ModuleId, DefCollection>,
+    pub normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
+    pub extensions: &'a ExtensionMethods,
+    pub associated_values: &'a ExtensionAssociatedValues,
+}
+
 pub(crate) fn visible_extensions_for_module(
-    module_id: nia_ids::ModuleId,
-    graph: &nia_imports::ModuleGraph,
-    using_scope: &nia_defs::ModuleUsingScope,
-    public_surfaces: &PublicSurfaces,
-    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
-    extensions: &ExtensionMethods,
-    associated_values: &ExtensionAssociatedValues,
+    input: VisibleExtensionsInput<'_>,
 ) -> VisibleExtensionsForModule {
+    let VisibleExtensionsInput {
+        module_id,
+        graph,
+        using_scope,
+        public_surfaces,
+        defs_by_module,
+        normalizations,
+        extensions,
+        associated_values,
+    } = input;
     let visible_modules = declared_module_closure(module_id, graph, using_scope);
     let Some(current_normalization) = normalizations.get(&module_id) else {
         return VisibleExtensionsForModule {

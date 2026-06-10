@@ -26,13 +26,13 @@ pub struct Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
-    Binding(BindingStmt),
+    Binding(Box<BindingStmt>),
     Using(crate::UsingItem),
-    Expr(Expr),
-    Return(Option<Expr>),
+    Expr(Box<Expr>),
+    Return(Option<Box<Expr>>),
     Break,
     Continue,
-    Defer(Expr),
+    Defer(Box<Expr>),
     ForIn(Box<ForInStmt>),
     While(Box<WhileStmt>),
     Loop(Box<LoopStmt>),
@@ -130,10 +130,10 @@ pub enum SwitchPattern {
         span: Span,
         node_key: NodeKey,
     },
-    Expr(Expr),
+    Expr(Box<Expr>),
     Range {
-        start: Expr,
-        end: Expr,
+        start: Box<Expr>,
+        end: Box<Expr>,
         inclusive: bool,
         span: Span,
     },
@@ -141,7 +141,7 @@ pub enum SwitchPattern {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SwitchArmBody {
-    Expr(Expr),
+    Expr(Box<Expr>),
     Stmt(Box<Stmt>),
     Block(Box<Block>),
 }

@@ -467,234 +467,229 @@ fn eval_resolved_comptime_expr_flow(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let span = expr.span();
-    let value = match expr.kind() {
-        ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
-        ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
-        ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
-            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
-            .ok_or_else(|| ComptimeError {
-                span: span,
-                message: "unsupported string literal in comptime expression".to_string(),
-            })?,
-        ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-            .ok_or_else(|| ComptimeError {
-                span: span,
-                message: "unsupported byte string literal in comptime expression".to_string(),
-            })?,
-        ResolvedComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-            .ok_or_else(|| ComptimeError {
-                span: span,
-                message: "unsupported C string literal in comptime expression".to_string(),
-            })?,
-        ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
-            .map(ComptimeValue::Int)
-            .map_err(|message| ComptimeError {
-            span: span,
-            message,
-        })?,
-        ResolvedComptimeExprKind::Float(text) => eval_float_literal(text)
-            .map(ComptimeValue::Float)
-            .map_err(|message| ComptimeError {
-                span: span,
-                message,
-            })?,
-        ResolvedComptimeExprKind::Char(text) => decode_char_literal(text)
-            .map(|value| ComptimeValue::Int(value as i128))
-            .ok_or_else(|| ComptimeError {
-                span: span,
-                message: format!("invalid char literal `{text}` in comptime expression"),
-            })?,
-        ResolvedComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
-            .map(|value| ComptimeValue::Int(value as i128))
-            .ok_or_else(|| ComptimeError {
-                span: span,
-                message: format!("invalid byte char literal `{text}` in comptime expression"),
-            })?,
-        ResolvedComptimeExprKind::Name(resolution) => {
-            env.resolve_resolved_name(span, *resolution)?
-        }
-        ResolvedComptimeExprKind::Field { lhs, name } => {
-            match eval_resolved_value_or_return_flow!(lhs, env) {
-                ComptimeValue::Struct(fields) => {
-                    fields.get(name).cloned().ok_or_else(|| ComptimeError {
-                        span: span,
-                        message: format!("unknown comptime field `{name}`"),
-                    })?
-                }
-                _ => {
-                    return Err(ComptimeError {
-                        span: span,
-                        message: "comptime field access requires a struct value".to_string(),
-                    });
-                }
-            }
-        }
-        ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => {
-            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
-        }
-        ResolvedComptimeExprKind::Index { lhs, index } => {
-            return eval_resolved_array_index_flow(span, lhs, index, env);
-        }
-        ResolvedComptimeExprKind::Slice { lhs, range } => {
-            return eval_resolved_array_slice_flow(span, lhs, range, env);
-        }
-        ResolvedComptimeExprKind::ArrayLiteral { elems, .. } => {
-            return eval_resolved_array_literal_flow(elems, env);
-        }
-        ResolvedComptimeExprKind::StructLiteral { fields, .. } => {
-            return eval_resolved_struct_literal_flow(fields, env);
-        }
-        ResolvedComptimeExprKind::CompileError { message } => {
-            let value = eval_resolved_value_or_return_flow!(message, env);
-            let Some(message) = comptime_error_message(&value) else {
-                return Err(ComptimeError {
+    let value =
+        match expr.kind() {
+            ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
+            ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
+            ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
+                .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
+                .ok_or_else(|| ComptimeError {
                     span,
-                    message: "builtin `@error` requires a comptime string message".to_string(),
-                });
-            };
-            return Err(ComptimeError { span, message });
-        }
-        ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
-            env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
-        }
-        ResolvedComptimeExprKind::BuiltinValue(builtin) => {
-            env.resolve_builtin_value(span, *builtin)?
-        }
-        ResolvedComptimeExprKind::Call {
-            callee,
-            type_args,
-            args,
-        } => {
-            if let ResolvedComptimeExprKind::BuiltinValue(builtin) = callee.kind() {
-                if !args.is_empty() {
-                    return Err(ComptimeError {
-                        span: span,
-                        message: format!(
-                            "unsupported builtin call in comptime expression: @{}",
-                            builtin.name()
-                        ),
-                    });
-                }
-                env.resolve_builtin_value(span, *builtin)?
-            } else if let ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } =
-                callee.kind()
-            {
-                if !args.is_empty() {
-                    return Err(ComptimeError {
-                        span: span,
-                        message: format!(
-                            "unsupported builtin call in comptime expression: @{}",
-                            builtin.name()
-                        ),
-                    });
-                }
-                env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
-            } else {
-                let mut values = Vec::with_capacity(args.len());
-                for arg in args {
-                    values.push(eval_resolved_value_or_return_flow!(arg, env));
-                }
-                env.call_resolved_function(span, callee, type_args, args, values)?
+                    message: "unsupported string literal in comptime expression".to_string(),
+                })?,
+            ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
+                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: "unsupported byte string literal in comptime expression".to_string(),
+                })?,
+            ResolvedComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
+                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: "unsupported C string literal in comptime expression".to_string(),
+                })?,
+            ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
+                .map(ComptimeValue::Int)
+                .map_err(|message| ComptimeError { span, message })?,
+            ResolvedComptimeExprKind::Float(text) => eval_float_literal(text)
+                .map(ComptimeValue::Float)
+                .map_err(|message| ComptimeError { span, message })?,
+            ResolvedComptimeExprKind::Char(text) => decode_char_literal(text)
+                .map(|value| ComptimeValue::Int(value as i128))
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("invalid char literal `{text}` in comptime expression"),
+                })?,
+            ResolvedComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
+                .map(|value| ComptimeValue::Int(value as i128))
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("invalid byte char literal `{text}` in comptime expression"),
+                })?,
+            ResolvedComptimeExprKind::Name(resolution) => {
+                env.resolve_resolved_name(span, *resolution)?
             }
-        }
-        ResolvedComptimeExprKind::Unary {
-            op: ComptimeUnaryOp::Neg,
-            expr: inner,
-        } => {
-            match eval_resolved_value_or_return_flow!(inner, env) {
+            ResolvedComptimeExprKind::Field { lhs, name } => {
+                match eval_resolved_value_or_return_flow!(lhs, env) {
+                    ComptimeValue::Struct(fields) => {
+                        fields.get(name).cloned().ok_or_else(|| ComptimeError {
+                            span,
+                            message: format!("unknown comptime field `{name}`"),
+                        })?
+                    }
+                    _ => {
+                        return Err(ComptimeError {
+                            span,
+                            message: "comptime field access requires a struct value".to_string(),
+                        });
+                    }
+                }
+            }
+            ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
+                span,
+                *method,
+                eval_resolved_value_or_return_flow!(lhs, env),
+            )?,
+            ResolvedComptimeExprKind::Index { lhs, index } => {
+                return eval_resolved_array_index_flow(span, lhs, index, env);
+            }
+            ResolvedComptimeExprKind::Slice { lhs, range } => {
+                return eval_resolved_array_slice_flow(span, lhs, range, env);
+            }
+            ResolvedComptimeExprKind::ArrayLiteral { elems, .. } => {
+                return eval_resolved_array_literal_flow(elems, env);
+            }
+            ResolvedComptimeExprKind::StructLiteral { fields, .. } => {
+                return eval_resolved_struct_literal_flow(fields, env);
+            }
+            ResolvedComptimeExprKind::CompileError { message } => {
+                let value = eval_resolved_value_or_return_flow!(message, env);
+                let Some(message) = comptime_error_message(&value) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `@error` requires a comptime string message".to_string(),
+                    });
+                };
+                return Err(ComptimeError { span, message });
+            }
+            ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+                env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
+            }
+            ResolvedComptimeExprKind::BuiltinValue(builtin) => {
+                env.resolve_builtin_value(span, *builtin)?
+            }
+            ResolvedComptimeExprKind::Call {
+                callee,
+                type_args,
+                args,
+            } => {
+                if let ResolvedComptimeExprKind::BuiltinValue(builtin) = callee.kind() {
+                    if !args.is_empty() {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "unsupported builtin call in comptime expression: @{}",
+                                builtin.name()
+                            ),
+                        });
+                    }
+                    env.resolve_builtin_value(span, *builtin)?
+                } else if let ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } =
+                    callee.kind()
+                {
+                    if !args.is_empty() {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "unsupported builtin call in comptime expression: @{}",
+                                builtin.name()
+                            ),
+                        });
+                    }
+                    env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
+                } else {
+                    let mut values = Vec::with_capacity(args.len());
+                    for arg in args {
+                        values.push(eval_resolved_value_or_return_flow!(arg, env));
+                    }
+                    env.call_resolved_function(span, callee, type_args, args, values)?
+                }
+            }
+            ResolvedComptimeExprKind::Unary {
+                op: ComptimeUnaryOp::Neg,
+                expr: inner,
+            } => match eval_resolved_value_or_return_flow!(inner, env) {
                 ComptimeValue::Int(value) => value
                     .checked_neg()
                     .map(ComptimeValue::Int)
                     .ok_or_else(|| ComptimeError {
-                        span: span,
+                        span,
                         message: "integer overflow in comptime negation".to_string(),
                     })?,
                 ComptimeValue::Float(value) => ComptimeValue::Float(-value),
                 _ => {
                     return Err(ComptimeError {
-                        span: span,
+                        span,
                         message: "comptime negation requires a numeric value".to_string(),
                     });
                 }
-            }
-        }
-        ResolvedComptimeExprKind::Unary {
-            op: ComptimeUnaryOp::Not,
-            expr: inner,
-        } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
-            _ => {
+            },
+            ResolvedComptimeExprKind::Unary {
+                op: ComptimeUnaryOp::Not,
+                expr: inner,
+            } => match eval_resolved_value_or_return_flow!(inner, env) {
+                ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
+                _ => {
+                    return Err(ComptimeError {
+                        span,
+                        message: "comptime `not` requires a bool".to_string(),
+                    });
+                }
+            },
+            ResolvedComptimeExprKind::Unary {
+                op: ComptimeUnaryOp::BitNot,
+                expr: inner,
+            } => match eval_resolved_value_or_return_flow!(inner, env) {
+                ComptimeValue::Int(value) => ComptimeValue::Int(!value),
+                _ => {
+                    return Err(ComptimeError {
+                        span,
+                        message: "comptime bitwise not requires an integer".to_string(),
+                    });
+                }
+            },
+            ResolvedComptimeExprKind::Unary { op, .. } => {
                 return Err(ComptimeError {
-                    span: span,
-                    message: "comptime `not` requires a bool".to_string(),
+                    span,
+                    message: format!("unsupported unary operator in comptime expression: {op:?}"),
                 });
             }
-        },
-        ResolvedComptimeExprKind::Unary {
-            op: ComptimeUnaryOp::BitNot,
-            expr: inner,
-        } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ComptimeValue::Int(value) => ComptimeValue::Int(!value),
-            _ => {
-                return Err(ComptimeError {
-                    span: span,
-                    message: "comptime bitwise not requires an integer".to_string(),
-                });
+            ResolvedComptimeExprKind::OptionalSome { expr: inner } => ComptimeValue::Optional(
+                Some(Box::new(eval_resolved_value_or_return_flow!(inner, env))),
+            ),
+            ResolvedComptimeExprKind::ErrorOk { expr: inner } => ComptimeValue::ErrorUnion(Ok(
+                Box::new(eval_resolved_value_or_return_flow!(inner, env)),
+            )),
+            ResolvedComptimeExprKind::ErrorErr { expr: inner } => ComptimeValue::ErrorUnion(Err(
+                Box::new(eval_resolved_value_or_return_flow!(inner, env)),
+            )),
+            ResolvedComptimeExprKind::Try { expr: inner } => {
+                return eval_resolved_try_expr_flow(span, inner, env);
             }
-        },
-        ResolvedComptimeExprKind::Unary { op, .. } => {
-            return Err(ComptimeError {
-                span: span,
-                message: format!("unsupported unary operator in comptime expression: {op:?}"),
-            });
-        }
-        ResolvedComptimeExprKind::OptionalSome { expr: inner } => ComptimeValue::Optional(Some(
-            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
-        )),
-        ResolvedComptimeExprKind::ErrorOk { expr: inner } => ComptimeValue::ErrorUnion(Ok(
-            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
-        )),
-        ResolvedComptimeExprKind::ErrorErr { expr: inner } => ComptimeValue::ErrorUnion(Err(
-            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
-        )),
-        ResolvedComptimeExprKind::Try { expr: inner } => {
-            return eval_resolved_try_expr_flow(span, inner, env);
-        }
-        ResolvedComptimeExprKind::Binary { lhs, op, rhs } => {
-            return eval_resolved_binary_flow(span, lhs, *op, rhs, env);
-        }
-        ResolvedComptimeExprKind::Assign(assign) => {
-            return eval_resolved_assign_expr_flow(span, assign, env);
-        }
-        ResolvedComptimeExprKind::Range(range) => {
-            return eval_resolved_range_expr_flow(range, env);
-        }
-        ResolvedComptimeExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            return eval_resolved_comptime_if_expr_flow(
-                span,
+            ResolvedComptimeExprKind::Binary { lhs, op, rhs } => {
+                return eval_resolved_binary_flow(span, lhs, *op, rhs, env);
+            }
+            ResolvedComptimeExprKind::Assign(assign) => {
+                return eval_resolved_assign_expr_flow(span, assign, env);
+            }
+            ResolvedComptimeExprKind::Range(range) => {
+                return eval_resolved_range_expr_flow(range, env);
+            }
+            ResolvedComptimeExprKind::If {
                 cond,
                 then_branch,
-                else_branch.as_deref(),
-                env,
-            );
-        }
-        ResolvedComptimeExprKind::Switch(switch) => {
-            return eval_resolved_comptime_switch_expr_flow(switch, env);
-        }
-        ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
-            let value = eval_resolved_value_or_return_flow!(inner, env);
-            env.cast_value(span, value, *ty)?
-        }
-        ResolvedComptimeExprKind::Block(block) => {
-            return eval_resolved_function_block(block, env);
-        }
-    };
+                else_branch,
+            } => {
+                return eval_resolved_comptime_if_expr_flow(
+                    span,
+                    cond,
+                    then_branch,
+                    else_branch.as_deref(),
+                    env,
+                );
+            }
+            ResolvedComptimeExprKind::Switch(switch) => {
+                return eval_resolved_comptime_switch_expr_flow(switch, env);
+            }
+            ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
+                let value = eval_resolved_value_or_return_flow!(inner, env);
+                env.cast_value(span, value, *ty)?
+            }
+            ResolvedComptimeExprKind::Block(block) => {
+                return eval_resolved_function_block(block, env);
+            }
+        };
     Ok(ComptimeEvalFlow::Value(value))
 }
 
@@ -2057,27 +2052,42 @@ pub fn eval_resolved_comptime_function_call(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_resolved_comptime_function_call_inner(
-        span,
-        function_id,
-        function_module_id,
-        function.params(),
-        function.body(),
-        type_substitutions,
-        args,
+        ResolvedComptimeCall {
+            span,
+            function_id,
+            function_module_id,
+            params: function.params(),
+            body: function.body(),
+            type_substitutions,
+            args,
+        },
         env,
     )
 }
 
-fn eval_resolved_comptime_function_call_inner(
+struct ResolvedComptimeCall<'a> {
     span: Span,
     function_id: GlobalDefId,
     function_module_id: ModuleId,
-    params: &[ResolvedComptimeParam],
-    body: &ResolvedComptimeBlock,
+    params: &'a [ResolvedComptimeParam],
+    body: &'a ResolvedComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
+}
+
+fn eval_resolved_comptime_function_call_inner(
+    call: ResolvedComptimeCall<'_>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
+    let ResolvedComptimeCall {
+        span,
+        function_id,
+        function_module_id,
+        params,
+        body,
+        type_substitutions,
+        args,
+    } = call;
     if let ArityCheck::Mismatch { actual, .. } = check_exact_arity(params.len(), args.len()) {
         return Err(ComptimeError {
             span,

@@ -115,9 +115,9 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
         let value = self.build_load(ty, ptr, name)?;
-        value
-            .as_instruction_value()
-            .map(|inst| inst.set_alignment(align));
+        if let Some(inst) = value.as_instruction_value() {
+            inst.set_alignment(align);
+        }
         Ok(value)
     }
 

@@ -11,6 +11,17 @@ struct BuiltinAssociatedPlaceMethodCall<'a> {
     expected: Option<InternedTyId>,
 }
 
+struct BuiltinAssociatedIntrinsicMethodCall<'a> {
+    span: Span,
+    node_key: &'a nia_node_id::NodeKey,
+    target_ty: InternedTyId,
+    name: &'a str,
+    method: BuiltinTraitMethod,
+    intrinsic: BuiltinMethod,
+    args: &'a [Expr],
+    expected: Option<InternedTyId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn check_builtin_trait_method_call_with_receiver_ty(
         &mut self,
@@ -119,7 +130,16 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(intrinsic) = builtin_intrinsic_method(method) {
             return self.check_builtin_intrinsic_trait_associated_method_call(
-                expr, target_ty, name, method, intrinsic, args, expected,
+                BuiltinAssociatedIntrinsicMethodCall {
+                    span,
+                    node_key: &expr.node_key,
+                    target_ty,
+                    name,
+                    method,
+                    intrinsic,
+                    args,
+                    expected,
+                },
             );
         }
         let op = BuiltinOperatorOp::from_method(method)?;
@@ -218,59 +238,59 @@ impl<'a> BodyChecker<'a> {
 
     fn check_builtin_intrinsic_trait_associated_method_call(
         &mut self,
-        expr: &Expr,
-        target_ty: InternedTyId,
-        name: &str,
-        method: BuiltinTraitMethod,
-        intrinsic: BuiltinMethod,
-        args: &[Expr],
-        expected: Option<InternedTyId>,
+        call: BuiltinAssociatedIntrinsicMethodCall<'_>,
     ) -> Option<InternedTyId> {
-        let span = expr.span;
-        let trait_id = method.trait_id();
-        let Some((receiver, value_args)) = args.split_first() else {
+        let trait_id = call.method.trait_id();
+        let Some((receiver, value_args)) = call.args.split_first() else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
-                span,
-                format!("receiver method `{name}` requires a receiver argument"),
+                call.span,
+                format!(
+                    "receiver method `{}` requires a receiver argument",
+                    call.name
+                ),
             ));
             return Some(self.error());
         };
-        let receiver_ty = self.check_expr_with_expected(receiver, Some(target_ty));
-        self.expect_expr_type(receiver, target_ty, receiver_ty, "receiver argument");
-        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
-            self.check_receiver_match(receiver, target_ty, ReceiverKind::Ref);
+        let receiver_ty = self.check_expr_with_expected(receiver, Some(call.target_ty));
+        self.expect_expr_type(receiver, call.target_ty, receiver_ty, "receiver argument");
+        if matches!(call.method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(receiver, call.target_ty, ReceiverKind::Ref);
         }
-        let Some(trait_args) = self
-            .check_builtin_trait_method_value_args(span, trait_id, method, target_ty, value_args)
-        else {
+        let Some(trait_args) = self.check_builtin_trait_method_value_args(
+            call.span,
+            trait_id,
+            call.method,
+            call.target_ty,
+            value_args,
+        ) else {
             return Some(self.error());
         };
         if !self.current_context_proves_trait_obligation(
-            target_ty,
+            call.target_ty,
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
-                span,
+                call.span,
                 format!(
                     "trait bound not satisfied: {}: {}",
-                    self.ty_name(target_ty),
+                    self.ty_name(call.target_ty),
                     self.builtin_trait_ty_name(trait_id, &trait_args)
                 ),
             ));
         }
-        let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args);
-        if let Some(expected) = expected {
-            self.expect_type(span, expected, output, "builtin trait method call");
+        let output = self.builtin_trait_method_output(call.target_ty, trait_id, trait_args);
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "builtin trait method call");
         }
         self.record_resolved_node_call(
-            span,
-            &expr.node_key,
+            call.span,
+            call.node_key,
             ResolvedCall::BuiltinMethod {
-                method: intrinsic,
-                self_ty: target_ty,
+                method: call.intrinsic,
+                self_ty: call.target_ty,
             },
         );
         Some(output)

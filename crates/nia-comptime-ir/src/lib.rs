@@ -666,12 +666,6 @@ pub struct ResolvedComptimeSwitchPattern {
 }
 
 impl ResolvedComptimeSwitchPattern {
-    pub fn default() -> Self {
-        Self {
-            kind: ResolvedComptimeSwitchPatternKind::Default,
-        }
-    }
-
     pub fn optional_some(name: String, local_id: LocalId, span: Span) -> Self {
         Self {
             kind: ResolvedComptimeSwitchPatternKind::OptionalSome {
@@ -732,6 +726,14 @@ impl ResolvedComptimeSwitchPattern {
 
     pub fn kind(&self) -> &ResolvedComptimeSwitchPatternKind {
         &self.kind
+    }
+}
+
+impl Default for ResolvedComptimeSwitchPattern {
+    fn default() -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::Default,
+        }
     }
 }
 
@@ -3095,7 +3097,7 @@ mod tests {
             stmts: vec![nia_ast::Stmt {
                 span: span(),
                 node_key: stmt_key(0),
-                kind: nia_ast::StmtKind::Binding(nia_ast::BindingStmt {
+                kind: nia_ast::StmtKind::Binding(Box::new(nia_ast::BindingStmt {
                     name: "x".to_string(),
                     pattern_kind: nia_ast::ForPatternKind::Value,
                     pattern_span: span(),
@@ -3104,7 +3106,7 @@ mod tests {
                     value: Some(ast_ident("x")),
                     is_let: true,
                     is_comptime: true,
-                }),
+                })),
             }],
             tail: None,
         };
