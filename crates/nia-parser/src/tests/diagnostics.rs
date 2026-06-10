@@ -15,9 +15,9 @@ fn reports_lexer_errors_through_parser() {
 fn rejects_string_module_name() {
     let (_module, errors) = parse_module(r#"module "math";"#);
     assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("expected module name")),
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected module name")),
         "{errors:?}"
     );
 }

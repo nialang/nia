@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{temp_dir, CommandExt};
+use support::{CommandExt, temp_dir};
 
 #[test]
 fn emit_exe_std_mem_core_allocator_and_layout_cases() {
