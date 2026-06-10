@@ -6,18 +6,17 @@ mod support;
 use support::{temp_dir, CommandExt};
 
 #[test]
-fn emit_exe_can_allocate_with_std_mem_page_allocator() {
-    let root = temp_dir("emit_exe_can_allocate_with_std_mem_page_allocator");
+fn emit_exe_std_mem_core_allocator_and_layout_cases() {
+    let root = temp_dir("emit_exe_std_mem_core_allocator_and_layout_cases");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_page_allocator_allocates() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
     switch mem::Layout::of[u8]() {
@@ -40,41 +39,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_page_allocator_supports_overaligned_layouts() {
-    let root = temp_dir("emit_exe_std_mem_page_allocator_supports_overaligned_layouts");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
     switch mem::Layout::init(64, 8192) {
@@ -101,41 +67,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_layout_rejects_invalid_alignment() {
-    let root = temp_dir("emit_exe_std_mem_layout_rejects_invalid_alignment");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_layout_rejects_invalid_alignment() process::ExitCode!void {
     switch mem::Layout::init(16, 3) {
         !ok => {
             _ = ok;
@@ -149,41 +82,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_layout_rejects_array_size_overflow() {
-    let root = temp_dir("emit_exe_std_mem_layout_rejects_array_size_overflow");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_layout_rejects_array_size_overflow() process::ExitCode!void {
     switch mem::Layout::array[i32](4611686018427387904usize) {
         !ok => {
             _ = ok;
@@ -197,41 +97,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_allocator_can_allocate_typed_slices() {
-    let root = temp_dir("emit_exe_std_mem_allocator_can_allocate_typed_slices");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     switch allocator.alloc_slice[i32](4) {
         !items => {
@@ -252,6 +119,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
         },
         error! => return (1 as process::ExitCode)!,
     }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    check_page_allocator_allocates().?;
+    check_page_allocator_overaligned_layouts().?;
+    check_layout_rejects_invalid_alignment().?;
+    check_layout_rejects_array_size_overflow().?;
+    check_allocator_can_allocate_typed_slices().?;
     !{}
 }
 "#,
@@ -284,9 +161,9 @@ fn emit_exe_std_mem_fixed_buffer_allocator_supports_array_list() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -360,8 +237,8 @@ fn emit_exe_std_mem_fixed_buffer_allocator_resize_and_reset() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -442,9 +319,9 @@ fn emit_exe_std_mem_arena_allocator_supports_array_list_and_retain_reset() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -518,8 +395,8 @@ fn emit_exe_std_mem_arena_allocator_resize_remap_and_free_edges() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -592,9 +469,9 @@ fn emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_arr
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -671,8 +548,8 @@ fn emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -747,8 +624,8 @@ fn emit_exe_std_mem_general_purpose_allocator_rejects_invalid_free_and_resize() 
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -859,8 +736,8 @@ fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -948,8 +825,8 @@ fn emit_exe_std_mem_allocator_realloc_frees_new_block_when_old_free_fails() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 struct CountingAllocator {
     buffer: &mut [u8],
@@ -1056,8 +933,8 @@ fn emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1180,8 +1057,8 @@ fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1248,18 +1125,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_mem_allocator_preserves_empty_slice_len() {
-    let root = temp_dir("emit_exe_std_mem_allocator_preserves_empty_slice_len");
+fn emit_exe_std_mem_zero_sized_and_empty_slice_edges() {
+    let root = temp_dir("emit_exe_std_mem_zero_sized_and_empty_slice_edges");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     switch allocator.alloc_slice[i32](0) {
         !items => {
@@ -1275,41 +1151,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_allocator_preserves_zero_sized_slice_len() {
-    let root = temp_dir("emit_exe_std_mem_allocator_preserves_zero_sized_slice_len");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     switch allocator.alloc_slice[void](4) {
         !items => {
@@ -1325,41 +1168,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     !{}
 }
-"#,
-    )
-    .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
-}
-
-#[test]
-fn emit_exe_std_mem_block_as_slice_handles_zero_sized_element_type() {
-    let root = temp_dir("emit_exe_std_mem_block_as_slice_handles_zero_sized_element_type");
-    let main = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    std::fs::write(
-        &main,
-        r#"
-import std.mem;
-import std.process;
-
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
     switch mem::Layout::array[void](8) {
@@ -1379,6 +1189,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return (4 as process::ExitCode)!,
     }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    check_allocator_preserves_empty_slice_len().?;
+    check_allocator_preserves_zero_sized_slice_len().?;
+    check_block_as_slice_handles_zero_sized_element_type().?;
     !{}
 }
 "#,
@@ -1411,8 +1229,8 @@ fn emit_exe_std_mem_copy_forwards_and_backwards() {
     std::fs::write(
         &main,
         r#"
-import std.mem;
-import std.process;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1498,7 +1316,7 @@ fn emit_exe_memory_intrinsic_builtins() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1586,8 +1404,8 @@ where T: Sized
     std::fs::write(
         &main,
         r#"
-import helper;
-import std.process;
+using helper;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1668,7 +1486,7 @@ where T: Sized
 extend[T] [T]
 where T: Sized
 {
-    pub fn iter(&self) SliceIter[T] {
+    pub fn iter_custom(&self) SliceIter[T] {
         SliceIter[T]::from_raw_parts(self.get_ptr_read(), self.len())
     }
 }
@@ -1678,14 +1496,14 @@ where T: Sized
     std::fs::write(
         &main,
         r#"
-import helper;
-import std.process;
+using helper;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var data: [3]i32 = [10, 20, 30];
     var total = 0;
-    for &value in (&data[..]).iter() {
+    for &value in (&data[..]).iter_custom() {
         total += value;
     }
     if total != 60 {
@@ -1725,9 +1543,9 @@ fn emit_exe_std_array_list_push_pop_and_deinit() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2041,9 +1859,9 @@ fn emit_exe_std_array_list_can_shrink_to_zero_capacity_and_reuse() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2114,9 +1932,9 @@ fn emit_exe_std_array_list_owned_slice_and_clone() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2218,9 +2036,9 @@ fn emit_exe_std_array_list_handles_zero_sized_elements_without_allocation() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 struct Marker {}
 
