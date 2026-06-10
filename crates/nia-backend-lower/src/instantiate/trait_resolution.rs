@@ -557,6 +557,7 @@ impl<'a> ModuleLowerer<'a> {
         key: &ExtensionTraitMethodKey,
     ) -> Vec<ExtensionTraitMethodCandidate> {
         let candidates = self
+            .shared
             .program_extension_trait_method_candidates
             .get(key)
             .cloned()
