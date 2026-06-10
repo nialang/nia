@@ -2146,3 +2146,134 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_array_list_range_operations_and_owned_copy() {
+    let root = temp_dir("emit_exe_std_array_list_range_operations_and_owned_copy");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+fn expect_invalid(result: mem::Error!void) process::ExitCode!void {
+    switch result {
+        !ok => {
+            _ = ok;
+            return (90 as process::ExitCode)!;
+        },
+        err! => {
+            if err as i32 != mem::Error::Invalid as i32 {
+                return (91 as process::ExitCode)!;
+            }
+        },
+    }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    let page = &mut allocator;
+
+    var list = std::ArrayList[i32]::init();
+    defer list.deinit(page).exit().?;
+
+    let initial: [8]i32 = [0, 1, 2, 3, 4, 5, 6, 7];
+    list.append_slice(page, &initial[..]).exit().?;
+
+    list.remove_range(2, 3).exit().?;
+    let after_remove: [5]i32 = [0, 1, 5, 6, 7];
+    if not mem::equal[i32](list.as_slice(), &after_remove[..]) {
+        return (1 as process::ExitCode)!;
+    }
+
+    let same_len: [2]i32 = [10, 11];
+    list.replace_range(page, 1, 2, &same_len[..]).exit().?;
+    let after_same_len: [5]i32 = [0, 10, 11, 6, 7];
+    if not mem::equal[i32](list.as_slice(), &after_same_len[..]) {
+        return (2 as process::ExitCode)!;
+    }
+
+    let smaller: [1]i32 = [20];
+    list.replace_range(page, 2, 2, &smaller[..]).exit().?;
+    let after_smaller: [4]i32 = [0, 10, 20, 7];
+    if not mem::equal[i32](list.as_slice(), &after_smaller[..]) {
+        return (3 as process::ExitCode)!;
+    }
+
+    let larger: [4]i32 = [30, 31, 32, 33];
+    list.replace_range(page, 1, 1, &larger[..]).exit().?;
+    let after_larger: [7]i32 = [0, 30, 31, 32, 33, 20, 7];
+    if not mem::equal[i32](list.as_slice(), &after_larger[..]) {
+        return (4 as process::ExitCode)!;
+    }
+
+    list.replace_range(page, 2, 3, list.as_slice()).exit().?;
+    let after_alias_replace: [11]i32 = [0, 30, 0, 30, 31, 32, 33, 20, 7, 20, 7];
+    if not mem::equal[i32](list.as_slice(), &after_alias_replace[..]) {
+        return (5 as process::ExitCode)!;
+    }
+
+    list.truncate(6);
+    let after_truncate: [6]i32 = [0, 30, 0, 30, 31, 32];
+    if not mem::equal[i32](list.as_slice(), &after_truncate[..]) {
+        return (6 as process::ExitCode)!;
+    }
+    list.truncate(99);
+    if list.len() != 6 {
+        return (7 as process::ExitCode)!;
+    }
+
+    var owned = list.to_owned_slice(page).exit().?;
+    if not mem::equal[i32](owned, list.as_slice()) {
+        return (8 as process::ExitCode)!;
+    }
+    owned[0] = 1234;
+    if list.as_slice()[0] == 1234 {
+        return (9 as process::ExitCode)!;
+    }
+    page.free_slice[i32](owned).exit().?;
+
+    expect_invalid(list.remove_range(7, 1)).?;
+    expect_invalid(list.remove_range(5, 2)).?;
+    let invalid_values: [1]i32 = [99];
+    expect_invalid(list.replace_range(page, 7, 0, &invalid_values[..])).?;
+    expect_invalid(list.replace_range(page, 5, 2, &invalid_values[..])).?;
+    if not mem::equal[i32](list.as_slice(), &after_truncate[..]) {
+        return (10 as process::ExitCode)!;
+    }
+
+    var zero = std::ArrayList[void]::init();
+    zero.resize(page, 4).exit().?;
+    var zero_owned = zero.to_owned_slice(page).exit().?;
+    if zero_owned.len() != 4 {
+        return (11 as process::ExitCode)!;
+    }
+    zero.deinit(page).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
