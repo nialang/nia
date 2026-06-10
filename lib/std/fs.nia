@@ -1,7 +1,7 @@
-import std.fs.file;
-import std.fs.options;
-import std.fs.path;
-import std.fs.types;
+pub module file;
+pub module options;
+pub module path;
+pub module types;
 
 pub using types::{
     CreateDirOptions,

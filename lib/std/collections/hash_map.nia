@@ -1,7 +1,7 @@
-import std.fmt;
-import std.hash;
-import std.mem;
-import std.os;
+using std::fmt;
+using std::hash;
+using std::mem;
+using std::os;
 
 comptime let ctrl_empty: u8 = 0xffu8;
 comptime let ctrl_deleted: u8 = 0x80u8;

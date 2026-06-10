@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<DriverContext>) -> CheckedProgram,
     pub(super) module_graph: fn(&QueryDb<DriverContext>) -> ModuleGraph,
-    pub(super) import_alias_map: fn(&QueryDb<DriverContext>) -> ImportAliasMap,
     pub(super) parse_ok_module_ids: fn(&QueryDb<DriverContext>) -> Vec<ModuleId>,
     pub(super) loaded_module: fn(&QueryDb<DriverContext>, ModuleId) -> LoadedModule,
     pub(super) module_item_tree: fn(&QueryDb<DriverContext>, ModuleId) -> ModuleItemTree,
@@ -21,6 +21,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) program_type_lowerings:
         fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeLowering>,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
+    pub(super) program_item_signatures:
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ItemSignatures>,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
         fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeNormalization>,
@@ -60,7 +62,6 @@ impl Default for CompilerQueryProviders {
         Self {
             checked_program: provide_checked_program,
             module_graph: provide_module_graph,
-            import_alias_map: provide_import_alias_map,
             parse_ok_module_ids: provide_parse_ok_module_ids,
             loaded_module: provide_loaded_module,
             module_item_tree: provide_module_item_tree,
@@ -73,6 +74,7 @@ impl Default for CompilerQueryProviders {
             type_lowering: provide_type_lowering,
             program_type_lowerings: provide_program_type_lowerings,
             item_signatures: provide_item_signatures,
+            program_item_signatures: provide_program_item_signatures,
             type_normalization: provide_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
             program_signatures: provide_program_signatures,
@@ -105,23 +107,49 @@ impl Default for CompilerQueryProviders {
 }
 
 pub(super) fn provide_checked_program(db: &QueryDb<DriverContext>) -> CheckedProgram {
-    CheckedProgram {
+    time_provider(db.context().timings, "checked_program", || CheckedProgram {
         graph: db.query(ModuleGraphQuery),
-        imports: db.query(ImportAliasMapQuery),
         optimization: db.context().optimization,
         modules: db.query(CheckedModulesQuery),
         monomorphization: db.query(MonomorphizationQuery),
         backend_lowering: db.query(BackendLoweringQuery),
         diagnostics: db.query(ProgramDiagnosticsQuery),
+    })
+}
+
+fn time_provider<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    if !timings.detail() {
+        return f();
     }
+    let start = Instant::now();
+    let result = f();
+    eprintln!("query timing {name}: {:.3}s", start.elapsed().as_secs_f64());
+    result
+}
+
+fn time_module_provider<T>(
+    db: &QueryDb<DriverContext>,
+    name: &str,
+    module_id: ModuleId,
+    f: impl FnOnce() -> T,
+) -> T {
+    let timings = db.context().timings;
+    if !timings.detail() {
+        return f();
+    }
+    let path = db.context().path_for_module(module_id);
+    let start = Instant::now();
+    let result = f();
+    eprintln!(
+        "query timing {name}[{module_id:?} {}]: {:.3}s",
+        path.as_str(),
+        start.elapsed().as_secs_f64()
+    );
+    result
 }
 
 pub(super) fn provide_module_graph(db: &QueryDb<DriverContext>) -> ModuleGraph {
     db.context().loaded.graph.clone()
-}
-
-pub(super) fn provide_import_alias_map(db: &QueryDb<DriverContext>) -> ImportAliasMap {
-    db.context().loaded.imports.clone()
 }
 
 pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<DriverContext>) -> Vec<ModuleId> {
@@ -192,37 +220,41 @@ pub(super) fn provide_program_defs_by_id(
 }
 
 pub(super) fn provide_public_surface(db: &QueryDb<DriverContext>) -> PublicSurfaceQueryValue {
-    let defs = db.query(DefsByModuleQuery);
-    let imports = db.query(ImportAliasMapQuery);
-    let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &imports);
-    PublicSurfaceQueryValue {
-        surfaces,
-        using_scopes,
-        diagnostics,
-    }
+    time_provider(db.context().timings, "public_surface", || {
+        let defs = db.query(DefsByModuleQuery);
+        let graph = db.query(ModuleGraphQuery);
+        let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &graph);
+        PublicSurfaceQueryValue {
+            surfaces,
+            using_scopes,
+            diagnostics,
+        }
+    })
 }
 
 pub(super) fn provide_type_resolution(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> TypeResolution {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let program_defs = defs_by_module_id(db);
-    let imports = db.query(ImportAliasMapQuery);
-    let public = db.query(PublicSurfaceQuery);
-    let empty_using = ModuleUsingScope::default();
-    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    nia_type_resolve::resolve_module_types_from_active_item_tree(
-        &active_item_tree,
-        &defs,
-        &imports,
-        nia_type_resolve::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
-        &public.surfaces,
-        using_scope,
-    )
+    time_module_provider(db, "type_resolution", module_id, || {
+        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_defs = defs_by_module_id(db);
+        let graph = db.query(ModuleGraphQuery);
+        let public = db.query(PublicSurfaceQuery);
+        let empty_using = ModuleUsingScope::default();
+        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        nia_type_resolve::resolve_module_types_from_active_item_tree(
+            &active_item_tree,
+            &defs,
+            nia_type_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public.surfaces,
+            using_scope,
+        )
+    })
 }
 
 pub(super) fn provide_type_lowering(
@@ -256,6 +288,17 @@ pub(super) fn provide_item_signatures(
     )
 }
 
+pub(super) fn provide_program_item_signatures(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, ItemSignatures> {
+    time_provider(db.context().timings, "program_item_signatures", || {
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+            .collect()
+    })
+}
+
 pub(super) fn provide_type_normalization(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -268,130 +311,141 @@ pub(super) fn provide_type_normalization(
 pub(super) fn provide_program_type_lowerings(
     db: &QueryDb<DriverContext>,
 ) -> HashMap<ModuleId, TypeLowering> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
-        .collect()
+    time_provider(db.context().timings, "program_type_lowerings", || {
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
+            .collect()
+    })
 }
 
 pub(super) fn provide_program_type_normalizations(
     db: &QueryDb<DriverContext>,
 ) -> HashMap<ModuleId, TypeNormalization> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
-        .collect()
+    time_provider(db.context().timings, "program_type_normalizations", || {
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+            .collect()
+    })
 }
 
 pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
-    let module_ids = db.query(ParseOkModuleIdsQuery);
-    let type_lowerings = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
-        .collect::<Vec<_>>();
-    let item_signatures = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
-        .collect::<Vec<_>>();
-    let defs = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
-        .collect::<Vec<_>>();
-    let modules = module_ids
-        .iter()
-        .copied()
-        .zip(type_lowerings.iter())
-        .zip(item_signatures.iter())
-        .zip(defs.iter())
-        .map(
-            |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
-                module_id,
-                defs,
-                lowering,
-                signatures,
-            },
-        )
-        .collect::<Vec<_>>();
-    ProgramSignatures {
-        functions: collect_program_functions(&modules),
-        globals: collect_program_globals(&modules),
-        comptimes: collect_program_comptimes(&modules),
-        structs: collect_program_structs(&modules),
-        unions: collect_program_unions(&modules),
-        enums: collect_program_enums(&modules),
-        traits: collect_program_traits(&modules),
-        type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
-        trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
-    }
+    time_provider(db.context().timings, "program_signatures", || {
+        let module_ids = db.query(ParseOkModuleIdsQuery);
+        let type_lowerings = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+            .collect::<Vec<_>>();
+        let item_signatures = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+            .collect::<Vec<_>>();
+        let defs = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+            .collect::<Vec<_>>();
+        let modules = module_ids
+            .iter()
+            .copied()
+            .zip(type_lowerings.iter())
+            .zip(item_signatures.iter())
+            .zip(defs.iter())
+            .map(
+                |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
+                    module_id,
+                    defs,
+                    lowering,
+                    signatures,
+                },
+            )
+            .collect::<Vec<_>>();
+        ProgramSignatures {
+            functions: collect_program_functions(&modules),
+            globals: collect_program_globals(&modules),
+            comptimes: collect_program_comptimes(&modules),
+            structs: collect_program_structs(&modules),
+            unions: collect_program_unions(&modules),
+            enums: collect_program_enums(&modules),
+            traits: collect_program_traits(&modules),
+            type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
+            trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
+        }
+    })
 }
 
 pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsQueryValue {
-    let module_ids = db.query(ParseOkModuleIdsQuery);
-    let modules = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(LoadedModuleQuery(module_id)))
-        .collect::<Vec<_>>();
-    let defs = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
-        .collect::<Vec<_>>();
-    let type_lowerings = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
-        .collect::<Vec<_>>();
-    let item_signatures = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
-        .collect::<Vec<_>>();
-    let normalizations = db.query(ProgramTypeNormalizationsQuery);
-    let inputs = modules
-        .iter()
-        .zip(defs.iter())
-        .zip(type_lowerings.iter())
-        .zip(item_signatures.iter())
-        .zip(module_ids.iter())
-        .map(
-            |((((module, defs), lowering), signatures), module_id)| ExtensionModuleInput {
-                module,
-                defs,
-                lowering,
-                signatures,
-                normalization: normalizations
-                    .get(module_id)
-                    .expect("missing type normalization"),
-            },
-        )
-        .collect::<Vec<_>>();
-    let (methods, mut diagnostics) = collect_extension_methods(&inputs);
-    let (associated_values, associated_value_diagnostics) =
-        collect_extension_associated_values(&inputs);
-    diagnostics.extend(associated_value_diagnostics);
-    ExtensionMethodsQueryValue {
-        methods,
-        associated_values,
-        diagnostics,
-    }
+    time_provider(db.context().timings, "extension_methods", || {
+        let module_ids = db.query(ParseOkModuleIdsQuery);
+        let modules = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(LoadedModuleQuery(module_id)))
+            .collect::<Vec<_>>();
+        let defs = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+            .collect::<Vec<_>>();
+        let type_lowerings = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+            .collect::<Vec<_>>();
+        let item_signatures = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+            .collect::<Vec<_>>();
+        let normalizations = db.query(ProgramTypeNormalizationsQuery);
+        let inputs = modules
+            .iter()
+            .zip(defs.iter())
+            .zip(type_lowerings.iter())
+            .zip(item_signatures.iter())
+            .zip(module_ids.iter())
+            .map(
+                |((((module, defs), lowering), signatures), module_id)| ExtensionModuleInput {
+                    module,
+                    defs,
+                    lowering,
+                    signatures,
+                    normalization: normalizations
+                        .get(module_id)
+                        .expect("missing type normalization"),
+                },
+            )
+            .collect::<Vec<_>>();
+        let (methods, mut diagnostics) = collect_extension_methods(&inputs);
+        let (associated_values, associated_value_diagnostics) =
+            collect_extension_associated_values(&inputs);
+        diagnostics.extend(associated_value_diagnostics);
+        ExtensionMethodsQueryValue {
+            methods,
+            associated_values,
+            diagnostics,
+        }
+    })
 }
 
 pub(super) fn provide_visible_extensions(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> VisibleExtensionsForModule {
-    let imports = db.query(ImportAliasMapQuery);
+    let graph = db.query(ModuleGraphQuery);
     let defs = defs_by_module_id(db);
     let public = db.query(PublicSurfaceQuery);
+    let empty_using = ModuleUsingScope::default();
+    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
     let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     visible_extensions_for_module(
         module_id,
-        &imports,
+        &graph,
+        using_scope,
         &public.surfaces,
         &defs,
         &normalizations,
@@ -404,26 +458,28 @@ pub(super) fn provide_value_resolution(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> ValueResolution {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let program_defs = defs_by_module_id(db);
-    let imports = db.query(ImportAliasMapQuery);
-    let public = db.query(PublicSurfaceQuery);
-    let empty_using = ModuleUsingScope::default();
-    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
-    nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
-        &active_item_tree,
-        &defs,
-        &imports,
-        nia_value_resolve::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
-        &public.surfaces,
-        using_scope,
-        &visible_extensions.methods,
-        &visible_extensions.interner,
-    )
+    time_module_provider(db, "value_resolution", module_id, || {
+        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_defs = defs_by_module_id(db);
+        let graph = db.query(ModuleGraphQuery);
+        let public = db.query(PublicSurfaceQuery);
+        let empty_using = ModuleUsingScope::default();
+        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+            &active_item_tree,
+            &defs,
+            nia_value_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public.surfaces,
+            using_scope,
+            &visible_extensions.methods,
+            &visible_extensions.interner,
+        )
+    })
 }
 
 pub(super) fn provide_local_resolution(
@@ -482,7 +538,7 @@ pub(super) fn provide_semantic_use_table(
             nia_value_resolve::ValueNameResolution::External(global_id) => {
                 builder.insert_node_global_value_use(key.clone(), *global_id);
             }
-            nia_value_resolve::ValueNameResolution::ImportAlias
+            nia_value_resolve::ValueNameResolution::Module
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
@@ -533,92 +589,95 @@ pub(super) fn provide_program_comptime_modules(
 }
 
 pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
-    let module = db.query(ComptimeModuleQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let program_modules = db.query(ProgramComptimeModulesQuery);
-    let program_defs = db.query(ProgramDefsByIdQuery);
-    let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
-    let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
-    let program_signatures = db.query(ProgramSignaturesQuery);
-    let module_ids = db.query(ParseOkModuleIdsQuery);
-    let program_item_signatures = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-        .collect::<HashMap<_, _>>();
-    let values = db.query(ValueResolutionQuery(module_id));
-    let locals = db.query(LocalResolutionQuery(module_id));
-    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-    let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    let type_normalization = db.query(TypeNormalizationQuery(module_id));
-    let mut comptime =
-        nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-            module: &module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            signatures: &item_signatures,
-            interner: &type_normalization.interner,
-            normalized: &type_normalization.normalized,
-            target: &db.context().target,
-            program: nia_comptime_check::ComptimeProgramContext {
-                modules: Some(&program_modules),
-                defs: Some(&program_defs),
-                type_lowerings: Some(&program_type_lowerings),
-                type_normalizations: Some(&program_type_normalizations),
-                signatures: Some(&program_item_signatures),
-                trait_impls: &program_signatures.trait_impls,
-            },
-        });
-    comptime.diagnostics.extend(module.diagnostics);
-    comptime
+    time_module_provider(db, "comptime", module_id, || {
+        let module = db.query(ComptimeModuleQuery(module_id));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_modules = db.query(ProgramComptimeModulesQuery);
+        let program_defs = db.query(ProgramDefsByIdQuery);
+        let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
+        let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
+        let program_signatures = db.query(ProgramSignaturesQuery);
+        let program_item_signatures = db.query(ProgramItemSignaturesQuery);
+        let values = db.query(ValueResolutionQuery(module_id));
+        let locals = db.query(LocalResolutionQuery(module_id));
+        let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+        let item_signatures = db.query(ItemSignaturesQuery(module_id));
+        let type_normalization = db.query(TypeNormalizationQuery(module_id));
+        let mut comptime =
+            nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+                module: &module.module,
+                defs: &defs,
+                values: &values,
+                locals: &locals,
+                semantic_uses: &semantic_uses,
+                signatures: &item_signatures,
+                interner: &type_normalization.interner,
+                normalized: &type_normalization.normalized,
+                target: &db.context().target,
+                program: nia_comptime_check::ComptimeProgramContext {
+                    modules: Some(&program_modules),
+                    defs: Some(&program_defs),
+                    type_lowerings: Some(&program_type_lowerings),
+                    type_normalizations: Some(&program_type_normalizations),
+                    signatures: Some(&program_item_signatures),
+                    trait_impls: &program_signatures.trait_impls,
+                },
+            });
+        comptime.diagnostics.extend(module.diagnostics);
+        comptime
+    })
 }
 
 pub(super) fn provide_program_comptime(
     db: &QueryDb<DriverContext>,
 ) -> HashMap<ModuleId, ComptimeCheck> {
-    let ids = db.query(ParseOkModuleIdsQuery);
-    let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
-    ids.into_iter().zip(comptimes).collect()
+    time_provider(db.context().timings, "program_comptime", || {
+        let ids = db.query(ParseOkModuleIdsQuery);
+        let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
+        ids.into_iter().zip(comptimes).collect()
+    })
 }
 
 pub(super) fn provide_layouts(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> nia_layout::Layouts {
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let type_normalization = db.query(TypeNormalizationQuery(module_id));
-    let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    let comptime = db.query(ComptimeQuery(module_id));
-    let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
-    let local_array_lengths = |id| comptime.array_lengths.get(&id).copied();
-    let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-        Some(db.query(ComptimeQuery(id.module_id)))
-            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
-    };
-    nia_layout::compute_layouts_with_program_context(
-        &defs,
-        &type_normalization.interner,
-        &item_signatures,
-        &type_normalization.normalized,
-        &local_array_lengths,
-        nia_layout::TargetDataLayout::LP64,
-        nia_layout::ProgramLayoutContext {
-            layouts: Some(&layout_query),
-            array_lengths: Some(&program_array_lengths),
-            ..Default::default()
-        },
-    )
+    time_module_provider(db, "layouts", module_id, || {
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let type_normalization = db.query(TypeNormalizationQuery(module_id));
+        let item_signatures = db.query(ItemSignaturesQuery(module_id));
+        let comptime = db.query(ComptimeQuery(module_id));
+        let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+        let local_array_lengths = |id| comptime.array_lengths.get(&id).copied();
+        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+            Some(db.query(ComptimeQuery(id.module_id)))
+                .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+        };
+        nia_layout::compute_layouts_with_program_context(
+            &defs,
+            &type_normalization.interner,
+            &item_signatures,
+            &type_normalization.normalized,
+            &local_array_lengths,
+            nia_layout::TargetDataLayout::LP64,
+            nia_layout::ProgramLayoutContext {
+                layouts: Some(&layout_query),
+                array_lengths: Some(&program_array_lengths),
+                ..Default::default()
+            },
+        )
+    })
 }
 
 pub(super) fn provide_program_layouts(
     db: &QueryDb<DriverContext>,
 ) -> HashMap<ModuleId, nia_layout::Layouts> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(LayoutsQuery(module_id))))
-        .collect()
+    time_provider(db.context().timings, "program_layouts", || {
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(LayoutsQuery(module_id))))
+            .collect()
+    })
 }
 
 pub(super) fn provide_abi_check(
@@ -697,77 +756,85 @@ pub(super) fn provide_body_check(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> nia_body_check::BodyCheck {
-    let loaded = db.query(LoadedModuleQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let program_defs = defs_by_module_id(db);
-    let values = db.query(ValueResolutionQuery(module_id));
-    let locals = db.query(LocalResolutionQuery(module_id));
-    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-    let lowered = db.query(TypeLoweringQuery(module_id));
-    let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
-    let signatures = db.query(ItemSignaturesQuery(module_id));
-    let normalization = db.query(TypeNormalizationQuery(module_id));
-    let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
-    let comptime = db.query(ComptimeQuery(module_id));
-    let comptime_module = db.query(ComptimeModuleQuery(module_id));
-    let layouts = db.query(LayoutsQuery(module_id));
-    let program_layouts = db.query(ProgramLayoutsQuery);
-    let extensions = db.query(VisibleExtensionsQuery(module_id));
-    let extension_methods = db.query(ExtensionMethodsQuery);
-    let program_signatures = db.query(ProgramSignaturesQuery);
-    let module_ids = db.query(ParseOkModuleIdsQuery);
-    let program_item_signatures = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-        .collect::<HashMap<_, _>>();
-    let program_comptime = db.query(ProgramComptimeQuery);
-    let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
-    nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
-        nia_body_check::BodyCheckInput {
-            source_version: Some(loaded.source_version),
-            origins: &loaded.origins,
-            module: &loaded.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &lowered,
-            signatures: &signatures,
-            normalization: &normalization,
-            target: &db.context().target,
-            comptime: &comptime,
-            comptime_module: &comptime_module.module,
-            layouts: &layouts,
-            extensions: &extensions.methods,
-            program_extension_methods: &extension_methods.methods,
-            extension_interner: Some(&extensions.interner),
-            program: nia_body_check::BodyProgramContext {
-                defs: Some(&program_defs),
-                type_lowerings: Some(&program_type_lowerings),
-                type_normalizations: Some(&program_type_normalizations),
-                signatures: Some(&program_item_signatures),
-                layouts: Some(&program_layouts),
+    time_module_provider(db, "body_check", module_id, || {
+        let loaded = db.query(LoadedModuleQuery(module_id));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_defs = defs_by_module_id(db);
+        let values = db.query(ValueResolutionQuery(module_id));
+        let locals = db.query(LocalResolutionQuery(module_id));
+        let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+        let lowered = db.query(TypeLoweringQuery(module_id));
+        let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
+        let signatures = db.query(ItemSignaturesQuery(module_id));
+        let normalization = db.query(TypeNormalizationQuery(module_id));
+        let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
+        let comptime = db.query(ComptimeQuery(module_id));
+        let comptime_module = db.query(ComptimeModuleQuery(module_id));
+        let layouts = db.query(LayoutsQuery(module_id));
+        let program_layouts = db.query(ProgramLayoutsQuery);
+        let extensions = db.query(VisibleExtensionsQuery(module_id));
+        let extension_methods = db.query(ExtensionMethodsQuery);
+        let program_signatures = db.query(ProgramSignaturesQuery);
+        let program_item_signatures = db.query(ProgramItemSignaturesQuery);
+        let program_comptime = db.query(ProgramComptimeQuery);
+        let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
+        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+            nia_body_check::BodyCheckInput {
+                source_version: Some(loaded.source_version),
+                origins: &loaded.origins,
+                module: &loaded.module,
+                defs: &defs,
+                values: &values,
+                locals: &locals,
+                semantic_uses: &semantic_uses,
+                lowered: &lowered,
+                signatures: &signatures,
+                normalization: &normalization,
+                target: &db.context().target,
+                comptime: &comptime,
+                comptime_module: &comptime_module.module,
+                layouts: &layouts,
+                extensions: &extensions.methods,
+                program_extension_methods: &extension_methods.methods,
+                extension_interner: Some(&extensions.interner),
+                program: nia_body_check::BodyProgramContext {
+                    defs: Some(&program_defs),
+                    type_lowerings: Some(&program_type_lowerings),
+                    type_normalizations: Some(&program_type_normalizations),
+                    signatures: Some(&program_item_signatures),
+                    layouts: Some(&program_layouts),
+                },
+                program_signatures: program_signatures.maps(),
+                program_comptime: nia_body_check::ProgramComptimeMaps {
+                    comptimes: &program_comptime,
+                    modules: &program_comptime_modules,
+                },
             },
-            program_signatures: program_signatures.maps(),
-            program_comptime: nia_body_check::ProgramComptimeMaps {
-                comptimes: &program_comptime,
-                modules: &program_comptime_modules,
-            },
-        },
-    )
+            body_timing_mode(db.context().timings),
+        )
+    })
+}
+
+fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
+    if timings.detail() {
+        nia_body_check::BodyTimingMode::Detail
+    } else {
+        nia_body_check::BodyTimingMode::Off
+    }
 }
 
 pub(super) fn provide_function_bodies(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> LoweredFunctionBodies {
-    let body_ir = db.query(BodyIrQuery(module_id));
-    let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
-        body_ir.function_bodies.iter(),
-        &body_ir.interner,
-    );
-    LoweredFunctionBodies { interner, bodies }
+    time_module_provider(db, "function_bodies", module_id, || {
+        let body_ir = db.query(BodyIrQuery(module_id));
+        let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
+            body_ir.function_bodies.iter(),
+            &body_ir.interner,
+        );
+        LoweredFunctionBodies { interner, bodies }
+    })
 }
 
 pub(super) fn provide_body_ir(
@@ -795,157 +862,219 @@ pub(super) fn provide_checked_module(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> CheckedModule {
-    let loaded = db.query(LoadedModuleQuery(module_id));
-    CheckedModule {
-        id: loaded.id,
-        path: loaded.path,
-        defs: db.query(ModuleDefsQuery(module_id)),
-        type_resolution: db.query(TypeResolutionQuery(module_id)),
-        type_lowering: db.query(TypeLoweringQuery(module_id)),
-        value_resolution: db.query(ValueResolutionQuery(module_id)),
-        local_resolution: db.query(LocalResolutionQuery(module_id)),
-        item_signatures: db.query(ItemSignaturesQuery(module_id)),
-        type_normalization: db.query(TypeNormalizationQuery(module_id)),
-        comptime: db.query(ComptimeQuery(module_id)),
-        static_check: db.query(StaticCheckQuery(module_id)),
-        layouts: db.query(LayoutsQuery(module_id)),
-        abi_check: db.query(AbiCheckQuery(module_id)),
-        flow_check: db.query(FlowCheckQuery(module_id)),
-        body_ir: db.query(BodyIrQuery(module_id)),
-        semantic_uses: db.query(SemanticUseTableQuery(module_id)),
-        semantic_facts: db.query(SemanticFactsQuery(module_id)),
-        body_diagnostics: db.query(BodyDiagnosticsQuery(module_id)),
-    }
+    time_module_provider(db, "checked_module", module_id, || {
+        let loaded = db.query(LoadedModuleQuery(module_id));
+        CheckedModule {
+            id: loaded.id,
+            path: loaded.path,
+            defs: db.query(ModuleDefsQuery(module_id)),
+            type_resolution: db.query(TypeResolutionQuery(module_id)),
+            type_lowering: db.query(TypeLoweringQuery(module_id)),
+            value_resolution: db.query(ValueResolutionQuery(module_id)),
+            local_resolution: db.query(LocalResolutionQuery(module_id)),
+            item_signatures: db.query(ItemSignaturesQuery(module_id)),
+            type_normalization: db.query(TypeNormalizationQuery(module_id)),
+            comptime: db.query(ComptimeQuery(module_id)),
+            static_check: db.query(StaticCheckQuery(module_id)),
+            layouts: db.query(LayoutsQuery(module_id)),
+            abi_check: db.query(AbiCheckQuery(module_id)),
+            flow_check: db.query(FlowCheckQuery(module_id)),
+            body_ir: db.query(BodyIrQuery(module_id)),
+            semantic_uses: db.query(SemanticUseTableQuery(module_id)),
+            semantic_facts: db.query(SemanticFactsQuery(module_id)),
+            body_diagnostics: db.query(BodyDiagnosticsQuery(module_id)),
+        }
+    })
 }
 
 pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(CheckedModuleQuery),
-    )
+    time_provider(db.context().timings, "checked_modules", || {
+        db.query_many(
+            db.query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(CheckedModuleQuery),
+        )
+    })
 }
 
 pub(super) fn provide_monomorphization(
     db: &QueryDb<DriverContext>,
 ) -> nia_monomorphize::Monomorphization {
-    let checked_modules = db.query(CheckedModulesQuery);
-    let program_signatures = db.query(ProgramSignaturesQuery);
-    let function_bodies = checked_modules
-        .iter()
-        .map(|module| (module.id, db.query(FunctionBodiesQuery(module.id))))
-        .collect::<HashMap<_, _>>();
-    nia_monomorphize::collect_monomorphizations(
-        &checked_modules
+    time_provider(db.context().timings, "monomorphization", || {
+        let checked_modules = db.query(CheckedModulesQuery);
+        let program_signatures = db.query(ProgramSignaturesQuery);
+        let function_bodies = checked_modules
             .iter()
-            .map(|module| MonomorphizeModuleInput {
-                module_id: module.id,
-                defs: &module.defs,
-                interner: &function_bodies
-                    .get(&module.id)
-                    .expect("missing lowered function bodies")
-                    .interner,
-                normalization: &module.type_normalization,
-                comptime: &module.comptime,
-                const_exprs: &module.type_lowering.const_exprs,
-                layouts: Some(&module.layouts),
-                local_enums: &module.item_signatures.enums,
-                program_enums: &program_signatures.enums,
-                trait_impls: &program_signatures.trait_impls,
-                instantiations: &module.semantic_facts.generic_instantiations,
-            })
-            .collect::<Vec<_>>(),
-    )
+            .map(|module| (module.id, db.query(FunctionBodiesQuery(module.id))))
+            .collect::<HashMap<_, _>>();
+        nia_monomorphize::collect_monomorphizations(
+            &checked_modules
+                .iter()
+                .map(|module| MonomorphizeModuleInput {
+                    module_id: module.id,
+                    defs: &module.defs,
+                    interner: &function_bodies
+                        .get(&module.id)
+                        .expect("missing lowered function bodies")
+                        .interner,
+                    normalization: &module.type_normalization,
+                    comptime: &module.comptime,
+                    const_exprs: &module.type_lowering.const_exprs,
+                    layouts: Some(&module.layouts),
+                    local_enums: &module.item_signatures.enums,
+                    program_enums: &program_signatures.enums,
+                    trait_impls: &program_signatures.trait_impls,
+                    instantiations: &module.semantic_facts.generic_instantiations,
+                })
+                .collect::<Vec<_>>(),
+        )
+    })
 }
 
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<DriverContext>,
 ) -> nia_backend_lower::BackendLowering {
+    time_provider(db.context().timings, "backend_lowering", || {
+        provide_backend_lowering_inner(db)
+    })
+}
+
+fn provide_backend_lowering_inner(
+    db: &QueryDb<DriverContext>,
+) -> nia_backend_lower::BackendLowering {
     let checked_modules = db.query(CheckedModulesQuery);
     let monomorphization = db.query(MonomorphizationQuery);
-    let loaded_modules = checked_modules
-        .iter()
-        .map(|checked_module| db.query(LoadedModuleQuery(checked_module.id)))
-        .collect::<Vec<_>>();
-    let visible_extensions = checked_modules
-        .iter()
-        .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
-        .collect::<Vec<_>>();
-    let extension_methods = db.query(ExtensionMethodsQuery);
-    let program_extensions = checked_modules
-        .iter()
-        .zip(visible_extensions.iter())
-        .map(|(checked_module, visible_extensions)| {
-            (
-                checked_module.id,
-                (&visible_extensions.methods, &visible_extensions.interner),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let function_bodies = checked_modules
-        .iter()
-        .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
-        .collect::<Vec<_>>();
-    let program_type_interners = checked_modules
-        .iter()
-        .zip(function_bodies.iter())
-        .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner))
-        .collect::<HashMap<_, _>>();
-    let program_function_bodies = function_bodies
-        .iter()
-        .flat_map(|lowered| {
-            lowered
-                .bodies
+    let (loaded_modules, visible_extensions, extension_methods, function_bodies) =
+        time_provider(db.context().timings, "backend_lowering.inputs", || {
+            let loaded_modules = checked_modules
                 .iter()
-                .map(|(def_id, body)| (*def_id, body.clone()))
-        })
-        .collect::<HashMap<_, _>>();
+                .map(|checked_module| db.query(LoadedModuleQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            let visible_extensions = checked_modules
+                .iter()
+                .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            let extension_methods = db.query(ExtensionMethodsQuery);
+            let function_bodies = checked_modules
+                .iter()
+                .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            (
+                loaded_modules,
+                visible_extensions,
+                extension_methods,
+                function_bodies,
+            )
+        });
+    let (program_extensions, program_type_interners, program_function_bodies) =
+        time_provider(db.context().timings, "backend_lowering.indexes", || {
+            let program_extensions = checked_modules
+                .iter()
+                .zip(visible_extensions.iter())
+                .map(|(checked_module, visible_extensions)| {
+                    (
+                        checked_module.id,
+                        (&visible_extensions.methods, &visible_extensions.interner),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let program_type_interners = checked_modules
+                .iter()
+                .zip(function_bodies.iter())
+                .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner))
+                .collect::<HashMap<_, _>>();
+            let program_function_bodies = function_bodies
+                .iter()
+                .flat_map(|lowered| {
+                    lowered
+                        .bodies
+                        .iter()
+                        .map(|(def_id, body)| (*def_id, body.clone()))
+                })
+                .collect::<HashMap<_, _>>();
+            (
+                program_extensions,
+                program_type_interners,
+                program_function_bodies,
+            )
+        });
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
-    let inputs = checked_modules
-        .iter()
-        .zip(loaded_modules.iter())
-        .zip(visible_extensions.iter())
-        .zip(function_bodies.iter())
-        .map(
-            |(((checked_module, loaded_module), visible_extensions), function_bodies)| {
-                BackendLowerModuleInput {
-                    module_id: checked_module.id,
-                    module_name: checked_module.path.as_str().to_string(),
-                    module: &loaded_module.module,
-                    defs: &checked_module.defs,
-                    extensions: &visible_extensions.methods,
-                    values: &checked_module.value_resolution,
-                    locals: &checked_module.local_resolution,
-                    type_lowering: &checked_module.type_lowering,
-                    signatures: &checked_module.item_signatures,
-                    type_normalization: &checked_module.type_normalization,
-                    body_ir: &checked_module.body_ir,
-                    function_interner: &function_bodies.interner,
-                    semantic_facts: &checked_module.semantic_facts,
-                    comptime: &checked_module.comptime,
-                    layouts: &checked_module.layouts,
-                    function_bodies: &function_bodies.bodies,
-                    program_function_bodies: &program_function_bodies,
-                    extension_interner: Some(&visible_extensions.interner),
-                    program_extension_methods: &extension_methods.methods,
-                    program_extensions: &program_extensions,
-                    program_defs: &program_defs,
-                    program_type_interners: &program_type_interners,
-                    program_functions: &program_signatures.functions,
-                    program_structs: &program_signatures.structs,
-                    program_unions: &program_signatures.unions,
-                    program_enums: &program_signatures.enums,
-                    program_traits: &program_signatures.traits,
-                    trait_impls: &program_signatures.trait_impls,
-                }
-            },
-        )
-        .collect::<Vec<_>>();
-    nia_backend_lower::lower_backend_program(&inputs, &monomorphization, db.context().optimization)
+    let inputs = time_provider(
+        db.context().timings,
+        "backend_lowering.module_inputs",
+        || {
+            checked_modules
+                .iter()
+                .zip(loaded_modules.iter())
+                .zip(visible_extensions.iter())
+                .zip(function_bodies.iter())
+                .map(
+                    |(((checked_module, loaded_module), visible_extensions), function_bodies)| {
+                        BackendLowerModuleInput {
+                            module_id: checked_module.id,
+                            module_name: checked_module.path.as_str().to_string(),
+                            module: &loaded_module.module,
+                            defs: &checked_module.defs,
+                            extensions: &visible_extensions.methods,
+                            values: &checked_module.value_resolution,
+                            locals: &checked_module.local_resolution,
+                            type_lowering: &checked_module.type_lowering,
+                            signatures: &checked_module.item_signatures,
+                            type_normalization: &checked_module.type_normalization,
+                            body_ir: &checked_module.body_ir,
+                            function_interner: &function_bodies.interner,
+                            semantic_facts: &checked_module.semantic_facts,
+                            comptime: &checked_module.comptime,
+                            layouts: &checked_module.layouts,
+                            function_bodies: &function_bodies.bodies,
+                            program_function_bodies: &program_function_bodies,
+                            extension_interner: Some(&visible_extensions.interner),
+                            program_extension_methods: &extension_methods.methods,
+                            program_extensions: &program_extensions,
+                            program_defs: &program_defs,
+                            program_type_interners: &program_type_interners,
+                            program_functions: &program_signatures.functions,
+                            program_structs: &program_signatures.structs,
+                            program_unions: &program_signatures.unions,
+                            program_enums: &program_signatures.enums,
+                            program_traits: &program_signatures.traits,
+                            trait_impls: &program_signatures.trait_impls,
+                        }
+                    },
+                )
+                .collect::<Vec<_>>()
+        },
+    );
+    time_provider(
+        db.context().timings,
+        "backend_lowering.lower_backend_program",
+        || {
+            nia_backend_lower::lower_backend_program_with_timings(
+                &inputs,
+                &monomorphization,
+                db.context().optimization,
+                backend_timing_mode(db.context().timings),
+            )
+        },
+    )
+}
+
+fn backend_timing_mode(timings: TimingMode) -> nia_backend_lower::BackendTimingMode {
+    if timings.detail() {
+        nia_backend_lower::BackendTimingMode::Detail
+    } else {
+        nia_backend_lower::BackendTimingMode::Off
+    }
 }
 
 pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {
+    time_provider(db.context().timings, "program_diagnostics", || {
+        provide_program_diagnostics_inner(db)
+    })
+}
+
+fn provide_program_diagnostics_inner(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = db.context().loaded.diagnostics.clone();
     for loaded_module in &db.context().loaded.modules {
         for error in &loaded_module.parse_errors {

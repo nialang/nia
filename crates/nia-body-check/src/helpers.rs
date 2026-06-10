@@ -237,9 +237,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn normalize_aliases_in_type(&mut self, ty: InternedTyId) -> InternedTyId {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Nominal { def_id, args }) => self
-                .expand_type_alias_instance(def_id, &args)
-                .unwrap_or(ty),
+            Some(TyKind::Nominal { def_id, args }) => {
+                self.expand_type_alias_instance(def_id, &args).unwrap_or(ty)
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_aliases_in_type(elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })

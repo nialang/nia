@@ -11,7 +11,7 @@ use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, Public
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::ImportAliasMap;
+use nia_imports::{ModuleGraph, ROOT_MODULE_MAP_NAME, visibility_allows};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;
@@ -38,11 +38,15 @@ pub enum TypeNameResolution {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub graph: Option<&'a ModuleGraph>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
     pub fn empty() -> Self {
-        Self { defs: None }
+        Self {
+            defs: None,
+            graph: None,
+        }
     }
 }
 
@@ -51,17 +55,17 @@ pub fn resolve_module_types(module: &Module, defs: &DefCollection) -> TypeResolu
     resolve_module_types_from_item_tree(&item_tree, defs)
 }
 
-pub fn resolve_module_types_with_imports(
+pub fn resolve_module_types_with_graph(
     module: &Module,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeResolution {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_types_from_item_tree_inner(
         &item_tree,
         defs,
-        Some(imports),
+        Some(graph),
         program_defs,
         None,
         None,
@@ -71,7 +75,7 @@ pub fn resolve_module_types_with_imports(
 pub fn resolve_module_types_with_context(
     module: &Module,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
@@ -80,7 +84,7 @@ pub fn resolve_module_types_with_context(
     resolve_module_types_from_item_tree_inner(
         &item_tree,
         defs,
-        Some(imports),
+        Some(graph),
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
@@ -104,7 +108,6 @@ pub fn resolve_module_types_from_item_tree(
 pub fn resolve_module_types_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
@@ -112,7 +115,7 @@ pub fn resolve_module_types_from_active_item_tree(
     resolve_module_types_from_items(
         &item_tree.items,
         defs,
-        Some(imports),
+        program_defs.graph,
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
@@ -122,7 +125,7 @@ pub fn resolve_module_types_from_active_item_tree(
 fn resolve_module_types_from_item_tree_inner(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
-    imports: Option<&ImportAliasMap>,
+    graph: Option<&ModuleGraph>,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
@@ -130,7 +133,7 @@ fn resolve_module_types_from_item_tree_inner(
     resolve_module_types_from_items(
         &item_tree.items,
         defs,
-        imports,
+        graph,
         program_defs,
         public_surfaces,
         using_scope,
@@ -140,14 +143,14 @@ fn resolve_module_types_from_item_tree_inner(
 fn resolve_module_types_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
-    imports: Option<&ImportAliasMap>,
+    graph: Option<&ModuleGraph>,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
 ) -> TypeResolution {
     let mut resolver = TypeResolver {
         defs,
-        imports,
+        graph,
         program_defs,
         public_surfaces,
         using_scope,
@@ -171,7 +174,7 @@ fn resolve_module_types_from_items(
 
 struct TypeResolver<'a> {
     defs: &'a DefCollection,
-    imports: Option<&'a ImportAliasMap>,
+    graph: Option<&'a ModuleGraph>,
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
@@ -182,6 +185,18 @@ struct TypeResolver<'a> {
     self_type_stack: Vec<Span>,
     associated_type_stack: Vec<Vec<String>>,
     suppress_unknown_type_errors: bool,
+}
+
+impl TypeResolver<'_> {
+    fn visibility_allows(&self, module_id: ModuleId, visibility: Visibility) -> bool {
+        if module_id == self.defs.module_id {
+            return true;
+        }
+        let Some(graph) = self.graph.or(self.program_defs.graph) else {
+            return visibility == Visibility::Public;
+        };
+        visibility_allows(visibility, graph, module_id, self.defs.module_id)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -436,7 +451,7 @@ impl TypeResolver<'_> {
                 }
             }
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
-            ItemTreeNodeKind::Import(_)
+            ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_) => {}
         }
@@ -538,10 +553,8 @@ impl<'a> TypeResolver<'a> {
         path_span: Span,
         segment: &TypePathSegment,
     ) -> Option<ResolvedNamespace> {
-        if let Some(imports) = self.imports
-            && let Some(import) = imports.get(self.defs.module_id, &segment.name)
-        {
-            return Some(ResolvedNamespace::Module(import.target));
+        if let Some(module_id) = self.root_module_for_segment(&segment.name) {
+            return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(scope) = self.using_scope
             && let Some(module_id) = scope.lookup_module(&segment.name)
@@ -570,6 +583,16 @@ impl<'a> TypeResolver<'a> {
         None
     }
 
+    fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
+        let graph = self.graph.or(self.program_defs.graph)?;
+        match name {
+            "self" => Some(self.defs.module_id),
+            "super" => graph.get(self.defs.module_id)?.parent,
+            ROOT_MODULE_MAP_NAME => Some(graph.root()),
+            package => graph.package_root(package),
+        }
+    }
+
     fn resolve_child_namespace(
         &mut self,
         path_span: Span,
@@ -594,7 +617,7 @@ impl<'a> TypeResolver<'a> {
                 let target_defs = self.defs_for_module(module_id)?;
                 let def_id = target_defs.module_scope.types.get(&segment.name)?;
                 let def = target_defs.defs.get(def_id)?;
-                if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+                if !self.visibility_allows(module_id, def.visibility) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0201",
                         path_span,
@@ -653,7 +676,7 @@ impl<'a> TypeResolver<'a> {
         ) {
             return TypeNameResolution::Error;
         }
-        if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+        if !self.visibility_allows(module_id, def.visibility) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0201",
                 span,
@@ -924,7 +947,6 @@ comptime if false {
         let resolved = resolve_module_types_from_active_item_tree(
             &active,
             &defs,
-            &nia_imports::ImportAliasMap::default(),
             ProgramDefsContext::empty(),
             &nia_defs::PublicSurfaces::default(),
             &nia_defs::ModuleUsingScope::default(),

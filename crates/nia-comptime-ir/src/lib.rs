@@ -3097,6 +3097,9 @@ mod tests {
                 node_key: stmt_key(0),
                 kind: nia_ast::StmtKind::Binding(nia_ast::BindingStmt {
                     name: "x".to_string(),
+                    pattern_kind: nia_ast::ForPatternKind::Value,
+                    pattern_span: span(),
+                    pattern_node_key: stmt_key(2),
                     ty: None,
                     value: Some(ast_ident("x")),
                     is_let: true,

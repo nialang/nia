@@ -8,7 +8,8 @@ fn emits_imported_open_enum_as_error_union_payload() {
     std::fs::write(
         &main,
         r#"
-import .errors;
+module errors;
+using root::errors;
 
 fn maybe(flag: bool) errors::Error!i32 {
     if flag {
@@ -57,7 +58,8 @@ fn emits_local_struct_with_imported_nominal_field() {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 using defs::Item;
 
 struct HoldsItem {
@@ -115,7 +117,8 @@ fn emits_local_struct_array_field_when_module_has_import() {
     std::fs::write(
         &main,
         r#"
-import .empty;
+module empty;
+using root::empty;
 
 struct S {
     x: i32,
@@ -162,7 +165,8 @@ fn emits_imported_struct_array_field_expression_edges() {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 
 fn main() i32 {
     var bag = defs::make_bag();
@@ -217,7 +221,8 @@ fn emits_imported_aggregate_function_pointer_call_abi() {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 
 fn main() i32 {
     var callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
@@ -267,7 +272,8 @@ fn emits_imported_enum_variant_values_and_switch_patterns() {
     std::fs::write(
         &main,
         r#"
-import .module_enum_defs;
+module module_enum_defs;
+using root::module_enum_defs;
 
 using module_enum_defs::Mode;
 
@@ -321,7 +327,8 @@ fn emits_enum_switch_with_only_returning_arms() {
     std::fs::write(
         &main,
         r#"
-import .module_enum_defs;
+module module_enum_defs;
+using root::module_enum_defs;
 
 fn main() i32 {
     var box = module_enum_defs::make_box();
@@ -413,7 +420,8 @@ fn emits_imported_enum_variant_widening_cast() {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 
 fn main() i32 {
     defs::Mode::B as i32
@@ -452,7 +460,8 @@ fn emits_using_imported_type_associated_function_call() {
     std::fs::write(
         &main,
         r#"
-import .module_assoc_defs;
+module module_assoc_defs;
+using root::module_assoc_defs;
 
 using module_assoc_defs::Box;
 
@@ -503,7 +512,8 @@ fn emits_size_builtin_when_module_has_import() {
     std::fs::write(
         &main,
         r#"
-import .empty;
+module empty;
+using root::empty;
 
 struct S {
     x: i32,
@@ -545,7 +555,8 @@ fn emits_imported_array_length_size_builtin() {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 
 fn main() i32 {
     var b = defs::make_box();

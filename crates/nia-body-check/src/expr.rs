@@ -1057,7 +1057,7 @@ impl<'a> BodyChecker<'a> {
                     _ => self.error(),
                 }
             }
-            Some(LocalUse::ImportAlias)
+            Some(LocalUse::Module)
             | Some(LocalUse::TypePrefix)
             | Some(LocalUse::Unresolved)
             | None => {

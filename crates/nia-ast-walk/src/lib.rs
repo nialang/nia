@@ -39,7 +39,7 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, module: &'a
 
 pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast Item) {
     match &item.kind {
-        ItemKind::Import(_) | ItemKind::Using(_) => {}
+        ItemKind::Module(_) | ItemKind::Using(_) => {}
         ItemKind::ComptimeIf(comptime_if) => {
             visitor.visit_expr(&comptime_if.cond);
             for item in &comptime_if.then_items {

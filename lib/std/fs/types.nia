@@ -1,4 +1,4 @@
-import std.os;
+using std::os;
 
 pub enum Error: i32 {
     PermissionDenied = 1,

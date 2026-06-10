@@ -1,7 +1,7 @@
-import std.fs;
-import std.io;
-import std.mem;
-import std.os;
+using std::fs;
+using std::io;
+using std::mem;
+using std::os;
 
 pub enum ExitCode: i32 {
     Success = 0,

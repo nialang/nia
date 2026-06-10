@@ -71,6 +71,21 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramItemSignaturesQuery;
+
+impl QueryKey<DriverContext> for ProgramItemSignaturesQuery {
+    type Value = HashMap<ModuleId, ItemSignatures>;
+
+    fn name() -> &'static str {
+        "program_item_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.program_item_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for TypeNormalizationQuery {

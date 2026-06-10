@@ -1,5 +1,5 @@
-import std.fs.types;
-import std.os;
+using std::fs::types;
+using std::os;
 
 using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, OpenMode, OpenOptions};
 

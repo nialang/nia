@@ -13,8 +13,8 @@ The package manager and build system are expected to live as separate projects.
 ## A Small Example
 
 ```nia
-import std;
-import std.process;
+using std;
+using std::process;
 
 struct Point {
     x: i32,
@@ -29,7 +29,7 @@ extend Point {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for &value in xs.iter() {
+    for &value in xs::iter() {
         total = total + value;
     }
     total
@@ -40,10 +40,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var point: Point = { x: 3, y: 4 };
     var also_point = Point { x: 5, y: 12 };
-    var values = [_]i32[point.len2(), also_point.len2(), 7];
+    var values = [_]i32[point::len2(), also_point::len2(), 7];
     var borrowed = &([3]i32[1, 2, 3])[..];
 
-    if point.len2() + sum(&values[..]) + sum(borrowed) != 232 {
+    if point::len2() + sum(&values[..]) + sum(borrowed) != 232 {
         return process::ExitCode::init(1)!;
     }
 
@@ -66,10 +66,28 @@ available when the literal needs to stand on its own.
 
 ## Quick Start
 
-Nia is a Rust workspace. Build the compiler with:
+Nia is a Rust workspace. It currently builds against LLVM through
+`llvm-sys = 221.0.1`, so a compatible LLVM 22.1 installation with
+`llvm-config` on `PATH` is required.
+
+Build the compiler with:
 
 ```sh
 cargo build --workspace
+```
+
+If LLVM was installed or switched after a failed build, clear the cached
+`llvm-sys` probe result before trying again:
+
+```sh
+cargo clean -p llvm-sys
+cargo build --workspace
+```
+
+For non-standard LLVM layouts, point `llvm-sys` at the install prefix:
+
+```sh
+LLVM_SYS_221_PREFIX=/path/to/llvm-22.1 cargo build --workspace
 ```
 
 Run the compiler from the workspace with:
@@ -107,8 +125,8 @@ cover real Nia executables, arrays and slices, structs and enums, control flow,
 standard-library I/O, collections, generics, traits, error handling, and
 multi-file imports. They use the current executable entry contract:
 `pub fn main(process::Init) process::ExitCode!void`. They print visible results
-with `std.debug.print`, and `03_stdout.nia` shows explicit stdout output through
-`std.io` and `std.fmt`.
+with `std::debug.print`, and `03_stdout.nia` shows explicit stdout output through
+`std::io` and `std::fmt`.
 
 ## Documentation
 

@@ -179,7 +179,7 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::Local(_)) | Some(LocalUse::ModuleValue) => None,
-                Some(LocalUse::ImportAlias) => Some("import alias is not a value place"),
+                Some(LocalUse::Module) => Some("module namespace is not a value place"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
                 Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
             },
@@ -267,7 +267,7 @@ impl<'a> BodyChecker<'a> {
                     _ => Some("module value is unresolved"),
                 }
             }
-            Some(LocalUse::ImportAlias) => Some("import alias is not assignable"),
+            Some(LocalUse::Module) => Some("module namespace is not assignable"),
             Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
             Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
         }

@@ -1,8 +1,13 @@
-import std.debug;
-import std.process;
+pub module config;
+pub module facade;
+pub module math;
+pub module palette;
 
-import .config;
-import .facade as api;
+using std::debug;
+using std::process;
+
+using root::config;
+using root::facade as api;
 
 using api::{Point, add as plus, Color::Green};
 using process::{Init, ExitCode, exit};

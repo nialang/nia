@@ -377,7 +377,8 @@ fn imported_public_trait_impl_private_method_coerces_to_trait_object() {
     write(
         &root.join("main.nia"),
         r#"
-import .fmt;
+module fmt;
+using root::fmt;
 
 fn read(source: &fmt::Format) i32 {
     source.format()
@@ -421,7 +422,9 @@ fn facade_import_trait_object_coercion_records_cross_module_vtable_instance() {
     write(
         &root.join("main.nia"),
         r#"
-import .std;
+module std;
+module fmt;
+using root::std;
 
 fn use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
     args[0].format()
@@ -435,7 +438,7 @@ fn main() i32 {
     write(
         &root.join("std.nia"),
         r#"
-import .fmt;
+using root::fmt;
 
 pub using {fmt};
 "#,
@@ -795,7 +798,7 @@ trait Bad {
 }
 
 fn read(bad: & Bad) i32 {
-    bad.id[i32](1)
+    bad::id[i32](1)
 }
 "#,
     );
@@ -820,7 +823,7 @@ trait Bad {
 }
 
 fn read(bad: & Bad) bool {
-    bad.same(bad)
+    bad::same(bad)
 }
 "#,
     );

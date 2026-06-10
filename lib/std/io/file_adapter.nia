@@ -1,8 +1,8 @@
-import std.fs;
-import std.io.runtime;
-import std.io.traits;
-import std.mem;
-import std.os;
+using std::fs;
+using std::io::runtime;
+using std::io::traits;
+using std::mem;
+using std::os;
 
 using traits::{Reader, Writer};
 using runtime::Io;

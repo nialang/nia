@@ -453,7 +453,8 @@ fn reports_generic_type_argument_count_mismatches() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 struct Point {}
 struct Box[T] { value: T }
 type Pair[T, U] = T;
@@ -494,7 +495,8 @@ fn checks_qualified_explicit_generic_function_calls() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 fn main(flag: bool) i32 {
     var x: i32 = math::id[i32](1);
     _ = math::id[i32](flag);
@@ -536,7 +538,8 @@ fn checks_qualified_inferred_generic_function_calls() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 fn main(flag: bool) i32 {
     var x: i32 = math::id(1);
     _ = math::choose(1, flag);
@@ -824,7 +827,7 @@ fn std_linux_statx_layout_matches_kernel_abi() {
     write(
         &root.join("main.nia"),
         r#"
-import std.os.linux.stat;
+using std::os::linux::stat;
 
 fn main() void {}
 "#,
@@ -836,7 +839,7 @@ fn main() void {}
         .modules
         .iter()
         .find(|module| module.path.as_str().ends_with("std/os/linux/stat.nia"))
-        .expect("std.os.linux.stat module");
+        .expect("std::os::linux::stat module");
     let statx_id = types_module
         .defs
         .module_scope
@@ -863,7 +866,8 @@ fn checks_cross_module_struct_literals() {
     write(
         &root.join("main.nia"),
         r#"
-import .geom;
+module geom;
+using root::geom;
 
 fn main() i32 {
     var p: geom::Point = { x: 40, y: 2 };

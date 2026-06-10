@@ -10,7 +10,7 @@ use nia_defs::{
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::ImportAliasMap;
+use nia_imports::{ModuleGraph, ROOT_MODULE_MAP_NAME, visibility_allows};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
@@ -30,7 +30,7 @@ pub struct ValueResolution {
     /// position (e.g., as a type prefix in `mod::Enum::Variant` or
     /// `mod::Type::associated_fn(...)`), the resolved type's GlobalDefId.
     /// Populated by value-resolve so downstream phases can recognise these
-    /// as type prefixes without re-resolving the import alias.
+    /// as type prefixes without re-resolving the module alias.
     pub node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
     pub node_builtins: HashMap<NodeKey, BuiltinResolution>,
     pub diagnostics: Vec<Diagnostic>,
@@ -40,7 +40,7 @@ pub struct ValueResolution {
 pub enum ValueNameResolution {
     Def(DefId),
     External(GlobalDefId),
-    ImportAlias,
+    Module,
     LocalDeferred,
     Error,
 }
@@ -76,11 +76,15 @@ pub enum BuiltinResolution {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub graph: Option<&'a ModuleGraph>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
     pub fn empty() -> Self {
-        Self { defs: None }
+        Self {
+            defs: None,
+            graph: None,
+        }
     }
 }
 
@@ -89,17 +93,17 @@ pub fn resolve_module_values(module: &Module, defs: &DefCollection) -> ValueReso
     resolve_module_values_from_item_tree(&item_tree, defs)
 }
 
-pub fn resolve_module_values_with_imports(
+pub fn resolve_module_values_with_graph(
     module: &Module,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
     program_defs: ProgramDefsContext<'_>,
 ) -> ValueResolution {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_values_from_item_tree_inner(
         &item_tree,
         defs,
-        Some(imports),
+        Some(graph),
         program_defs,
         None,
         None,
@@ -111,7 +115,7 @@ pub fn resolve_module_values_with_imports(
 pub fn resolve_module_values_with_context(
     module: &Module,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
@@ -120,7 +124,7 @@ pub fn resolve_module_values_with_context(
     resolve_module_values_from_item_tree_inner(
         &item_tree,
         defs,
-        Some(imports),
+        Some(graph),
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
@@ -148,7 +152,6 @@ pub fn resolve_module_values_from_item_tree(
 pub fn resolve_module_values_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
@@ -158,7 +161,6 @@ pub fn resolve_module_values_from_active_item_tree(
     resolve_module_values_from_active_item_tree_with_extensions(
         item_tree,
         defs,
-        imports,
         program_defs,
         public_surfaces,
         using_scope,
@@ -170,7 +172,6 @@ pub fn resolve_module_values_from_active_item_tree(
 pub fn resolve_module_values_from_active_item_tree_with_extensions(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
-    imports: &ImportAliasMap,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
@@ -180,7 +181,7 @@ pub fn resolve_module_values_from_active_item_tree_with_extensions(
     resolve_module_values_from_items(
         &item_tree.items,
         defs,
-        Some(imports),
+        program_defs.graph,
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
@@ -192,7 +193,7 @@ pub fn resolve_module_values_from_active_item_tree_with_extensions(
 fn resolve_module_values_from_item_tree_inner(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
-    imports: Option<&ImportAliasMap>,
+    graph: Option<&ModuleGraph>,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
@@ -202,7 +203,7 @@ fn resolve_module_values_from_item_tree_inner(
     resolve_module_values_from_items(
         &item_tree.items,
         defs,
-        imports,
+        graph,
         program_defs,
         public_surfaces,
         using_scope,
@@ -214,7 +215,7 @@ fn resolve_module_values_from_item_tree_inner(
 fn resolve_module_values_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
-    imports: Option<&ImportAliasMap>,
+    graph: Option<&ModuleGraph>,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
@@ -223,7 +224,7 @@ fn resolve_module_values_from_items(
 ) -> ValueResolution {
     let mut resolver = ValueResolver {
         defs,
-        imports,
+        graph,
         program_defs,
         public_surfaces,
         using_scope,
@@ -253,7 +254,7 @@ fn resolve_module_values_from_items(
 
 struct ValueResolver<'a> {
     defs: &'a DefCollection,
-    imports: Option<&'a ImportAliasMap>,
+    graph: Option<&'a ModuleGraph>,
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
@@ -266,6 +267,18 @@ struct ValueResolver<'a> {
     node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
     node_builtins: HashMap<NodeKey, BuiltinResolution>,
     diagnostics: Vec<Diagnostic>,
+}
+
+impl ValueResolver<'_> {
+    fn visibility_allows(&self, module_id: ModuleId, visibility: Visibility) -> bool {
+        if module_id == self.defs.module_id {
+            return true;
+        }
+        let Some(graph) = self.graph.or(self.program_defs.graph) else {
+            return visibility == Visibility::Public;
+        };
+        visibility_allows(visibility, graph, module_id, self.defs.module_id)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,7 +406,7 @@ impl<'a> ValueResolver<'a> {
                 }
             }
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
-            ItemTreeNodeKind::Import(_)
+            ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_) => {}
             ItemTreeNodeKind::TypeAlias(alias) => {
@@ -466,16 +479,14 @@ impl<'a> ValueResolver<'a> {
     }
 
     fn resolve_root_namespace(&mut self, segment: PathSegment<'_>) -> Option<ResolvedNamespace> {
-        if let Some(imports) = self.imports
-            && let Some(import) = imports.get(self.defs.module_id, segment.name)
-        {
-            self.insert_name(segment.node_key, ValueNameResolution::ImportAlias);
-            return Some(ResolvedNamespace::Module(import.target));
+        if let Some(module_id) = self.root_module_for_segment(segment.name) {
+            self.insert_name(segment.node_key, ValueNameResolution::Module);
+            return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(scope) = self.using_scope
             && let Some(module_id) = scope.lookup_module(segment.name)
         {
-            self.insert_name(segment.node_key, ValueNameResolution::ImportAlias);
+            self.insert_name(segment.node_key, ValueNameResolution::Module);
             return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(def_id) = self.defs.module_scope.types.get(segment.name) {
@@ -499,6 +510,16 @@ impl<'a> ValueResolver<'a> {
             return Some(ResolvedNamespace::Primitive(primitive));
         }
         None
+    }
+
+    fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
+        let graph = self.graph.or(self.program_defs.graph)?;
+        match name {
+            "self" => Some(self.defs.module_id),
+            "super" => graph.get(self.defs.module_id)?.parent,
+            ROOT_MODULE_MAP_NAME => Some(graph.root()),
+            package => graph.package_root(package),
+        }
     }
 
     fn resolve_child_namespace(
@@ -534,7 +555,7 @@ impl<'a> ValueResolver<'a> {
                 };
                 let def_id = target_defs.module_scope.types.get(segment.name)?;
                 let def = target_defs.defs.get(def_id)?;
-                if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+                if !self.visibility_allows(module_id, def.visibility) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0201",
                         segment.span,
@@ -598,7 +619,7 @@ impl<'a> ValueResolver<'a> {
             let Some(def) = target_defs.defs.get(def_id) else {
                 return;
             };
-            if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+            if !self.visibility_allows(module_id, def.visibility) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
                     span,
@@ -620,7 +641,7 @@ impl<'a> ValueResolver<'a> {
         let Some(def) = target_defs.defs.get(def_id) else {
             return;
         };
-        if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+        if !self.visibility_allows(module_id, def.visibility) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0201",
                 span,
@@ -975,7 +996,6 @@ comptime if false {
         let resolved = resolve_module_values_from_active_item_tree(
             &active,
             &defs,
-            &nia_imports::ImportAliasMap::default(),
             ProgramDefsContext::empty(),
             &nia_defs::PublicSurfaces::default(),
             &nia_defs::ModuleUsingScope::default(),

@@ -1,4 +1,4 @@
-import std.mem;
+using std::mem;
 
 pub comptime let wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
 pub comptime let wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;

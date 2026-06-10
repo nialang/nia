@@ -1,7 +1,7 @@
-import std;
-import std.debug;
-import std.mem;
-import std.process;
+using std;
+using std::debug;
+using std::mem;
+using std::process;
 using process::{Init, ExitCode};
 
 fn fill_scores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {

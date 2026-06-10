@@ -8,13 +8,13 @@ use nia_defs::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::ImportAliasMap;
+use nia_imports::{ModuleGraph, ROOT_MODULE_MAP_NAME, visibility_allows};
 use nia_span::Span;
 
 /// Compute every module's exported public surface and per-module using scope.
 pub(crate) fn compute_public_surfaces(
     defs_by_module: &[DefCollection],
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
 ) -> (
     PublicSurfaces,
     HashMap<ModuleId, ModuleUsingScope>,
@@ -29,6 +29,15 @@ pub(crate) fn compute_public_surfaces(
     let mut surfaces = PublicSurfaces::new();
     for defs in defs_by_module {
         let mut surface = ModulePublicSurface::new(defs.module_id);
+        if let Some(node) = graph.get(defs.module_id) {
+            for declaration in &node.declarations {
+                if declaration.visibility == Visibility::Public {
+                    surface
+                        .modules
+                        .insert(declaration.name.clone(), declaration.target);
+                }
+            }
+        }
         for (def_id, def) in defs.defs.iter() {
             if def.parent.is_some() {
                 continue;
@@ -64,11 +73,13 @@ pub(crate) fn compute_public_surfaces(
         let mut iteration_changed = false;
         let mut iteration_unresolved = 0usize;
         for defs in defs_by_module {
+            let local_modules =
+                collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
             for using in &defs.module_usings {
                 if using.visibility != Visibility::Public {
                     continue;
                 }
-                match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
+                match expand_using(&defs_by_id, defs, using, graph, &local_modules, &surfaces) {
                     UsingExpansion::Resolved(entries) => {
                         let surface = surfaces
                             .get(defs.module_id)
@@ -118,11 +129,13 @@ pub(crate) fn compute_public_surfaces(
 
     // Final pass: any still-unresolved pub using is a missing item or cycle.
     for defs in defs_by_module {
+        let local_modules =
+            collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
         for using in &defs.module_usings {
             if using.visibility != Visibility::Public {
                 continue;
             }
-            match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
+            match expand_using(&defs_by_id, defs, using, graph, &local_modules, &surfaces) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
                 UsingExpansion::Unresolved => {
                     diagnostics.push((
@@ -145,41 +158,43 @@ pub(crate) fn compute_public_surfaces(
     for defs in defs_by_module {
         let mut scope = ModuleUsingScope::default();
         for using in &defs.module_usings {
-            let entries = match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
-                UsingExpansion::Resolved(entries) => entries,
-                UsingExpansion::Unresolved => {
-                    if using.visibility != Visibility::Public {
-                        diagnostics.push((
-                            defs.module_id,
-                            Diagnostic::user_error_at(
-                                "E0201",
-                                using.span,
-                                format!(
-                                    "`using {}::...` could not be resolved",
-                                    using
-                                        .host
-                                        .first()
-                                        .map(|seg| seg.name.as_str())
-                                        .unwrap_or("")
+            let entries =
+                match expand_using(&defs_by_id, defs, using, graph, &scope.modules, &surfaces) {
+                    UsingExpansion::Resolved(entries) => entries,
+                    UsingExpansion::Unresolved => {
+                        if using.visibility != Visibility::Public {
+                            diagnostics.push((
+                                defs.module_id,
+                                Diagnostic::user_error_at(
+                                    "E0201",
+                                    using.span,
+                                    format!(
+                                        "`using {}::...` could not be resolved",
+                                        using
+                                            .host
+                                            .first()
+                                            .map(|seg| seg.name.as_str())
+                                            .unwrap_or("")
+                                    ),
                                 ),
-                            ),
-                        ));
+                            ));
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                UsingExpansion::HardError(diag) => {
-                    if using.visibility != Visibility::Public {
-                        diagnostics.push((defs.module_id, diag));
+                    UsingExpansion::HardError(diag) => {
+                        if using.visibility != Visibility::Public {
+                            diagnostics.push((defs.module_id, diag));
+                        }
+                        continue;
                     }
-                    continue;
-                }
-            };
+                };
             for entry in entries {
                 match entry.kind {
                     ResolvedEntryKind::Module(target_module) => {
-                        if let Some(previous) =
-                            scope.modules.insert(entry.name.clone(), target_module)
-                        {
+                        if let Some(previous) = scope.modules.get(&entry.name).copied() {
+                            if previous == target_module {
+                                continue;
+                            }
                             diagnostics.push((
                                 defs.module_id,
                                 Diagnostic::user_error_at(
@@ -191,8 +206,9 @@ pub(crate) fn compute_public_surfaces(
                                     ),
                                 ),
                             ));
-                            let _ = previous;
+                            continue;
                         }
+                        scope.modules.insert(entry.name.clone(), target_module);
                     }
                     ResolvedEntryKind::Item(item) => {
                         let using_entry = UsingEntry {
@@ -234,7 +250,7 @@ fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
         DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias => {
             Some(PublicNamespace::Type)
         }
-        DefKind::Import
+        DefKind::Module
         | DefKind::Method
         | DefKind::TraitMethod
         | DefKind::TraitAssociatedType
@@ -242,6 +258,29 @@ fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
         | DefKind::UnionField
         | DefKind::EnumVariant => None,
     }
+}
+
+fn collect_module_aliases(
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    current: &DefCollection,
+    graph: &ModuleGraph,
+    inherited: &HashMap<String, ModuleId>,
+    surfaces: &PublicSurfaces,
+) -> HashMap<String, ModuleId> {
+    let mut modules = inherited.clone();
+    for using in &current.module_usings {
+        let UsingExpansion::Resolved(entries) =
+            expand_using(defs_by_module, current, using, graph, &modules, surfaces)
+        else {
+            continue;
+        };
+        for entry in entries {
+            if let ResolvedEntryKind::Module(module_id) = entry.kind {
+                modules.entry(entry.name).or_insert(module_id);
+            }
+        }
+    }
+    modules
 }
 
 fn insert_into_surface(surface: &mut ModulePublicSurface, name: &str, item: PublicItem) {
@@ -289,10 +328,27 @@ enum ResolvedNamespace {
     Enum(GlobalDefId),
 }
 
+fn root_module_for_segment(
+    graph: &ModuleGraph,
+    current_module: ModuleId,
+    name: &str,
+) -> Option<ModuleId> {
+    match name {
+        "self" => Some(current_module),
+        "super" => graph.get(current_module)?.parent,
+        ROOT_MODULE_MAP_NAME => Some(graph.root()),
+        package => graph
+            .get(current_module)
+            .and_then(|node| node.children.get(package).copied())
+            .or_else(|| graph.package_root(package)),
+    }
+}
+
 fn resolve_namespace_path(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
+    local_modules: &HashMap<String, ModuleId>,
     surfaces: &PublicSurfaces,
     path: &[nia_ast::UsingHostSegment],
 ) -> Result<ResolvedNamespace, Diagnostic> {
@@ -303,26 +359,29 @@ fn resolve_namespace_path(
             "`using` requires a namespace path",
         ));
     };
-    let mut namespace = if let Some(import) = imports.get(current.module_id, &first.name) {
-        ResolvedNamespace::Module(import.target)
-    } else if let Some(def_id) = current.module_scope.types.get(&first.name)
-        && let Some(def) = current.defs.get(def_id)
-        && def.kind == DefKind::Enum
-    {
-        ResolvedNamespace::Enum(GlobalDefId {
-            module_id: current.module_id,
-            def_id,
-        })
-    } else {
-        return Err(Diagnostic::user_error_at(
-            "E0201",
-            first.span,
-            format!(
-                "`using {}::...` requires `{0}` to be an imported module alias or a local enum",
-                first.name
-            ),
-        ));
-    };
+    let mut namespace =
+        if let Some(module_id) = root_module_for_segment(graph, current.module_id, &first.name) {
+            ResolvedNamespace::Module(module_id)
+        } else if let Some(module_id) = local_modules.get(&first.name).copied() {
+            ResolvedNamespace::Module(module_id)
+        } else if let Some(def_id) = current.module_scope.types.get(&first.name)
+            && let Some(def) = current.defs.get(def_id)
+            && def.kind == DefKind::Enum
+        {
+            ResolvedNamespace::Enum(GlobalDefId {
+                module_id: current.module_id,
+                def_id,
+            })
+        } else {
+            return Err(Diagnostic::user_error_at(
+                "E0201",
+                first.span,
+                format!(
+                    "`using {}::...` requires `{0}` to be a module namespace or a local enum",
+                    first.name
+                ),
+            ));
+        };
 
     for segment in &path[1..] {
         namespace = match namespace {
@@ -335,6 +394,10 @@ fn resolve_namespace_path(
                     ));
                 };
                 if let Some(target_module) = surface.lookup_module(&segment.name) {
+                    ResolvedNamespace::Module(target_module)
+                } else if let Some(target_module) =
+                    visible_child_module(graph, current.module_id, module_id, &segment.name)
+                {
                     ResolvedNamespace::Module(target_module)
                 } else if let Some(item) = surface.lookup_type(&segment.name) {
                     let enum_id = GlobalDefId {
@@ -383,16 +446,64 @@ fn resolve_namespace_path(
     Ok(namespace)
 }
 
+fn visible_child_module(
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
+    parent_module: ModuleId,
+    name: &str,
+) -> Option<ModuleId> {
+    let parent = graph.get(parent_module)?;
+    let target = parent.children.get(name).copied()?;
+    let declaration = parent
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == name && declaration.target == target)?;
+    module_declaration_visible(
+        declaration.visibility,
+        graph,
+        parent_module,
+        accessing_module,
+    )
+    .then_some(target)
+}
+
+fn module_declaration_visible(
+    visibility: Visibility,
+    graph: &ModuleGraph,
+    declaring_module: ModuleId,
+    accessing_module: ModuleId,
+) -> bool {
+    if visibility == Visibility::Private {
+        return is_descendant_or_self(graph, accessing_module, declaring_module);
+    }
+    visibility_allows(visibility, graph, declaring_module, accessing_module)
+}
+
+fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: ModuleId) -> bool {
+    let mut current = Some(module);
+    while let Some(module_id) = current {
+        if module_id == ancestor {
+            return true;
+        }
+        current = graph.get(module_id).and_then(|node| node.parent);
+    }
+    false
+}
+
 fn expand_namespace(
     namespace: ResolvedNamespace,
     selector: &UsingSelector,
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
     surfaces: &PublicSurfaces,
     source: PublicSource,
 ) -> UsingExpansion {
     match namespace {
         ResolvedNamespace::Module(target_module) => expand_module_host(
             defs_by_module,
+            graph,
+            accessing_module,
             target_module,
             selector,
             surfaces,
@@ -408,7 +519,8 @@ fn expand_using(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     using: &ModuleUsing,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
+    local_modules: &HashMap<String, ModuleId>,
     surfaces: &PublicSurfaces,
 ) -> UsingExpansion {
     let source = PublicSource::PubUsing {
@@ -421,17 +533,24 @@ fn expand_using(
         return expand_root_group(
             defs_by_module,
             current,
-            imports,
+            graph,
+            local_modules,
             surfaces,
             items,
             source.clone(),
         );
     }
-    let namespace =
-        match resolve_namespace_path(defs_by_module, current, imports, surfaces, &using.host) {
-            Ok(namespace) => namespace,
-            Err(diag) => return UsingExpansion::HardError(diag),
-        };
+    let namespace = match resolve_namespace_path(
+        defs_by_module,
+        current,
+        graph,
+        local_modules,
+        surfaces,
+        &using.host,
+    ) {
+        Ok(namespace) => namespace,
+        Err(diag) => return UsingExpansion::HardError(diag),
+    };
     if matches!(using.selector, UsingSelector::SelfName) {
         let Some(name) = using.host.last() else {
             return UsingExpansion::Unresolved;
@@ -442,6 +561,8 @@ fn expand_using(
         namespace,
         &using.selector,
         defs_by_module,
+        graph,
+        current.module_id,
         surfaces,
         source.clone(),
     )
@@ -450,7 +571,8 @@ fn expand_using(
 fn expand_root_group(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
+    local_modules: &HashMap<String, ModuleId>,
     surfaces: &PublicSurfaces,
     items: &[UsingGroupItem],
     source: PublicSource,
@@ -461,7 +583,8 @@ fn expand_root_group(
         match expand_root_group_item(
             defs_by_module,
             current,
-            imports,
+            graph,
+            local_modules,
             surfaces,
             item,
             source.clone(),
@@ -481,28 +604,42 @@ fn expand_root_group(
 fn expand_root_group_item(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
-    imports: &ImportAliasMap,
+    graph: &ModuleGraph,
+    local_modules: &HashMap<String, ModuleId>,
     surfaces: &PublicSurfaces,
     item: &UsingGroupItem,
     source: PublicSource,
 ) -> UsingExpansion {
     match item {
         UsingGroupItem::Name(name) => {
-            if let Some(import) = imports.get(current.module_id, &name.name) {
+            if let Some(module_id) = root_module_for_segment(graph, current.module_id, &name.name) {
                 return UsingExpansion::Resolved(vec![ResolvedEntry {
                     name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
                     name_span: name.alias_span.unwrap_or(name.name_span),
-                    kind: ResolvedEntryKind::Module(import.target),
+                    kind: ResolvedEntryKind::Module(module_id),
+                }]);
+            }
+            if let Some(module_id) = local_modules.get(&name.name).copied() {
+                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                    name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                    name_span: name.alias_span.unwrap_or(name.name_span),
+                    kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
             resolve_current_single(current, name, source.clone())
         }
         UsingGroupItem::Nested { host, selector } => {
-            let namespace =
-                match resolve_namespace_path(defs_by_module, current, imports, surfaces, host) {
-                    Ok(namespace) => namespace,
-                    Err(diag) => return UsingExpansion::HardError(diag),
-                };
+            let namespace = match resolve_namespace_path(
+                defs_by_module,
+                current,
+                graph,
+                local_modules,
+                surfaces,
+                host,
+            ) {
+                Ok(namespace) => namespace,
+                Err(diag) => return UsingExpansion::HardError(diag),
+            };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
                     return UsingExpansion::Unresolved;
@@ -518,6 +655,8 @@ fn expand_root_group_item(
                 namespace,
                 selector,
                 defs_by_module,
+                graph,
+                current.module_id,
                 surfaces,
                 source.clone(),
             )
@@ -527,6 +666,8 @@ fn expand_root_group_item(
 
 fn expand_module_host(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
     target_module: ModuleId,
     selector: &UsingSelector,
     surfaces: &PublicSurfaces,
@@ -543,7 +684,29 @@ fn expand_module_host(
         }]),
         UsingSelector::Wildcard { .. } => {
             let mut entries = Vec::new();
+            if let Some(parent) = graph.get(target_module) {
+                for declaration in &parent.declarations {
+                    if module_declaration_visible(
+                        declaration.visibility,
+                        graph,
+                        target_module,
+                        accessing_module,
+                    ) {
+                        entries.push(ResolvedEntry {
+                            name: declaration.name.clone(),
+                            name_span: declaration.span,
+                            kind: ResolvedEntryKind::Module(declaration.target),
+                        });
+                    }
+                }
+            }
             for (name, module_id) in &target_surface.modules {
+                if entries
+                    .iter()
+                    .any(|entry| matches!(entry.kind, ResolvedEntryKind::Module(existing) if existing == *module_id) && entry.name == *name)
+                {
+                    continue;
+                }
                 entries.push(ResolvedEntry {
                     name: name.clone(),
                     name_span: Span::default(),
@@ -570,13 +733,26 @@ fn expand_module_host(
             }
             UsingExpansion::Resolved(entries)
         }
-        UsingSelector::Single(name) => resolve_module_single(target_surface, name, source.clone()),
+        UsingSelector::Single(name) => {
+            if let Some(module_id) =
+                visible_child_module(graph, accessing_module, target_module, &name.name)
+            {
+                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                    name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                    name_span: name.alias_span.unwrap_or(name.name_span),
+                    kind: ResolvedEntryKind::Module(module_id),
+                }]);
+            }
+            resolve_module_single(target_surface, name, source.clone())
+        }
         UsingSelector::Group(items) => {
             let mut entries = Vec::new();
             let mut any_unresolved = false;
             for item in items {
                 match expand_group_item(
                     defs_by_module,
+                    graph,
+                    accessing_module,
                     target_module,
                     item,
                     surfaces,
@@ -600,6 +776,8 @@ fn expand_module_host(
 
 fn expand_group_item(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
     current_module: ModuleId,
     item: &UsingGroupItem,
     surfaces: &PublicSurfaces,
@@ -607,18 +785,32 @@ fn expand_group_item(
 ) -> UsingExpansion {
     match item {
         UsingGroupItem::Name(name) => {
+            if let Some(module_id) =
+                visible_child_module(graph, accessing_module, current_module, &name.name)
+            {
+                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                    name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                    name_span: name.alias_span.unwrap_or(name.name_span),
+                    kind: ResolvedEntryKind::Module(module_id),
+                }]);
+            }
             let Some(surface) = surfaces.get(current_module) else {
                 return UsingExpansion::Unresolved;
             };
             resolve_module_single(surface, name, source.clone())
         }
         UsingGroupItem::Nested { host, selector } => {
-            let namespace =
-                match resolve_public_namespace_path(defs_by_module, current_module, surfaces, host)
-                {
-                    Ok(namespace) => namespace,
-                    Err(diag) => return UsingExpansion::HardError(diag),
-                };
+            let namespace = match resolve_public_namespace_path(
+                defs_by_module,
+                graph,
+                accessing_module,
+                current_module,
+                surfaces,
+                host,
+            ) {
+                Ok(namespace) => namespace,
+                Err(diag) => return UsingExpansion::HardError(diag),
+            };
             if matches!(selector.as_ref(), UsingSelector::SelfName) {
                 let Some(name) = host.last() else {
                     return UsingExpansion::Unresolved;
@@ -634,6 +826,8 @@ fn expand_group_item(
                 namespace,
                 selector,
                 defs_by_module,
+                graph,
+                accessing_module,
                 surfaces,
                 source.clone(),
             )
@@ -670,6 +864,8 @@ fn expand_self_namespace(
 
 fn resolve_public_namespace_path(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
     start_module: ModuleId,
     surfaces: &PublicSurfaces,
     host: &[nia_ast::UsingHostSegment],
@@ -681,13 +877,24 @@ fn resolve_public_namespace_path(
             "nested `using` group host must name a namespace",
         ));
     };
-    let mut namespace =
-        resolve_public_namespace_segment(defs_by_module, start_module, surfaces, first)?;
+    let mut namespace = resolve_public_namespace_segment(
+        defs_by_module,
+        graph,
+        accessing_module,
+        start_module,
+        surfaces,
+        first,
+    )?;
     for segment in &host[1..] {
         namespace = match namespace {
-            ResolvedNamespace::Module(module_id) => {
-                resolve_public_namespace_segment(defs_by_module, module_id, surfaces, segment)?
-            }
+            ResolvedNamespace::Module(module_id) => resolve_public_namespace_segment(
+                defs_by_module,
+                graph,
+                accessing_module,
+                module_id,
+                surfaces,
+                segment,
+            )?,
             ResolvedNamespace::Enum(_) => {
                 return Err(Diagnostic::user_error_at(
                     "E0201",
@@ -702,6 +909,8 @@ fn resolve_public_namespace_path(
 
 fn resolve_public_namespace_segment(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    accessing_module: ModuleId,
     module_id: ModuleId,
     surfaces: &PublicSurfaces,
     segment: &nia_ast::UsingHostSegment,
@@ -714,6 +923,11 @@ fn resolve_public_namespace_segment(
         ));
     };
     if let Some(target_module) = surface.lookup_module(&segment.name) {
+        return Ok(ResolvedNamespace::Module(target_module));
+    }
+    if let Some(target_module) =
+        visible_child_module(graph, accessing_module, module_id, &segment.name)
+    {
         return Ok(ResolvedNamespace::Module(target_module));
     }
     if let Some(item) = surface.lookup_type(&segment.name) {
@@ -996,7 +1210,8 @@ fn public_item_name_span(item: &PublicItem) -> Span {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_imports::{ModuleGraph, SourcePath, collect_import_aliases};
+    use nia_ast::Visibility;
+    use nia_imports::{ModuleGraph, SourcePath};
 
     fn defs(module_id: ModuleId, source: &str) -> DefCollection {
         let (module, errors) = nia_parser::parse_module(source);
@@ -1004,27 +1219,13 @@ mod tests {
         nia_defs::collect_module_defs(module_id, &module)
     }
 
-    fn graph_with_imports(imports: &[(&str, &str)]) -> ModuleGraph {
-        let source = imports
-            .iter()
-            .map(|(alias, path)| format!("import .{path} as {alias};"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let (module, errors) = nia_parser::parse_module(&source);
-        assert!(errors.is_empty(), "{errors:?}");
-
+    fn graph_with_public_children(children: &[&str]) -> ModuleGraph {
         let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
-        let root = graph.root();
-        let mut diagnostics = Vec::new();
-        nia_imports::collect_module_imports(
-            &mut graph,
-            &mut diagnostics,
-            root,
-            &SourcePath::new("main.nia"),
-            &module,
-            &nia_imports::ModuleMap::default(),
-        );
-        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        for child in children {
+            graph
+                .intern_declared_child(graph.root(), child, Visibility::Public, Span::default())
+                .expect("child declaration");
+        }
         graph
     }
 
@@ -1033,17 +1234,16 @@ mod tests {
         let main = defs(
             ModuleId(0),
             r#"
-import .left as left;
-import .right as right;
+pub module left;
+pub module right;
 using { left::*, right::* };
 "#,
         );
         let left = defs(ModuleId(1), "pub fn value() i32 { 1 }");
         let right = defs(ModuleId(2), "pub fn value() i32 { 2 }");
-        let imports =
-            collect_import_aliases(&graph_with_imports(&[("left", "left"), ("right", "right")]));
+        let graph = graph_with_public_children(&["left", "right"]);
 
-        let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &imports);
+        let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &graph);
 
         assert_eq!(diagnostics.len(), 1);
         assert!(

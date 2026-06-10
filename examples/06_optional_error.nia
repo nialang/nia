@@ -1,5 +1,5 @@
-import std.debug;
-import std.process;
+using std::debug;
+using std::process;
 using process::{Init, ExitCode, exit};
 
 fn at(values: &[i32], index: usize) ?i32 {

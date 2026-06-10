@@ -1,5 +1,5 @@
-import .math;
-import .palette;
+using root::math;
+using root::palette;
 
 pub using math;
 pub using math::{Point, add};

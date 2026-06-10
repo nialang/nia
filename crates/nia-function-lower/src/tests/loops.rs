@@ -230,7 +230,8 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
                     name: "i".to_string(),
                 }),
                 pattern_kind: nia_ast::ForPatternKind::Value,
-                ty: item_ty,
+                item_ty,
+                binding_ty: item_ty,
                 iter: TypedExpr {
                     span,
                     ty: item_ty,

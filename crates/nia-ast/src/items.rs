@@ -29,12 +29,14 @@ pub struct Attribute {
 pub enum Visibility {
     #[default]
     Private,
+    PublicSuper,
+    PublicPackage,
     Public,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ItemKind {
-    Import(ImportItem),
+    Module(ModuleItem),
     Using(UsingItem),
     ComptimeIf(ComptimeIfItem),
     Struct(StructItem),
@@ -61,21 +63,8 @@ pub enum ComptimeIfItemElse {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ImportItem {
-    pub path: ImportPath,
-    pub alias: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImportPath {
-    pub kind: ImportPathKind,
-    pub segments: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ImportPathKind {
-    Relative { parents: usize },
-    Root,
+pub struct ModuleItem {
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,7 +1,7 @@
-import std.fmt;
-import std.mem;
-import std.math;
-import std.slice;
+using std::fmt;
+using std::mem;
+using std::math;
+using std::slice;
 
 pub struct ArrayList[T]
 where T: Sized

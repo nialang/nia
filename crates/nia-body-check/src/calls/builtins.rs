@@ -241,9 +241,13 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::MemSet => {
                 self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
             }
-            BuiltinResolution::LoadUnaligned => {
-                self.check_load_unaligned_builtin_call(call_span, builtin_span, name, type_arg, args)
-            }
+            BuiltinResolution::LoadUnaligned => self.check_load_unaligned_builtin_call(
+                call_span,
+                builtin_span,
+                name,
+                type_arg,
+                args,
+            ),
             BuiltinResolution::Splat => {
                 self.check_splat_builtin_call(call_span, builtin_span, name, type_arg, args)
             }

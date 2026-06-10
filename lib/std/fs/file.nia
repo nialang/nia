@@ -1,7 +1,7 @@
-import std.fs.options;
-import std.fs.path;
-import std.fs.types;
-import std.os;
+using std::fs::options;
+using std::fs::path;
+using std::fs::types;
+using std::os;
 
 using types::{
     CreateDirOptions,

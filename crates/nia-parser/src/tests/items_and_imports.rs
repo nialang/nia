@@ -170,7 +170,7 @@ fn main() i32 {
 fn parses_nested_using_group_items() {
     let (module, errors) = parse_module(
         r#"
-import .math;
+using root::math;
 using math::{add, sub as minus, Operator::*};
 "#,
     );
@@ -196,7 +196,7 @@ using math::{add, sub as minus, Operator::*};
 fn parses_module_self_using() {
     let (module, errors) = parse_module(
         r#"
-import .math;
+using root::math;
 pub using math;
 "#,
     );

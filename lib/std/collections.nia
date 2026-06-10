@@ -1,5 +1,5 @@
-import std.collections.array_list;
-import std.collections.hash_map;
+pub module array_list;
+pub module hash_map;
 
 pub using array_list::ArrayList;
 pub using hash_map::{

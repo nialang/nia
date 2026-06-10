@@ -32,21 +32,6 @@ impl QueryKey<DriverContext> for ModuleGraphQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ImportAliasMapQuery;
-
-impl QueryKey<DriverContext> for ImportAliasMapQuery {
-    type Value = ImportAliasMap;
-
-    fn name() -> &'static str {
-        "import_alias_map"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.import_alias_map)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ParseOkModuleIdsQuery;
 
 impl QueryKey<DriverContext> for ParseOkModuleIdsQuery {

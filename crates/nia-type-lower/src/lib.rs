@@ -308,7 +308,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 }
             }
             ItemKind::Function(function) => self.visit_function(function),
-            ItemKind::Import(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
+            ItemKind::Module(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
         }
     }
 
@@ -508,7 +508,7 @@ impl TypeLowerer<'_> {
                 }
             }
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
-            ItemTreeNodeKind::Import(_)
+            ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_) => {}
         }
@@ -1871,7 +1871,6 @@ comptime if false {
         let resolved = resolve_module_types_from_active_item_tree(
             &active,
             &defs,
-            &nia_imports::ImportAliasMap::default(),
             TypeResolveProgramDefsContext::empty(),
             &nia_defs::PublicSurfaces::default(),
             &nia_defs::ModuleUsingScope::default(),

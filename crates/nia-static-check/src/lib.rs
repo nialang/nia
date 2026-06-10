@@ -165,7 +165,7 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(_)) => Some("local value is not available in global storage"),
-                Some(LocalUse::ImportAlias) => Some("import alias is not static data"),
+                Some(LocalUse::Module) => Some("module namespace is not static data"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not static data"),
             },
             ExprKind::Qualified { lhs, name: _ } => {
@@ -224,7 +224,7 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(_)) => Some("address target is local storage"),
-                Some(LocalUse::ImportAlias) => Some("import alias has no address"),
+                Some(LocalUse::Module) => Some("module namespace has no address"),
                 Some(LocalUse::TypePrefix) => Some("type prefix has no address"),
             },
             _ => Some("address target is not global storage"),
@@ -637,7 +637,7 @@ mod tests {
                 nia_value_resolve::ValueNameResolution::External(global_id) => {
                     builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
-                nia_value_resolve::ValueNameResolution::ImportAlias
+                nia_value_resolve::ValueNameResolution::Module
                 | nia_value_resolve::ValueNameResolution::LocalDeferred
                 | nia_value_resolve::ValueNameResolution::Error => {}
             }

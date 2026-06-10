@@ -1,4 +1,4 @@
-import std.os;
+using std::os;
 
 pub trait Io {
     type Error;

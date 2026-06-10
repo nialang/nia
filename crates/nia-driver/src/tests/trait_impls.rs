@@ -253,7 +253,8 @@ fn cross_module_trait_impls_are_checked() {
     write(
         &root.join("main.nia"),
         r#"
-import .traits;
+module traits;
+using root::traits;
 
 struct Point {
     x: i32,
@@ -329,7 +330,8 @@ where W: Writer
     write(
         &root.join("main.nia"),
         r#"
-import .io;
+module io;
+using root::io;
 
 struct File {
     raw: i32,
@@ -400,7 +402,7 @@ extend FileDescriptor {
     write(
         &root.join("fs.nia"),
         r#"
-import .os;
+using root::os;
 
 pub using os::{Error};
 
@@ -418,7 +420,7 @@ extend File {
     write(
         &root.join("io.nia"),
         r#"
-import .fs;
+using root::fs;
 
 pub trait Writer {
     type Error;
@@ -458,8 +460,11 @@ extend fs::File : Writer {
     write(
         &root.join("main.nia"),
         r#"
-import .fs;
-import .io;
+module os;
+module fs;
+module io;
+using root::fs;
+using root::io;
 
 fn main() void {
     var stdout = fs::File::standard_output();

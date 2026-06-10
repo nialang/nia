@@ -98,7 +98,7 @@ fn emits_for_over_range_value() {
     std::fs::write(
         &main,
         r#"
-import std;
+using std;
 
 fn main() i32 {
     var sum = 0;
@@ -376,7 +376,8 @@ extend GenericIter : Iterator {
     std::fs::write(
         &main,
         r#"
-import .iter;
+module iter;
+using root::iter;
 
 fn main() i32 {
     var total = 0;
