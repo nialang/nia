@@ -1,3 +1,4 @@
+using package::fs::convert;
 using package::fs::options;
 using package::fs::path;
 using package::fs::types;

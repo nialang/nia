@@ -1,3 +1,4 @@
+pub(package) module convert;
 pub(package) module file;
 pub(package) module options;
 pub(package) module path;

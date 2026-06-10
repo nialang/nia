@@ -100,6 +100,7 @@ impl ExtensionMethods {
         &self,
         current_module: ModuleId,
         imported_modules: impl IntoIterator<Item = ModuleId>,
+        visibility_allows: impl Fn(Visibility, ModuleId) -> bool,
     ) -> Vec<ExtensionMethod> {
         let mut methods = Vec::new();
         if let Some(module_methods) = self.by_module.get(&current_module) {
@@ -111,7 +112,8 @@ impl ExtensionMethods {
                     module_methods
                         .iter()
                         .filter(|method| {
-                            method.visibility == Visibility::Public || method.trait_id.is_some()
+                            method.trait_id.is_some()
+                                || visibility_allows(method.visibility, method.def_id.module_id)
                         })
                         .cloned(),
                 );
@@ -143,6 +145,7 @@ impl ExtensionAssociatedValues {
         &self,
         current_module: ModuleId,
         imported_modules: impl IntoIterator<Item = ModuleId>,
+        visibility_allows: impl Fn(Visibility, ModuleId) -> bool,
     ) -> Vec<ExtensionAssociatedValue> {
         let mut values = Vec::new();
         if let Some(module_values) = self.by_module.get(&current_module) {
@@ -153,7 +156,7 @@ impl ExtensionAssociatedValues {
                 values.extend(
                     module_values
                         .iter()
-                        .filter(|value| value.visibility == Visibility::Public)
+                        .filter(|value| visibility_allows(value.visibility, value.def_id.module_id))
                         .cloned(),
                 );
             }

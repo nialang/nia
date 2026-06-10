@@ -1,0 +1,195 @@
+using package::mem;
+using package::hash::traits;
+
+using traits::Hasher;
+
+comptime let wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
+comptime let wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;
+comptime let wyhash_secret2: u64 = 0x8ebc6af09c88c6e3u64;
+comptime let wyhash_secret3: u64 = 0x589965cc75374cc3u64;
+
+pub struct Wyhash {
+    a: u64,
+    b: u64,
+    state0: u64,
+    state1: u64,
+    state2: u64,
+    total_len: usize,
+    buf: [48]u8,
+    buf_len: usize,
+}
+
+extend Wyhash {
+    pub fn init(seed: u64) Wyhash {
+        let state = seed ^ mix(seed ^ wyhash_secret0, wyhash_secret1);
+        {
+            a: 0u64,
+            b: 0u64,
+            state0: state,
+            state1: state,
+            state2: state,
+            total_len: 0usize,
+            buf: [_]u8[0; 48],
+            buf_len: 0usize,
+        }
+    }
+
+    pub fn hash(seed: u64, bytes: &[u8]) u64 {
+        wyhash(seed, bytes)
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) void {
+        self.total_len += bytes.len();
+
+        if bytes.len() <= 48usize - self.buf_len {
+            mem::copy_forwards[u8](&mut self.buf[self.buf_len..(self.buf_len + bytes.len())], bytes);
+            self.buf_len += bytes.len();
+            return;
+        }
+
+        var index = 0usize;
+        if self.buf_len > 0usize {
+            index = 48usize - self.buf_len;
+            mem::copy_forwards[u8](&mut self.buf[self.buf_len..48usize], &bytes[0usize..index]);
+            self.round(&self.buf[..]);
+            self.buf_len = 0usize;
+        }
+
+        while index + 48usize < bytes.len() {
+            self.round(&bytes[index..(index + 48usize)]);
+            index += 48usize;
+        }
+
+        let remaining = &bytes[index..];
+        if remaining.len() < 16usize and index >= 48usize {
+            let rem = 16usize - remaining.len();
+            mem::copy_forwards[u8](
+                &mut self.buf[(48usize - rem)..48usize],
+                &bytes[(index - rem)..index],
+            );
+        }
+        mem::copy_forwards[u8](&mut self.buf[0usize..remaining.len()], remaining);
+        self.buf_len = remaining.len();
+    }
+
+    fn finish_value(&self) u64 {
+        var copy = self.shallow_copy();
+        if self.total_len <= 16usize {
+            copy.small_key(&self.buf[0usize..self.buf_len]);
+        } else {
+            var offset = 0usize;
+            var scratch: [16]u8 = [0; 16];
+            var input = &self.buf[0usize..self.buf_len];
+            if self.buf_len < 16usize {
+                let rem = 16usize - self.buf_len;
+                mem::copy_forwards[u8](&mut scratch[0usize..rem], &self.buf[(48usize - rem)..48usize]);
+                mem::copy_forwards[u8](&mut scratch[rem..16usize], &self.buf[0usize..self.buf_len]);
+                input = &scratch[..];
+                offset = rem;
+            }
+
+            copy.final0();
+            copy.final1(input, offset);
+        }
+
+        copy.final2()
+    }
+
+    fn shallow_copy(&self) Wyhash {
+        {
+            a: self.a,
+            b: self.b,
+            state0: self.state0,
+            state1: self.state1,
+            state2: self.state2,
+            total_len: self.total_len,
+            buf: [_]u8[0; 48],
+            buf_len: 0usize,
+        }
+    }
+
+    fn small_key(&mut self, bytes: &[u8]) void {
+        self.a = 0u64;
+        self.b = 0u64;
+        if bytes.len() >= 4usize {
+            let end = bytes.len() - 4usize;
+            let quarter = (bytes.len() >> 3usize) << 2usize;
+            self.a = (read4(&bytes[0..]) << 32u64) | read4(&bytes[quarter..]);
+            self.b = (read4(&bytes[end..]) << 32u64) | read4(&bytes[end - quarter..]);
+        } else if bytes.len() > 0usize {
+            self.a = ((bytes[0] as u64) << 16u64)
+                | ((bytes[bytes.len() >> 1usize] as u64) << 8u64)
+                | (bytes[bytes.len() - 1usize] as u64);
+        }
+    }
+
+    fn round(&mut self, bytes: &[u8]) void {
+        self.state0 = mix(read8(&bytes[0usize..]) ^ wyhash_secret1, read8(&bytes[8usize..]) ^ self.state0);
+        self.state1 = mix(read8(&bytes[16usize..]) ^ wyhash_secret2, read8(&bytes[24usize..]) ^ self.state1);
+        self.state2 = mix(read8(&bytes[32usize..]) ^ wyhash_secret3, read8(&bytes[40usize..]) ^ self.state2);
+    }
+
+    fn final0(&mut self) void {
+        self.state0 ^= self.state1 ^ self.state2;
+    }
+
+    fn final1(&mut self, input_lb: &[u8], start_pos: usize) void {
+        let input = &input_lb[start_pos..];
+        var i = 0usize;
+        while i + 16usize < input.len() {
+            self.state0 = mix(read8(&input[i..]) ^ wyhash_secret1, read8(&input[i + 8usize..]) ^ self.state0);
+            i += 16usize;
+        }
+
+        self.a = read8(&input_lb[input_lb.len() - 16usize..]);
+        self.b = read8(&input_lb[input_lb.len() - 8usize..]);
+    }
+
+    fn final2(&mut self) u64 {
+        self.a ^= wyhash_secret1;
+        self.b ^= self.state0;
+        let product = (self.a as u128) * (self.b as u128);
+        self.a = product as u64;
+        self.b = (product >> 64u128) as u64;
+        mix(self.a ^ wyhash_secret0 ^ (self.total_len as u64), self.b ^ wyhash_secret1)
+    }
+}
+
+extend Wyhash : Hasher {
+    pub fn write(&mut self, bytes: &[u8]) void {
+        self.update(bytes)
+    }
+
+    pub fn finish(&self) u64 {
+        self.finish_value()
+    }
+}
+
+pub fn wyhash(seed: u64, bytes: &[u8]) u64 {
+    var hasher = Wyhash::init(seed);
+    hasher.update(bytes);
+    hasher.finish_value()
+}
+
+fn mix(a: u64, b: u64) u64 {
+    let product = (a as u128) * (b as u128);
+    (product as u64) ^ ((product >> 64u128) as u64)
+}
+
+fn read4(bytes: &[u8]) u64 {
+    (bytes[0] as u64)
+        | ((bytes[1] as u64) << 8u64)
+        | ((bytes[2] as u64) << 16u64)
+        | ((bytes[3] as u64) << 24u64)
+}
+
+fn read8(bytes: &[u8]) u64 {
+    (bytes[0] as u64)
+        | ((bytes[1] as u64) << 8u64)
+        | ((bytes[2] as u64) << 16u64)
+        | ((bytes[3] as u64) << 24u64)
+        | ((bytes[4] as u64) << 32u64)
+        | ((bytes[5] as u64) << 40u64)
+        | ((bytes[6] as u64) << 48u64)
+        | ((bytes[7] as u64) << 56u64)
+}

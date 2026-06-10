@@ -10,22 +10,7 @@ impl Parser {
         let pub_token = self.eat(TokenKind::Pub);
         let pub_span = pub_token.map(|token| token.span);
         let vis = if pub_span.is_some() {
-            if self.eat(TokenKind::LParen).is_some() {
-                let vis = if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "super" {
-                    self.bump();
-                    Visibility::PublicSuper
-                } else if self.at(TokenKind::Package) {
-                    self.bump();
-                    Visibility::PublicPackage
-                } else {
-                    self.error_here("expected `super` or `package` in visibility");
-                    Visibility::Public
-                };
-                self.expect(TokenKind::RParen, "expected `)` after visibility")?;
-                vis
-            } else {
-                Visibility::Public
-            }
+            self.parse_pub_visibility_suffix()?
         } else {
             Visibility::Private
         };
@@ -77,6 +62,24 @@ impl Parser {
 
         let end = self.previous_end();
         Some(self.make_item(Span::new(start, end), attributes, vis, kind))
+    }
+
+    fn parse_pub_visibility_suffix(&mut self) -> Option<Visibility> {
+        if self.eat(TokenKind::LParen).is_none() {
+            return Some(Visibility::Public);
+        }
+        let vis = if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "super" {
+            self.bump();
+            Visibility::PublicSuper
+        } else if self.at(TokenKind::Package) {
+            self.bump();
+            Visibility::PublicPackage
+        } else {
+            self.error_here("expected `super` or `package` in visibility");
+            Visibility::Public
+        };
+        self.expect(TokenKind::RParen, "expected `)` after visibility")?;
+        Some(vis)
     }
 
     fn parse_attributes(&mut self) -> Option<Vec<Attribute>> {
@@ -467,7 +470,7 @@ impl Parser {
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let vis = if self.eat(TokenKind::Pub).is_some() {
-                Visibility::Public
+                self.parse_pub_visibility_suffix()?
             } else {
                 Visibility::Private
             };

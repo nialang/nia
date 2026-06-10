@@ -1078,6 +1078,38 @@ fn main() void {}
 "#,
         ),
         (
+            "std_fs_convert",
+            r#"
+using std::fs::convert;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_hash_wyhash_module",
+            r#"
+using std::hash::wyhash::Wyhash;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_hash_traits_module",
+            r#"
+using std::hash::traits::Hash;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_hash_impls_module",
+            r#"
+using std::hash::impls;
+
+fn main() void {}
+"#,
+        ),
+        (
             "std_fmt_core",
             r#"
 using std::fmt::core;
@@ -1834,6 +1866,159 @@ pub(super) fn value() i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.diagnostic.summary.contains("private")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn pub_package_extension_methods_are_visible_only_inside_package() {
+    let root = temp_dir("pub_package_extension_methods_are_visible_only_inside_package");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+fn main() i32 {
+    api::inside()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub module model;");
+    std::fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/model.nia"),
+        r#"
+pub struct Value {
+    data: i32,
+}
+
+extend Value {
+    pub fn init(data: i32) Value {
+        { data: data }
+    }
+
+    pub(package) fn package_score(&self) i32 {
+        self.data + 1
+    }
+}
+"#,
+    );
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using package::model;
+
+pub fn inside() i32 {
+    model::Value::init(41).package_score()
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::model;
+
+fn main() i32 {
+    model::Value::init(41).package_score()
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown struct field")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn pub_package_extension_associated_values_are_visible_only_inside_package() {
+    let root = temp_dir("pub_package_extension_associated_values_are_visible_only_inside_package");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+fn main() usize {
+    api::inside()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub module model;");
+    std::fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/model.nia"),
+        r#"
+pub struct Marker {}
+
+extend Marker {
+    pub(package) comptime let LIMIT: usize = 123usize;
+}
+"#,
+    );
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using package::model;
+
+pub fn inside() usize {
+    model::Marker::LIMIT
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::model;
+
+fn main() usize {
+    model::Marker::LIMIT
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("qualified access is not a value expression")),
         "{:?}",
         program.diagnostics
     );
