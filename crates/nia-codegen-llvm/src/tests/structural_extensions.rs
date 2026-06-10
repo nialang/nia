@@ -115,7 +115,7 @@ fn emits_imported_generic_structural_extension_method_calls() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-r#"
+        r#"
 module share;
 module ptr;
 using root::share;

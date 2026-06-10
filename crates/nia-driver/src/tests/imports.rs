@@ -2012,13 +2012,10 @@ fn main() usize {
         module_map,
     );
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic
-                .diagnostic
-                .summary
-                .contains("qualified access is not a value expression")),
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("qualified access is not a value expression")),
         "{:?}",
         program.diagnostics
     );
