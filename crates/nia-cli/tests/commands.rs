@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{temp_dir, CommandExt};
+use support::{CommandExt, temp_dir};
 
 #[test]
 fn help_and_version_use_nia_command_name() {
@@ -27,6 +27,7 @@ fn help_and_version_use_nia_command_name() {
         help_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{help_stdout}"
     );
+    assert!(help_stdout.contains("--timings"), "{help_stdout}");
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
@@ -49,6 +50,11 @@ fn help_and_version_use_nia_command_name() {
     );
     assert!(
         check_stdout.contains("optimization policy, enabled passes, change count, and changes"),
+        "{check_stdout}"
+    );
+    assert!(check_stdout.contains("--timings"), "{check_stdout}");
+    assert!(
+        check_stdout.contains("Timing reports are written to stderr"),
         "{check_stdout}"
     );
 
@@ -79,6 +85,7 @@ fn help_and_version_use_nia_command_name() {
     );
     assert!(emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
     assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
+    assert!(emit_stdout.contains("--timings"), "{emit_stdout}");
     assert!(
         emit_stdout
             .contains("optimization policy, enabled passes, change count, and changes to stderr"),
@@ -87,6 +94,10 @@ fn help_and_version_use_nia_command_name() {
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(emit_stdout.contains(level), "{emit_stdout}");
     }
+    assert!(
+        emit_stdout.contains("Timing reports are written to stderr"),
+        "{emit_stdout}"
+    );
 
     let version = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--version")
@@ -98,6 +109,93 @@ fn help_and_version_use_nia_command_name() {
     );
     let version_stdout = String::from_utf8_lossy(&version.stdout);
     assert!(version_stdout.starts_with("nia "), "{version_stdout}");
+}
+
+#[test]
+fn timings_option_reports_stage_timings_to_stderr() {
+    let root = temp_dir("timings_option_reports_stage_timings_to_stderr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&main)
+        .arg("--timings")
+        .output_timeout("run nia check --timings");
+    assert!(
+        check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("timing check:"), "{stderr}");
+    assert!(!stderr.contains("query timing"), "{stderr}");
+
+    let tokens = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--tokens")
+        .arg(&main)
+        .arg("--timings")
+        .output_timeout("run nia emit --tokens --timings");
+    assert!(
+        tokens.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&tokens.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&tokens.stdout);
+    let stderr = String::from_utf8_lossy(&tokens.stderr);
+    assert!(stdout.contains("Fn"), "{stdout}");
+    assert!(!stdout.contains("timing "), "{stdout}");
+    assert!(stderr.contains("timing lex:"), "{stderr}");
+
+    let llvm = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timings=detail")
+        .arg("emit")
+        .arg("--llvm")
+        .arg(&main)
+        .output_timeout("run nia --timings=detail emit --llvm");
+    assert!(
+        llvm.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&llvm.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&llvm.stdout);
+    let stderr = String::from_utf8_lossy(&llvm.stderr);
+    assert!(stdout.contains("define i32 @"), "{stdout}");
+    assert!(!stdout.contains("timing "), "{stdout}");
+    assert!(stderr.contains("timing check:"), "{stderr}");
+    assert!(stderr.contains("timing emit_llvm_ir:"), "{stderr}");
+    assert!(
+        stderr.contains("query timing backend_lowering:"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn invalid_timings_option_reports_expected_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timings=trace")
+        .arg("check")
+        .arg("main.nia")
+        .output_timeout("run nia with invalid timings option");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown timings mode `--timings=trace`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("--timings=detail"), "{stderr}");
 }
 
 #[test]
@@ -341,7 +439,7 @@ fn module_map_option_can_follow_command_arguments() {
     std::fs::write(
         &main,
         r#"
-import share;
+using share;
 
 fn main() i32 {
     share::answer
@@ -399,7 +497,7 @@ fn check_uses_default_std_module_map() {
     std::fs::write(
         &main,
         r#"
-import std;
+using std;
 
 fn main() i32 {
     0
@@ -427,7 +525,7 @@ fn check_exe_uses_freestanding_startup_contract() {
     std::fs::write(
         &private_main,
         r#"
-import std.process;
+using std::process;
 
 fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -463,7 +561,7 @@ fn main(init: process::Init) process::ExitCode!void {
     std::fs::write(
         &public_main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -750,9 +848,9 @@ fn atomic_std_facade_checks_emits_and_runs() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.atomic;
-import std.process;
+using std;
+using std::atomic;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1162,7 +1260,7 @@ fn emit_exe_links_freestanding_executable() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1198,7 +1296,7 @@ fn emit_exe_simd_bitmask_matches_lane_bits() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1246,7 +1344,7 @@ fn emit_exe_bit_intrinsics_are_zero_defined() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1299,7 +1397,7 @@ fn emit_exe_unaligned_vector_load_reads_lanes() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1349,8 +1447,8 @@ fn emit_exe_exit_code_is_open_enum() {
     std::fs::write(
         &main,
         r#"
-import std.process;
-import std.fs;
+using std::process;
+using std::fs;
 
 using process::{ExitCode, exit};
 
@@ -1418,8 +1516,8 @@ fn emit_exe_can_use_direct_std_modules() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1463,8 +1561,8 @@ fn emit_exe_can_use_std_math_usize_helpers() {
     std::fs::write(
         &main,
         r#"
-import std.math;
-import std.process;
+using std::math;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1551,7 +1649,7 @@ fn emit_exe_exposes_process_args_without_raw_argv() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var args = init.args();
@@ -1619,7 +1717,7 @@ fn emit_exe_exposes_process_env_as_values() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 fn starts_with_needle(bytes: &[u8]) bool {
     var needle = b"NIA_TEST_ENV=ok";
@@ -1683,7 +1781,7 @@ fn emit_exe_can_use_error_union_conversion_extension() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 enum ParseError: i32 {
     Bad = 1,
@@ -1750,8 +1848,8 @@ fn emit_exe_can_write_stdout_through_std_io() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
@@ -1793,9 +1891,9 @@ fn emit_exe_can_format_to_stdout() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.fmt;
-import std.process;
+using std::io;
+using std::fmt;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [0; 128];
@@ -1841,9 +1939,9 @@ fn emit_exe_can_use_std_io_fixed_buffers() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.fmt;
-import std.process;
+using std::io;
+using std::fmt;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -1899,11 +1997,11 @@ fn emit_exe_std_fmt_formats_primitives_and_array_list() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.fmt;
-import std.io;
-import std.mem;
-import std.process;
+using std;
+using std::fmt;
+using std::io;
+using std::mem;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var raw: [256]u8 = [_]u8[0; 256];
@@ -1971,7 +2069,7 @@ fn emit_exe_local_pointer_binding_patterns_destructure_values() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2020,8 +2118,8 @@ fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2090,8 +2188,8 @@ fn emit_exe_can_use_std_io_buffered_writer() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2176,8 +2274,8 @@ fn emit_exe_std_io_buffered_writer_flushes_partial_writes() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 struct PartialWriter {
     inner: io::FixedBufferWriter,
@@ -2304,8 +2402,8 @@ fn emit_exe_can_use_std_io_buffered_reader() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -2401,8 +2499,8 @@ fn emit_exe_std_io_read_exact_handles_partial_reads() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 struct PartialReader {
     inner: io::FixedBufferReader,
@@ -2489,9 +2587,9 @@ fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.io;
-import std.process;
+using std::fs;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("data.txt");
@@ -2589,9 +2687,9 @@ fn emit_exe_std_fs_file_open_create_and_close() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.io;
-import std.process;
+using std::fs;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("data.txt");
@@ -2678,9 +2776,9 @@ fn emit_exe_std_fs_file_seek_len_truncate_and_sync() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.io;
-import std.process;
+using std::fs;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("data.txt");
@@ -2823,9 +2921,9 @@ fn emit_exe_std_fs_file_metadata() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.io;
-import std.process;
+using std::fs;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("data.txt");
@@ -2941,9 +3039,9 @@ fn emit_exe_can_open_std_fs_paths_from_text() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.io;
-import std.process;
+using std::fs;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("nia-λ.txt");
@@ -3012,8 +3110,8 @@ fn emit_exe_std_fs_rejects_nul_in_text_path() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.process;
+using std::fs;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3075,7 +3173,7 @@ fn emit_exe_mut_ref_receiver_updates_original_aggregate() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 struct Counter {
     value: i32,
@@ -3135,8 +3233,8 @@ fn emit_exe_std_fs_can_delete_files() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.process;
+using std::fs;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3217,8 +3315,8 @@ fn emit_exe_std_fs_can_create_rename_and_delete_dirs() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.process;
+using std::fs;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3333,8 +3431,8 @@ fn emit_exe_std_fs_can_open_dirs_as_capabilities() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.process;
+using std::fs;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3435,9 +3533,9 @@ fn emit_exe_std_fs_can_iterate_dir_entries() {
     std::fs::write(
         &main,
         r#"
-import std.fs;
-import std.mem;
-import std.process;
+using std::fs;
+using std::mem;
+using std::process;
 
 fn bytes_equal(left: &[u8], right: &[u8]) bool {
     mem::equal[u8](left, right)
@@ -3570,7 +3668,7 @@ fn emit_exe_reports_private_root_entry_called_by_freestanding_start() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3599,6 +3697,8 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     let std_root = root.join("custom_std/std.nia");
     let std_process = root.join("custom_std/std/process.nia");
     let std_start = root.join("custom_std/std/start.nia");
+    let std_start_freestanding = root.join("custom_std/std/start/freestanding.nia");
+    let std_start_freestanding_linux = root.join("custom_std/std/start/freestanding/linux.nia");
     let std_start_linux_x86_64 = root.join("custom_std/std/start/freestanding/linux/x86_64.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
@@ -3611,15 +3711,34 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
 comptime if @builtin().target.os == "linux"
     and @builtin().target.arch == "x86_64"
 {
-    import std.start.freestanding.linux.x86_64;
+    pub module freestanding;
+    using std::start::freestanding::linux::x86_64;
 }
 "#,
     )
     .expect("write custom std start facade");
     std::fs::write(
+        &std_start_freestanding,
+        r#"
+comptime if @builtin().target.os == "linux" {
+    pub module linux;
+}
+"#,
+    )
+    .expect("write custom std freestanding facade");
+    std::fs::write(
+        &std_start_freestanding_linux,
+        r#"
+comptime if @builtin().target.arch == "x86_64" {
+    pub module x86_64;
+}
+"#,
+    )
+    .expect("write custom std linux facade");
+    std::fs::write(
         &std_start_linux_x86_64,
         r#"
-import root;
+using root;
 
 fn syscall_exit(code: i32) void {
     @asm({
@@ -3694,7 +3813,7 @@ fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3756,7 +3875,7 @@ fn emit_exe_can_emit_optimization_report_to_stderr() {
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -3795,13 +3914,56 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emitted_executables_preserve_semantics_across_optimization_levels() {
-    let root = temp_dir("emitted_executables_preserve_semantics_across_optimization_levels");
+fn emitted_executable_preserves_semantics_at_o0() {
+    emitted_executable_preserves_semantics_at_optimization_level("-O0");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_at_o1() {
+    emitted_executable_preserves_semantics_at_optimization_level("-O1");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_at_o2() {
+    emitted_executable_preserves_semantics_at_optimization_level("-O2");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_at_o3() {
+    emitted_executable_preserves_semantics_at_optimization_level("-O3");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_at_os() {
+    emitted_executable_preserves_semantics_at_optimization_level("-Os");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_at_oz() {
+    emitted_executable_preserves_semantics_at_optimization_level("-Oz");
+}
+
+#[test]
+fn emitted_executable_preserves_semantics_with_bare_o_alias() {
+    emitted_executable_preserves_semantics_at_optimization_level("-O");
+}
+
+fn emitted_executable_preserves_semantics_at_optimization_level(level: &str) {
+    let root = temp_dir(&format!(
+        "emitted_executable_preserves_semantics_at_{}",
+        level.trim_start_matches('-')
+    ));
     let main = root.join("main.nia");
+    let exe_name = format!(
+        "main_{}{}",
+        level.trim_start_matches('-'),
+        std::env::consts::EXE_SUFFIX
+    );
+    let exe = root.join(exe_name);
     std::fs::write(
         &main,
         r#"
-import std.process;
+using std::process;
 
 fn pick(flag: bool, a: i32, b: i32) i32 {
     if flag {
@@ -3835,31 +3997,23 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
-        let exe_name = format!(
-            "main_{}{}",
-            level.trim_start_matches('-'),
-            std::env::consts::EXE_SUFFIX
-        );
-        let exe = root.join(exe_name);
-        let output_context = format!("run nia {level} emit --exe");
-        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg(level)
-            .arg("emit")
-            .arg("--exe")
-            .arg(&main)
-            .arg("-o")
-            .arg(&exe)
-            .output_timeout(&output_context);
+    let output_context = format!("run nia {level} emit --exe");
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg(level)
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout(&output_context);
 
-        assert!(
-            output.status.success(),
-            "{level} stderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+    assert!(
+        output.status.success(),
+        "{level} stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-        let run_context = format!("run emitted executable for {level}");
-        let status = Command::new(&exe).status_timeout(&run_context);
-        assert_eq!(status.code(), Some(42), "{level}");
-    }
+    let run_context = format!("run emitted executable for {level}");
+    let status = Command::new(&exe).status_timeout(&run_context);
+    assert_eq!(status.code(), Some(42), "{level}");
 }

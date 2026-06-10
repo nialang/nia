@@ -3,6 +3,7 @@ use std::{
     env, fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
+    time::Instant,
 };
 
 use nia_diagnostic::{Diagnostic, render_diagnostic};
@@ -64,6 +65,7 @@ fn run_main() -> ExitCode {
 struct Cli {
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     command: CliCommand,
 }
 
@@ -146,6 +148,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             &source,
             cli.module_map,
             cli.optimization,
+            cli.timings,
             opt_report,
             exe,
         ),
@@ -157,6 +160,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             target,
             cli.module_map,
             cli.optimization,
+            cli.timings,
             opt_report,
         ),
     }
@@ -196,6 +200,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
             module_map: global_options.module_map,
             optimization: global_options.optimization,
+            timings: global_options.timings,
             command,
         })),
     }
@@ -204,6 +209,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
 struct GlobalOptions {
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
 }
 
 fn extract_global_options(
@@ -212,6 +218,7 @@ fn extract_global_options(
 ) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
     let mut optimization = NiaOptimizationLevel::default();
+    let mut timings = nia_driver::TimingMode::Off;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     let mut preserve_next = false;
@@ -254,6 +261,10 @@ fn extract_global_options(
             optimization = level.map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if let Some(mode) = parse_timings_flag(&arg) {
+            timings = mode.map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         remaining.push(arg);
     }
     Ok((
@@ -261,6 +272,7 @@ fn extract_global_options(
         GlobalOptions {
             module_map: map,
             optimization,
+            timings,
         },
     ))
 }
@@ -300,6 +312,17 @@ fn parse_optimization_flag(arg: &str) -> Option<Result<NiaOptimizationLevel, Str
         _ => return None,
     };
     Some(Ok(level))
+}
+
+fn parse_timings_flag(arg: &str) -> Option<Result<nia_driver::TimingMode, String>> {
+    match arg {
+        "--timings" | "--timings=summary" => Some(Ok(nia_driver::TimingMode::Summary)),
+        "--timings=detail" => Some(Ok(nia_driver::TimingMode::Detail)),
+        _ if arg.starts_with("--timings=") => Some(Err(format!(
+            "unknown timings mode `{arg}`; expected --timings, --timings=summary, or --timings=detail"
+        ))),
+        _ => None,
+    }
 }
 
 enum ParsedCommand {
@@ -573,18 +596,27 @@ fn run_check(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
     exe: bool,
 ) -> ExitCode {
-    let program = if exe {
-        nia_driver::check_freestanding_executable_with_map_and_options(
-            path,
-            module_map,
-            optimization,
-        )
-    } else {
-        nia_driver::check_program_with_map_and_options(path, module_map, optimization)
-    };
+    let program = time_stage(timings, "check", || {
+        if exe {
+            nia_driver::check_freestanding_executable_with_map_options_and_timings(
+                path,
+                module_map,
+                optimization,
+                timings,
+            )
+        } else {
+            nia_driver::check_program_with_map_options_and_timings(
+                path,
+                module_map,
+                optimization,
+                timings,
+            )
+        }
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -601,21 +633,50 @@ fn run_emit(
     target: EmitTarget,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
     match target {
-        EmitTarget::Tokens => run_lex(source),
-        EmitTarget::Ast => run_parse(path, source),
-        EmitTarget::Checked => run_emit_checked(path, source, module_map, optimization, opt_report),
-        EmitTarget::Backend => run_emit_backend(path, source, module_map, optimization, opt_report),
-        EmitTarget::Llvm => run_emit_llvm(path, source, module_map, optimization, opt_report),
-        EmitTarget::Obj { args } => {
-            run_emit_obj(path, source, args, module_map, optimization, opt_report)
+        EmitTarget::Tokens => time_stage(timings, "lex", || run_lex(source)),
+        EmitTarget::Ast => time_stage(timings, "parse", || run_parse(path, source)),
+        EmitTarget::Checked => {
+            run_emit_checked(path, source, module_map, optimization, timings, opt_report)
         }
-        EmitTarget::Exe { args } => {
-            run_emit_exe(path, source, args, module_map, optimization, opt_report)
+        EmitTarget::Backend => {
+            run_emit_backend(path, source, module_map, optimization, timings, opt_report)
         }
+        EmitTarget::Llvm => {
+            run_emit_llvm(path, source, module_map, optimization, timings, opt_report)
+        }
+        EmitTarget::Obj { args } => run_emit_obj(
+            path,
+            source,
+            args,
+            module_map,
+            optimization,
+            timings,
+            opt_report,
+        ),
+        EmitTarget::Exe { args } => run_emit_exe(
+            path,
+            source,
+            args,
+            module_map,
+            optimization,
+            timings,
+            opt_report,
+        ),
     }
+}
+
+fn time_stage<T>(timings: nia_driver::TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    if !timings.enabled() {
+        return f();
+    }
+    let start = Instant::now();
+    let result = f();
+    eprintln!("timing {name}: {:.3}s", start.elapsed().as_secs_f64());
+    result
 }
 
 fn run_emit_checked(
@@ -623,9 +684,17 @@ fn run_emit_checked(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = time_stage(timings, "check", || {
+        nia_driver::check_program_with_map_options_and_timings(
+            path,
+            module_map,
+            optimization,
+            timings,
+        )
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -642,9 +711,17 @@ fn run_emit_backend(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = time_stage(timings, "check", || {
+        nia_driver::check_program_with_map_options_and_timings(
+            path,
+            module_map,
+            optimization,
+            timings,
+        )
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -661,9 +738,17 @@ fn run_emit_llvm(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = time_stage(timings, "check", || {
+        nia_driver::check_program_with_map_options_and_timings(
+            path,
+            module_map,
+            optimization,
+            timings,
+        )
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -671,10 +756,12 @@ fn run_emit_llvm(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = nia_codegen_llvm::emit_llvm_ir_with_options(
-        &program.backend_lowering.program,
-        codegen_options(program.optimization),
-    );
+    let output = time_stage(timings, "emit_llvm_ir", || {
+        nia_codegen_llvm::emit_llvm_ir_with_options(
+            &program.backend_lowering.program,
+            codegen_options(program.optimization),
+        )
+    });
     if !output.diagnostics.is_empty() {
         eprintln!("codegen diagnostics:");
         for diagnostic in &output.diagnostics {
@@ -694,6 +781,7 @@ fn run_emit_obj(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
@@ -703,7 +791,14 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = time_stage(timings, "check", || {
+        nia_driver::check_program_with_map_options_and_timings(
+            path,
+            module_map,
+            optimization,
+            timings,
+        )
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -711,10 +806,12 @@ fn run_emit_obj(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = nia_codegen_llvm::emit_native_objects(
-        &program.backend_lowering.program,
-        codegen_options(program.optimization),
-    );
+    let output = time_stage(timings, "emit_native_objects", || {
+        nia_codegen_llvm::emit_native_objects(
+            &program.backend_lowering.program,
+            codegen_options(program.optimization),
+        )
+    });
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
         return ExitCode::FAILURE;
@@ -756,6 +853,7 @@ fn run_emit_exe(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
     let output_path = match parse_emit_exe_options(path, args) {
@@ -765,11 +863,14 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let program = nia_driver::check_freestanding_executable_with_map_and_options(
-        path,
-        module_map,
-        optimization,
-    );
+    let program = time_stage(timings, "check_exe", || {
+        nia_driver::check_freestanding_executable_with_map_options_and_timings(
+            path,
+            module_map,
+            optimization,
+            timings,
+        )
+    });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -777,10 +878,12 @@ fn run_emit_exe(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = nia_codegen_llvm::emit_native_objects(
-        &program.backend_lowering.program,
-        codegen_options(program.optimization),
-    );
+    let output = time_stage(timings, "emit_native_objects", || {
+        nia_codegen_llvm::emit_native_objects(
+            &program.backend_lowering.program,
+            codegen_options(program.optimization),
+        )
+    });
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
         return ExitCode::FAILURE;
@@ -791,15 +894,20 @@ fn run_emit_exe(
         eprintln!("failed to create `{}`: {err}", temp.path().display());
         return ExitCode::FAILURE;
     }
-    let mut object_paths = Vec::new();
-    for (index, module) in output.modules.iter().enumerate() {
-        let object_path = temp.path().join(object_file_name(index, &module.name));
-        if let Err(err) = write_output_file(&object_path, &module.bytes) {
-            eprintln!("failed to write `{}`: {err}", object_path.display());
-            return ExitCode::FAILURE;
+    let Some(object_paths) = time_stage(timings, "write_temp_objects", || {
+        let mut object_paths = Vec::new();
+        for (index, module) in output.modules.iter().enumerate() {
+            let object_path = temp.path().join(object_file_name(index, &module.name));
+            if let Err(err) = write_output_file(&object_path, &module.bytes) {
+                eprintln!("failed to write `{}`: {err}", object_path.display());
+                return None;
+            }
+            object_paths.push(object_path);
         }
-        object_paths.push(object_path);
-    }
+        Some(object_paths)
+    }) else {
+        return ExitCode::FAILURE;
+    };
     if let Some(parent) = output_path.parent()
         && !parent.as_os_str().is_empty()
         && let Err(err) = fs::create_dir_all(parent)
@@ -809,13 +917,15 @@ fn run_emit_exe(
     }
 
     let linker = executable_linker();
-    let status = Command::new(&linker.program)
-        .args(&linker.args_before_objects)
-        .args(&object_paths)
-        .args(&linker.args_after_objects)
-        .arg("-o")
-        .arg(&output_path)
-        .status();
+    let status = time_stage(timings, "link_executable", || {
+        Command::new(&linker.program)
+            .args(&linker.args_before_objects)
+            .args(&object_paths)
+            .args(&linker.args_after_objects)
+            .arg("-o")
+            .arg(&output_path)
+            .status()
+    });
     match status {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         Ok(status) => {
