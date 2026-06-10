@@ -161,6 +161,19 @@ where T: Sized
         !new_items
     }
 
+    pub fn to_owned_slice(&self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
+        let len = self.len();
+        if len == 0usize or @size[T]() == 0usize {
+            return !raw::dangling_slice[T](len);
+        }
+
+        let layout = mem::Layout::array[T](len).?;
+        let block = allocator.alloc(layout).?;
+        var out = raw::block_items[T](block, len);
+        mem::copy_forwards[T](out, self.as_slice());
+        !out
+    }
+
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
         var cloned = ArrayList[T]::init_capacity(allocator, self.capacity()).?;
         cloned.append_slice_assume_capacity(self.as_slice());
@@ -218,6 +231,34 @@ where T: Sized
         }
     }
 
+    pub fn truncate(&mut self, new_len: usize) void {
+        self.shrink_retaining_capacity(new_len);
+    }
+
+    pub fn remove_range(&mut self, start: usize, count: usize) mem::Error!void {
+        let len = self.len();
+        if start > len {
+            return mem::Error::Invalid!;
+        }
+        let end = switch start.checked_add(count) {
+            ?value => value,
+            null => return mem::Error::Invalid!,
+        };
+        if end > len {
+            return mem::Error::Invalid!;
+        }
+        if count == 0usize {
+            return !{};
+        }
+
+        var items = self.allocated_items();
+        if end < len {
+            mem::copy_forwards[T](&mut items[start..(len - count)], &items[end..len]);
+        }
+        self.items = &mut items[0..(len - count)];
+        !{}
+    }
+
     pub fn insert(&mut self, allocator: &mut mem::Allocator, index: usize, value: T) mem::Error!void {
         var slots = self.add_many_at(allocator, index, 1usize).?;
         slots[0] = value;
@@ -250,9 +291,97 @@ where T: Sized
         self.insert_stable_slice(allocator, index, values)
     }
 
+    pub fn replace_range(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        start: usize,
+        count: usize,
+        values: &[T],
+    ) mem::Error!void {
+        if start > self.len() {
+            return mem::Error::Invalid!;
+        }
+        let end = switch start.checked_add(count) {
+            ?value => value,
+            null => return mem::Error::Invalid!,
+        };
+        if end > self.len() {
+            return mem::Error::Invalid!;
+        }
+
+        if self.slice_points_into_allocation(values) {
+            let copy_layout = mem::Layout::array[T](values.len()).?;
+            let copy_block = allocator.alloc(copy_layout).?;
+            var copy = copy_block.as_slice[T]();
+            mem::copy_forwards[T](copy, values);
+            switch self.replace_range_stable(allocator, start, count, copy) {
+                !ok => _ = ok,
+                err! => {
+                    switch allocator.free(copy_block) {
+                        !ok => _ = ok,
+                        error! => {},
+                    }
+                    return err!;
+                },
+            }
+            allocator.free(copy_block).?;
+            return !{};
+        }
+
+        self.replace_range_stable(allocator, start, count, values)
+    }
+
     fn insert_stable_slice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!void {
         var slots = self.add_many_at(allocator, index, values.len()).?;
         mem::copy_forwards[T](slots, values);
+        !{}
+    }
+
+    fn replace_range_stable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        start: usize,
+        count: usize,
+        values: &[T],
+    ) mem::Error!void {
+        let len = self.len();
+        let replacement_len = values.len();
+        let end = start + count;
+
+        if replacement_len == count {
+            if replacement_len != 0usize {
+                var items = self.allocated_items();
+                mem::copy_forwards[T](&mut items[start..end], values);
+            }
+            return !{};
+        }
+
+        if replacement_len < count {
+            let removed_extra = count - replacement_len;
+            let new_len = len - removed_extra;
+            var items = self.allocated_items();
+            if replacement_len != 0usize {
+                mem::copy_forwards[T](&mut items[start..(start + replacement_len)], values);
+            }
+            if end < len {
+                mem::copy_forwards[T](&mut items[(start + replacement_len)..new_len], &items[end..len]);
+            }
+            self.items = &mut items[0..new_len];
+            return !{};
+        }
+
+        let added = replacement_len - count;
+        let new_len = switch len.checked_add(added) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        self.ensure_total_capacity(allocator, new_len).?;
+        var items = self.allocated_items();
+        if end < len {
+            mem::copy_backwards[T](&mut items[(start + replacement_len)..new_len], &items[end..len]);
+        }
+        mem::copy_forwards[T](&mut items[start..(start + replacement_len)], values);
+        self.items = &mut items[0..new_len];
         !{}
     }
 
@@ -315,6 +444,10 @@ where T: Sized
         }
 
         self.append_stable_slice(allocator, items)
+    }
+
+    pub fn extend_from_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
+        self.append_slice(allocator, items)
     }
 
     fn append_stable_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
