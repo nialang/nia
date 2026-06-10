@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 mod aggregates;
 mod bir;
@@ -26,8 +27,7 @@ use nia_item_signatures::{
     EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
     ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
-    ProgramTypeAliasSignature,
-    ProgramUnionSignature, StructSignature, UnionSignature,
+    ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -63,6 +63,19 @@ struct SwitchInterval {
 pub struct ProgramComptimeMaps<'a> {
     pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
     pub modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BodyTimingMode {
+    #[default]
+    Off,
+    Detail,
+}
+
+impl BodyTimingMode {
+    fn enabled(self) -> bool {
+        matches!(self, Self::Detail)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -288,7 +301,7 @@ fn semantic_use_table_for_body_input(
             nia_value_resolve::ValueNameResolution::External(global_id) => {
                 builder.insert_node_global_value_use(key.clone(), *global_id);
             }
-            nia_value_resolve::ValueNameResolution::ImportAlias
+            nia_value_resolve::ValueNameResolution::Module
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
@@ -311,7 +324,16 @@ fn semantic_use_table_for_body_input(
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
-    let mut checker = BodyChecker {
+    check_module_bodies_with_program_signatures_and_layouts_with_timings(input, BodyTimingMode::Off)
+}
+
+pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
+    input: BodyCheckInput<'_>,
+    timings: BodyTimingMode,
+) -> BodyCheck {
+    let timing = timings.enabled();
+    let module_id = input.defs.module_id;
+    let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         module: input.module,
         defs: input.defs,
         program: input.program,
@@ -360,16 +382,23 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
+        method_receiver_kinds: HashMap::new(),
         diagnostics: Vec::new(),
+        timing,
+        timing_module_id: module_id,
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
         current_param_locals: Vec::new(),
         comptime_context_depth: 0,
         comptime_call_locals: Vec::new(),
-    };
-    checker.seed_global_types();
-    checker.check_module(input.module);
-    BodyCheck {
+    });
+    time_body_stage(timing, "body_check.seed_global_types", module_id, || {
+        checker.seed_global_types();
+    });
+    time_body_stage(timing, "body_check.check_module", module_id, || {
+        checker.check_module(input.module, timing, module_id);
+    });
+    time_body_stage(timing, "body_check.finish", module_id, || BodyCheck {
         ir: BodyIr {
             interner: checker.interner,
             function_bodies: checker.function_bodies,
@@ -396,7 +425,40 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_function_references: checker.node_function_references,
         },
         diagnostics: checker.diagnostics,
+    })
+}
+
+fn time_body_stage<T>(enabled: bool, name: &str, module_id: ModuleId, f: impl FnOnce() -> T) -> T {
+    if !enabled {
+        return f();
     }
+    let start = Instant::now();
+    let result = f();
+    eprintln!(
+        "query timing {name}[{module_id:?}]: {:.3}s",
+        start.elapsed().as_secs_f64()
+    );
+    result
+}
+
+fn time_body_stage_if_slow<T>(
+    enabled: bool,
+    name: &str,
+    module_id: ModuleId,
+    detail: &str,
+    threshold_seconds: f64,
+    f: impl FnOnce() -> T,
+) -> T {
+    if !enabled {
+        return f();
+    }
+    let start = Instant::now();
+    let result = f();
+    let elapsed = start.elapsed().as_secs_f64();
+    if elapsed >= threshold_seconds {
+        eprintln!("query timing {name}[{module_id:?} {detail}]: {elapsed:.3}s");
+    }
+    result
 }
 
 struct BodyChecker<'a> {
@@ -445,7 +507,10 @@ struct BodyChecker<'a> {
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
+    method_receiver_kinds: HashMap<GlobalDefId, Option<nia_ast::ReceiverKind>>,
     diagnostics: Vec<Diagnostic>,
+    timing: bool,
+    timing_module_id: ModuleId,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
     current_param_locals: Vec<LocalId>,
@@ -620,38 +685,79 @@ struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn check_module(&mut self, module: &Module) {
-        for item in &module.items {
-            if let ItemKind::Binding(binding) = &item.kind {
-                if binding.is_comptime {
-                    self.check_comptime_binding(item.span, binding);
-                } else {
-                    self.check_global_binding(item.span, binding);
+    fn check_module(&mut self, module: &Module, timing: bool, module_id: ModuleId) {
+        time_body_stage(timing, "body_check.bindings", module_id, || {
+            for item in &module.items {
+                if let ItemKind::Binding(binding) = &item.kind {
+                    if binding.is_comptime {
+                        self.check_comptime_binding(item.span, binding);
+                    } else {
+                        self.check_global_binding(item.span, binding);
+                    }
                 }
             }
-        }
-        for item in &module.items {
-            if let ItemKind::Function(function) = &item.kind {
-                self.check_function_item(item.span, function);
-            }
-        }
-        for item in &module.items {
-            if let ItemKind::Trait(item_trait) = &item.kind {
-                for method in &item_trait.methods {
-                    self.check_trait_function_def(method.function.span, &method.function);
+        });
+        time_body_stage(timing, "body_check.functions", module_id, || {
+            for item in &module.items {
+                if let ItemKind::Function(function) = &item.kind {
+                    time_body_stage_if_slow(
+                        timing,
+                        "body_check.function",
+                        module_id,
+                        &function.name,
+                        0.050,
+                        || {
+                            self.check_function_item(item.span, function);
+                        },
+                    );
                 }
             }
-        }
-        for item in &module.items {
-            if let ItemKind::Extend(extend) = &item.kind {
-                for associated_value in &extend.associated_values {
-                    self.check_comptime_binding(associated_value.span, &associated_value.binding);
-                }
-                for method in &extend.methods {
-                    self.check_function_def(method.function.span, &method.function);
+        });
+        time_body_stage(timing, "body_check.trait_defaults", module_id, || {
+            for item in &module.items {
+                if let ItemKind::Trait(item_trait) = &item.kind {
+                    for method in &item_trait.methods {
+                        time_body_stage_if_slow(
+                            timing,
+                            "body_check.trait_method",
+                            module_id,
+                            &method.function.name,
+                            0.050,
+                            || {
+                                self.check_trait_function_def(
+                                    method.function.span,
+                                    &method.function,
+                                );
+                            },
+                        );
+                    }
                 }
             }
-        }
+        });
+        time_body_stage(timing, "body_check.extends", module_id, || {
+            for item in &module.items {
+                if let ItemKind::Extend(extend) = &item.kind {
+                    for associated_value in &extend.associated_values {
+                        self.check_comptime_binding(
+                            associated_value.span,
+                            &associated_value.binding,
+                        );
+                    }
+                    for method in &extend.methods {
+                        time_body_stage_if_slow(
+                            timing,
+                            "body_check.extend_method",
+                            module_id,
+                            &method.function.name,
+                            0.050,
+                            || {
+                                self.check_function_def(method.function.span, &method.function);
+                            },
+                        );
+                    }
+                }
+            }
+        });
     }
 
     fn seed_global_types(&mut self) {
@@ -787,15 +893,42 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.signatures.functions.get(&def_id) else {
             return;
         };
-        self.check_function_signature_projection_obligations(def_id, signature);
+        time_body_stage_if_slow(
+            self.timing,
+            "body_check.function.projection_obligations",
+            self.timing_module_id,
+            &function.name,
+            0.020,
+            || {
+                self.check_function_signature_projection_obligations(def_id, signature);
+            },
+        );
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
         let self_ty = self.method_self_type(def_id, signature);
-        self.check_object_safe_types_in_signature(signature);
-        self.seed_param_types(signature, function, self_ty);
+        time_body_stage_if_slow(
+            self.timing,
+            "body_check.function.object_safe",
+            self.timing_module_id,
+            &function.name,
+            0.020,
+            || {
+                self.check_object_safe_types_in_signature(signature);
+            },
+        );
+        time_body_stage_if_slow(
+            self.timing,
+            "body_check.function.seed_params",
+            self.timing_module_id,
+            &function.name,
+            0.020,
+            || {
+                self.seed_param_types(signature, function, self_ty);
+            },
+        );
         if signature.is_comptime {
             self.current_return = previous_return;
             self.current_def_id = previous_def_id;
@@ -805,15 +938,41 @@ impl<'a> BodyChecker<'a> {
         if let Some(body) = &function.body {
             let expected_tail =
                 (!self.is_void(signature.return_type)).then_some(signature.return_type);
-            let body_ty = self.check_block_with_expected(body, expected_tail);
-            if let Some(tail) = body.tail.as_deref() {
-                if !self.is_void(signature.return_type) {
-                    self.expect_expr_type(tail, signature.return_type, body_ty, "function body");
-                }
-            } else if self.is_void(signature.return_type) {
-                self.expect_type(body.span, signature.return_type, body_ty, "function body");
-            }
-            let body = self.lower_body(body);
+            time_body_stage_if_slow(
+                self.timing,
+                "body_check.function.check_block",
+                self.timing_module_id,
+                &function.name,
+                0.020,
+                || {
+                    let body_ty = self.check_block_with_expected(body, expected_tail);
+                    if let Some(tail) = body.tail.as_deref() {
+                        if !self.is_void(signature.return_type) {
+                            self.expect_expr_type(
+                                tail,
+                                signature.return_type,
+                                body_ty,
+                                "function body",
+                            );
+                        }
+                    } else if self.is_void(signature.return_type) {
+                        self.expect_type(
+                            body.span,
+                            signature.return_type,
+                            body_ty,
+                            "function body",
+                        );
+                    }
+                },
+            );
+            let body = time_body_stage_if_slow(
+                self.timing,
+                "body_check.function.lower_body",
+                self.timing_module_id,
+                &function.name,
+                0.020,
+                || self.lower_body(body),
+            );
             self.function_bodies
                 .insert(self.global_def_id(def_id), body);
         }

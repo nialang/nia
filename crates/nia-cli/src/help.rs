@@ -92,7 +92,11 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere; `root` is reserved",
+                    right: "map a module root; may appear anywhere; `root` is reserved",
+                },
+                HelpRow {
+                    left: TIMINGS_OPTION_HELP,
+                    right: "print compiler stage timings to stderr; detail also includes query timings",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -105,7 +109,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
             ],
-            notes: &[],
+            notes: &["Timing reports are written to stderr."],
         },
         HelpTopic::Emit => HelpDoc {
             title: "nia emit",
@@ -167,7 +171,11 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere; `root` is reserved",
+                    right: "map a module root; may appear anywhere; `root` is reserved",
+                },
+                HelpRow {
+                    left: TIMINGS_OPTION_HELP,
+                    right: "print compiler stage timings to stderr; detail also includes query timings",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -185,10 +193,11 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             notes: &[
                 "Use exactly one emit target flag.",
                 "The optimization report is written to stderr so stdout remains inspection output and native targets remain file-only.",
+                "Timing reports are written to stderr so stdout remains inspection output and native targets remain file-only.",
                 "Use --out-dir when --obj emits multiple codegen units.",
                 "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
-                "The default executable runtime is freestanding and enters through the injected std.start facade; the current implementation is Linux x86_64.",
+                "The default executable runtime is freestanding and enters through the injected std::start facade; the current implementation is Linux x86_64.",
                 "Missing parent directories for -o and --out-dir are created automatically.",
             ],
         },
@@ -202,7 +211,11 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
     HelpRow {
         left: "-M, --module <name=path>",
-        right: "map an import root; may appear anywhere; `root` is reserved",
+        right: "map a module root; may appear anywhere; `root` is reserved",
+    },
+    HelpRow {
+        left: TIMINGS_OPTION_HELP,
+        right: "print compiler stage timings to stderr; use detail for query timings",
     },
     HelpRow {
         left: "-h, --help",
@@ -215,6 +228,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
 ];
 
 const OPTIMIZATION_OPTION_HELP: &str = "-O, -O0, -O1, -O2, -O3, -Os, -Oz";
+const TIMINGS_OPTION_HELP: &str = "--timings[=summary|detail]";
 
 fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
     let mut out = String::new();

@@ -13,6 +13,7 @@ mod struct_instances;
 mod trait_object_vtables;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
 
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{
@@ -26,7 +27,8 @@ use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature, WherePredicateSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
+    WherePredicateSignature,
 };
 use nia_layout::{Layouts, ProgramLayoutContext, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
@@ -73,6 +75,19 @@ pub enum BackendOptimizationChange {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackendTimingMode {
+    #[default]
+    Off,
+    Detail,
+}
+
+impl BackendTimingMode {
+    fn enabled(self) -> bool {
+        matches!(self, Self::Detail)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
@@ -113,6 +128,21 @@ pub fn lower_backend_program(
     monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
 ) -> BackendLowering {
+    lower_backend_program_with_timings(
+        modules,
+        monomorphization,
+        optimization,
+        BackendTimingMode::Off,
+    )
+}
+
+pub fn lower_backend_program_with_timings(
+    modules: &[BackendLowerModuleInput<'_>],
+    monomorphization: &Monomorphization,
+    optimization: OptimizationPolicy,
+    timings: BackendTimingMode,
+) -> BackendLowering {
+    let timing = timings.enabled();
     let mut diagnostics = Vec::new();
     let mut optimization_report = BackendOptimizationReport {
         enabled_module_passes: enabled_module_passes(&optimization),
@@ -120,23 +150,32 @@ pub fn lower_backend_program(
         enabled_global_passes: enabled_global_passes(&optimization),
         changed_passes: Vec::new(),
     };
-    let mut lowerers = modules
-        .iter()
-        .map(|input| ModuleLowerer::new(input, monomorphization, optimization))
-        .collect::<Vec<_>>();
+    let shared = time_backend_stage(timing, "backend_lower.shared_indexes", || {
+        BackendLowerShared::new(modules, monomorphization)
+    });
+    let mut lowerers = time_backend_stage(timing, "backend_lower.new_lowerers", || {
+        modules
+            .iter()
+            .map(|input| ModuleLowerer::new(input, monomorphization, optimization, &shared))
+            .collect::<Vec<_>>()
+    });
     let mut lowered_modules = Vec::new();
     let mut pending_foreign_instances = VecDeque::new();
-    for lowerer in &mut lowerers {
-        let module = lowerer.lower_module();
-        pending_foreign_instances
-            .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
-        diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
-        optimization_report.changed_passes.extend(std::mem::take(
-            &mut lowerer.optimization_report.changed_passes,
-        ));
-        lowered_modules.push(module);
-    }
-    refresh_known_backend_type_interners(&mut lowerers);
+    time_backend_stage(timing, "backend_lower.initial_modules", || {
+        for lowerer in &mut lowerers {
+            let module = lowerer.lower_module();
+            pending_foreign_instances
+                .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
+            diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
+            optimization_report.changed_passes.extend(std::mem::take(
+                &mut lowerer.optimization_report.changed_passes,
+            ));
+            lowered_modules.push(module);
+        }
+    });
+    time_backend_stage(timing, "backend_lower.refresh_interners", || {
+        refresh_known_backend_type_interners(&mut lowerers);
+    });
 
     let module_indices = lowered_modules
         .iter()
@@ -144,44 +183,49 @@ pub fn lower_backend_program(
         .map(|(index, module)| (module.id, index))
         .collect::<HashMap<_, _>>();
     let mut queued_foreign_instances = HashSet::new();
-    while let Some(instance) = pending_foreign_instances.pop_front() {
-        if !queued_foreign_instances.insert(instance.key()) {
-            continue;
+    time_backend_stage(timing, "backend_lower.foreign_instances", || {
+        while !pending_foreign_instances.is_empty() {
+            let mut batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+            while let Some(instance) = pending_foreign_instances.pop_front() {
+                if !queued_foreign_instances.insert(instance.key()) {
+                    continue;
+                }
+                let Some(owner_index) = module_indices.get(&instance.def_id.module_id).copied()
+                else {
+                    continue;
+                };
+                batches[owner_index].push(instance);
+            }
+
+            for (owner_index, refs) in batches.into_iter().enumerate() {
+                if refs.is_empty() {
+                    continue;
+                }
+                let additional = {
+                    let lowerer = &mut lowerers[owner_index];
+                    lowerer.lower_additional_function_instances(
+                        refs,
+                        &lowered_modules[owner_index].function_instances,
+                    )
+                };
+                if !additional.is_empty() {
+                    append_function_instances(
+                        &mut lowerers[owner_index],
+                        &mut lowered_modules[owner_index],
+                        additional,
+                    );
+                    refresh_known_backend_type_interners(&mut lowerers);
+                }
+                pending_foreign_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_instance_refs,
+                ));
+                diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
+                optimization_report.changed_passes.extend(std::mem::take(
+                    &mut lowerers[owner_index].optimization_report.changed_passes,
+                ));
+            }
         }
-        let Some(owner_index) = module_indices.get(&instance.def_id.module_id).copied() else {
-            continue;
-        };
-        let additional = {
-            let lowerer = &mut lowerers[owner_index];
-            lowerer.lower_additional_function_instances(
-                vec![instance],
-                &lowered_modules[owner_index].function_instances,
-            )
-        };
-        if additional.is_empty() {
-            pending_foreign_instances.extend(std::mem::take(
-                &mut lowerers[owner_index].foreign_function_instance_refs,
-            ));
-            diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
-            optimization_report.changed_passes.extend(std::mem::take(
-                &mut lowerers[owner_index].optimization_report.changed_passes,
-            ));
-            continue;
-        }
-        append_function_instances(
-            &mut lowerers[owner_index],
-            &mut lowered_modules[owner_index],
-            additional,
-        );
-        refresh_known_backend_type_interners(&mut lowerers);
-        pending_foreign_instances.extend(std::mem::take(
-            &mut lowerers[owner_index].foreign_function_instance_refs,
-        ));
-        diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
-        optimization_report.changed_passes.extend(std::mem::take(
-            &mut lowerers[owner_index].optimization_report.changed_passes,
-        ));
-    }
+    });
 
     BackendLowering {
         program: BackendProgram {
@@ -191,6 +235,16 @@ pub fn lower_backend_program(
         optimization_report,
         diagnostics,
     }
+}
+
+fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
+    if !enabled {
+        return f();
+    }
+    let start = Instant::now();
+    let result = f();
+    eprintln!("query timing {name}: {:.3}s", start.elapsed().as_secs_f64());
+    result
 }
 
 fn append_function_instances(
@@ -251,6 +305,7 @@ pub(crate) fn static_init_simplification_enabled(optimization: &OptimizationPoli
 
 pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
+    shared: &'a BackendLowerShared,
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
     pub(crate) interner: nia_ty::TyInterner,
@@ -261,14 +316,12 @@ pub(crate) struct ModuleLowerer<'a> {
     trait_impls_by_method: HashMap<GlobalDefId, usize>,
     extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    program_extension_trait_method_candidates:
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     instance_extension_trait_method_candidates: Option<(
         ModuleId,
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     )>,
     instance_extension_interner: Option<&'a nia_ty::TyInterner>,
-    known_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
+    dynamic_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
     current_instantiated_function: Option<GlobalDefId>,
     current_instantiation_module_id: Option<ModuleId>,
     current_instantiated_body_interner: Option<&'a nia_ty::TyInterner>,
@@ -311,6 +364,22 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     source_interner: nia_ty::TyInterner,
 }
 
+pub(crate) struct BackendLowerShared {
+    program_extension_trait_method_candidates:
+        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
+    known_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
+}
+
+impl BackendLowerShared {
+    fn new(modules: &[BackendLowerModuleInput<'_>], monomorphization: &Monomorphization) -> Self {
+        Self {
+            program_extension_trait_method_candidates:
+                index_program_extension_trait_method_candidates(modules),
+            known_type_interners: index_shared_known_type_interners(modules, monomorphization),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeInstantiationKey {
     ty: InternedTyId,
@@ -331,9 +400,11 @@ impl<'a> ModuleLowerer<'a> {
         input: &'a BackendLowerModuleInput<'a>,
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
+        shared: &'a BackendLowerShared,
     ) -> Self {
         Self {
             input,
+            shared,
             monomorphization,
             optimization,
             interner: input.function_interner.clone(),
@@ -346,11 +417,9 @@ impl<'a> ModuleLowerer<'a> {
                 input.extensions,
                 input.extension_interner.unwrap_or(input.function_interner),
             ),
-            program_extension_trait_method_candidates:
-                index_program_extension_trait_method_candidates(input),
             instance_extension_trait_method_candidates: None,
             instance_extension_interner: None,
-            known_type_interners: index_known_type_interners(input, monomorphization),
+            dynamic_type_interners: HashMap::new(),
             current_instantiated_function: None,
             current_instantiation_module_id: None,
             current_instantiated_body_interner: None,
@@ -461,7 +530,7 @@ impl<'a> ModuleLowerer<'a> {
                         globals.push(global);
                     }
                 }
-                ItemKind::Import(_)
+                ItemKind::Module(_)
                 | ItemKind::Using(_)
                 | ItemKind::ComptimeIf(_)
                 | ItemKind::TypeAlias(_) => {}
@@ -786,7 +855,18 @@ impl<'a> ModuleLowerer<'a> {
         ty: InternedTyId,
     ) -> Option<&nia_ty::TyInterner> {
         let mut error_candidate = None;
-        for interner in self.known_type_interners.get(&ty.interner_id)?.iter().rev() {
+        let dynamic_interners = self
+            .dynamic_type_interners
+            .get(&ty.interner_id)
+            .into_iter()
+            .flat_map(|interners| interners.iter().rev());
+        let shared_interners = self
+            .shared
+            .known_type_interners
+            .get(&ty.interner_id)
+            .into_iter()
+            .flat_map(|interners| interners.iter().rev());
+        for interner in dynamic_interners.chain(shared_interners) {
             match interner.get(ty) {
                 Some(TyKind::Error) => {
                     error_candidate.get_or_insert(interner);
@@ -799,7 +879,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn remember_type_interner(&mut self, interner: &nia_ty::TyInterner) {
-        insert_known_type_interner(&mut self.known_type_interners, interner);
+        insert_known_type_interner(&mut self.dynamic_type_interners, interner);
     }
 }
 
@@ -827,21 +907,23 @@ fn index_extension_generics_by_method(
     generics_by_method
 }
 
-fn index_known_type_interners<'a>(
-    input: &'a BackendLowerModuleInput<'a>,
-    monomorphization: &'a Monomorphization,
+fn index_shared_known_type_interners(
+    modules: &[BackendLowerModuleInput<'_>],
+    monomorphization: &Monomorphization,
 ) -> HashMap<ModuleId, Vec<nia_ty::TyInterner>> {
     let mut interners = HashMap::new();
-    insert_known_type_interner(&mut interners, &input.body_ir.interner);
-    insert_known_type_interner(&mut interners, input.function_interner);
-    if let Some(interner) = input.extension_interner {
-        insert_known_type_interner(&mut interners, interner);
-    }
-    for interner in input.program_type_interners.values() {
-        insert_known_type_interner(&mut interners, *interner);
-    }
-    for (_, interner) in input.program_extensions.values() {
-        insert_known_type_interner(&mut interners, *interner);
+    for input in modules {
+        insert_known_type_interner(&mut interners, &input.body_ir.interner);
+        insert_known_type_interner(&mut interners, input.function_interner);
+        if let Some(interner) = input.extension_interner {
+            insert_known_type_interner(&mut interners, interner);
+        }
+        for interner in input.program_type_interners.values() {
+            insert_known_type_interner(&mut interners, *interner);
+        }
+        for (_, interner) in input.program_extensions.values() {
+            insert_known_type_interner(&mut interners, *interner);
+        }
     }
     for interner in monomorphization.type_interners.values() {
         insert_known_type_interner(&mut interners, interner);
@@ -928,18 +1010,28 @@ fn index_extension_trait_method_candidates(
 }
 
 fn index_program_extension_trait_method_candidates(
-    input: &BackendLowerModuleInput<'_>,
+    modules: &[BackendLowerModuleInput<'_>],
 ) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
+    let Some(input) = modules.first() else {
+        return HashMap::new();
+    };
+    let impls = input
+        .trait_impls
+        .iter()
+        .map(|impl_signature| {
+            (
+                (impl_signature.module_id, impl_signature.local_index),
+                impl_signature,
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
     for method in input.program_extension_methods.all_methods() {
         let Some(trait_id) = method.trait_id else {
             continue;
         };
-        let Some(impl_signature) = input.trait_impls.iter().find(|impl_signature| {
-            impl_signature.module_id == method.def_id.module_id
-                && impl_signature.local_index == method.impl_index
-        }) else {
+        let Some(impl_signature) = impls.get(&(method.def_id.module_id, method.impl_index)) else {
             continue;
         };
         candidates
