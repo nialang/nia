@@ -107,4 +107,4 @@ nia-layout = { path = "crates/nia-layout" }
 nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
-llvm-sys = "221.0.1"
+llvm-sys = { version = "221.0.1", features = ["prefer-dynamic"] }
