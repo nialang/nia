@@ -418,7 +418,7 @@ impl<'a> ModuleLowerer<'a> {
                     {
                         match self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.clone())
                         {
-                            TraitResolution::User(_) | TraitResolution::Assumed(_) => {
+                            TraitResolution::User(_) => {
                                 if let Some((def_id, target_args)) = self
                                     .resolve_builtin_place_method_impl(
                                         trait_id,
@@ -444,6 +444,22 @@ impl<'a> ModuleLowerer<'a> {
                                         },
                                     };
                                 }
+                            }
+                            TraitResolution::Assumed(_) => {
+                                return FunctionExpr {
+                                    span: expr.span,
+                                    ty: expr.ty,
+                                    kind: FunctionExprKind::Call {
+                                        callee: FunctionCallee::BuiltinPlaceMethod {
+                                            trait_id,
+                                            method,
+                                            self_ty,
+                                            trait_args,
+                                            receiver,
+                                        },
+                                        args,
+                                    },
+                                };
                             }
                             TraitResolution::Intrinsic(_) => {
                                 return FunctionExpr {
