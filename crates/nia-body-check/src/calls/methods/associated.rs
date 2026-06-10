@@ -56,7 +56,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
-        let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
+        let Some(method_id) = self.single_method_candidate(span, name, &candidates) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
                 span,
