@@ -1,7 +1,7 @@
-using std::math;
-using std::mem::allocator;
-using std::mem::types;
-using std::os;
+using package::math;
+using package::mem::allocator;
+using package::mem::types;
+using package::os;
 
 using allocator::Allocator;
 using types::{Block, Error, Layout};

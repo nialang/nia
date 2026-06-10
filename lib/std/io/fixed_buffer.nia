@@ -1,5 +1,5 @@
-using std::io::traits;
-using std::mem;
+using package::io::traits;
+using package::mem;
 
 using traits::{BufferError, Reader, Writer};
 

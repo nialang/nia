@@ -1,5 +1,5 @@
-pub module array_list;
-pub module hash_map;
+pub(package) module array_list;
+pub(package) module hash_map;
 
 pub using array_list::ArrayList;
 pub using hash_map::{

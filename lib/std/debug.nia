@@ -1,6 +1,6 @@
-using std::fmt;
-using std::fs;
-using std::io;
+using package::fmt;
+using package::fs;
+using package::io;
 
 pub fn print(template: &[char], args: &[&fmt::Format[fs::Error]]) void {
     var runtime_io = io::BlockingIo::init();

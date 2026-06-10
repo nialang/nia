@@ -1,1 +1,1 @@
-pub module linux;
+pub(package) module linux;

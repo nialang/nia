@@ -50,9 +50,10 @@ A compilation unit is UTF-8 text. Source locations are tracked with byte offsets
 and reported through source spans.
 
 An executable is started by the standard library. The compiler loads the entry
-source as the reserved `root` module and injects the `std::start` startup
-facade; that facade selects the target startup implementation and calls the
-public user entry function through `root::main`.
+source as the reserved `root` module and injects a standard-library package
+startup facade; that facade selects the target startup implementation and calls
+the public user entry function through `root::main`. The startup facade is an
+implementation detail, not a public `std` API.
 
 The current user entry contract is intentionally single-shaped:
 
@@ -82,7 +83,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 Nia distinguishes two execution models:
 
-- executable emission: the driver injects the standard-library `std::start`
+- executable emission: the driver injects the standard-library package startup
   facade for the selected runtime. The current default is freestanding startup
   linked without CRT startup; the current target implementation is Linux
   x86_64. The user entry remains the Nia-level
@@ -94,14 +95,17 @@ Nia distinguishes two execution models:
 
 Other Nia functions named `main` use normal Nia internal symbol naming unless
 they are declared `extern`. The compiler does not export the root user `main`
-as the C ABI entry point; that responsibility belongs to `std::start`.
+as the C ABI entry point; that responsibility belongs to the injected startup
+facade.
+The `std::start` module path is reserved for the injected standard-library
+runtime and is not visible to user packages.
 
 The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `using std::process;` or `using std::io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
 `std::inclusive`, `std::from`, `std::ArrayList`, `std::HashMap`,
-`std::Atomic`, and `std::SliceIter`. Containers are organized under
+and `std::Atomic`. Containers are organized under
 `std::collections` internally, but the root facade keeps the ordinary user-facing
 entry points at `std::ArrayList` and `std::HashMap`.
 
@@ -160,8 +164,8 @@ entry points at `std::ArrayList` and `std::HashMap`.
   representable `MAX` values. The common range constructors are also re-exported
   by the root `std` facade.
 
-`std::os` is a Nia-defined OS layer, not libc. Platform-specific implementation
-modules such as `std::os::linux` may use syscalls directly. A future `std::c` can
+`std::os` is a Nia-defined OS layer, not libc. Platform-specific syscall
+backends are package-internal implementation details. A future `std::c` can
 model optional libc linkage without becoming the default executable runtime.
 
 ## 3. Lexical Structure
@@ -2551,8 +2555,9 @@ declare child modules with `module name;` or `pub module name;`. A `using` item
 opens names that are already available through the current module graph or a
 module-map package root; it does not implicitly discover files.
 
-A compilation has one reserved entry package named `root`. The CLI also provides
-a default `std` package root and accepts additional package roots with
+A compilation has one reserved entry package named `root`. The reserved
+`package` root names the current module's own package. The CLI also provides a
+default `std` package root and accepts additional package roots with
 `-M name=path` or `--module name=path`. One `-M` entry is one package. Package
 roots are lazy: they are loaded when referenced by `using`, or when executable
 emission injects the standard startup contract.
@@ -2589,7 +2594,8 @@ keeps the namespace private to the package visibility rules.
 
 The reserved path roots are:
 
-- `root`, the compilation entry package;
+- `root`, the compilation entry package, regardless of the current module;
+- `package`, the current module's package root;
 - `std`, the standard-library package root unless overridden with `-M std=...`;
 - any additional package root supplied with `-M name=path`.
 
@@ -2603,6 +2609,7 @@ nia check src/main.nia -M std=/usr/share/nia/std.nia -M math=vendor/math.nia
 using std;
 using std::io;
 using math;
+using package::internal;
 ```
 
 A mapped root file is the package root module. Tail segments select declared
@@ -2611,13 +2618,20 @@ child modules below that root. If `std` maps to `/usr/share/nia/std.nia`, then
 `/usr/share/nia/std/io.nia`.
 
 Within a loaded module, `self` names the current module and `super` names the
-parent module:
+parent module. `package` names the current package root, while `root` still
+names the compilation entry package:
 
 ```nia
 // src/app/foo/zoo.nia
 using super::helper;
+using package::internal;
 using root::config;
 ```
+
+Package implementation code should use `package::...` for absolute references
+to its own modules. For example, the standard library's implementation modules
+use `package::io` and `package::process`; user packages still refer to those
+public modules as `std::io` and `std::process`.
 
 ### 12.3 Using
 
@@ -2631,6 +2645,7 @@ Supported forms:
 ```nia
 using std;
 using std::process;
+using package::internal;
 using root::math as m;
 using math::add;
 using math::add as plus;

@@ -1,5 +1,5 @@
-using std::io;
-using std::unicode;
+using package::io;
+using package::unicode;
 
 pub trait FormatWriter[E] {
     fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;

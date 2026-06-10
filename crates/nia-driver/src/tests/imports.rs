@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{check_program, load_program};
+use crate::{check_program, check_program_with_map, load_program};
 
 use nia_ids::ModuleId;
+use nia_imports::{ModuleMap, SourcePath};
+use std::fs;
 
 #[test]
 fn loads_root_and_imported_modules_once() {
@@ -58,6 +60,83 @@ using root::missing; fn main() {}"#,
             .iter()
             .any(|diagnostic| diagnostic.diagnostic.summary.contains("failed to read"))
     );
+}
+
+#[test]
+fn package_root_names_current_mapped_package() {
+    let root = temp_dir("package_root_names_current_mapped_package");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+fn main() i32 {
+    api::answer()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub module helper;");
+    fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using package::helper;
+
+pub fn answer() i32 {
+    helper::answer()
+}
+"#,
+    );
+    write(&root.join("dep/helper.nia"), "pub fn answer() i32 { 42 }");
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn root_inside_mapped_package_still_names_entry_root() {
+    let root = temp_dir("root_inside_mapped_package_still_names_entry_root");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+pub fn main_value() i32 { 31 }
+
+fn main() i32 {
+    api::answer()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub fn main_value() i32 { 7 }");
+    fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using root;
+
+pub fn answer() i32 {
+    root::main_value()
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -859,6 +938,148 @@ fn main() usize {
                 .diagnostic
                 .summary
                 .contains("unknown value `array_list`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn std_root_facade_does_not_reexport_collection_detail_types() {
+    let root = temp_dir("std_root_facade_does_not_reexport_collection_detail_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+
+struct Key {}
+
+extend Key : std::HashMapContext[i32] {
+    fn hash(&self, key: &i32) u64 {
+        _ = key;
+        0u64
+    }
+
+    fn equal(&self, left: &i32, right: &i32) bool {
+        left.* == right.*
+    }
+}
+
+fn main() void {}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown type `HashMapContext`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn std_os_does_not_expose_platform_implementation_modules() {
+    let root = temp_dir("std_os_does_not_expose_platform_implementation_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::os::linux::stat;
+
+fn main() void {}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown namespace `linux`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn std_facades_do_not_expose_package_private_implementation_modules() {
+    for (name, source) in [
+        (
+            "std_io_traits",
+            r#"
+using std::io::traits;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_mem_allocator",
+            r#"
+using std::mem::allocator;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_collections_hash_map",
+            r#"
+using std::collections::hash_map;
+
+fn main() void {}
+"#,
+        ),
+        (
+            "std_fmt_core",
+            r#"
+using std::fmt::core;
+
+fn main() void {}
+"#,
+        ),
+    ] {
+        let root = temp_dir(&format!(
+            "std_facades_do_not_expose_package_private_implementation_modules_{name}"
+        ));
+        write(&root.join("main.nia"), source);
+
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("could not be resolved")),
+            "{name}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn std_start_injected_for_executables_is_not_public_api() {
+    let root = temp_dir("std_start_injected_for_executables_is_not_public_api");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+using std::start;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        crate::NiaOptimizationLevel::default(),
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("could not be resolved")),
         "{:?}",
         program.diagnostics
     );

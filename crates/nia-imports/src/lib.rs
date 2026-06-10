@@ -9,6 +9,7 @@ pub use nia_source::SourcePath;
 use nia_span::Span;
 
 pub const ROOT_MODULE_MAP_NAME: &str = "root";
+pub const PACKAGE_MODULE_MAP_NAME: &str = "package";
 pub const STD_MODULE_MAP_NAME: &str = "std";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -141,6 +142,11 @@ impl ModuleGraph {
 
     pub fn package_root(&self, package: &str) -> Option<ModuleId> {
         self.package_roots.get(package).copied()
+    }
+
+    pub fn current_package_root(&self, module_id: ModuleId) -> Option<ModuleId> {
+        let package = &self.get(module_id)?.module_path.package;
+        self.package_root(package)
     }
 
     pub fn modules(&self) -> impl Iterator<Item = &ModuleNode> {
@@ -335,11 +341,13 @@ pub fn visibility_allows(
             };
             defining.module_path.package == accessing.module_path.package
         }
-        Visibility::PublicSuper => is_descendant_or_self(graph, accessing_module, defining_module)
-            || graph
-                .get(defining_module)
-                .and_then(|node| node.parent)
-                .is_some_and(|parent| is_descendant_or_self(graph, accessing_module, parent)),
+        Visibility::PublicSuper => {
+            is_descendant_or_self(graph, accessing_module, defining_module)
+                || graph
+                    .get(defining_module)
+                    .and_then(|node| node.parent)
+                    .is_some_and(|parent| is_descendant_or_self(graph, accessing_module, parent))
+        }
         Visibility::Private => false,
     }
 }

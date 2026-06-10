@@ -163,7 +163,10 @@ impl Parser {
     fn parse_module_item(&mut self) -> Option<ModuleItem> {
         self.expect(TokenKind::Module, "expected `module`")?;
         let name = self.expect_text(TokenKind::Ident, "expected module name")?;
-        self.expect(TokenKind::Semicolon, "expected `;` after module declaration")?;
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after module declaration",
+        )?;
         Some(ModuleItem { name })
     }
 
@@ -204,11 +207,11 @@ impl Parser {
             if self.at(TokenKind::Star) || self.at(TokenKind::LBrace) {
                 break;
             }
-            if !self.at(TokenKind::Ident) {
+            if !self.at_namespace_segment() {
                 self.error_here("expected name in using selector");
                 return None;
             }
-            // Two-token lookahead: if `IDENT '::'`, treat IDENT as another host segment.
+            // Two-token lookahead: if `NAME '::'`, treat NAME as another host segment.
             // Otherwise it's a single-name selector.
             let next_kind = self.tokens.nth_kind(1).cloned();
             if matches!(next_kind, Some(TokenKind::ColonColon)) {
@@ -241,7 +244,7 @@ impl Parser {
     }
 
     fn parse_using_host_segment(&mut self, message: &str) -> Option<UsingHostSegment> {
-        let token = self.eat(TokenKind::Ident).or_else(|| {
+        let token = self.eat_namespace_segment().or_else(|| {
             self.error_here(message);
             None
         })?;
@@ -255,7 +258,7 @@ impl Parser {
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let mut host = Vec::new();
-        while self.at(TokenKind::Ident)
+        while self.at_namespace_segment()
             && matches!(self.tokens.nth_kind(1), Some(TokenKind::ColonColon))
         {
             let segment_token = self.bump();

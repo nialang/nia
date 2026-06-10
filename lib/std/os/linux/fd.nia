@@ -1,6 +1,6 @@
-using std::os::linux::syscall;
-using std::os::linux::stat;
-using std::os::linux::types;
+using package::os::linux::syscall;
+using package::os::linux::stat;
+using package::os::linux::types;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence};
 

@@ -1,4 +1,4 @@
-pub module core;
-pub module primitive;
+pub(package) module core;
+pub(package) module primitive;
 
 pub using core::{FormatWriter, Format, Formatter, print_unchecked};

@@ -20,22 +20,5 @@ pub module slice;
 pub module unicode;
 
 pub using atomic::Atomic;
-pub using collections::{
-    ArrayList,
-    DefaultHashMapContext,
-    HashMap,
-    HashMapContext,
-    HashMapEntry,
-    HashMapEntryMut,
-    HashMapEntryRef,
-    HashMapGetOrPutResult,
-    HashMapIter,
-    HashMapIterMut,
-    HashMapKeys,
-    HashMapValues,
-    HashMapValuesMut,
-    HashMapWithContext,
-};
-pub using hash::{Hash, Hasher, Wyhash};
+pub using collections::{ArrayList, HashMap};
 pub using range::{from, inclusive, range};
-pub using slice::SliceIter;

@@ -470,24 +470,26 @@ pub comptime let answer: i32 = 42;
 }
 
 #[test]
-fn module_map_rejects_compiler_reserved_root() {
-    let root = temp_dir("module_map_rejects_compiler_reserved_root");
+fn module_map_rejects_compiler_reserved_roots() {
+    let root = temp_dir("module_map_rejects_compiler_reserved_roots");
     let main = root.join("main.nia");
     std::fs::write(&main, "fn main() i32 { 0 }").expect("write main source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .arg("check")
-        .arg(&main)
-        .arg("-M")
-        .arg(format!("root={}", main.display()))
-        .output_timeout("run nia check with reserved root module map");
+    for reserved in ["root", "package"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+            .arg("check")
+            .arg(&main)
+            .arg("-M")
+            .arg(format!("{reserved}={}", main.display()))
+            .output_timeout("run nia check with reserved module map");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("`root` is a compiler-reserved module root"),
-        "{stderr}"
-    );
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("`{reserved}` is a compiler-reserved module root")),
+            "{stderr}"
+        );
+    }
 }
 
 #[test]
@@ -3711,8 +3713,8 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
 comptime if @builtin().target.os == "linux"
     and @builtin().target.arch == "x86_64"
 {
-    pub module freestanding;
-    using std::start::freestanding::linux::x86_64;
+    pub(package) module freestanding;
+    using package::start::freestanding::linux::x86_64;
 }
 "#,
     )
@@ -3721,7 +3723,7 @@ comptime if @builtin().target.os == "linux"
         &std_start_freestanding,
         r#"
 comptime if @builtin().target.os == "linux" {
-    pub module linux;
+    pub(package) module linux;
 }
 "#,
     )
@@ -3730,7 +3732,7 @@ comptime if @builtin().target.os == "linux" {
         &std_start_freestanding_linux,
         r#"
 comptime if @builtin().target.arch == "x86_64" {
-    pub module x86_64;
+    pub(package) module x86_64;
 }
 "#,
     )
