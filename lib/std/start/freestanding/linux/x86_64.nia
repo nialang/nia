@@ -1,7 +1,7 @@
 using root;
-using std::io;
-using std::os;
-using std::process;
+using package::io;
+using package::os;
+using package::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
     switch root::main(init) {

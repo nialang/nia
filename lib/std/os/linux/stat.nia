@@ -1,5 +1,5 @@
-using std::os::linux::syscall;
-using std::os::linux::types;
+using package::os::linux::syscall;
+using package::os::linux::types;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 

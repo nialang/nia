@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::{UsingGroupItem, UsingSelector};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ModuleGraph, ModuleMap, ResolvedModuleDeclaration, add_resolved_module_declarations,
     resolve_module_declarations_from_active_item_tree,
 };
-use nia_ast::{UsingGroupItem, UsingSelector};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
@@ -183,14 +183,15 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
                         .module_map
                         .get(nia_imports::STD_MODULE_MAP_NAME)
                         .map(|path| {
-                            graph.intern_package_root(nia_imports::STD_MODULE_MAP_NAME, path.clone())
+                            graph
+                                .intern_package_root(nia_imports::STD_MODULE_MAP_NAME, path.clone())
                         })
                 });
             let Some(std_root) = std_root else { return };
             if let Err(diagnostic) = graph.intern_declared_child(
                 std_root,
                 "start",
-                nia_ast::Visibility::Public,
+                nia_ast::Visibility::PublicPackage,
                 Span::default(),
             ) {
                 let path = graph
@@ -481,7 +482,10 @@ fn collect_using_package_roots(
     packages: &mut Vec<String>,
 ) {
     if let Some(name) = host_first {
-        if name != nia_imports::ROOT_MODULE_MAP_NAME && module_map.get(name).is_some() {
+        if name != nia_imports::ROOT_MODULE_MAP_NAME
+            && name != nia_imports::PACKAGE_MODULE_MAP_NAME
+            && module_map.get(name).is_some()
+        {
             packages.push(name.to_string());
         }
         return;
@@ -496,6 +500,7 @@ fn collect_using_package_roots(
             };
             if let Some(name) = first
                 && name != nia_imports::ROOT_MODULE_MAP_NAME
+                && name != nia_imports::PACKAGE_MODULE_MAP_NAME
                 && module_map.get(name).is_some()
             {
                 packages.push(name.to_string());
@@ -606,7 +611,10 @@ comptime if false {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert_eq!(program.modules.len(), 2);
-        let root_module = program.graph.get(program.graph.root()).expect("root module");
+        let root_module = program
+            .graph
+            .get(program.graph.root())
+            .expect("root module");
         assert!(root_module.children.contains_key("present"));
         assert!(!root_module.children.contains_key("missing"));
     }
@@ -630,7 +638,10 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert_eq!(program.modules.len(), 2);
-        let root_module = program.graph.get(program.graph.root()).expect("root module");
+        let root_module = program
+            .graph
+            .get(program.graph.root())
+            .expect("root module");
         assert!(root_module.children.contains_key("present"));
         assert!(!root_module.children.contains_key("missing"));
     }
@@ -740,6 +751,17 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
                 .modules()
                 .any(|module| module.path.as_str().ends_with("lib/std/start.nia"))
         );
+        let std_root = program.graph.package_root("std").expect("std package root");
+        let std = program.graph.get(std_root).expect("std root module");
+        let start_declaration = std
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == "start")
+            .expect("injected std start declaration");
+        assert_eq!(
+            start_declaration.visibility,
+            nia_ast::Visibility::PublicPackage
+        );
     }
 
     #[test]
@@ -753,7 +775,10 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert_eq!(program.modules.len(), 2);
-        let root_module = program.graph.get(program.graph.root()).expect("root module");
+        let root_module = program
+            .graph
+            .get(program.graph.root())
+            .expect("root module");
         let defs_module = program
             .graph
             .get(root_module.children["defs"])
@@ -808,7 +833,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             dependency
                 .from
                 .description
-                    .starts_with(&format!("module_declarations({main_path})@"))
+                .starts_with(&format!("module_declarations({main_path})@"))
                 && dependency
                     .to
                     .description

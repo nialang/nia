@@ -1,5 +1,5 @@
-using std::mem::copy;
-using std::mem::types;
+using package::mem::copy;
+using package::mem::types;
 
 using types::{Block, Error, Layout};
 

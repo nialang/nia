@@ -10,7 +10,7 @@ use nia_defs::{
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ModuleGraph, ROOT_MODULE_MAP_NAME, visibility_allows};
+use nia_imports::{ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, visibility_allows};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
@@ -518,6 +518,7 @@ impl<'a> ValueResolver<'a> {
             "self" => Some(self.defs.module_id),
             "super" => graph.get(self.defs.module_id)?.parent,
             ROOT_MODULE_MAP_NAME => Some(graph.root()),
+            PACKAGE_MODULE_MAP_NAME => graph.current_package_root(self.defs.module_id),
             package => graph.package_root(package),
         }
     }

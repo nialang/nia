@@ -469,6 +469,7 @@ Builds the explicit module graph and normalizes using paths. It handles:
 
 - package roots such as `using std;`;
 - entry-root paths such as `using root::math;`;
+- current-package paths such as `using package::internal;`;
 - child declarations such as `module probe;`;
 - parent paths such as `using super::probe;`;
 - module cycle diagnostics;

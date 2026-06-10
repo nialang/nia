@@ -1,1 +1,1 @@
-pub module syscall;
+pub(package) module syscall;

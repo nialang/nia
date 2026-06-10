@@ -1,7 +1,7 @@
-pub module file;
-pub module options;
-pub module path;
-pub module types;
+pub(package) module file;
+pub(package) module options;
+pub(package) module path;
+pub(package) module types;
 
 pub using types::{
     CreateDirOptions,

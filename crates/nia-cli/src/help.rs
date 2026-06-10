@@ -197,7 +197,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "Use --out-dir when --obj emits multiple codegen units.",
                 "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
-                "The default executable runtime is freestanding and enters through the injected std::start facade; the current implementation is Linux x86_64.",
+                "The default executable runtime is freestanding and enters through the injected standard-library startup facade; the current implementation is Linux x86_64.",
                 "Missing parent directories for -o and --out-dir are created automatically.",
             ],
         },

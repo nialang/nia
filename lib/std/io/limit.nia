@@ -1,4 +1,4 @@
-using std::io::traits;
+using package::io::traits;
 
 using traits::Reader;
 

@@ -25,9 +25,9 @@ Current support is intentionally narrow:
 
 - `nia` is primarily tested in the maintainer's local Linux environment;
 - LLVM is required through the Rust `llvm-sys` dependency;
-- executable emission uses the `std::start` startup facade and currently has a
-  freestanding Linux x86_64 implementation that invokes the target linker
-  without CRT startup;
+- executable emission uses an injected standard-library package startup facade
+  and currently has a freestanding Linux x86_64 implementation that invokes the
+  target linker without CRT startup;
 - native object emission depends on the LLVM target configuration available to
   the local toolchain;
 - cross compilation is not documented as a supported workflow yet.

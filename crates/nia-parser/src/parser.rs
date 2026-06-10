@@ -4,11 +4,10 @@ use nia_ast::{
     BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem, EnumVariant, Expr,
     ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, ForPattern,
     ForPatternKind, FunctionItem, Item, ItemKind, LoopStmt, Module, ModuleItem, Param,
-    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
-    SwitchArmBody, SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
-    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
-    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
-    WhileStmt,
+    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
+    SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg,
+    TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment,
+    UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
@@ -346,6 +345,27 @@ impl Parser {
             self.error_here(message);
             None
         }
+    }
+
+    fn eat_namespace_segment(&mut self) -> Option<SyntaxToken> {
+        if self.at(TokenKind::Ident) || self.at(TokenKind::Package) {
+            Some(self.bump())
+        } else {
+            None
+        }
+    }
+
+    fn expect_namespace_segment_text(&mut self, message: &str) -> Option<String> {
+        if let Some(token) = self.eat_namespace_segment() {
+            Some(self.token_text(&token).to_string())
+        } else {
+            self.error_here(message);
+            None
+        }
+    }
+
+    fn at_namespace_segment(&self) -> bool {
+        self.at(TokenKind::Ident) || self.at(TokenKind::Package)
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<SyntaxToken> {

@@ -7,7 +7,7 @@ use std::{
 };
 
 use nia_diagnostic::{Diagnostic, render_diagnostic};
-use nia_imports::{ModuleMap, ROOT_MODULE_MAP_NAME};
+use nia_imports::{ModuleMap, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME};
 use nia_opt::{
     InlineThreshold, NiaOptimizationLevel, OptimizationDepth, OptimizationPolicy,
     SpecializationPolicy,
@@ -562,10 +562,8 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     if name.is_empty() {
         return Err("module map name cannot be empty".to_string());
     }
-    if name == ROOT_MODULE_MAP_NAME {
-        return Err(format!(
-            "`{ROOT_MODULE_MAP_NAME}` is a compiler-reserved module root"
-        ));
+    if matches!(name, ROOT_MODULE_MAP_NAME | PACKAGE_MODULE_MAP_NAME) {
+        return Err(format!("`{name}` is a compiler-reserved module root"));
     }
     if path.is_empty() {
         return Err(format!("module map `{name}` has empty path"));

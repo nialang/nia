@@ -1,8 +1,8 @@
-using std::fs;
-using std::io::runtime;
-using std::io::traits;
-using std::mem;
-using std::os;
+using package::fs;
+using package::io::runtime;
+using package::io::traits;
+using package::mem;
+using package::os;
 
 using traits::{Reader, Writer};
 using runtime::Io;

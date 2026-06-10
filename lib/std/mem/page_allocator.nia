@@ -1,6 +1,6 @@
-using std::mem::allocator;
-using std::mem::types;
-using std::os;
+using package::mem::allocator;
+using package::mem::types;
+using package::os;
 
 using allocator::Allocator;
 using types::{Block, Layout};

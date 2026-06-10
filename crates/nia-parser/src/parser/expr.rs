@@ -311,7 +311,7 @@ impl Parser {
                 continue;
             }
             if self.eat(TokenKind::ColonColon).is_some() {
-                let name = self.expect_text(TokenKind::Ident, "expected name after `::`")?;
+                let name = self.expect_namespace_segment_text("expected name after `::`")?;
                 let end = self.previous_end();
                 expr = self.make_expr(
                     Span::new(expr.span.start, end),
@@ -549,7 +549,7 @@ impl Parser {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Null))
             }
-            TokenKind::Ident => {
+            TokenKind::Ident | TokenKind::Package => {
                 self.bump();
                 Some(self.make_expr(
                     token.span,

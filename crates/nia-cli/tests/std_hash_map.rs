@@ -348,7 +348,7 @@ extend TailHashContext {
     }
 }
 
-extend ConstantHashContext : std::HashMapContext[i32] {
+extend ConstantHashContext : std::collections::HashMapContext[i32] {
     fn hash(&self, seed: u64, key: &i32) u64 {
         _ = self;
         _ = seed;
@@ -362,7 +362,7 @@ extend ConstantHashContext : std::HashMapContext[i32] {
     }
 }
 
-extend UnitContext : std::HashMapContext[Unit] {
+extend UnitContext : std::collections::HashMapContext[Unit] {
     fn hash(&self, seed: u64, key: &Unit) u64 {
         _ = self;
         _ = seed;
@@ -408,7 +408,7 @@ extend FailAllocator : mem::Allocator {
     }
 }
 
-extend ModuloContext : std::HashMapContext[Key] {
+extend ModuloContext : std::collections::HashMapContext[Key] {
     fn hash(&self, seed: u64, key: &Key) u64 {
         ((key.value % self.modulus) as u64) + seed + self.salt
     }
@@ -418,7 +418,7 @@ extend ModuloContext : std::HashMapContext[Key] {
     }
 }
 
-extend TailHashContext : std::HashMapContext[i32] {
+extend TailHashContext : std::collections::HashMapContext[i32] {
     fn hash(&self, seed: u64, key: &i32) u64 {
         _ = seed;
         (key.* as u64) + (self.offset as u64)
@@ -692,7 +692,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var unit_keys = std::HashMapWithContext[Unit, i32, UnitContext]::init_context_seed(
+    var unit_keys = std::collections::HashMapWithContext[Unit, i32, UnitContext]::init_context_seed(
         UnitContext::init(),
         0u64,
     );
@@ -1100,7 +1100,7 @@ fn run(init: process::Init) mem::Error!void {
         null => return mem::Error::Invalid!,
     }
 
-    var collisions = std::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
+    var collisions = std::collections::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
         ConstantHashContext::init(),
         777u64,
     );
@@ -1160,7 +1160,7 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
 
-    var modulo = std::HashMapWithContext[Key, i32, ModuloContext]::init_context_seed(
+    var modulo = std::collections::HashMapWithContext[Key, i32, ModuloContext]::init_context_seed(
         ModuloContext::init(5, 0x9e3779b97f4a7c15u64),
         19u64,
     );
@@ -1221,7 +1221,7 @@ fn run(init: process::Init) mem::Error!void {
         null => return mem::Error::Invalid!,
     }
 
-    var tail_probe = std::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
+    var tail_probe = std::collections::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
         TailHashContext::init(15usize),
         0u64,
     );

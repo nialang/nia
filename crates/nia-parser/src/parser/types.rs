@@ -327,7 +327,7 @@ impl Parser {
         let mut segments = Vec::new();
         loop {
             let name = match self.peek().kind {
-                TokenKind::Ident | TokenKind::Bool => {
+                TokenKind::Ident | TokenKind::Bool | TokenKind::Package => {
                     let token = self.bump();
                     self.token_text(&token).to_string()
                 }
@@ -461,6 +461,7 @@ impl Parser {
             TokenKind::Amp
                 | TokenKind::LBracket
                 | TokenKind::Ident
+                | TokenKind::Package
                 | TokenKind::DotDot
                 | TokenKind::DotDotEq
                 | TokenKind::LParen

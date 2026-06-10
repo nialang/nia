@@ -1,4 +1,4 @@
-using std::os;
+using package::os;
 
 pub enum Error: i32 {
     PermissionDenied = 1,

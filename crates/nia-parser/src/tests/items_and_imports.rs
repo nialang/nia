@@ -210,6 +210,21 @@ pub using math;
 }
 
 #[test]
+fn parses_package_root_using() {
+    let (module, errors) = parse_module("using package::math;");
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using");
+    };
+    assert_eq!(using.host.len(), 1);
+    assert_eq!(using.host[0].name, "package");
+    let UsingSelector::Single(name) = &using.selector else {
+        panic!("expected single using selector");
+    };
+    assert_eq!(name.name, "math");
+}
+
+#[test]
 fn parses_root_using_group_with_module_and_deep_paths() {
     let (module, errors) = parse_module(
         r#"

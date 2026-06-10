@@ -8,7 +8,7 @@ use nia_defs::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ModuleGraph, ROOT_MODULE_MAP_NAME, visibility_allows};
+use nia_imports::{ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, visibility_allows};
 use nia_span::Span;
 
 /// Compute every module's exported public surface and per-module using scope.
@@ -337,6 +337,7 @@ fn root_module_for_segment(
         "self" => Some(current_module),
         "super" => graph.get(current_module)?.parent,
         ROOT_MODULE_MAP_NAME => Some(graph.root()),
+        PACKAGE_MODULE_MAP_NAME => graph.current_package_root(current_module),
         package => graph
             .get(current_module)
             .and_then(|node| node.children.get(package).copied())

@@ -1,9 +1,9 @@
-pub module buffered;
-pub module file_adapter;
-pub module fixed_buffer;
-pub module limit;
-pub module runtime;
-pub module traits;
+pub(package) module buffered;
+pub(package) module file_adapter;
+pub(package) module fixed_buffer;
+pub(package) module limit;
+pub(package) module runtime;
+pub(package) module traits;
 
 pub using traits::{BufferError, Reader, Writer};
 pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter};

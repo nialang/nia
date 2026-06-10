@@ -827,9 +827,11 @@ fn std_linux_statx_layout_matches_kernel_abi() {
     write(
         &root.join("main.nia"),
         r#"
-using std::os::linux::stat;
+using std::os;
 
-fn main() void {}
+fn main() usize {
+    os::page_size()
+}
 "#,
     );
 

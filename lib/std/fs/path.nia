@@ -1,5 +1,5 @@
-using std::fs::types;
-using std::unicode;
+using package::fs::types;
+using package::unicode;
 
 using types::{EncodedPath, Error, Path, PathError};
 
