@@ -1,63 +1,99 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    fs,
     io::Read,
+    path::PathBuf,
     process::{Command, ExitStatus, Output, Stdio},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Condvar, Mutex,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static COMMAND_LIMIT: CommandLimit = CommandLimit::new(4);
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+const COMMAND_LIMIT: usize = 4;
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const COMMAND_SLOT_STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 
-struct CommandLimit {
-    state: Mutex<usize>,
-    available: Condvar,
-    max: usize,
+struct CommandPermit {
+    slot: PathBuf,
 }
 
-struct CommandPermit<'a> {
-    limit: &'a CommandLimit,
-}
-
-impl CommandLimit {
-    const fn new(max: usize) -> Self {
-        Self {
-            state: Mutex::new(0),
-            available: Condvar::new(),
-            max,
+fn acquire_command_permit() -> CommandPermit {
+    let root = command_slot_root();
+    fs::create_dir_all(&root).expect("create command slot root");
+    loop {
+        for index in 0..COMMAND_LIMIT {
+            let slot = root.join(index.to_string());
+            match fs::create_dir(&slot) {
+                Ok(()) => {
+                    write_slot_owner(&slot);
+                    return CommandPermit { slot };
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    reclaim_stale_slot(&slot);
+                }
+                Err(error) => panic!("create command slot {}: {error}", slot.display()),
+            }
         }
-    }
-
-    fn acquire(&self) -> CommandPermit<'_> {
-        let mut running = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        while *running >= self.max {
-            running = self
-                .available
-                .wait(running)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
-        *running += 1;
-        CommandPermit { limit: self }
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
-impl Drop for CommandPermit<'_> {
+fn command_slot_root() -> PathBuf {
+    let mut root = std::env::temp_dir();
+    root.push("nia_cli_command_slots");
+    root
+}
+
+fn write_slot_owner(slot: &std::path::Path) {
+    let _ = fs::write(slot.join("owner"), std::process::id().to_string());
+}
+
+fn reclaim_stale_slot(slot: &std::path::Path) {
+    if slot_owner_is_alive(slot) {
+        return;
+    }
+    let stale_by_age = fs::metadata(slot)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|elapsed| elapsed >= COMMAND_SLOT_STALE_AFTER);
+    if !stale_by_age && slot_owner_is_unknown(slot) {
+        return;
+    }
+    let _ = fs::remove_dir_all(slot);
+}
+
+fn slot_owner_is_unknown(slot: &std::path::Path) -> bool {
+    fs::read_to_string(slot.join("owner"))
+        .ok()
+        .and_then(|owner| owner.trim().parse::<u32>().ok())
+        .is_none()
+}
+
+fn slot_owner_is_alive(slot: &std::path::Path) -> bool {
+    let Some(pid) = fs::read_to_string(slot.join("owner"))
+        .ok()
+        .and_then(|owner| owner.trim().parse::<u32>().ok())
+    else {
+        return false;
+    };
+    process_is_alive(pid)
+}
+
+#[cfg(target_os = "linux")]
+fn process_is_alive(pid: u32) -> bool {
+    std::path::Path::new("/proc").join(pid.to_string()).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_is_alive(_pid: u32) -> bool {
+    true
+}
+
+impl Drop for CommandPermit {
     fn drop(&mut self) {
-        let mut running = self
-            .limit
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *running -= 1;
-        self.limit.available.notify_one();
+        let _ = fs::remove_dir_all(&self.slot);
     }
 }
 
@@ -68,7 +104,7 @@ pub(crate) trait CommandExt {
 
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
-        let _permit = COMMAND_LIMIT.acquire();
+        let _permit = acquire_command_permit();
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
         let mut child = self
@@ -109,7 +145,7 @@ impl CommandExt for Command {
     }
 
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
-        let _permit = COMMAND_LIMIT.acquire();
+        let _permit = acquire_command_permit();
         prepare_command(self);
         let mut child = self
             .spawn()

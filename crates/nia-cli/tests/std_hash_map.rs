@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{temp_dir, CommandExt};
+use support::{CommandExt, temp_dir};
 
 #[test]
 fn emit_exe_std_hash_wyhash_matches_test_vectors() {
@@ -13,8 +13,8 @@ fn emit_exe_std_hash_wyhash_matches_test_vectors() {
     std::fs::write(
         &main,
         r#"
-import std.hash;
-import std.process;
+using std::hash;
+using std::process;
 
 fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!void {
     let actual = hash::wyhash(seed, input);
@@ -197,8 +197,8 @@ fn emit_exe_std_os_random_fills_requested_bytes() {
     std::fs::write(
         &main,
         r#"
-import std.os;
-import std.process;
+using std::os;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -262,9 +262,9 @@ fn emit_exe_std_hash_map_supports_basic_operations() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 struct Unit {}
 
@@ -1321,10 +1321,10 @@ fn emit_exe_std_hash_map_formats_entries() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.debug;
-import std.mem;
-import std.process;
+using std;
+using std::debug;
+using std::mem;
+using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
@@ -1374,9 +1374,9 @@ fn emit_exe_std_hash_map_model_churn_and_clone() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
@@ -1581,9 +1581,9 @@ fn emit_exe_std_hash_map_reserve_exact_compacts_tombstones() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 struct FailAllocator {
     backing: mem::FixedBufferAllocator,
@@ -1707,9 +1707,9 @@ fn emit_exe_std_hash_map_assume_capacity_operations() {
     std::fs::write(
         &main,
         r#"
-import std;
-import std.mem;
-import std.process;
+using std;
+using std::mem;
+using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
