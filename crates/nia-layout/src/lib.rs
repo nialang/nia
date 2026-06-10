@@ -169,6 +169,23 @@ pub struct ProgramLayoutContext<'a> {
     pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,
 }
 
+#[derive(Clone, Copy)]
+pub struct InstanceLayoutRequest<'a> {
+    pub def_id: GlobalDefId,
+    pub args: &'a [InternedTyId],
+}
+
+#[derive(Clone, Copy)]
+pub struct LayoutComputationInput<'a> {
+    pub defs: &'a DefCollection,
+    pub interner: &'a TyInterner,
+    pub signatures: &'a ItemSignatures,
+    pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
+    pub array_lengths: &'a dyn ArrayLengthValues,
+    pub target: TargetDataLayout,
+    pub program: ProgramLayoutContext<'a>,
+}
+
 pub fn compute_layouts_with_program_context(
     defs: &DefCollection,
     interner: &TyInterner,
@@ -191,61 +208,47 @@ pub fn compute_layouts_with_program_context(
 }
 
 pub fn compute_struct_instance_layout_with_program_context(
-    defs: &DefCollection,
-    interner: &TyInterner,
-    signatures: &ItemSignatures,
-    normalized: &HashMap<InternedTyId, InternedTyId>,
-    array_lengths: &dyn ArrayLengthValues,
-    target: TargetDataLayout,
-    program: ProgramLayoutContext<'_>,
-    def_id: GlobalDefId,
-    args: &[InternedTyId],
+    input: LayoutComputationInput<'_>,
+    request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let mut computer = LayoutComputer::new(
-        defs,
-        interner,
-        signatures,
-        normalized,
-        array_lengths,
-        target,
-        program,
+        input.defs,
+        input.interner,
+        input.signatures,
+        input.normalized,
+        input.array_lengths,
+        input.target,
+        input.program,
     );
-    computer.nominal_layout(Span::default(), def_id, args)?;
+    computer.nominal_layout(Span::default(), request.def_id, request.args)?;
     computer
         .struct_instances
         .get(&StructLayoutKey {
-            def_id: def_id.def_id,
-            args: args.to_vec(),
+            def_id: request.def_id.def_id,
+            args: request.args.to_vec(),
         })
         .cloned()
 }
 
 pub fn compute_union_instance_layout_with_program_context(
-    defs: &DefCollection,
-    interner: &TyInterner,
-    signatures: &ItemSignatures,
-    normalized: &HashMap<InternedTyId, InternedTyId>,
-    array_lengths: &dyn ArrayLengthValues,
-    target: TargetDataLayout,
-    program: ProgramLayoutContext<'_>,
-    def_id: GlobalDefId,
-    args: &[InternedTyId],
+    input: LayoutComputationInput<'_>,
+    request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let mut computer = LayoutComputer::new(
-        defs,
-        interner,
-        signatures,
-        normalized,
-        array_lengths,
-        target,
-        program,
+        input.defs,
+        input.interner,
+        input.signatures,
+        input.normalized,
+        input.array_lengths,
+        input.target,
+        input.program,
     );
-    computer.nominal_layout(Span::default(), def_id, args)?;
+    computer.nominal_layout(Span::default(), request.def_id, request.args)?;
     computer
         .union_instances
         .get(&StructLayoutKey {
-            def_id: def_id.def_id,
-            args: args.to_vec(),
+            def_id: request.def_id.def_id,
+            args: request.args.to_vec(),
         })
         .cloned()
 }

@@ -103,9 +103,10 @@ fn check_test_permit() -> CheckTestPermit {
 }
 
 #[cfg(not(test))]
-fn check_test_permit() {}
+fn check_test_permit() -> CheckTestPermit {
+    CheckTestPermit
+}
 
-#[cfg(test)]
 struct CheckTestPermit;
 
 #[cfg(test)]

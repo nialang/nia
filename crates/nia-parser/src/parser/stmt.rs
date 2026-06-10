@@ -29,14 +29,14 @@ impl Parser {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
                 Span::new(start, self.previous_end()),
-                StmtKind::Binding(binding),
+                StmtKind::Binding(Box::new(binding)),
             ));
         }
         if self.eat(TokenKind::Return).is_some() {
             let value = if self.at(TokenKind::Semicolon) {
                 None
             } else {
-                Some(self.parse_expr()?)
+                Some(Box::new(self.parse_expr()?))
             };
             self.expect(TokenKind::Semicolon, "expected `;` after return")?;
             return Some(self.make_stmt(
@@ -55,9 +55,10 @@ impl Parser {
         if self.eat(TokenKind::Defer).is_some() {
             let expr = self.parse_expr_until_tokens(&[TokenKind::Semicolon, TokenKind::RBrace])?;
             self.expect(TokenKind::Semicolon, "expected `;` after defer")?;
-            return Some(
-                self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Defer(expr)),
-            );
+            return Some(self.make_stmt(
+                Span::new(start, self.previous_end()),
+                StmtKind::Defer(Box::new(expr)),
+            ));
         }
         if self.at(TokenKind::For) {
             let for_stmt = self.parse_for_stmt()?;
@@ -309,12 +310,12 @@ impl Parser {
         }
         let expr = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?;
         let ExprKind::Range(range) = expr.kind else {
-            return Some(SwitchPattern::Expr(expr));
+            return Some(SwitchPattern::Expr(Box::new(expr)));
         };
         match (&range.start, &range.end) {
             (Some(start), Some(end)) => Some(SwitchPattern::Range {
-                start: (**start).clone(),
-                end: (**end).clone(),
+                start: Box::new((**start).clone()),
+                end: Box::new((**end).clone()),
                 inclusive: range.inclusive,
                 span: expr.span,
             }),
@@ -323,9 +324,9 @@ impl Parser {
                     expr.span,
                     "open-ended switch range patterns are not supported; use `_` for the default arm",
                 );
-                Some(SwitchPattern::Expr(
+                Some(SwitchPattern::Expr(Box::new(
                     self.make_expr(expr.span, ExprKind::Range(range)),
-                ))
+                )))
             }
         }
     }
@@ -341,7 +342,8 @@ impl Parser {
                 .parse_switch_arm_stmt()
                 .map(|stmt| SwitchArmBody::Stmt(Box::new(stmt)));
         }
-        self.parse_expr().map(SwitchArmBody::Expr)
+        self.parse_expr()
+            .map(|expr| SwitchArmBody::Expr(Box::new(expr)))
     }
 
     fn parse_switch_arm_stmt(&mut self) -> Option<Stmt> {
@@ -350,7 +352,9 @@ impl Parser {
             let value = if self.at(TokenKind::Comma) || self.at(TokenKind::RBrace) {
                 None
             } else {
-                Some(self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?)
+                Some(Box::new(
+                    self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?,
+                ))
             };
             return Some(
                 self.make_stmt(
@@ -372,7 +376,10 @@ impl Parser {
         }
         if self.eat(TokenKind::Defer).is_some() {
             let expr = self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?;
-            return Some(self.make_stmt(Span::new(start, expr.span.end), StmtKind::Defer(expr)));
+            return Some(self.make_stmt(
+                Span::new(start, expr.span.end),
+                StmtKind::Defer(Box::new(expr)),
+            ));
         }
         self.parse_stmt()
     }
@@ -414,7 +421,7 @@ impl Parser {
                     self.error_at_end(expr.span, "expected `;` after expression");
                 }
                 let span = expr.span;
-                stmts.push(self.make_stmt(span, StmtKind::Expr(expr)));
+                stmts.push(self.make_stmt(span, StmtKind::Expr(Box::new(expr))));
             } else {
                 tail = Some(Box::new(expr));
                 break;

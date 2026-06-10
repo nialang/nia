@@ -458,15 +458,15 @@ impl Pruner<'_> {
                 }]
             }
             StmtKind::Expr(expr) => vec![Stmt {
-                kind: StmtKind::Expr(self.prune_expr(expr)),
+                kind: StmtKind::Expr(Box::new(self.prune_expr(*expr))),
                 ..stmt
             }],
             StmtKind::Return(value) => vec![Stmt {
-                kind: StmtKind::Return(value.map(|value| self.prune_expr(value))),
+                kind: StmtKind::Return(value.map(|value| Box::new(self.prune_expr(*value)))),
                 ..stmt
             }],
             StmtKind::Defer(expr) => vec![Stmt {
-                kind: StmtKind::Defer(self.prune_expr(expr)),
+                kind: StmtKind::Defer(Box::new(self.prune_expr(*expr))),
                 ..stmt
             }],
             StmtKind::ForIn(mut for_stmt) => {
@@ -673,15 +673,17 @@ impl Pruner<'_> {
                                 span,
                                 node_key,
                             },
-                            SwitchPattern::Expr(expr) => SwitchPattern::Expr(self.prune_expr(expr)),
+                            SwitchPattern::Expr(expr) => {
+                                SwitchPattern::Expr(Box::new(self.prune_expr(*expr)))
+                            }
                             SwitchPattern::Range {
                                 start,
                                 end,
                                 inclusive,
                                 span,
                             } => SwitchPattern::Range {
-                                start: self.prune_expr(start),
-                                end: self.prune_expr(end),
+                                start: Box::new(self.prune_expr(*start)),
+                                end: Box::new(self.prune_expr(*end)),
                                 inclusive,
                                 span,
                             },
@@ -695,7 +697,9 @@ impl Pruner<'_> {
                             tail: None,
                         })),
                     ) {
-                        SwitchArmBody::Expr(expr) => SwitchArmBody::Expr(self.prune_expr(expr)),
+                        SwitchArmBody::Expr(expr) => {
+                            SwitchArmBody::Expr(Box::new(self.prune_expr(*expr)))
+                        }
                         SwitchArmBody::Stmt(stmt) => {
                             let mut stmts = self.prune_stmt(*stmt);
                             if stmts.len() == 1 {

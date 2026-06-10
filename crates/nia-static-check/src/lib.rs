@@ -20,31 +20,33 @@ pub struct StaticCheck {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub fn check_module_static_initializers(
-    module: &Module,
-    defs: &DefCollection,
-    values: &ValueResolution,
-    locals: &LocalResolution,
-    semantic_uses: &SemanticUseTable,
-    signatures: &ItemSignatures,
-    comptime: &ComptimeCheck,
-    program_defs: &HashMap<ModuleId, DefCollection>,
-    program_comptime: &HashMap<ModuleId, ComptimeCheck>,
-    target: &TargetConfig,
-) -> StaticCheck {
+pub struct StaticCheckInput<'a> {
+    pub module: &'a Module,
+    pub defs: &'a DefCollection,
+    pub values: &'a ValueResolution,
+    pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
+    pub signatures: &'a ItemSignatures,
+    pub comptime: &'a ComptimeCheck,
+    pub program_defs: &'a HashMap<ModuleId, DefCollection>,
+    pub program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    pub target: &'a TargetConfig,
+}
+
+pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCheck {
     let mut checker = StaticChecker {
-        defs,
-        values,
-        locals,
-        semantic_uses,
-        signatures,
-        comptime,
-        program_defs,
-        program_comptime,
-        target,
+        defs: input.defs,
+        values: input.values,
+        locals: input.locals,
+        semantic_uses: input.semantic_uses,
+        signatures: input.signatures,
+        comptime: input.comptime,
+        program_defs: input.program_defs,
+        program_comptime: input.program_comptime,
+        target: input.target,
         diagnostics: Vec::new(),
     };
-    checker.check_module(module);
+    checker.check_module(input.module);
     StaticCheck {
         diagnostics: checker.diagnostics,
     }
@@ -585,18 +587,18 @@ mod tests {
             "{:?}",
             comptime.diagnostics
         );
-        check_module_static_initializers(
-            &module,
-            &defs,
-            &values,
-            &locals,
-            &semantic_uses,
-            &signatures,
-            &comptime,
-            &HashMap::new(),
-            &HashMap::new(),
-            &target,
-        )
+        check_module_static_initializers(StaticCheckInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            signatures: &signatures,
+            comptime: &comptime,
+            program_defs: &HashMap::new(),
+            program_comptime: &HashMap::new(),
+            target: &target,
+        })
     }
 
     fn semantic_use_table(

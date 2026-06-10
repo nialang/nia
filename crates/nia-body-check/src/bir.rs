@@ -43,14 +43,8 @@ impl<'a> BodyChecker<'a> {
             .stmts
             .iter()
             .filter(|stmt| {
-                !matches!(
-                    stmt.kind,
-                    StmtKind::Using(_)
-                        | StmtKind::Binding(BindingStmt {
-                            is_comptime: true,
-                            ..
-                        })
-                )
+                !matches!(&stmt.kind, StmtKind::Using(_))
+                    && !matches!(&stmt.kind, StmtKind::Binding(binding) if binding.is_comptime)
             })
             .map(|stmt| self.lower_stmt(stmt))
             .collect();

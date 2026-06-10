@@ -446,7 +446,7 @@ impl<'a> ModuleLowerer<'a> {
             let Some((def_id, args)) = self
                 .resolve_trait_method_impl(
                     source_trait_id,
-                    &trait_args,
+                    trait_args,
                     method_id,
                     &method.name,
                     self_ty,
@@ -482,7 +482,7 @@ impl<'a> ModuleLowerer<'a> {
             });
         }
         let substitutions =
-            ModuleLowerer::generic_substitutions(&trait_signature.generics, &trait_args);
+            ModuleLowerer::generic_substitutions(&trait_signature.generics, trait_args);
         for supertrait in &trait_signature.supertraits {
             let supertrait =
                 nia_ty::import_type_into(&mut self.interner, &program_trait.interner, *supertrait);

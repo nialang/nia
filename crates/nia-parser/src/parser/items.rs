@@ -647,7 +647,7 @@ impl Parser {
         let end = body
             .as_ref()
             .map_or_else(|| self.previous_end(), |body| body.span.end);
-        Some(self.make_function(
+        Some(self.make_function(FunctionParts {
             name,
             generics,
             where_clause,
@@ -657,8 +657,8 @@ impl Parser {
             is_extern,
             is_comptime,
             is_variadic,
-            Span::new(start, end),
-        ))
+            span: Span::new(start, end),
+        }))
     }
 
     fn parse_params(&mut self) -> (Vec<Param>, bool) {
@@ -767,14 +767,14 @@ impl Parser {
             .or_else(|| ty.as_ref().map(|ty| ty.span))
             .unwrap_or_else(|| Span::new(self.previous_end(), self.previous_end()));
         self.expect_semicolon_after(anchor, "expected `;` after binding")?;
-        Some(self.make_binding(
+        Some(self.make_binding(BindingParts {
             name,
             ty,
             value,
             is_let,
             is_comptime,
             is_extern,
-            Span::new(start, self.previous_end()),
-        ))
+            span: Span::new(start, self.previous_end()),
+        }))
     }
 }

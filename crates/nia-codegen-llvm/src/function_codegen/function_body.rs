@@ -22,6 +22,16 @@ struct TryTerminatorInput<'b, 'ctx> {
     llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
 }
 
+struct TryFailureReturn<'b, 'ctx> {
+    body: &'b FunctionBody,
+    block: FunctionBlockId,
+    span: Span,
+    aggregate: nia_llvm::values::StructValue<'ctx>,
+    aggregate_ty: nia_ids::InternedTyId,
+    kind: FunctionTryKind,
+    outer_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+}
+
 struct DeferTryTerminatorInput<'b, 'ctx> {
     body: &'b FunctionDeferBody,
     block: FunctionBlockId,
@@ -528,7 +538,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build propagation branch"))?;
 
         self.builder.position_at_end(failure_block);
-        self.emit_try_failure_return(body, block, span, aggregate, value.ty, kind, llvm_blocks)?;
+        self.emit_try_failure_return(TryFailureReturn {
+            body,
+            block,
+            span,
+            aggregate,
+            aggregate_ty: value.ty,
+            kind,
+            outer_blocks: llvm_blocks,
+        })?;
 
         self.builder.position_at_end(success_block);
         if !self.is_zero_sized_local(success_local) {
@@ -553,14 +571,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_try_failure_return(
         &mut self,
-        body: &FunctionBody,
-        block: FunctionBlockId,
-        span: Span,
-        aggregate: nia_llvm::values::StructValue<'ctx>,
-        aggregate_ty: nia_ids::InternedTyId,
-        kind: FunctionTryKind,
-        outer_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+        failure: TryFailureReturn<'_, 'ctx>,
     ) -> Result<(), Diagnostic> {
+        let TryFailureReturn {
+            body,
+            block,
+            span,
+            aggregate,
+            aggregate_ty,
+            kind,
+            outer_blocks,
+        } = failure;
         let (return_llvm_ty, return_ptr) =
             self.emit_try_failure_return_storage(span, aggregate, aggregate_ty, kind)?;
         self.emit_function_tail_defers(body, block, span, outer_blocks)?;

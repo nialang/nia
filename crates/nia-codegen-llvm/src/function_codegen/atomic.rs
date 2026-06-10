@@ -13,6 +13,16 @@ use nia_ty::{PrimitiveTy, TyKind};
 
 use super::FunctionCodegen;
 
+struct CmpxchgOperands<'a> {
+    ty: InternedTyId,
+    ptr: &'a FunctionExpr,
+    expected: &'a FunctionExpr,
+    desired: &'a FunctionExpr,
+    success: AtomicOrder,
+    failure: AtomicOrder,
+    weak: bool,
+}
+
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_atomic_value(
         &mut self,
@@ -38,7 +48,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 success,
                 failure,
                 weak,
-            } => self.emit_cmpxchg(expr, *ty, ptr, expected, desired, *success, *failure, *weak),
+            } => self.emit_cmpxchg(
+                expr,
+                CmpxchgOperands {
+                    ty: *ty,
+                    ptr,
+                    expected,
+                    desired,
+                    success: *success,
+                    failure: *failure,
+                    weak: *weak,
+                },
+            ),
             FunctionAtomic::Store { .. } | FunctionAtomic::Fence { .. } => Err(self.error(
                 expr.span,
                 "atomic store and fence do not produce runtime values",
@@ -126,27 +147,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_cmpxchg(
         &mut self,
         expr: &FunctionExpr,
-        _ty: InternedTyId,
-        ptr: &FunctionExpr,
-        expected: &FunctionExpr,
-        desired: &FunctionExpr,
-        success: AtomicOrder,
-        failure: AtomicOrder,
-        weak: bool,
+        operands: CmpxchgOperands<'_>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.validate_atomic_ty(expr.span, _ty)?;
-        let ptr = self.emit_atomic_ptr(ptr)?;
-        let expected = self.emit_expr(expected)?;
-        let desired = self.emit_expr(desired)?;
+        self.validate_atomic_ty(expr.span, operands.ty)?;
+        let ptr = self.emit_atomic_ptr(operands.ptr)?;
+        let expected = self.emit_expr(operands.expected)?;
+        let desired = self.emit_expr(operands.desired)?;
         let result = self
             .builder
             .build_cmpxchg(
                 ptr,
                 expected,
                 desired,
-                llvm_atomic_order(success),
-                llvm_atomic_order(failure),
-                weak,
+                llvm_atomic_order(operands.success),
+                llvm_atomic_order(operands.failure),
+                operands.weak,
             )
             .map_err(|_| self.error(expr.span, "failed to build cmpxchg"))?;
         let old = self

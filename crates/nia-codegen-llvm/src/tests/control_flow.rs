@@ -57,7 +57,7 @@ fn emits_for_break_and_continue() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        &format!(
+        format!(
             "{COUNTER_ITERATOR}\n{}",
             r#"
 fn main() i32 {
@@ -128,7 +128,7 @@ fn emits_for_over_explicit_iterator_value() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        &format!(
+        format!(
             "{COUNTER_ITERATOR}\n{}",
             r#"
 fn main() i32 {

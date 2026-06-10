@@ -57,6 +57,29 @@ pub struct Parser {
     origins: NodeOriginTable,
 }
 
+struct FunctionParts {
+    name: String,
+    generics: Vec<String>,
+    where_clause: WhereClause,
+    params: Vec<Param>,
+    return_type: Option<TypeRef>,
+    body: Option<Block>,
+    is_extern: bool,
+    is_comptime: bool,
+    is_variadic: bool,
+    span: Span,
+}
+
+struct BindingParts {
+    name: String,
+    ty: Option<TypeRef>,
+    value: Option<Expr>,
+    is_let: bool,
+    is_comptime: bool,
+    is_extern: bool,
+    span: Span,
+}
+
 impl Parser {
     pub fn new(source: &str) -> Self {
         let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
@@ -155,31 +178,19 @@ impl Parser {
         }
     }
 
-    fn make_function(
-        &mut self,
-        name: String,
-        generics: Vec<String>,
-        where_clause: WhereClause,
-        params: Vec<Param>,
-        return_type: Option<TypeRef>,
-        body: Option<Block>,
-        is_extern: bool,
-        is_comptime: bool,
-        is_variadic: bool,
-        span: Span,
-    ) -> FunctionItem {
-        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+    fn make_function(&mut self, parts: FunctionParts) -> FunctionItem {
+        let node_key = self.node_key(NodeSyntaxKind::Item, parts.span);
         FunctionItem {
-            name,
-            generics,
-            where_clause,
-            params,
-            return_type,
-            body,
-            is_extern,
-            is_comptime,
-            is_variadic,
-            span,
+            name: parts.name,
+            generics: parts.generics,
+            where_clause: parts.where_clause,
+            params: parts.params,
+            return_type: parts.return_type,
+            body: parts.body,
+            is_extern: parts.is_extern,
+            is_comptime: parts.is_comptime,
+            is_variadic: parts.is_variadic,
+            span: parts.span,
             node_key,
         }
     }
@@ -235,24 +246,15 @@ impl Parser {
         }
     }
 
-    fn make_binding(
-        &mut self,
-        name: String,
-        ty: Option<TypeRef>,
-        value: Option<Expr>,
-        is_let: bool,
-        is_comptime: bool,
-        is_extern: bool,
-        span: Span,
-    ) -> BindingItem {
-        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+    fn make_binding(&mut self, parts: BindingParts) -> BindingItem {
+        let node_key = self.node_key(NodeSyntaxKind::Item, parts.span);
         BindingItem {
-            name,
-            ty,
-            value,
-            is_let,
-            is_comptime,
-            is_extern,
+            name: parts.name,
+            ty: parts.ty,
+            value: parts.value,
+            is_let: parts.is_let,
+            is_comptime: parts.is_comptime,
+            is_extern: parts.is_extern,
             node_key,
         }
     }

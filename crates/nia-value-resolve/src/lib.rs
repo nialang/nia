@@ -102,13 +102,15 @@ pub fn resolve_module_values_with_graph(
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_values_from_item_tree_inner(
         &item_tree,
-        defs,
-        Some(graph),
-        program_defs,
-        None,
-        None,
-        None,
-        None,
+        ValueResolveInputs {
+            defs,
+            graph: Some(graph),
+            program_defs,
+            public_surfaces: None,
+            using_scope: None,
+            extensions: None,
+            extension_interner: None,
+        },
     )
 }
 
@@ -123,13 +125,15 @@ pub fn resolve_module_values_with_context(
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_values_from_item_tree_inner(
         &item_tree,
-        defs,
-        Some(graph),
-        program_defs,
-        Some(public_surfaces),
-        Some(using_scope),
-        None,
-        None,
+        ValueResolveInputs {
+            defs,
+            graph: Some(graph),
+            program_defs,
+            public_surfaces: Some(public_surfaces),
+            using_scope: Some(using_scope),
+            extensions: None,
+            extension_interner: None,
+        },
     )
 }
 
@@ -139,13 +143,15 @@ pub fn resolve_module_values_from_item_tree(
 ) -> ValueResolution {
     resolve_module_values_from_item_tree_inner(
         item_tree,
-        defs,
-        None,
-        ProgramDefsContext::empty(),
-        None,
-        None,
-        None,
-        None,
+        ValueResolveInputs {
+            defs,
+            graph: None,
+            program_defs: ProgramDefsContext::empty(),
+            public_surfaces: None,
+            using_scope: None,
+            extensions: None,
+            extension_interner: None,
+        },
     )
 }
 
@@ -180,56 +186,37 @@ pub fn resolve_module_values_from_active_item_tree_with_extensions(
 ) -> ValueResolution {
     resolve_module_values_from_items(
         &item_tree.items,
-        defs,
-        program_defs.graph,
-        program_defs,
-        Some(public_surfaces),
-        Some(using_scope),
-        Some(extensions),
-        Some(extension_interner),
+        ValueResolveInputs {
+            defs,
+            graph: program_defs.graph,
+            program_defs,
+            public_surfaces: Some(public_surfaces),
+            using_scope: Some(using_scope),
+            extensions: Some(extensions),
+            extension_interner: Some(extension_interner),
+        },
     )
 }
 
 fn resolve_module_values_from_item_tree_inner(
     item_tree: &ModuleItemTree,
-    defs: &DefCollection,
-    graph: Option<&ModuleGraph>,
-    program_defs: ProgramDefsContext<'_>,
-    public_surfaces: Option<&PublicSurfaces>,
-    using_scope: Option<&ModuleUsingScope>,
-    extensions: Option<&VisibleExtensionMethods>,
-    extension_interner: Option<&TyInterner>,
+    inputs: ValueResolveInputs<'_>,
 ) -> ValueResolution {
-    resolve_module_values_from_items(
-        &item_tree.items,
-        defs,
-        graph,
-        program_defs,
-        public_surfaces,
-        using_scope,
-        extensions,
-        extension_interner,
-    )
+    resolve_module_values_from_items(&item_tree.items, inputs)
 }
 
 fn resolve_module_values_from_items(
     items: &[ItemTreeNode],
-    defs: &DefCollection,
-    graph: Option<&ModuleGraph>,
-    program_defs: ProgramDefsContext<'_>,
-    public_surfaces: Option<&PublicSurfaces>,
-    using_scope: Option<&ModuleUsingScope>,
-    extensions: Option<&VisibleExtensionMethods>,
-    extension_interner: Option<&TyInterner>,
+    inputs: ValueResolveInputs<'_>,
 ) -> ValueResolution {
     let mut resolver = ValueResolver {
-        defs,
-        graph,
-        program_defs,
-        public_surfaces,
-        using_scope,
-        extensions,
-        extension_interner,
+        defs: inputs.defs,
+        graph: inputs.graph,
+        program_defs: inputs.program_defs,
+        public_surfaces: inputs.public_surfaces,
+        using_scope: inputs.using_scope,
+        extensions: inputs.extensions,
+        extension_interner: inputs.extension_interner,
         node_names: HashMap::new(),
         node_qualified_values: HashMap::new(),
         node_builtin_associated_values: HashMap::new(),
@@ -250,6 +237,16 @@ fn resolve_module_values_from_items(
         node_builtins: resolver.node_builtins,
         diagnostics: resolver.diagnostics,
     }
+}
+
+struct ValueResolveInputs<'a> {
+    defs: &'a DefCollection,
+    graph: Option<&'a ModuleGraph>,
+    program_defs: ProgramDefsContext<'a>,
+    public_surfaces: Option<&'a PublicSurfaces>,
+    using_scope: Option<&'a ModuleUsingScope>,
+    extensions: Option<&'a VisibleExtensionMethods>,
+    extension_interner: Option<&'a TyInterner>,
 }
 
 struct ValueResolver<'a> {

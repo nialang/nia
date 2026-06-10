@@ -8,11 +8,11 @@ pub struct Diagnostic {
     pub category: DiagnosticCategory,
     pub code: DiagnosticCode,
     pub summary: String,
-    pub labels: Vec<DiagnosticLabel>,
-    pub notes: Vec<String>,
-    pub help: Vec<String>,
-    pub related: Vec<RelatedDiagnostic>,
-    pub debug: Vec<DebugField>,
+    pub labels: Box<Vec<DiagnosticLabel>>,
+    pub notes: Box<Vec<String>>,
+    pub help: Box<Vec<String>>,
+    pub related: Box<Vec<RelatedDiagnostic>>,
+    pub debug: Box<Vec<DebugField>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,11 +72,11 @@ impl Diagnostic {
                 category,
                 code: code.into(),
                 summary: summary.into(),
-                labels: Vec::new(),
-                notes: Vec::new(),
-                help: Vec::new(),
-                related: Vec::new(),
-                debug: Vec::new(),
+                labels: Box::new(Vec::new()),
+                notes: Box::new(Vec::new()),
+                help: Box::new(Vec::new()),
+                related: Box::new(Vec::new()),
+                debug: Box::new(Vec::new()),
             },
         }
     }
@@ -256,13 +256,13 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
         }
     }
 
-    for note in &diagnostic.notes {
+    for note in diagnostic.notes.iter() {
         output.push_str(&format!("note: {note}\n"));
     }
-    for help in &diagnostic.help {
+    for help in diagnostic.help.iter() {
         output.push_str(&format!("help: {help}\n"));
     }
-    for related in &diagnostic.related {
+    for related in diagnostic.related.iter() {
         let line = line_info(source, related.span.start);
         output.push_str(&format!(
             "related: {}:{}:{}: {}\n",
@@ -270,7 +270,7 @@ pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> S
         ));
     }
     if diagnostic.category == DiagnosticCategory::Internal {
-        for field in &diagnostic.debug {
+        for field in diagnostic.debug.iter() {
             output.push_str(&format!("debug: {} = {}\n", field.key, field.value));
         }
     }
