@@ -6017,164 +6017,6 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
 
-    var model_map = std::HashMap[i32, i32]::init_seed(557u64);
-    defer model_map.deinit(&mut gpa).?;
-    var expected: [40]i32 = [0; 40];
-    var present: [40]bool = [false; 40];
-    var expected_len = 0usize;
-    var step = 0;
-    while step < 240 {
-        let slot = (step * 17 + 3) % 40;
-        let op = step % 6;
-        if op == 0 {
-            let was_present = present[slot];
-            switch model_map.put(&mut gpa, slot, step + 1000) {
-                !old => switch old {
-                    ?value => if not was_present or value != expected[slot] {
-                        return mem::Error::Invalid!;
-                    },
-                    null => if was_present {
-                        return mem::Error::Invalid!;
-                    },
-                },
-                err! => return err!,
-            }
-            if not was_present {
-                expected_len += 1usize;
-            }
-            present[slot] = true;
-            expected[slot] = step + 1000;
-        } else if op == 1 {
-            let was_present = present[slot];
-            switch model_map.remove(&slot) {
-                ?value => {
-                    if not was_present or value != expected[slot] {
-                        return mem::Error::Invalid!;
-                    }
-                    present[slot] = false;
-                    expected_len -= 1usize;
-                },
-                null => if was_present {
-                    return mem::Error::Invalid!;
-                },
-            }
-        } else if op == 2 {
-            var entry = model_map.get_or_put(&mut gpa, slot).?;
-            if present[slot] {
-                if not entry.found_existing() or entry.value().* != expected[slot] {
-                    return mem::Error::Invalid!;
-                }
-            } else {
-                if entry.found_existing() {
-                    return mem::Error::Invalid!;
-                }
-                expected_len += 1usize;
-                present[slot] = true;
-            }
-            entry.value().* = step + 2000;
-            expected[slot] = step + 2000;
-        } else if op == 3 {
-            let was_present = present[slot];
-            switch model_map.put_if_absent(&mut gpa, slot, step + 3000) {
-                !inserted => {
-                    if inserted == was_present {
-                        return mem::Error::Invalid!;
-                    }
-                    if inserted {
-                        expected_len += 1usize;
-                        present[slot] = true;
-                        expected[slot] = step + 3000;
-                    }
-                },
-                err! => return err!,
-            }
-        } else if op == 4 {
-            switch model_map.get(&slot) {
-                ?value => if not present[slot] or value.* != expected[slot] {
-                    return mem::Error::Invalid!;
-                },
-                null => if present[slot] {
-                    return mem::Error::Invalid!;
-                },
-            }
-        } else {
-            let was_present = present[slot];
-            switch model_map.fetch_put(&mut gpa, slot, step + 4000) {
-                !old => switch old {
-                    ?value => if not was_present or value != expected[slot] {
-                        return mem::Error::Invalid!;
-                    },
-                    null => if was_present {
-                        return mem::Error::Invalid!;
-                    },
-                },
-                err! => return err!,
-            }
-            if not was_present {
-                expected_len += 1usize;
-            }
-            present[slot] = true;
-            expected[slot] = step + 4000;
-        }
-
-        if model_map.len() != expected_len {
-            return mem::Error::Invalid!;
-        }
-        step += 1;
-    }
-    var model_count = 0usize;
-    var model_sum = 0;
-    for entry in model_map.iter() {
-        let entry_key = entry.key().*;
-        if entry_key < 0 or entry_key >= 40 {
-            return mem::Error::Invalid!;
-        }
-        if not present[entry_key] or entry.value().* != expected[entry_key] {
-            return mem::Error::Invalid!;
-        }
-        model_count += 1usize;
-        model_sum += entry.value().*;
-    }
-    if model_count != expected_len {
-        return mem::Error::Invalid!;
-    }
-    key = 0;
-    var expected_sum = 0;
-    while key < 40 {
-        if present[key] {
-            expected_sum += expected[key];
-        }
-        key += 1;
-    }
-    if model_sum != expected_sum {
-        return mem::Error::Invalid!;
-    }
-
-    var cloned_model = model_map.clone(&mut gpa).?;
-    defer cloned_model.deinit(&mut gpa).?;
-    if cloned_model.len() != model_map.len() or cloned_model.capacity() != model_map.capacity() {
-        return mem::Error::Invalid!;
-    }
-    key = 0;
-    while key < 40 {
-        switch cloned_model.get(&key) {
-            ?value => if not present[key] or value.* != expected[key] {
-                return mem::Error::Invalid!;
-            },
-            null => if present[key] {
-                return mem::Error::Invalid!;
-            },
-        }
-        key += 1;
-    }
-    _ = model_map.put(&mut gpa, 3, 12345).?;
-    switch cloned_model.get(&3) {
-        ?value => if value.* == 12345 {
-            return mem::Error::Invalid!;
-        },
-        null => {},
-    }
-
     var fail_storage: [8192]u8 = [0; 8192];
     var fail_allocator = FailAllocator::init(fail_storage);
     var rollback = std::HashMap[i32, i32]::init_seed(558u64);
@@ -6635,6 +6477,213 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("hash_map={"), "{stderr}");
+}
+
+#[test]
+fn emit_exe_std_hash_map_model_churn_and_clone() {
+    let root = temp_dir("emit_exe_std_hash_map_model_churn_and_clone");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+import std.mem;
+import std.process;
+
+fn run(init: process::Init) mem::Error!void {
+    _ = init;
+    var page = mem::PageAllocator::init();
+    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    defer gpa.deinit().?.ok().?;
+
+    var model_map = std::HashMap[i32, i32]::init_seed(557u64);
+    defer model_map.deinit(&mut gpa).?;
+    var expected: [40]i32 = [0; 40];
+    var present: [40]bool = [false; 40];
+    var expected_len = 0usize;
+    var step = 0;
+    while step < 240 {
+        let slot = (step * 17 + 3) % 40;
+        let op = step % 6;
+        if op == 0 {
+            let was_present = present[slot];
+            switch model_map.put(&mut gpa, slot, step + 1000) {
+                !old => switch old {
+                    ?value => if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    },
+                    null => if was_present {
+                        return mem::Error::Invalid!;
+                    },
+                },
+                err! => return err!,
+            }
+            if not was_present {
+                expected_len += 1usize;
+            }
+            present[slot] = true;
+            expected[slot] = step + 1000;
+        } else if op == 1 {
+            let was_present = present[slot];
+            switch model_map.remove(&slot) {
+                ?value => {
+                    if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    }
+                    present[slot] = false;
+                    expected_len -= 1usize;
+                },
+                null => if was_present {
+                    return mem::Error::Invalid!;
+                },
+            }
+        } else if op == 2 {
+            var entry = model_map.get_or_put(&mut gpa, slot).?;
+            if present[slot] {
+                if not entry.found_existing() or entry.value().* != expected[slot] {
+                    return mem::Error::Invalid!;
+                }
+            } else {
+                if entry.found_existing() {
+                    return mem::Error::Invalid!;
+                }
+                expected_len += 1usize;
+                present[slot] = true;
+            }
+            entry.value().* = step + 2000;
+            expected[slot] = step + 2000;
+        } else if op == 3 {
+            let was_present = present[slot];
+            switch model_map.put_if_absent(&mut gpa, slot, step + 3000) {
+                !inserted => {
+                    if inserted == was_present {
+                        return mem::Error::Invalid!;
+                    }
+                    if inserted {
+                        expected_len += 1usize;
+                        present[slot] = true;
+                        expected[slot] = step + 3000;
+                    }
+                },
+                err! => return err!,
+            }
+        } else if op == 4 {
+            switch model_map.get(&slot) {
+                ?value => if not present[slot] or value.* != expected[slot] {
+                    return mem::Error::Invalid!;
+                },
+                null => if present[slot] {
+                    return mem::Error::Invalid!;
+                },
+            }
+        } else {
+            let was_present = present[slot];
+            switch model_map.fetch_put(&mut gpa, slot, step + 4000) {
+                !old => switch old {
+                    ?value => if not was_present or value != expected[slot] {
+                        return mem::Error::Invalid!;
+                    },
+                    null => if was_present {
+                        return mem::Error::Invalid!;
+                    },
+                },
+                err! => return err!,
+            }
+            if not was_present {
+                expected_len += 1usize;
+            }
+            present[slot] = true;
+            expected[slot] = step + 4000;
+        }
+
+        if model_map.len() != expected_len {
+            return mem::Error::Invalid!;
+        }
+        step += 1;
+    }
+
+    var model_count = 0usize;
+    var model_sum = 0;
+    for entry in model_map.iter() {
+        let entry_key = entry.key().*;
+        if entry_key < 0 or entry_key >= 40 {
+            return mem::Error::Invalid!;
+        }
+        if not present[entry_key] or entry.value().* != expected[entry_key] {
+            return mem::Error::Invalid!;
+        }
+        model_count += 1usize;
+        model_sum += entry.value().*;
+    }
+    if model_count != expected_len {
+        return mem::Error::Invalid!;
+    }
+
+    var key = 0;
+    var expected_sum = 0;
+    while key < 40 {
+        if present[key] {
+            expected_sum += expected[key];
+        }
+        key += 1;
+    }
+    if model_sum != expected_sum {
+        return mem::Error::Invalid!;
+    }
+
+    var cloned_model = model_map.clone(&mut gpa).?;
+    defer cloned_model.deinit(&mut gpa).?;
+    if cloned_model.len() != model_map.len() or cloned_model.capacity() != model_map.capacity() {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 40 {
+        switch cloned_model.get(&key) {
+            ?value => if not present[key] or value.* != expected[key] {
+                return mem::Error::Invalid!;
+            },
+            null => if present[key] {
+                return mem::Error::Invalid!;
+            },
+        }
+        key += 1;
+    }
+    _ = model_map.put(&mut gpa, 3, 12345).?;
+    switch cloned_model.get(&3) {
+        ?value => if value.* == 12345 {
+            return mem::Error::Invalid!;
+        },
+        null => {},
+    }
+
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    run(init).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
