@@ -1,6 +1,6 @@
-import std.fmt;
-import std.io;
-import std.process;
+using std::fmt;
+using std::io;
+using std::process;
 using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!void {

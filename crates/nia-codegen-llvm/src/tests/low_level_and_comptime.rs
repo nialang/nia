@@ -163,7 +163,8 @@ fn emits_arrays_sized_by_imported_comptime_values() {
     std::fs::write(
         &main,
         r#"
-import .config;
+module config;
+using root::config;
 
 fn main() i32 {
     var values: [config::width]i32 = [1, 2, 3, 4];
@@ -215,7 +216,8 @@ extend Item {
     std::fs::write(
         &main,
         r#"
-import .defs;
+module defs;
+using root::defs;
 using defs::*;
 
 fn literal_count() Boxed {

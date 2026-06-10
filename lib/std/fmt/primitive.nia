@@ -1,4 +1,4 @@
-import std.fmt.core;
+using std::fmt::core;
 
 extend[E] i8 : core::Format[E] {
     fn format(&self, formatter: &mut core::Formatter[E]) E!void {

@@ -311,7 +311,7 @@ struct SignatureCollector<'a> {
 impl<'a> SignatureCollector<'a> {
     fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
         match &item.kind {
-            ItemTreeNodeKind::Import(_)
+            ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_) => {}
             ItemTreeNodeKind::Struct(item_struct) => {

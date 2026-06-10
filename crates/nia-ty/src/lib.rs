@@ -396,7 +396,7 @@ fn import_array_len_into(
     match len {
         ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
             builtin: *builtin,
-            // Layout-builtin lengths carry a type operand; after cross-module import it must
+            // Layout-builtin lengths carry a type operand; after cross-module copying it must
             // point at the target interner just like ordinary array element types do.
             ty: import_type_into(target, source, *ty),
         },

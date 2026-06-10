@@ -26,7 +26,7 @@ Nia provides:
 - compile-time value bindings with `comptime`;
 - `defer` for scope cleanup;
 - C ABI interop through `extern`;
-- file-level modules with explicit `import`, `using`, and `pub using`;
+- explicit file modules declared with `module`, `using`, and `pub using`;
 - a small visibility model based on `pub`;
 - freestanding executable startup through the standard library, with object and
   LLVM output available for custom build flows.
@@ -50,14 +50,14 @@ A compilation unit is UTF-8 text. Source locations are tracked with byte offsets
 and reported through source spans.
 
 An executable is started by the standard library. The compiler loads the entry
-source as the reserved `root` module and injects the `std.start` startup
+source as the reserved `root` module and injects the `std::start` startup
 facade; that facade selects the target startup implementation and calls the
 public user entry function through `root::main`.
 
 The current user entry contract is intentionally single-shaped:
 
 ```nia
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -72,7 +72,7 @@ status values may be constructed with `process::exit(code)` or an explicit
 `process::exit(1)!` asks the startup layer to terminate with that exit status:
 
 ```nia
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -82,7 +82,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 Nia distinguishes two execution models:
 
-- executable emission: the driver injects the standard-library `std.start`
+- executable emission: the driver injects the standard-library `std::start`
   facade for the selected runtime. The current default is freestanding startup
   linked without CRT startup; the current target implementation is Linux
   x86_64. The user entry remains the Nia-level
@@ -94,74 +94,74 @@ Nia distinguishes two execution models:
 
 Other Nia functions named `main` use normal Nia internal symbol naming unless
 they are declared `extern`. The compiler does not export the root user `main`
-as the C ABI entry point; that responsibility belongs to `std.start`.
+as the C ABI entry point; that responsibility belongs to `std::start`.
 
 The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
-as `import std.process;` or `import std.io;`. The root `std` file is a curated
+as `using std::process;` or `using std::io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
 `std::inclusive`, `std::from`, `std::ArrayList`, `std::HashMap`,
 `std::Atomic`, and `std::SliceIter`. Containers are organized under
-`std.collections` internally, but the root facade keeps the ordinary user-facing
+`std::collections` internally, but the root facade keeps the ordinary user-facing
 entry points at `std::ArrayList` and `std::HashMap`.
 
-- `std.process` defines the executable entry payload, the open-enum process
+- `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
-- `std.process` also extends `std.fs.Error` and `std.mem.Error` with
+- `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `as_exit_code` and `exit` for explicitly returning standard library errors as
-  process exit codes from executable entries. It also extends `std.fs.Error!T`
-  and `std.mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
+  process exit codes from executable entries. It also extends `std::fs.Error!T`
+  and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.
-- `std.os` defines a target-dispatched OS facade. It currently exposes
+- `std::os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
-- `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
+- `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
   `os::File` implements those traits, so complete reads and writes are provided
-  by `std.io` rather than by platform file-descriptor helpers.
-- `std.debug` defines low-friction diagnostic printing to stderr. Its
-  `print` helper traps if the stderr write or flush fails; use `std.io` and
+  by `std::io` rather than by platform file-descriptor helpers.
+- `std::debug` defines low-friction diagnostic printing to stderr. Its
+  `print` helper traps if the stderr write or flush fails; use `std::io` and
   explicit error propagation for application stdout or recoverable I/O.
-- `std.fmt` defines the formatting protocol used by writer `.print(...)`.
+- `std::fmt` defines the formatting protocol used by writer `.print(...)`.
   Primitive integers, `bool`, `char`, character slices, byte slices, and
   `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
-- `std.mem` defines the `Allocator` trait plus `Layout` and `Block`, the
+- `std::mem` defines the `Allocator` trait plus `Layout` and `Block`, the
   explicit allocation contract used by standard containers. A block must be
   freed with the allocator that produced it, and with the current layout carried
   by that block. `resize` and `remap` may change the size but preserve the
   allocation's alignment and either keep the same pointer with an updated size
   or fail without moving the allocation; `realloc` may allocate a new block,
   copy the shared prefix, and free the old block.
-- `std.mem.PageAllocator` maps each allocation through the OS page layer. It is
+- `std::mem.PageAllocator` maps each allocation through the OS page layer. It is
   useful as a low-level backing allocator, not as the default container
   allocator for many small objects.
-- `std.mem.FixedBufferAllocator` allocates from caller-provided storage and can
+- `std::mem.FixedBufferAllocator` allocates from caller-provided storage and can
   be reset as a whole. It is useful for examples, stack-backed scratch work, and
   bounded programs where out-of-memory is part of normal control flow.
-- `std.mem.ArenaAllocator` provides region-style allocation over a child
+- `std::mem.ArenaAllocator` provides region-style allocation over a child
   allocator. `reset`, `reset_retain_capacity`, and `deinit` invalidate every
   block, slice, and container backing allocation obtained from that arena; only
   copied scalar values should be kept across those calls.
-- `std.mem.GeneralPurposeAllocator` is the ordinary heap allocator currently
+- `std::mem.GeneralPurposeAllocator` is the ordinary heap allocator currently
   provided by the standard library. It uses small-allocation slabs plus larger
   child-backed allocations, performs basic invalid-free and double-free checks,
   and is single-threaded/external-synchronization by contract. `deinit` frees
   allocator-owned backing memory and returns `DeinitStatus::Leak` if any
-  allocations were still live at shutdown. `DeinitStatus::ok()` maps a clean
-  shutdown to `void` and a leak to `std.mem.Error::Invalid` for callers that
+  allocations were still live at shutdown. `DeinitStatus.ok()` maps a clean
+  shutdown to `void` and a leak to `std::mem.Error::Invalid` for callers that
   want to require leak-free deinit; use `deinit_without_leak_check` only when
   that cleanup is intentionally unchecked. Wrap a GPA later in synchronization
   primitives rather than sharing one instance concurrently.
-- `std.atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
+- `std::atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
   load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
   standard-library facade over the compiler atomic builtins.
-- `std.slice` defines `SliceIter`, and slices provide `.iter()` for explicit
+- `std::slice` defines `SliceIter`, and slices provide `.iter()` for explicit
   read-only iteration.
-- `std.range` defines range-to-iterator adapters for integer ranges. Its
+- `std::range` defines range-to-iterator adapters for integer ranges. Its
   `Step` trait is implemented for the built-in integer types that have
   representable `MAX` values. The common range constructors are also re-exported
   by the root `std` facade.
 
-`std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
-modules such as `std.os.linux` may use syscalls directly. A future `std.c` can
+`std::os` is a Nia-defined OS layer, not libc. Platform-specific implementation
+modules such as `std::os::linux` may use syscalls directly. A future `std::c` can
 model optional libc linkage without becoming the default executable runtime.
 
 ## 3. Lexical Structure
@@ -204,7 +204,7 @@ false
 fn
 for
 if
-import
+module
 mut
 never
 not
@@ -1321,7 +1321,7 @@ may be used through imports:
 pub comptime let width: usize = 4;
 
 // main.nia
-import .config;
+using root::config;
 var xs: [config::width]i32 = [1, 2, 3, 4];
 ```
 
@@ -1360,9 +1360,9 @@ language.
 
 ```nia
 comptime if @builtin().target.os == "linux" {
-    import .linux;
+    using root::linux;
 } else {
-    import .portable;
+    using root::portable;
 }
 
 fn mode() i32 {
@@ -1577,7 +1577,7 @@ For-in bindings do not support type annotations. Write the iterator expression
 so that its item type is clear:
 
 ```nia
-import std;
+using std;
 
 var total: usize = 0;
 for i in std::range(0usize..len) {
@@ -1900,7 +1900,7 @@ of leading zero bits, and `@popcount[T](value)` returns the number of set bits.
 The argument and result both have type `T`. `@ctz[T](0)` and `@clz[T](0)` are
 defined to return the bit width of `T`.
 
-Atomic builtins provide the low-level primitive operations behind `std.atomic`.
+Atomic builtins provide the low-level primitive operations behind `std::atomic`.
 Their `order` and `op` arguments must be compile-time integer constants. The
 standard library exposes named constants for these values:
 
@@ -2081,7 +2081,7 @@ The target of `extend` may be any visible extendable value type, including an
 imported type:
 
 ```nia
-import .math;
+using root::math;
 
 extend math::Point {
     fn len2(&self) i32 {
@@ -2100,10 +2100,10 @@ extend Point {
 }
 ```
 
-Public extension methods from transitively imported modules participate in
-method lookup. `import` controls this module capability propagation; `using`
-only introduces shorter names for items that are already visible. Private
-extension methods are visible only in their defining module. If multiple visible
+Public extension methods from loaded visible modules participate in method
+lookup. `module` declarations load child modules and `using` opens already
+visible module namespaces or package roots. Private extension methods are
+visible only in their defining module. If multiple visible
 extension methods provide the same method name for the same receiver type, the
 call is ambiguous.
 
@@ -2546,121 +2546,92 @@ fn use_child(
 
 ## 12. Modules
 
-Each `.nia` file is a module. Import resolution always produces one concrete
-source file path; directories and packages are not modules by themselves.
+Each `.nia` file is one module. Module loading is explicit: a source file may
+declare child modules with `module name;` or `pub module name;`. A `using` item
+opens names that are already available through the current module graph or a
+module-map package root; it does not implicitly discover files.
 
-### 12.1 Import
+A compilation has one reserved entry package named `root`. The CLI also provides
+a default `std` package root and accepts additional package roots with
+`-M name=path` or `--module name=path`. One `-M` entry is one package. Package
+roots are lazy: they are loaded when referenced by `using`, or when executable
+emission injects the standard startup contract.
 
-`import` makes another `.nia` file available to the current file. The
-dot-separated import path is a portable spelling of a source file path. It has
-the same module meaning as directly naming that resolved file path. Leading dots
-determine the starting directory:
+### 12.1 Module Declarations
 
-- `.` starts at the current file directory;
-- `..` starts one directory above;
-- remaining identifier segments are appended as directories, and the final
-  segment gets the `.nia` extension.
-
-For example, `import .math.ops;` resolves to a concrete file such as
-`math/ops.nia` relative to the current module directory. The compiler does not
-interpret `math` as a package module unless a separate import resolves to
-`math.nia`.
-
-Relative imports do not support `...` or deeper parent traversal. Use a mapped
-root module when code needs to cross more than one parent boundary.
-
-For a file at `src/app/main.nia`:
+A module declaration loads a child module under the current module stem:
 
 ```nia
-import .math;          // src/app/math.nia
-import .math.ops;      // src/app/math/ops.nia
-import ..lib;          // src/lib.nia
+module math;
+pub module geom;
 ```
 
-A bare import such as `import math;` is not relative. Its first segment is
-resolved through a module map. The compiler reserves `root` as the module map
-entry for the compilation entry file:
+For an entry file at `src/app/main.nia`, `module math;` loads
+`src/app/math.nia`. If `math.nia` declares `module ops;`, that declaration loads
+`src/app/math/ops.nia`. Nia intentionally has no `mod.rs` form.
+
+The child module's logical name is taken from its declaration site. A file may
+change the logical child name it exposes by declaring a nested module itself:
 
 ```nia
-import root;           // the current compilation entry module
+// src/app/main.nia
+module foo;
+
+// src/app/foo.nia
+module zoo; // loads src/app/foo/zoo.nia
 ```
 
-This is equivalent to the compiler automatically adding `-M root=<entry>`, but
-`root` is not user-overridable. The toolchain also provides `std` as the
-standard-library root. Other module map entries are external roots. The CLI
-registers them with `-M name=path` or `--module name=path`. Module map options
-may appear before or after the command:
+`pub module name;` makes the child module namespace part of the current module's
+public surface. Plain `module name;` loads the child for the current module but
+keeps the namespace private to the package visibility rules.
+
+### 12.2 Package Roots And Paths
+
+The reserved path roots are:
+
+- `root`, the compilation entry package;
+- `std`, the standard-library package root unless overridden with `-M std=...`;
+- any additional package root supplied with `-M name=path`.
+
+Examples:
 
 ```bash
-nia check src/main.nia -M std=/usr/share/nia/std.nia
+nia check src/main.nia -M std=/usr/share/nia/std.nia -M math=vendor/math.nia
 ```
 
 ```nia
-import std;            // /usr/share/nia/std.nia
-import std.io;         // /usr/share/nia/std/io.nia
+using std;
+using std::io;
+using math;
 ```
 
-These are separate file modules. `import std.io;` loads the `std/io.nia`
-module through the module map; it does not require the root `std.nia` facade to
-re-export an `io` namespace.
+A mapped root file is the package root module. Tail segments select declared
+child modules below that root. If `std` maps to `/usr/share/nia/std.nia`, then
+`using std::io;` refers to the `io` child declared by that root and backed by
+`/usr/share/nia/std/io.nia`.
 
-When a mapped root has extra path segments, the root file path is treated as the
-root module file and the tail segments select files below the root stem. If
-`std` maps to `/usr/share/nia/std.nia`, then `import std.io;` resolves to
-`/usr/share/nia/std/io.nia`. This is a deterministic path mapping; it does not
-depend on whether the host filesystem permits a file and a directory with the
-same stem.
-
-Unmapped bare imports are errors. Bare imports do not fall back to relative file
-lookup.
-
-The local import alias defaults to the last path segment. `as` renames it:
+Within a loaded module, `self` names the current module and `super` names the
+parent module:
 
 ```nia
-import .math as m;
-import .lib.math as math;
+// src/app/foo/zoo.nia
+using super::helper;
+using root::config;
 ```
 
-Imported declarations are accessed through the alias:
+### 12.3 Using
 
-```nia
-var x = math::add(1, 2);
-```
-
-The import graph may contain cycles. A cycle is not an error by itself:
-
-```nia
-// a.nia
-import .b;
-
-// b.nia
-import .a;
-```
-
-Modules in a cycle remain separate modules. Cross-module references still use
-explicit import aliases, and `pub` still controls item visibility. If a cycle
-causes a concrete semantic problem, such as a recursive type alias, recursive
-layout, invalid re-export chain, or recursive generic expansion, that problem is
-diagnosed by the relevant compiler phase.
-
-`pub` cannot be applied to `import`. Import aliases are local to the current
-file. Re-export imported items with `pub using`.
-
-### 12.2 Using
-
-`using` shortens already visible namespaces in the current scope. It does not
-load files or organize modules; `import` remains the only operation that loads a
-module file. Hosts are:
-
-- a module namespace: `using mod::name`, including module namespaces re-exported
-  by `pub using`;
-- an enum type namespace: `using Enum::Variant` or
-  `using mod::Enum::Variant`.
+`using` shortens visible namespaces in the current scope. It can reference a
+package root, a loaded module namespace, an item namespace, or an enum namespace.
+It does not load arbitrary files; child files become modules only through their
+parent's `module` declaration.
 
 Supported forms:
 
 ```nia
-using math;
+using std;
+using std::process;
+using root::math as m;
 using math::add;
 using math::add as plus;
 using math::{add, sub as minus};
@@ -2686,39 +2657,34 @@ also brings `impl` into scope.
 Wildcard rules:
 
 - `using mod::*` imports the module's complete public surface: direct public
-  top-level definitions, public module namespaces re-exported with `pub using`,
-  and public items re-exported with `pub using`. It does not import enum
-  variants unless those variants are explicitly part of the module public
-  surface.
+  top-level definitions, public module namespaces, public module namespaces
+  re-exported with `pub using`, and public items re-exported with `pub using`.
 - `using Enum::*` imports all variants of that enum.
 
 Top-level `using` is visible throughout the file. Block-local `using` is visible
 only in that block and its children. Duplicate imported names in the same
-namespace and same scope are errors, whether they come from explicit imports or
-wildcards.
-
-`using` does not load files. The root module namespace must already be imported
-or made visible by another `using`.
+namespace and same scope are errors, whether they come from explicit selections
+or wildcards.
 
 Imported items enter the namespace matching their actual category: functions and
 globals enter the value namespace; structs, enums, and type aliases enter the
 type namespace; enum variants enter the value namespace while preserving their
 enum identity.
 
-### 12.3 Pub Using
+### 12.4 Pub Using
 
 `pub using` re-exports selected items as part of the current module's public
 surface:
 
 ```nia
 // facade.nia
-import .impl;
+using root::impl;
 pub using impl;
 pub using impl::add;
 pub using impl::{frob as do_frob};
 pub using impl::*;
 
-import .palette;
+using root::palette;
 pub using {impl, impl::add, palette::Color};
 pub using palette::Color;
 pub using palette::Color::Red;
@@ -2727,7 +2693,7 @@ pub using palette::Color::*;
 
 ```nia
 // main.nia
-import .facade;
+using root::facade;
 pub fn color() facade::Color {
     facade::Red
 }
@@ -2749,26 +2715,17 @@ name re-exported items through the re-exporting module path, such as
 Wildcard `pub using mod::*` has the same expansion rule as `using mod::*`.
 Wildcard `pub using Enum::*` re-exports every enum variant.
 
-### 12.4 Visibility
+### 12.5 Visibility
 
-Modules are private by default. Only top-level declarations marked `pub` can be
-accessed by other modules through qualified paths or `using`:
+Modules and declarations are private by default. Public APIs are marked with
+`pub`, and restricted visibility can be written as `pub(super)` or
+`pub(package)`. `pub(super)` exposes the item to the parent module and its
+children. `pub(package)` exposes it within the package selected by one `-M`
+entry or by the reserved `root`/`std` packages.
 
-```nia
-pub fn add(a: i32, b: i32) i32 {
-    a + b
-}
-
-fn hidden() i32 {
-    0
-}
-```
-
-`pub` may be applied to `fn`, `struct`, `enum`, `type`, `let`, `var`, `extern`
-declarations, and `using`. It may not be applied to `import`.
-
-Nia has no `mod` or `use` syntax. Package management is outside the language
-specification.
+`pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `var`,
+`extern` declarations, and `using`. Nia has no separate `mod` or `use` syntax.
+Package management is outside the language specification.
 
 ## 13. ABI, Runtime, And Symbols
 
@@ -2866,7 +2823,7 @@ A conforming Nia compiler supports:
 - `defer`;
 - `switch` and enum exhaustiveness checks;
 - `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.get_ptr_read()`, and `@asm({...})`;
-- relative file imports and module-map bare imports;
+- explicit `module` declarations, module-map package roots, and `using`;
 - global static storage from top-level `var` and `let`;
 - top-level `pub` visibility;
 - `extern` C declarations, definitions, and calls;
@@ -2952,8 +2909,8 @@ this document:
 ## 16. Example
 
 ```nia
-import std;
-import std.process;
+using std;
+using std::process;
 
 struct Pair[T, U] {
     first: T,

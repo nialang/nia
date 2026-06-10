@@ -1,7 +1,7 @@
-import root;
-import std.io;
-import std.os;
-import std.process;
+using root;
+using std::io;
+using std::os;
+using std::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
     switch root::main(init) {

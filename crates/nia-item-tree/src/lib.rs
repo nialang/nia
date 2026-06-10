@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     Attribute, BindingItem, ComptimeIfItem, ComptimeIfItemElse, EnumItem, ExtendItem, FunctionItem,
-    ImportItem, Item, ItemKind, Module, StructItem, TraitItem, TypeAliasItem, UnionItem, UsingItem,
+    Item, ItemKind, Module, ModuleItem, StructItem, TraitItem, TypeAliasItem, UnionItem, UsingItem,
     Visibility,
 };
 use nia_node_id::NodeKey;
@@ -24,7 +24,7 @@ pub struct ItemTreeNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ItemTreeNodeKind {
-    Import(ImportItem),
+    Module(ModuleItem),
     Using(UsingItem),
     ComptimeIf(ComptimeIfNode),
     Struct(StructItem),
@@ -127,7 +127,7 @@ impl ItemTreeNode {
             attributes: self.attributes.clone(),
             vis: self.visibility,
             kind: match &self.kind {
-                ItemTreeNodeKind::Import(item) => ItemKind::Import(item.clone()),
+                ItemTreeNodeKind::Module(item) => ItemKind::Module(item.clone()),
                 ItemTreeNodeKind::Using(item) => ItemKind::Using(item.clone()),
                 ItemTreeNodeKind::ComptimeIf(item) => ItemKind::ComptimeIf(item.to_ast_item()),
                 ItemTreeNodeKind::Struct(item) => ItemKind::Struct(item.clone()),
@@ -179,7 +179,7 @@ fn lower_item(item: &Item) -> ItemTreeNode {
         attributes: item.attributes.clone(),
         visibility: item.vis,
         kind: match &item.kind {
-            ItemKind::Import(import) => ItemTreeNodeKind::Import(import.clone()),
+            ItemKind::Module(module) => ItemTreeNodeKind::Module(module.clone()),
             ItemKind::Using(using) => ItemTreeNodeKind::Using(using.clone()),
             ItemKind::ComptimeIf(comptime_if) => {
                 ItemTreeNodeKind::ComptimeIf(lower_comptime_if(comptime_if))

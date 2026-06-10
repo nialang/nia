@@ -83,7 +83,8 @@ fn emits_cross_module_function_and_global_references() {
     std::fs::write(
         &main,
         r#"
-import .math;
+module math;
+using root::math;
 
 let imported_ptr: & i32 = & math::base;
 
@@ -127,7 +128,8 @@ fn emits_cross_module_struct_literals() {
     std::fs::write(
         &main,
         r#"
-import .geom;
+module geom;
+using root::geom;
 
 fn main() i32 {
     var p: geom::Point = { x: 40, y: 2 };

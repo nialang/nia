@@ -6,8 +6,7 @@ mod public_surface;
 
 use nia_ast::{
     BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
-    ImportPath, Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
-    Visibility,
+    Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
@@ -108,7 +107,7 @@ pub struct Def {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DefKind {
-    Import,
+    Module,
     Function,
     Global,
     Comptime,
@@ -262,14 +261,10 @@ impl Collector {
 
     fn collect_item(&mut self, item: &ItemTreeNode) {
         match &item.kind {
-            ItemTreeNodeKind::Import(import) => {
-                let name = import
-                    .alias
-                    .clone()
-                    .unwrap_or_else(|| import_default_alias(&import.path));
+            ItemTreeNodeKind::Module(module) => {
                 self.add_module_def(
-                    name,
-                    DefKind::Import,
+                    module.name.clone(),
+                    DefKind::Module,
                     item.visibility,
                     item.span,
                     item.node_key.clone(),
@@ -628,7 +623,7 @@ impl Collector {
             name,
             def_id,
             span,
-            "duplicate import name",
+            "duplicate module name",
         );
         def_id
     }
@@ -749,13 +744,6 @@ impl Collector {
     }
 }
 
-fn import_default_alias(path: &ImportPath) -> String {
-    path.segments
-        .last()
-        .cloned()
-        .unwrap_or_else(|| "_".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,7 +754,8 @@ mod tests {
     fn collects_top_level_defs_into_separate_namespaces() {
         let (module, errors) = parse_module(
             r#"
-import .math;
+module math;
+using root::math;
 struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;

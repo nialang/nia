@@ -1,9 +1,9 @@
-import std.io.buffered;
-import std.io.file_adapter;
-import std.io.fixed_buffer;
-import std.io.limit;
-import std.io.runtime;
-import std.io.traits;
+pub module buffered;
+pub module file_adapter;
+pub module fixed_buffer;
+pub module limit;
+pub module runtime;
+pub module traits;
 
 pub using traits::{BufferError, Reader, Writer};
 pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter};

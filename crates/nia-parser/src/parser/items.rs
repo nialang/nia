@@ -7,18 +7,31 @@ impl Parser {
         let start = attributes
             .first()
             .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
-        let pub_span = self.eat(TokenKind::Pub).map(|token| token.span);
+        let pub_token = self.eat(TokenKind::Pub);
+        let pub_span = pub_token.map(|token| token.span);
         let vis = if pub_span.is_some() {
-            Visibility::Public
+            if self.eat(TokenKind::LParen).is_some() {
+                let vis = if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "super" {
+                    self.bump();
+                    Visibility::PublicSuper
+                } else if self.at(TokenKind::Package) {
+                    self.bump();
+                    Visibility::PublicPackage
+                } else {
+                    self.error_here("expected `super` or `package` in visibility");
+                    Visibility::Public
+                };
+                self.expect(TokenKind::RParen, "expected `)` after visibility")?;
+                vis
+            } else {
+                Visibility::Public
+            }
         } else {
             Visibility::Private
         };
 
-        let kind = if self.at(TokenKind::Import) {
-            if let Some(span) = pub_span {
-                self.error_at(span, "`pub` cannot be applied to `import`");
-            }
-            ItemKind::Import(self.parse_import()?)
+        let kind = if self.at(TokenKind::Module) {
+            ItemKind::Module(self.parse_module_item()?)
         } else if self.at(TokenKind::Using) {
             ItemKind::Using(self.parse_using()?)
         } else if self.at(TokenKind::Extern) {
@@ -147,38 +160,11 @@ impl Parser {
         Some(items)
     }
 
-    fn parse_import(&mut self) -> Option<ImportItem> {
-        self.expect(TokenKind::Import, "expected `import`")?;
-        let path = self.parse_import_path()?;
-        let alias = if self.eat(TokenKind::As).is_some() {
-            Some(self.expect_text(TokenKind::Ident, "expected import alias")?)
-        } else {
-            None
-        };
-        self.expect(TokenKind::Semicolon, "expected `;` after import")?;
-        Some(ImportItem { path, alias })
-    }
-
-    fn parse_import_path(&mut self) -> Option<ImportPath> {
-        let kind = if self.eat(TokenKind::DotDot).is_some() {
-            ImportPathKind::Relative { parents: 1 }
-        } else if self.eat(TokenKind::Dot).is_some() {
-            ImportPathKind::Relative { parents: 0 }
-        } else if self.at(TokenKind::Ellipsis) {
-            self.error_here("relative import supports only `.` or `..`");
-            return None;
-        } else if self.at(TokenKind::Ident) {
-            ImportPathKind::Root
-        } else {
-            self.error_here("expected module path after `import`");
-            return None;
-        };
-        let mut segments = Vec::new();
-        segments.push(self.expect_text(TokenKind::Ident, "expected module path segment")?);
-        while self.eat(TokenKind::Dot).is_some() {
-            segments.push(self.expect_text(TokenKind::Ident, "expected module path segment")?);
-        }
-        Some(ImportPath { kind, segments })
+    fn parse_module_item(&mut self) -> Option<ModuleItem> {
+        self.expect(TokenKind::Module, "expected `module`")?;
+        let name = self.expect_text(TokenKind::Ident, "expected module name")?;
+        self.expect(TokenKind::Semicolon, "expected `;` after module declaration")?;
+        Some(ModuleItem { name })
     }
 
     fn parse_using(&mut self) -> Option<UsingItem> {

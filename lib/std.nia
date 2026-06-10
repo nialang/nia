@@ -4,11 +4,20 @@
 // are intentionally available as `std::name`; it does not re-export the
 // standard-library implementation modules themselves.
 
-import std.atomic;
-import std.collections;
-import std.hash;
-import std.range;
-import std.slice;
+pub module atomic;
+pub module collections;
+pub module debug;
+pub module fmt;
+pub module fs;
+pub module hash;
+pub module io;
+pub module math;
+pub module mem;
+pub module os;
+pub module process;
+pub module range;
+pub module slice;
+pub module unicode;
 
 pub using atomic::Atomic;
 pub using collections::{

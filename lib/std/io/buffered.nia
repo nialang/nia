@@ -1,5 +1,5 @@
-import std.io.traits;
-import std.mem;
+using std::io::traits;
+using std::mem;
 
 using traits::{Reader, Writer};
 

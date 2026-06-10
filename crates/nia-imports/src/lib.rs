@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{ImportPath, ImportPathKind, Module};
+use nia_ast::Visibility;
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::ModuleId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -44,8 +44,45 @@ impl ModuleMap {
         self.entries.get(name)
     }
 
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &SourcePath)> {
+        self.entries
+            .iter()
+            .map(|(name, path)| (name.as_str(), path))
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ModulePath {
+    pub package: String,
+    pub segments: Vec<String>,
+}
+
+impl ModulePath {
+    pub fn root(package: impl Into<String>) -> Self {
+        Self {
+            package: package.into(),
+            segments: Vec::new(),
+        }
+    }
+
+    pub fn child(&self, name: impl Into<String>) -> Self {
+        let mut child = self.clone();
+        child.segments.push(name.into());
+        child
+    }
+
+    pub fn parent(&self) -> Option<Self> {
+        let mut parent = self.clone();
+        parent.segments.pop()?;
+        Some(parent)
+    }
+
+    pub fn is_package_root(&self) -> bool {
+        self.segments.is_empty()
     }
 }
 
@@ -54,21 +91,35 @@ pub struct ModuleGraph {
     root: ModuleId,
     modules: Vec<ModuleNode>,
     by_path: HashMap<String, ModuleId>,
+    by_module_path: HashMap<ModulePath, ModuleId>,
+    package_roots: HashMap<String, ModuleId>,
+    diagnostics: Vec<(SourcePath, Diagnostic)>,
 }
 
 impl ModuleGraph {
     pub fn new(root_path: SourcePath) -> Self {
         let root = ModuleId(0);
+        let root_module_path = ModulePath::root(ROOT_MODULE_MAP_NAME);
         let mut by_path = HashMap::new();
         by_path.insert(root_path.as_str().to_string(), root);
+        let mut by_module_path = HashMap::new();
+        by_module_path.insert(root_module_path.clone(), root);
+        let mut package_roots = HashMap::new();
+        package_roots.insert(ROOT_MODULE_MAP_NAME.to_string(), root);
         Self {
             root,
             modules: vec![ModuleNode {
                 id: root,
                 path: root_path,
-                imports: Vec::new(),
+                module_path: root_module_path,
+                parent: None,
+                children: HashMap::new(),
+                declarations: Vec::new(),
             }],
             by_path,
+            by_module_path,
+            package_roots,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -84,35 +135,114 @@ impl ModuleGraph {
         self.by_path.get(path).copied()
     }
 
+    pub fn module_id_for_module_path(&self, path: &ModulePath) -> Option<ModuleId> {
+        self.by_module_path.get(path).copied()
+    }
+
+    pub fn package_root(&self, package: &str) -> Option<ModuleId> {
+        self.package_roots.get(package).copied()
+    }
+
     pub fn modules(&self) -> impl Iterator<Item = &ModuleNode> {
         self.modules.iter()
     }
 
-    fn intern_path(&mut self, path: SourcePath) -> ModuleId {
-        if let Some(id) = self.by_path.get(path.as_str()) {
-            return *id;
+    pub fn diagnostics(&self) -> &[(SourcePath, Diagnostic)] {
+        &self.diagnostics
+    }
+
+    pub fn push_diagnostic(&mut self, path: SourcePath, diagnostic: Diagnostic) {
+        self.diagnostics.push((path, diagnostic));
+    }
+
+    pub fn intern_package_root(&mut self, name: &str, path: SourcePath) -> ModuleId {
+        if let Some(id) = self.package_roots.get(name).copied() {
+            return id;
+        }
+        let module_path = ModulePath::root(name);
+        self.intern_module(path, module_path, None)
+    }
+
+    pub fn intern_declared_child(
+        &mut self,
+        parent_id: ModuleId,
+        name: &str,
+        visibility: Visibility,
+        span: Span,
+    ) -> Result<ModuleId, Diagnostic> {
+        let Some(parent) = self.get(parent_id).cloned() else {
+            return Err(Diagnostic::internal_error(
+                "I0107",
+                "unknown parent module id while adding module declaration",
+            )
+            .debug("module_id", parent_id)
+            .finish());
+        };
+        let child_module_path = parent.module_path.child(name);
+        let child_path = child_source_path(&parent, name);
+        let child_id = self.intern_module(child_path.clone(), child_module_path, Some(parent_id));
+        let parent = self.modules.get_mut(parent_id.0 as usize).ok_or_else(|| {
+            Diagnostic::internal_error(
+                "I0108",
+                "unknown parent module id while recording module declaration",
+            )
+            .debug("module_id", parent_id)
+            .finish()
+        })?;
+        if let Some(existing) = parent.children.get(name).copied() {
+            if existing != child_id {
+                return Err(Diagnostic::internal_error(
+                    "I0109",
+                    "module child name points at a different module id",
+                )
+                .debug("module_id", parent_id)
+                .debug("child", name)
+                .finish());
+            }
+            return Err(Diagnostic::user_error_at(
+                "E0102",
+                span,
+                format!("duplicate module declaration `{name}`"),
+            ));
+        }
+        parent.children.insert(name.to_string(), child_id);
+        parent.declarations.push(ModuleDeclaration {
+            name: name.to_string(),
+            visibility,
+            target: child_id,
+            span,
+        });
+        Ok(child_id)
+    }
+
+    fn intern_module(
+        &mut self,
+        path: SourcePath,
+        module_path: ModulePath,
+        parent: Option<ModuleId>,
+    ) -> ModuleId {
+        if let Some(id) = self.by_module_path.get(&module_path).copied() {
+            return id;
+        }
+        if let Some(id) = self.by_path.get(path.as_str()).copied() {
+            self.by_module_path.insert(module_path, id);
+            return id;
         }
         let id = ModuleId(self.modules.len() as u32);
+        if module_path.is_package_root() {
+            self.package_roots.insert(module_path.package.clone(), id);
+        }
         self.by_path.insert(path.as_str().to_string(), id);
+        self.by_module_path.insert(module_path.clone(), id);
         self.modules.push(ModuleNode {
             id,
             path,
-            imports: Vec::new(),
+            module_path,
+            parent,
+            children: HashMap::new(),
+            declarations: Vec::new(),
         });
         id
-    }
-
-    fn add_import(&mut self, from: ModuleId, import: ImportEdge) -> Result<(), Diagnostic> {
-        let Some(module) = self.modules.get_mut(from.0 as usize) else {
-            return Err(Diagnostic::internal_error(
-                "I0107",
-                "unknown source module id while adding import",
-            )
-            .debug("module_id", from)
-            .finish());
-        };
-        module.imports.push(import);
-        Ok(())
     }
 }
 
@@ -120,286 +250,129 @@ impl ModuleGraph {
 pub struct ModuleNode {
     pub id: ModuleId,
     pub path: SourcePath,
-    pub imports: Vec<ImportEdge>,
+    pub module_path: ModulePath,
+    pub parent: Option<ModuleId>,
+    pub children: HashMap<String, ModuleId>,
+    pub declarations: Vec<ModuleDeclaration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ImportEdge {
-    pub alias: String,
-    pub path: SourcePath,
+pub struct ModuleDeclaration {
+    pub name: String,
+    pub visibility: Visibility,
     pub target: ModuleId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedImport {
-    pub alias: String,
-    pub path: SourcePath,
+pub struct ResolvedModuleDeclaration {
+    pub name: String,
+    pub visibility: Visibility,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImportCollection {
-    pub graph: ModuleGraph,
-    pub aliases: ImportAliasMap,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ImportAliasMap {
-    modules: HashMap<ModuleId, HashMap<String, ImportAlias>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImportAlias {
-    pub alias: String,
-    pub target: ModuleId,
-    pub span: Span,
-}
-
-impl ImportAliasMap {
-    pub fn get(&self, module: ModuleId, alias: &str) -> Option<&ImportAlias> {
-        self.modules.get(&module)?.get(alias)
-    }
-
-    pub fn module_aliases(&self, module: ModuleId) -> Option<&HashMap<String, ImportAlias>> {
-        self.modules.get(&module)
-    }
-
-    pub fn modules(&self) -> impl Iterator<Item = (ModuleId, &HashMap<String, ImportAlias>)> {
-        self.modules
-            .iter()
-            .map(|(module, aliases)| (*module, aliases))
-    }
-}
-
-pub fn collect_root_imports(root_path: SourcePath, root_module: &Module) -> ImportCollection {
-    collect_root_imports_with_map(root_path, root_module, &ModuleMap::default())
-}
-
-pub fn collect_root_imports_with_map(
-    root_path: SourcePath,
-    root_module: &Module,
-    module_map: &ModuleMap,
-) -> ImportCollection {
-    let module_map = module_map.with_compiler_root(root_path.clone());
-    let mut graph = ModuleGraph::new(root_path.clone());
-    let mut diagnostics = Vec::new();
-    let root = graph.root();
-    collect_module_imports(
-        &mut graph,
-        &mut diagnostics,
-        root,
-        &root_path,
-        root_module,
-        &module_map,
-    );
-    let aliases = collect_import_aliases(&graph);
-    ImportCollection {
-        graph,
-        aliases,
-        diagnostics,
-    }
-}
-
-pub fn collect_import_aliases(graph: &ModuleGraph) -> ImportAliasMap {
-    let mut aliases = ImportAliasMap::default();
-    for module in graph.modules() {
-        for import in &module.imports {
-            aliases.modules.entry(module.id).or_default().insert(
-                import.alias.clone(),
-                ImportAlias {
-                    alias: import.alias.clone(),
-                    target: import.target,
-                    span: import.span,
-                },
-            );
-        }
-    }
-    aliases
-}
-
-pub fn collect_module_imports(
-    graph: &mut ModuleGraph,
+pub fn resolve_module_declarations_from_active_item_tree(
     diagnostics: &mut Vec<Diagnostic>,
-    module_id: ModuleId,
-    module_path: &SourcePath,
-    module: &Module,
-    module_map: &ModuleMap,
-) {
-    // Validate the source node before interning any target paths. Otherwise a
-    // bad caller could leave unreachable modules in the graph while losing the
-    // edge that explains why they were discovered.
-    if graph.get(module_id).is_none() {
-        diagnostics.push(
-            Diagnostic::internal_error("I0108", "unknown module id while collecting imports")
-                .debug("module_id", module_id)
-                .finish(),
-        );
-        return;
-    }
-
-    for import in resolve_module_imports(diagnostics, module_path, module, module_map) {
-        let target = graph.intern_path(import.path.clone());
-        if let Err(diagnostic) = graph.add_import(
-            module_id,
-            ImportEdge {
-                alias: import.alias,
-                path: import.path,
-                target,
-                span: import.span,
-            },
-        ) {
-            diagnostics.push(diagnostic);
-            return;
-        }
-    }
-}
-
-pub fn resolve_module_imports(
-    diagnostics: &mut Vec<Diagnostic>,
-    module_path: &SourcePath,
-    module: &Module,
-    module_map: &ModuleMap,
-) -> Vec<ResolvedImport> {
-    let item_tree = nia_item_tree::ActiveModuleItemTree::new(
-        nia_item_tree::ModuleItemTree::from_module(module).items,
-        Default::default(),
-    );
-    resolve_module_imports_from_active_item_tree(diagnostics, module_path, &item_tree, module_map)
-}
-
-pub fn resolve_module_imports_from_active_item_tree(
-    diagnostics: &mut Vec<Diagnostic>,
-    module_path: &SourcePath,
     item_tree: &ActiveModuleItemTree,
-    module_map: &ModuleMap,
-) -> Vec<ResolvedImport> {
-    let mut aliases = HashMap::<String, Span>::new();
-    let mut imports = Vec::new();
+) -> Vec<ResolvedModuleDeclaration> {
+    let mut seen = HashMap::<String, Span>::new();
+    let mut declarations = Vec::new();
     for item in &item_tree.items {
-        let ItemTreeNodeKind::Import(import) = &item.kind else {
+        let ItemTreeNodeKind::Module(module) = &item.kind else {
             continue;
         };
-        let alias = import
-            .alias
-            .clone()
-            .unwrap_or_else(|| import_default_alias(&import.path));
-        if let Some(first_span) = aliases.get(&alias).copied() {
+        if let Some(first_span) = seen.insert(module.name.clone(), item.span) {
             let _ = first_span;
             diagnostics.push(Diagnostic::user_error_at(
                 "E0102",
                 item.span,
-                format!("duplicate import alias: `{alias}`"),
+                format!("duplicate module declaration `{}`", module.name),
             ));
             continue;
         }
-        let Some(path) = resolve_import_path(module_path, &import.path, module_map) else {
-            diagnostics.push(Diagnostic::user_error_at(
-                "E0102",
-                item.span,
-                format!(
-                    "unknown module mapping `{}`; configure it with `-M {0}=path`",
-                    import.path.segments[0]
-                ),
-            ));
-            continue;
-        };
-        aliases.insert(alias.clone(), item.span);
-        imports.push(ResolvedImport {
-            alias,
-            path,
+        declarations.push(ResolvedModuleDeclaration {
+            name: module.name.clone(),
+            visibility: item.visibility,
             span: item.span,
         });
     }
-    imports
+    declarations
 }
 
-pub fn add_resolved_imports(
+pub fn add_resolved_module_declarations(
     graph: &mut ModuleGraph,
     module_id: ModuleId,
-    imports: impl IntoIterator<Item = ResolvedImport>,
+    declarations: impl IntoIterator<Item = ResolvedModuleDeclaration>,
 ) -> Result<(), Diagnostic> {
-    // The query loader only calls this with ids read from the same graph. Keep
-    // that as an explicit boundary error so graph corruption is reported before
-    // unreachable target modules can be interned.
-    if graph.get(module_id).is_none() {
-        return Err(Diagnostic::internal_error(
-            "I0109",
-            "unknown module id while adding resolved imports",
-        )
-        .debug("module_id", module_id)
-        .finish());
-    }
-
-    for import in imports {
-        let target = graph.intern_path(import.path.clone());
-        graph.add_import(
+    for declaration in declarations {
+        graph.intern_declared_child(
             module_id,
-            ImportEdge {
-                alias: import.alias,
-                path: import.path,
-                target,
-                span: import.span,
-            },
+            &declaration.name,
+            declaration.visibility,
+            declaration.span,
         )?;
     }
     Ok(())
 }
 
-pub fn resolve_import_path(
-    module_path: &SourcePath,
-    import_path: &ImportPath,
-    module_map: &ModuleMap,
-) -> Option<SourcePath> {
-    match import_path.kind {
-        ImportPathKind::Root => {
-            let head = import_path.segments.first()?;
-            let mapped = module_map.get(head)?;
-            if import_path.segments.len() == 1 {
-                return Some(SourcePath::new(normalize_path(mapped.as_str())));
-            }
-            let base_dir = mapped
-                .as_str()
-                .strip_suffix(".nia")
-                .unwrap_or(mapped.as_str())
-                .to_string();
-            let tail = import_path.segments[1..].join("/");
-            let joined = if base_dir.is_empty() {
-                format!("{tail}.nia")
-            } else {
-                format!("{base_dir}/{tail}.nia")
+pub fn visibility_allows(
+    visibility: Visibility,
+    graph: &ModuleGraph,
+    defining_module: ModuleId,
+    accessing_module: ModuleId,
+) -> bool {
+    if defining_module == accessing_module {
+        return true;
+    }
+    match visibility {
+        Visibility::Public => true,
+        Visibility::PublicPackage => {
+            let Some(defining) = graph.get(defining_module) else {
+                return false;
             };
-            Some(SourcePath::new(normalize_path(&joined)))
-        }
-        ImportPathKind::Relative { parents } => {
-            let module_dir = module_path
-                .as_str()
-                .rsplit_once('/')
-                .map_or("", |(dir, _)| dir);
-            let mut prefix = String::from(module_dir);
-            for _ in 0..parents {
-                prefix.push_str("/..");
-            }
-            let tail = import_path.segments.join("/");
-            let joined = if prefix.is_empty() {
-                format!("{tail}.nia")
-            } else {
-                format!("{prefix}/{tail}.nia")
+            let Some(accessing) = graph.get(accessing_module) else {
+                return false;
             };
-            Some(SourcePath::new(normalize_path(&joined)))
+            defining.module_path.package == accessing.module_path.package
         }
+        Visibility::PublicSuper => is_descendant_or_self(graph, accessing_module, defining_module)
+            || graph
+                .get(defining_module)
+                .and_then(|node| node.parent)
+                .is_some_and(|parent| is_descendant_or_self(graph, accessing_module, parent)),
+        Visibility::Private => false,
     }
 }
 
-pub fn import_default_alias(path: &ImportPath) -> String {
-    path.segments
-        .last()
-        .cloned()
-        .unwrap_or_else(|| "_".to_string())
+fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: ModuleId) -> bool {
+    let mut current = Some(module);
+    while let Some(module_id) = current {
+        if module_id == ancestor {
+            return true;
+        }
+        current = graph.get(module_id).and_then(|node| node.parent);
+    }
+    false
 }
 
-fn normalize_path(path: &str) -> String {
+fn child_source_path(parent: &ModuleNode, child: &str) -> SourcePath {
+    let parent_path = parent.path.as_str();
+    let base = if parent.module_path.package == ROOT_MODULE_MAP_NAME
+        && parent.module_path.is_package_root()
+    {
+        parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
+    } else {
+        parent_path.strip_suffix(".nia").unwrap_or(parent_path)
+    };
+    let joined = if base.is_empty() {
+        format!("{child}.nia")
+    } else {
+        format!("{base}/{child}.nia")
+    };
+    SourcePath::new(normalize_path(&joined))
+}
+
+pub fn normalize_path(path: &str) -> String {
     let absolute = path.starts_with('/');
     let mut parts = Vec::new();
     for part in path.split('/') {
@@ -416,235 +389,5 @@ fn normalize_path(path: &str) -> String {
         format!("/{normalized}")
     } else {
         normalized
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nia_diagnostic::DiagnosticCategory;
-    use nia_parser::parse_module;
-
-    #[test]
-    fn collects_root_import_edges_without_loading_modules() {
-        let (module, errors) = parse_module(
-            r#"
-import .math;
-import .lib.io as io;
-fn main() {}
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_root_imports(SourcePath::new("src/main.nia"), &module);
-        assert!(
-            collection.diagnostics.is_empty(),
-            "{:?}",
-            collection.diagnostics
-        );
-        let root = collection
-            .graph
-            .get(collection.graph.root())
-            .expect("root module");
-        assert_eq!(root.imports.len(), 2);
-        assert_eq!(root.imports[0].alias, "math");
-        assert_eq!(root.imports[0].path.as_str(), "src/math.nia");
-        assert_eq!(root.imports[1].alias, "io");
-        assert_eq!(root.imports[1].path.as_str(), "src/lib/io.nia");
-    }
-
-    #[test]
-    fn reports_duplicate_import_aliases_per_module() {
-        let (module, errors) = parse_module(
-            r#"
-import .a.math as math;
-import .b.math as math;
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_root_imports(SourcePath::new("main.nia"), &module);
-        assert_eq!(collection.diagnostics.len(), 1);
-        let diagnostic = &collection.diagnostics[0];
-        assert_eq!(diagnostic.code.as_str(), "E0102");
-        assert_eq!(diagnostic.category, DiagnosticCategory::User);
-        assert!(diagnostic.primary_span().is_some());
-        assert!(
-            diagnostic
-                .primary_message()
-                .is_some_and(|message| message.contains("duplicate import alias"))
-        );
-    }
-
-    #[test]
-    fn normalizes_relative_import_paths() {
-        use nia_ast::{ImportPath, ImportPathKind};
-        let base = SourcePath::new("src/app/main.nia");
-        let map = ModuleMap::default();
-        assert_eq!(
-            resolve_import_path(
-                &base,
-                &ImportPath {
-                    kind: ImportPathKind::Relative { parents: 1 },
-                    segments: vec!["lib".into(), "math".into()],
-                },
-                &map,
-            )
-            .map(|path| path.as_str().to_string()),
-            Some("src/lib/math.nia".to_string())
-        );
-        assert_eq!(
-            resolve_import_path(
-                &base,
-                &ImportPath {
-                    kind: ImportPathKind::Relative { parents: 0 },
-                    segments: vec!["util".into()],
-                },
-                &map,
-            )
-            .map(|path| path.as_str().to_string()),
-            Some("src/app/util.nia".to_string())
-        );
-    }
-
-    #[test]
-    fn root_import_requires_module_map() {
-        let (module, errors) = parse_module(r#"import math;"#);
-        assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_root_imports(SourcePath::new("src/main.nia"), &module);
-        assert_eq!(collection.diagnostics.len(), 1);
-        let diagnostic = &collection.diagnostics[0];
-        assert_eq!(diagnostic.code.as_str(), "E0102");
-        assert_eq!(diagnostic.category, DiagnosticCategory::User);
-        assert!(diagnostic.primary_span().is_some());
-        assert!(
-            diagnostic
-                .primary_message()
-                .is_some_and(|message| message.contains("unknown module mapping"))
-        );
-    }
-
-    #[test]
-    fn root_import_resolves_to_compiler_root_without_user_module_map() {
-        let (module, errors) = parse_module(r#"import root;"#);
-        assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_root_imports(SourcePath::new("src/main.nia"), &module);
-
-        assert!(
-            collection.diagnostics.is_empty(),
-            "{:?}",
-            collection.diagnostics
-        );
-        let root = collection
-            .graph
-            .get(collection.graph.root())
-            .expect("root module");
-        assert_eq!(root.imports.len(), 1);
-        assert_eq!(root.imports[0].alias, "root");
-        assert_eq!(root.imports[0].path.as_str(), "src/main.nia");
-        assert_eq!(root.imports[0].target, collection.graph.root());
-    }
-
-    #[test]
-    fn compiler_root_overrides_user_root_module_map_entry() {
-        let (module, errors) = parse_module(r#"import root;"#);
-        assert!(errors.is_empty(), "{errors:?}");
-        let mut map = ModuleMap::new();
-        map.insert("root", SourcePath::new("other.nia"));
-
-        let collection =
-            collect_root_imports_with_map(SourcePath::new("src/main.nia"), &module, &map);
-
-        assert!(
-            collection.diagnostics.is_empty(),
-            "{:?}",
-            collection.diagnostics
-        );
-        let root = collection
-            .graph
-            .get(collection.graph.root())
-            .expect("root module");
-        assert_eq!(root.imports[0].path.as_str(), "src/main.nia");
-        assert_eq!(root.imports[0].target, collection.graph.root());
-    }
-
-    #[test]
-    fn root_import_uses_module_map_when_provided() {
-        let (module, errors) = parse_module(
-            r#"
-import math;
-import math.ops;
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-        let mut map = ModuleMap::default();
-        map.insert("math", SourcePath::new("/usr/share/nia/math.nia"));
-        let collection =
-            collect_root_imports_with_map(SourcePath::new("src/main.nia"), &module, &map);
-        assert!(
-            collection.diagnostics.is_empty(),
-            "{:?}",
-            collection.diagnostics
-        );
-        let root = collection
-            .graph
-            .get(collection.graph.root())
-            .expect("root module");
-        assert_eq!(root.imports[0].path.as_str(), "/usr/share/nia/math.nia");
-        assert_eq!(root.imports[1].path.as_str(), "/usr/share/nia/math/ops.nia");
-    }
-
-    #[test]
-    fn collect_module_imports_reports_invalid_source_module_id() {
-        let (module, errors) = parse_module("import .math;");
-        assert!(errors.is_empty(), "{errors:?}");
-        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
-        let mut diagnostics = Vec::new();
-
-        collect_module_imports(
-            &mut graph,
-            &mut diagnostics,
-            ModuleId(99),
-            &SourcePath::new("main.nia"),
-            &module,
-            &ModuleMap::default(),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].code.as_str(), "I0108");
-        assert_eq!(diagnostics[0].category, DiagnosticCategory::Internal);
-        assert!(
-            diagnostics[0]
-                .debug
-                .iter()
-                .any(|field| field.key == "module_id")
-        );
-        assert_eq!(graph.modules().count(), 1);
-        assert!(
-            graph
-                .get(graph.root())
-                .expect("root module")
-                .imports
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn add_resolved_imports_reports_invalid_source_module_id() {
-        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
-
-        let err = add_resolved_imports(
-            &mut graph,
-            ModuleId(99),
-            [ResolvedImport {
-                alias: "math".to_string(),
-                path: SourcePath::new("math.nia"),
-                span: Span::default(),
-            }],
-        )
-        .expect_err("unknown source module id should be reported");
-
-        assert_eq!(err.code.as_str(), "I0109");
-        assert_eq!(err.category, DiagnosticCategory::Internal);
-        assert!(err.debug.iter().any(|field| field.key == "module_id"));
-        assert_eq!(graph.modules().count(), 1);
     }
 }

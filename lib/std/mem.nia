@@ -1,10 +1,10 @@
-import std.mem.arena_allocator;
-import std.mem.allocator;
-import std.mem.copy;
-import std.mem.fixed_buffer_allocator;
-import std.mem.general_purpose_allocator;
-import std.mem.page_allocator;
-import std.mem.types;
+pub module arena_allocator;
+pub module allocator;
+pub module copy;
+pub module fixed_buffer_allocator;
+pub module general_purpose_allocator;
+pub module page_allocator;
+pub module types;
 
 pub using types::{Block, Error, Layout, Order};
 pub using arena_allocator::ArenaAllocator;

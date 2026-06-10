@@ -1,5 +1,7 @@
+pub module linux;
+
 comptime if @builtin().target.os == "linux" {
-    import std.os.linux as platform;
+    using std::os::linux as platform;
 }
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;

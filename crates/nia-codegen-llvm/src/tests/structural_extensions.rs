@@ -115,8 +115,10 @@ fn emits_imported_generic_structural_extension_method_calls() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        r#"
-import .share;
+r#"
+module share;
+module ptr;
+using root::share;
 
 extern fn read_readonly() &u8;
 
@@ -133,7 +135,7 @@ fn main(mut_ptr: &mut u8) i32 {
 "#,
     )
     .expect("write main source");
-    std::fs::write(root.join("share.nia"), "import .ptr;").expect("write share source");
+    std::fs::write(root.join("share.nia"), "using root::ptr;").expect("write share source");
     std::fs::write(
         root.join("ptr.nia"),
         r#"
@@ -420,7 +422,7 @@ extend usize {
 }
 
 fn main() usize {
-    10usize.plus_one()
+    (10usize).plus_one()
 }
 "#,
     )

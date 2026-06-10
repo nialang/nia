@@ -9,7 +9,7 @@ fn loads_root_and_imported_modules_once() {
     let root = temp_dir("loads_root_and_imported_modules_once");
     write(
         &root.join("main.nia"),
-        r#"import .math; fn main() i32 { 0 }"#,
+        r#"module math; using root::math; fn main() i32 { 0 }"#,
     );
     write(
         &root.join("math.nia"),
@@ -30,21 +30,26 @@ fn loads_root_and_imported_modules_once() {
             .graph
             .get(program.graph.root())
             .expect("root module")
-            .imports
+            .declarations
             .len(),
         1
     );
     let math = program
-        .imports
-        .get(program.graph.root(), "math")
-        .expect("math import alias");
-    assert_eq!(math.target, ModuleId(1));
+        .graph
+        .get(program.graph.root())
+        .and_then(|root| root.children.get("math").copied())
+        .expect("math child module");
+    assert_eq!(math, ModuleId(1));
 }
 
 #[test]
 fn reports_missing_imported_modules() {
     let root = temp_dir("reports_missing_imported_modules");
-    write(&root.join("main.nia"), r#"import .missing; fn main() {}"#);
+    write(
+        &root.join("main.nia"),
+        r#"module missing;
+using root::missing; fn main() {}"#,
+    );
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
@@ -60,7 +65,8 @@ fn checks_each_loaded_module() {
     let root = temp_dir("checks_each_loaded_module");
     write(
         &root.join("main.nia"),
-        r#"import .math; fn main() i32 { 0 }"#,
+        r#"module math;
+using root::math; fn main() i32 { 0 }"#,
     );
     write(&root.join("math.nia"), r#"fn bad() i32 { true }"#);
 
@@ -80,8 +86,8 @@ fn std_io_file_writer_is_created_from_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
@@ -108,8 +114,8 @@ fn std_io_buffered_file_writer_flushes_explicitly_through_process_io() {
     write(
         &root.join("main.nia"),
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];
@@ -142,8 +148,8 @@ fn std_fs_file_is_not_a_writer_without_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std.fs;
-import std.process;
+using std::fs;
+using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
     switch file.write_all(b"nia\n") {
@@ -180,8 +186,8 @@ fn std_io_file_reader_is_created_from_process_io_capability() {
     write(
         &root.join("main.nia"),
         r#"
-import std.io;
-import std.process;
+using std::io;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];
@@ -209,9 +215,9 @@ fn std_blocking_io_coerces_to_io_trait_object_with_error_binding() {
     write(
         &root.join("main.nia"),
         r#"
-import std.io;
-import std.os;
-import std.process;
+using std::io;
+using std::os;
+using std::process;
 
 fn main(argc: usize, argv: &&u8, envp: &&u8) void {
     var backend = io::BlockingIo::init();
@@ -227,56 +233,29 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) void {
 }
 
 #[test]
-fn loads_cyclic_imports_without_cycle_diagnostic() {
-    let root = temp_dir("loads_cyclic_imports_without_cycle_diagnostic");
-    write(&root.join("main.nia"), r#"import .a; fn main() {}"#);
-    write(&root.join("a.nia"), r#"import .b;"#);
-    write(&root.join("b.nia"), r#"import .a;"#);
+fn using_cycles_do_not_load_or_cycle_modules() {
+    let root = temp_dir("using_cycles_do_not_load_or_cycle_modules");
+    write(
+        &root.join("main.nia"),
+        r#"module b;
+module a;
+using root::a; fn main() {}"#,
+    );
+    write(&root.join("a.nia"), r#"using root::b;"#);
+    write(&root.join("b.nia"), r#"using root::a;"#);
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert_eq!(program.modules.len(), 3);
 }
 
 #[test]
-fn resolves_public_items_inside_cyclic_imports() {
-    let root = temp_dir("resolves_public_items_inside_cyclic_imports");
-    write(
-        &root.join("main.nia"),
-        r#"import .a; fn main() i32 { a::from_b() }"#,
-    );
-    write(
-        &root.join("a.nia"),
-        r#"
-import .b;
-
-pub fn from_b() i32 {
-    b::value()
-}
-"#,
-    );
-    write(
-        &root.join("b.nia"),
-        r#"
-import .a;
-
-pub fn value() i32 {
-    42
-}
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-}
-
-#[test]
-fn imported_runtime_module_can_call_public_items_through_root() {
-    let root = temp_dir("imported_runtime_module_can_call_public_items_through_root");
+fn child_module_can_call_public_root_items_through_root_namespace() {
+    let root = temp_dir("child_module_can_call_public_root_items_through_root_namespace");
     write(
         &root.join("main.nia"),
         r#"
-import .runtime;
+module runtime;
+using root::runtime;
 
 pub fn app_main() i32 {
     42
@@ -290,7 +269,7 @@ fn main() i32 {
     write(
         &root.join("runtime.nia"),
         r#"
-import root;
+using root;
 
 pub fn call_app_main() i32 {
     root::app_main()
@@ -308,7 +287,7 @@ fn freestanding_start_can_call_public_root_main() {
     write(
         &root.join("main.nia"),
         r#"
-import std.process;
+using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
@@ -326,90 +305,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn rejects_private_items_inside_cyclic_imports() {
-    let root = temp_dir("rejects_private_items_inside_cyclic_imports");
-    write(
-        &root.join("main.nia"),
-        r#"import .a; fn main() i32 { a::from_b() }"#,
-    );
-    write(
-        &root.join("a.nia"),
-        r#"
-import .b;
-
-pub fn from_b() i32 {
-    b::value()
-}
-"#,
-    );
-    write(
-        &root.join("b.nia"),
-        r#"
-import .a;
-
-fn value() i32 {
-    42
-}
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .diagnostic
-            .summary
-            .contains("value `b::value` is private")
-    }));
-}
-
-#[test]
-fn resolves_public_extension_methods_inside_cyclic_imports() {
-    let root = temp_dir("resolves_public_extension_methods_inside_cyclic_imports");
-    write(
-        &root.join("main.nia"),
-        r#"
-import .a;
-
-fn main(p: a::Point) i32 {
-    p.len2()
-}
-"#,
-    );
-    write(
-        &root.join("a.nia"),
-        r#"
-import .b;
-
-pub struct Point {
-    x: i32,
-    y: i32,
-}
-"#,
-    );
-    write(
-        &root.join("b.nia"),
-        r#"
-import .a;
-
-extend a::Point {
-    pub fn len2(& self) i32 {
-        4
-    }
-}
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-}
-
-#[test]
 fn resolves_imported_extension_method_function_pointers() {
     let root = temp_dir("resolves_imported_extension_method_function_pointers");
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 
 fn call(p: & math::Point, f: &fn(& math::Point) i32) i32 {
     f(p)
@@ -441,13 +343,18 @@ extend Point {
 }
 
 #[test]
-fn resolves_items_and_extensions_through_complex_cyclic_import_graph() {
-    let root = temp_dir("resolves_items_and_extensions_through_complex_cyclic_import_graph");
+fn complex_using_graph_does_not_create_load_cycle() {
+    let root = temp_dir("complex_using_graph_does_not_create_load_cycle");
     write(
         &root.join("main.nia"),
         r#"
-import .core;
-import .entry;
+module ops;
+module math;
+module helpers;
+module core;
+module entry;
+using root::core;
+using root::entry;
 
 fn main(p: core::Point) i32 {
     entry::score(p)
@@ -457,7 +364,7 @@ fn main(p: core::Point) i32 {
     write(
         &root.join("core.nia"),
         r#"
-import .ops;
+using root::ops;
 
 pub struct Point {
     x: i32,
@@ -472,9 +379,9 @@ pub fn base() i32 {
     write(
         &root.join("entry.nia"),
         r#"
-import .core;
-import .math;
-import .ops;
+using root::core;
+using root::math;
+using root::ops;
 
 pub fn score(p: core::Point) i32 {
     p.len2() + math::via_helpers() + ops::from_cycle()
@@ -484,7 +391,7 @@ pub fn score(p: core::Point) i32 {
     write(
         &root.join("math.nia"),
         r#"
-import .helpers;
+using root::helpers;
 
 pub fn via_helpers() i32 {
     helpers::call_core()
@@ -494,8 +401,8 @@ pub fn via_helpers() i32 {
     write(
         &root.join("helpers.nia"),
         r#"
-import .core;
-import .ops;
+using root::core;
+using root::ops;
 
 pub fn call_core() i32 {
     core::base() + ops::from_cycle()
@@ -505,8 +412,8 @@ pub fn call_core() i32 {
     write(
         &root.join("ops.nia"),
         r#"
-import .core;
-import .helpers;
+using root::core;
+using root::helpers;
 
 extend core::Point {
     pub fn len2(& self) i32 {
@@ -530,8 +437,9 @@ fn deduplicates_imported_paths() {
     write(
         &root.join("main.nia"),
         r#"
-import .math as math_a;
-import .math as math_b;
+module math;
+using root::math as math_a;
+using root::math as math_b;
 fn main() {}
 "#,
     );
@@ -551,7 +459,8 @@ fn resolves_qualified_imported_type_paths() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 fn origin(p: math::Point) math::Point { p }
 "#,
     );
@@ -573,7 +482,8 @@ fn resolves_qualified_imported_function_calls() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 fn main() i32 {
     math::add(40, 2)
 }
@@ -600,7 +510,8 @@ fn extends_imported_type_in_current_module() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 
 extend math::Point {
     fn len2(& self) i32 {
@@ -628,8 +539,10 @@ fn imports_public_extension_methods() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
-import .point_ext;
+module math;
+module point_ext;
+using root::math;
+using root::point_ext;
 
 fn main(p: math::Point) i32 {
     p.len2()
@@ -643,7 +556,7 @@ fn main(p: math::Point) i32 {
     write(
         &root.join("point_ext.nia"),
         r#"
-import .math;
+using root::math;
 
 extend math::Point {
     pub fn len2(& self) i32 {
@@ -663,7 +576,8 @@ fn imports_public_extension_associated_comptime_values() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 
 fn main() usize {
     math::Marker::LIMIT
@@ -692,7 +606,8 @@ fn imports_public_extension_associated_comptime_values_with_builtin_initializer(
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 
 fn main() usize {
     math::Marker::LIMIT
@@ -724,8 +639,8 @@ fn std_math_usize_max_remains_available_with_array_list_imported() {
     write(
         &root.join("main.nia"),
         r#"
-import std.array_list;
-import std.math;
+using std::collections;
+using std::math;
 
 fn main() usize {
     usize::MAX
@@ -743,7 +658,7 @@ fn std_math_usize_max_can_be_compared() {
     write(
         &root.join("main.nia"),
         r#"
-import std.math;
+using std::math;
 
 fn main() bool {
     1usize != usize::MAX
@@ -761,7 +676,7 @@ fn std_facade_range_iterates_half_open_usize_ranges() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
     var total = 0usize;
@@ -783,7 +698,7 @@ fn std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() i64 {
     var total = 0i64;
@@ -805,7 +720,7 @@ fn std_facade_range_iterates_inclusive_i32_ranges() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() i32 {
     var total = 0i32;
@@ -827,7 +742,7 @@ fn std_facade_range_iterates_inclusive_and_from_usize_ranges() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
     var total = 0usize;
@@ -858,7 +773,7 @@ fn std_facade_exposes_range_constructors() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
     var total = 0usize;
@@ -880,7 +795,7 @@ fn std_facade_exposes_array_list_type_directly() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
     var list = std::ArrayList[i32]::init();
@@ -899,10 +814,10 @@ fn std_facade_does_not_reexport_standard_library_module_namespaces() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
-    let writer = std::io::DiscardingWriter::init();
+    let writer = io::DiscardingWriter::init();
     writer.len()
 }
 "#,
@@ -910,10 +825,10 @@ fn main() usize {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("unknown value `io`")),
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("qualified access is not a value expression")),
         "{:?}",
         program.diagnostics
     );
@@ -925,7 +840,7 @@ fn std_facade_does_not_reexport_array_list_module_namespace() {
     write(
         &root.join("main.nia"),
         r#"
-import std;
+using std;
 
 fn main() usize {
     var list = std::array_list::ArrayList[i32]::init();
@@ -955,7 +870,9 @@ fn reexported_module_and_value_with_same_name_resolve_by_context() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module range;
+module facade;
+using root::facade;
 
 fn main() usize {
     var iter: facade::range::Range[usize] = facade::range(1usize..4usize);
@@ -970,7 +887,7 @@ fn main() usize {
     write(
         &root.join("facade.nia"),
         r#"
-import .range;
+using root::range;
 
 pub using range;
 pub using range::range;
@@ -1103,8 +1020,11 @@ fn imports_public_extension_methods_through_import_closure() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
-import .facade;
+module point_ext;
+module math;
+module facade;
+using root::math;
+using root::facade;
 
 fn main(p: math::Point) i32 {
     p.len2()
@@ -1115,11 +1035,11 @@ fn main(p: math::Point) i32 {
         &root.join("math.nia"),
         r#"pub struct Point { x: i32, y: i32 }"#,
     );
-    write(&root.join("facade.nia"), r#"import .point_ext;"#);
+    write(&root.join("facade.nia"), r#"using root::point_ext;"#);
     write(
         &root.join("point_ext.nia"),
         r#"
-import .math;
+using root::math;
 
 extend math::Point {
     pub fn len2(& self) i32 {
@@ -1139,7 +1059,8 @@ fn imports_generic_structural_extension_methods() {
     write(
         &root.join("main.nia"),
         r#"
-import .ptr;
+module ptr;
+using root::ptr;
 
 extern fn read_readonly() &u8;
 
@@ -1182,7 +1103,8 @@ fn imported_enum_extension_method_function_pointer_uses_nominal_prefix() {
     write(
         &root.join("main.nia"),
         r#"
-import .errors;
+module errors;
+using root::errors;
 
 fn main() i32 {
     let code: &fn(errors::Error) i32 = &errors::Error::code;
@@ -1216,7 +1138,8 @@ fn imported_extension_method_where_clause_constrains_candidates() {
     write(
         &root.join("main.nia"),
         r#"
-import .containers;
+module containers;
+using root::containers;
 
 fn main(boxed: containers::Box[bool]) i32 {
     boxed.tag()
@@ -1261,7 +1184,8 @@ fn imported_extension_method_where_clause_allows_satisfied_candidates() {
     write(
         &root.join("main.nia"),
         r#"
-import .containers;
+module containers;
+using root::containers;
 
 fn main(boxed: containers::Box[i32]) i32 {
     boxed.tag()
@@ -1299,7 +1223,9 @@ fn imports_generic_structural_extension_methods_through_import_closure() {
     write(
         &root.join("main.nia"),
         r#"
-import .share;
+module ptr;
+module share;
+using root::share;
 
 extern fn read_readonly() &u8;
 
@@ -1315,7 +1241,7 @@ fn main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"import .ptr;"#);
+    write(&root.join("share.nia"), r#"using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -1343,7 +1269,9 @@ fn lowers_imported_generic_structural_extension_instances() {
     write(
         &root.join("main.nia"),
         r#"
-import .share;
+module ptr;
+module share;
+using root::share;
 
 extern fn read_readonly() &u8;
 
@@ -1359,7 +1287,7 @@ fn main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"import .ptr;"#);
+    write(&root.join("share.nia"), r#"using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -1408,7 +1336,8 @@ fn imports_generic_structural_extension_methods_with_alias_targets() {
     write(
         &root.join("main.nia"),
         r#"
-import .ptr;
+module ptr;
+using root::ptr;
 
 fn main(ptr: &u8) i32 {
     if ptr.alias_null() {
@@ -1441,8 +1370,11 @@ fn does_not_import_private_extension_methods_through_import_closure() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
-import .facade;
+module point_ext;
+module math;
+module facade;
+using root::math;
+using root::facade;
 
 fn main(p: math::Point) i32 {
     p.len2()
@@ -1453,11 +1385,11 @@ fn main(p: math::Point) i32 {
         &root.join("math.nia"),
         r#"pub struct Point { x: i32, y: i32 }"#,
     );
-    write(&root.join("facade.nia"), r#"import .point_ext;"#);
+    write(&root.join("facade.nia"), r#"using root::point_ext;"#);
     write(
         &root.join("point_ext.nia"),
         r#"
-import .math;
+using root::math;
 
 extend math::Point {
     fn len2(& self) i32 {
@@ -1482,7 +1414,8 @@ fn rejects_private_cross_module_items() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 fn take(p: math::Point) i32 {
     math::add(1, 2)
 }
@@ -1509,4 +1442,129 @@ fn add(a: i32, b: i32) i32 { a + b }
             .summary
             .contains("value `math::add` is private")
     }));
+}
+
+#[test]
+fn self_import_loads_child_module_by_stem_path() {
+    let root = temp_dir("self_import_loads_child_module_by_stem_path");
+    write(
+        &root.join("main.nia"),
+        r#"
+module hash_map;
+using root::hash_map;
+
+fn main() i32 {
+    hash_map::score()
+}
+"#,
+    );
+    write(
+        &root.join("hash_map.nia"),
+        r#"
+module probe;
+using self::probe;
+
+pub fn score() i32 {
+    probe::value()
+}
+"#,
+    );
+    std::fs::create_dir_all(root.join("hash_map")).expect("create child module dir");
+    write(
+        &root.join("hash_map/probe.nia"),
+        r#"
+pub(super) fn value() i32 {
+    7
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn super_import_loads_sibling_under_parent_module_stem() {
+    let root = temp_dir("super_import_loads_sibling_under_parent_module_stem");
+    write(
+        &root.join("main.nia"),
+        r#"
+module hash_map;
+using root::hash_map;
+
+fn main() i32 {
+    hash_map::score()
+}
+"#,
+    );
+    write(
+        &root.join("hash_map.nia"),
+        r#"
+module probe;
+module iter;
+using self::iter;
+
+pub fn score() i32 {
+    iter::score()
+}
+"#,
+    );
+    std::fs::create_dir_all(root.join("hash_map")).expect("create child module dir");
+    write(
+        &root.join("hash_map/iter.nia"),
+        r#"
+using super::probe;
+
+pub(super) fn score() i32 {
+    probe::value()
+}
+"#,
+    );
+    write(
+        &root.join("hash_map/probe.nia"),
+        r#"
+pub(super) fn value() i32 {
+    11
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_super_items_are_hidden_outside_parent_subtree() {
+    let root = temp_dir("pub_super_items_are_hidden_outside_parent_subtree");
+    write(
+        &root.join("main.nia"),
+        r#"
+module hash_map;
+using root::hash_map::probe;
+
+fn main() i32 {
+    probe::value()
+}
+"#,
+    );
+    std::fs::create_dir_all(root.join("hash_map")).expect("create child module dir");
+    write(&root.join("hash_map.nia"), "pub module probe;");
+    write(
+        &root.join("hash_map/probe.nia"),
+        r#"
+pub(super) fn value() i32 {
+    13
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("private")),
+        "{:?}",
+        program.diagnostics
+    );
 }

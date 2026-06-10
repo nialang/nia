@@ -12,7 +12,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_flow_check::FlowCheck;
 use nia_ids::ModuleId;
-use nia_imports::{ImportAliasMap, ModuleGraph};
+use nia_imports::ModuleGraph;
 use nia_item_signatures::ItemSignatures;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_layout::Layouts;
@@ -33,11 +33,29 @@ use nia_value_resolve::ValueResolution;
 pub use nia_backend_lower::BackendOptimizationChange;
 pub use query::check_loaded_program;
 pub use query::check_loaded_program_with_options;
+pub use query::check_loaded_program_with_options_and_timings;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimingMode {
+    #[default]
+    Off,
+    Summary,
+    Detail,
+}
+
+impl TimingMode {
+    pub fn enabled(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    pub fn detail(self) -> bool {
+        matches!(self, Self::Detail)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
     pub graph: ModuleGraph,
-    pub imports: ImportAliasMap,
     pub target: TargetConfig,
     pub modules: Vec<LoadedModule>,
     pub diagnostics: Vec<ProgramDiagnostic>,
@@ -60,7 +78,6 @@ pub struct LoadedModule {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgram {
     pub graph: ModuleGraph,
-    pub imports: ImportAliasMap,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<CheckedModule>,
     pub monomorphization: Monomorphization,

@@ -9,7 +9,9 @@ fn public_comptime_values_are_visible_through_import_closure() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module defs;
+using root::facade;
 
 fn main() i32 {
     facade::answer
@@ -19,7 +21,7 @@ fn main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-import .defs;
+using root::defs;
 pub using defs::answer;
 "#,
     );
@@ -354,7 +356,8 @@ fn imported_comptime_functions_are_ordinary_comptime_values() {
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let width: usize = config::width(2);
 
@@ -1821,7 +1824,8 @@ fn imported_comptime_values_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 fn main() i32 {
     var values: [config::width]i32 = [1, 2, 3, 4];
@@ -2458,7 +2462,8 @@ pub comptime let point: Point = Point{x: 4, y: 8};
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime fn id[T](value: T) T {
     value
@@ -2641,7 +2646,8 @@ pub comptime fn id[T](value: T) T {
     write(
         &root.join("main.nia"),
         r#"
-import .helpers;
+module helpers;
+using root::helpers;
 
 fn main() i32 {
     comptime let width = 4usize;
@@ -2675,7 +2681,8 @@ pub comptime fn word_bytes() usize {
     write(
         &root.join("main.nia"),
         r#"
-import .helpers;
+module helpers;
+using root::helpers;
 
 fn main() i32 {
     comptime let n: usize = helpers::word_bytes();
@@ -2701,7 +2708,8 @@ pub comptime let width = 4usize;
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime fn id[T](value: T) T {
     value
@@ -2780,7 +2788,8 @@ pub comptime let config = {width: 4usize};
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime fn id[T](value: T) T {
     value
@@ -3387,7 +3396,8 @@ pub comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let selected: u8 = config::packet.payload;
 "#,
@@ -3621,7 +3631,8 @@ pub comptime let os: [5]char = @builtin().target.os;
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let n: usize = config::os.len();
 
@@ -3807,7 +3818,8 @@ pub comptime fn target_os() [os_len]char {
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let n: usize = config::target_os().len();
 
@@ -3838,7 +3850,8 @@ pub comptime fn target_os() [os_len]char {
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let os = config::target_os();
 "#,
@@ -4346,7 +4359,8 @@ fn imported_generic_comptime_function_infers_type_arg_from_typed_value() {
     write(
         &root.join("main.nia"),
         r#"
-import .identity;
+module identity;
+using root::identity;
 
 comptime let width: usize = 4;
 comptime let n: usize = identity::id(width);
@@ -4435,7 +4449,8 @@ fn imported_generic_comptime_function_substitutes_type_args_for_layout_builtins(
     write(
         &root.join("main.nia"),
         r#"
-import .layout;
+module layout;
+using root::layout;
 
 struct Pair {
     a: u8,
@@ -4480,7 +4495,8 @@ pub comptime let pair_size: usize = @size[Pair]();
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let n: usize = config::pair_size;
 
@@ -4511,7 +4527,8 @@ pub struct Packet {
     write(
         &root.join("main.nia"),
         r#"
-import .config;
+module config;
+using root::config;
 
 comptime let n: usize = @size[config::Packet]();
 
@@ -4579,7 +4596,8 @@ extend Item {
     write(
         &root.join("main.nia"),
         r#"
-import .defs;
+module defs;
+using root::defs;
 using defs::*;
 
 fn make() Boxed {
@@ -4625,7 +4643,8 @@ extend Item {
     write(
         &root.join("main.nia"),
         r#"
-import .defs;
+module defs;
+using root::defs;
 using defs::*;
 
 fn make() Boxed {

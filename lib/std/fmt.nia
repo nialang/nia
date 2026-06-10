@@ -1,4 +1,4 @@
-import std.fmt.core;
-import std.fmt.primitive;
+pub module core;
+pub module primitive;
 
 pub using core::{FormatWriter, Format, Formatter, print_unchecked};

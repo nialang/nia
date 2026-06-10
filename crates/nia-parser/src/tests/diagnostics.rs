@@ -12,23 +12,23 @@ fn reports_lexer_errors_through_parser() {
 }
 
 #[test]
-fn rejects_string_import_as_invalid_import_path() {
-    let (_module, errors) = parse_module(r#"import "math";"#);
+fn rejects_string_module_name() {
+    let (_module, errors) = parse_module(r#"module "math";"#);
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected module path after `import`")),
+            .contains("expected module name")),
         "{errors:?}"
     );
 }
 
 #[test]
-fn rejects_deep_relative_import_prefix() {
-    let (_module, errors) = parse_module("import ...math;");
+fn rejects_deep_relative_using_prefix() {
+    let (_module, errors) = parse_module("using super..math;");
     assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("relative import supports only `.` or `..`")),
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected `;` after using")),
         "{errors:?}"
     );
 }

@@ -71,7 +71,8 @@ pub(super) fn for_iterator_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt
                 name: "i".to_string(),
             }),
             pattern_kind: nia_ast::ForPatternKind::Value,
-            ty,
+            item_ty: ty,
+            binding_ty: ty,
             iter: TypedExpr {
                 span,
                 ty,

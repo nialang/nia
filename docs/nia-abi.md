@@ -22,7 +22,7 @@ struct Pair {
 }
 
 fn sum(pair: Pair) i64 {
-    pair.b
+    pair::b
 }
 ```
 
@@ -551,7 +551,7 @@ pub struct Point {
 }
 
 // main.nia
-import .geom;
+using root::geom;
 ```
 
 `pub` controls source-level visibility. It does not imply C ABI visibility,

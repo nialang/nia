@@ -58,7 +58,7 @@ impl FlowChecker<'_> {
                         self.check_function(&method.function);
                     }
                 }
-                ItemKind::Import(_)
+                ItemKind::Module(_)
                 | ItemKind::Using(_)
                 | ItemKind::ComptimeIf(_)
                 | ItemKind::Struct(_)

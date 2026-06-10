@@ -46,7 +46,7 @@ source files
   -> module item tree
   -> active item surface
   -> definition collection
-  -> import graph / import aliases
+  -> using graph / using aliases
   -> type name resolution
   -> type lowering
   -> item signatures
@@ -414,7 +414,7 @@ select an active item surface using the same tree shape whether the condition is
 a simple target expression or a full comptime value query.
 
 The loader records both the raw module item tree and the active item tree for
-the current target. Import discovery, definition collection, type-name
+the current target. Module discovery, definition collection, type-name
 resolution, type lowering, item-signature collection, value resolution, and
 local resolution consume the active item tree. These phases therefore see a
 single declaration surface selected by comptime branch queries instead of
@@ -422,7 +422,7 @@ reinterpreting a pruned AST module. The raw tree remains available for future
 lazy comptime branch queries and source-addressable inactive-branch diagnostics.
 
 This boundary is the long-term replacement for phases directly interpreting
-top-level AST `comptime if` as an import, definition, type, value, or local-name
+top-level AST `comptime if` as a module declaration, definition, type, value, or local-name
 pre-pass. Inactive branches remain represented and source-addressable; they are
 not semantically checked for a target unless a query selects that branch.
 
@@ -434,7 +434,7 @@ of adding long-lived meaning to AST expressions.
 ### 4.7 Query Frontend
 
 `nia-loader-query` and `nia-compiler-query` provide the typed query frontend for
-source loading, syntax parsing, AST lowering, import graph construction,
+source loading, syntax parsing, AST lowering, using graph construction,
 item-tree lowering, active item surfaces, definition collection, public
 surfaces, and semantic checks. Query keys use source versions where source text
 matters, and `nia-query` tracks in-memory dependencies and invalidation.
@@ -465,22 +465,24 @@ other files.
 
 ### 5.2 `nia-imports`
 
-Normalizes import paths and records import aliases. It handles:
+Builds the explicit module graph and normalizes using paths. It handles:
 
-- relative imports such as `import .math;`;
-- parent-relative imports such as `import ..lib;`;
-- bare module-map imports such as `import std;`;
-- duplicate local import aliases.
+- package roots such as `using std;`;
+- entry-root paths such as `using root::math;`;
+- child declarations such as `module probe;`;
+- parent paths such as `using super::probe;`;
+- module cycle diagnostics;
+- duplicate local using aliases.
 
-It does not perform semantic checking of imported items.
+It does not perform semantic checking of selected items.
 
 ### 5.3 `nia-driver`
 
-Loads source files, builds the import graph, computes public surfaces, and
+Loads source files, builds the using graph, computes public surfaces, and
 schedules whole-program checking and codegen by requesting query products. It
-owns orchestration across modules, not semantic interpretation. The import graph
-may contain cycles; concrete semantic cycles are diagnosed by the query or crate
-that owns the affected construct.
+owns orchestration across modules, not semantic interpretation. The using graph
+is acyclic; semantic cycles inside loaded modules are diagnosed by the query or
+crate that owns the affected construct.
 
 The driver should remain an orchestrator. It should not become a semantic
 analysis crate.
@@ -1130,18 +1132,19 @@ experimental development.
 
 ## 15. File And Module Granularity
 
-Each source file is one module. The import graph is file-based. There is no
-language-level package manager or module declaration syntax.
+Each source file is one module. Child files are loaded only through explicit
+`module name;` or `pub module name;` declarations in the parent module. One
+`-M name=path` entry is one package root.
 
-Cross-module references should go through import aliases, public surfaces,
+Cross-module references should go through using aliases, public surfaces,
 qualified paths, and stable `GlobalDefId`s. Phases should avoid storing direct
 filesystem paths as semantic identity.
 
-Import cycles are not errors by themselves. Modules in a cycle keep separate
-`ModuleId`s and source paths, and references still go through explicit import
-aliases and normal visibility checks. Recursive aliases, comptime let dependencies,
-layouts, generic expansion, or re-export chains remain concrete semantic errors
-for their owning phases.
+Module cycles are load-time errors. Loaded modules keep separate `ModuleId`s
+and source paths, and references still go through explicit using aliases and
+normal visibility checks. Recursive aliases, comptime let dependencies, layouts,
+generic expansion, or re-export chains remain concrete semantic errors for
+their owning phases.
 
 ## 16. Evolution Rules
 

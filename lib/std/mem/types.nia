@@ -1,4 +1,4 @@
-import std.math;
+using std::math;
 
 pub enum Error: i32 {
     Invalid = 1,

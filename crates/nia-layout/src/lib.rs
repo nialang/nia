@@ -560,7 +560,10 @@ impl<'a> LayoutComputer<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<TypeLayout> {
-        if let Some(layouts) = self.program.layouts.and_then(|query| query(def_id.module_id))
+        if let Some(layouts) = self
+            .program
+            .layouts
+            .and_then(|query| query(def_id.module_id))
             && let Some(layout) = layouts.nominal_type_layout(def_id, args)
         {
             return Some(layout);
@@ -792,7 +795,10 @@ fn import_struct_signature(
     }
 }
 
-fn import_union_signature(target: &mut TyInterner, source: &ProgramUnionSignature) -> UnionSignature {
+fn import_union_signature(
+    target: &mut TyInterner,
+    source: &ProgramUnionSignature,
+) -> UnionSignature {
     UnionSignature {
         generics: source.signature.generics.clone(),
         where_predicates: source.signature.where_predicates.clone(),
@@ -1060,7 +1066,7 @@ mod tests {
                 nia_value_resolve::ValueNameResolution::External(global_id) => {
                     builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
-                nia_value_resolve::ValueNameResolution::ImportAlias
+                nia_value_resolve::ValueNameResolution::Module
                 | nia_value_resolve::ValueNameResolution::LocalDeferred
                 | nia_value_resolve::ValueNameResolution::Error => {}
             }

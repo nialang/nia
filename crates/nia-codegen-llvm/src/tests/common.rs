@@ -112,7 +112,9 @@ fn main() i32 {
                 (
                     "main.nia",
                     r#"
-import .facade;
+module facade;
+module impl;
+using root::facade;
 
 using facade::{Box, make_box, read_box};
 
@@ -125,7 +127,7 @@ fn main() i32 {
                 (
                     "facade.nia",
                     r#"
-import .impl;
+using root::impl;
 
 pub using impl::{Box, make_box, read_box, answer};
 "#,
@@ -258,7 +260,9 @@ fn main() i32 {
                 (
                     "main.nia",
                     r#"
-import .facade;
+module facade;
+module convert;
+using root::facade;
 
 fn main() i32 {
     facade::run()
@@ -268,7 +272,7 @@ fn main() i32 {
                 (
                     "facade.nia",
                     r#"
-import .convert;
+using root::convert;
 
 pub struct Item {
     value: i32,

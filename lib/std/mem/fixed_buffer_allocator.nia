@@ -1,6 +1,6 @@
-import std.math;
-import std.mem.allocator;
-import std.mem.types;
+using std::math;
+using std::mem::allocator;
+using std::mem::types;
 
 using allocator::Allocator;
 using types::{Block, Error, Layout};

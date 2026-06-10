@@ -4,7 +4,7 @@ use super::common::*;
 #[test]
 fn parses_top_level_items() {
     let source = r#"
-import .math as math;
+module math;
 
 pub extern fn printf(fmt: &u8, ...);
 
@@ -32,7 +32,7 @@ fn main() i32 { 0 }
     let (module, errors) = parse_module(source);
     assert_eq!(errors, Vec::<ParseError>::new());
     assert_eq!(module.items.len(), 9);
-    assert!(matches!(module.items[0].kind, ItemKind::Import(_)));
+    assert!(matches!(module.items[0].kind, ItemKind::Module(_)));
     assert!(matches!(&module.items[1].kind, ItemKind::Function(function) if function.is_extern));
     assert!(matches!(module.items[2].kind, ItemKind::Enum(_)));
     assert!(matches!(module.items[3].kind, ItemKind::Struct(_)));

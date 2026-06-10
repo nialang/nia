@@ -177,7 +177,8 @@ pub trait Source {
     write(
         &root.join("main.nia"),
         r#"
-import .traits;
+module traits;
+using root::traits;
 
 struct Counter {
     value: i32,

@@ -1,5 +1,5 @@
-import std.os.linux.syscall;
-import std.os.linux.types;
+using std::os::linux::syscall;
+using std::os::linux::types;
 
 using types::Errno;
 

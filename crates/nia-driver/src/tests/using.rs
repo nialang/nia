@@ -8,7 +8,8 @@ fn using_brings_imported_function_into_scope() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 using math::add;
 
 fn main() i32 {
@@ -31,7 +32,8 @@ fn using_supports_group_and_rename() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 using math::{add, sub as minus};
 
 fn main() i32 {
@@ -57,7 +59,8 @@ fn using_group_supports_nested_enum_wildcard() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 using math::{add, sub as minus, Operator::*};
 
 fn main(flag: bool) math::Operator {
@@ -85,7 +88,8 @@ fn using_wildcard_imports_public_surface() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 using math::*;
 
 fn main(p: Point) i32 {
@@ -111,7 +115,9 @@ fn using_wildcard_imports_pub_using_reexports() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module impl;
+using root::facade;
 using facade::*;
 
 fn main(p: Point) i32 {
@@ -122,7 +128,7 @@ fn main(p: Point) i32 {
     write(
         &root.join("facade.nia"),
         r#"
-import .impl;
+using root::impl;
 pub using impl::*;
 "#,
     );
@@ -144,7 +150,9 @@ fn pub_using_module_namespace_is_visible_downstream() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module impl;
+using root::facade;
 
 fn main() i32 {
     facade::impl::add(40, 2)
@@ -154,7 +162,7 @@ fn main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-import .impl;
+using root::impl;
 pub using impl;
 "#,
     );
@@ -173,7 +181,9 @@ fn using_wildcard_brings_reexported_module_namespace_into_scope() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module impl;
+using root::facade;
 using facade::*;
 
 fn main() i32 {
@@ -184,7 +194,7 @@ fn main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-import .impl;
+using root::impl;
 pub using impl;
 "#,
     );
@@ -203,7 +213,9 @@ fn pub_using_reexports_for_downstream_modules() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module impl;
+using root::facade;
 
 fn main() i32 {
     facade::add(40, 2)
@@ -213,7 +225,7 @@ fn main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-import .impl;
+using root::impl;
 pub using impl::add;
 "#,
     );
@@ -232,7 +244,9 @@ fn pub_using_group_supports_nested_enum_wildcard() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module math;
+using root::facade;
 
 fn main(flag: bool) facade::Operator {
     var n = facade::add(40, facade::minus(4, 2));
@@ -243,7 +257,7 @@ fn main(flag: bool) facade::Operator {
     write(
         &root.join("facade.nia"),
         r#"
-import .math;
+using root::math;
 pub using math::{Operator, add, sub as minus, Operator::*};
 "#,
     );
@@ -266,7 +280,10 @@ fn pub_using_root_group_reexports_modules_items_and_variants() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module math;
+module palette;
+using root::facade;
 
 fn main(flag: bool) facade::palette::Color {
     var n = facade::add(40, 2);
@@ -277,8 +294,8 @@ fn main(flag: bool) facade::palette::Color {
     write(
         &root.join("facade.nia"),
         r#"
-import .math;
-import .palette;
+using root::math;
+using root::palette;
 pub using {math, math::add, palette, palette::Color::{Red, DDD}};
 "#,
     );
@@ -301,7 +318,15 @@ fn using_supports_deep_nested_module_groups() {
     write(
         &root.join("main.nia"),
         r#"
-import .rootmod;
+module rootmod;
+module a;
+module b;
+module c;
+module d;
+module e;
+module f;
+module h;
+using root::rootmod;
 using rootmod::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 
 fn main(flag: bool) rootmod::a::h::Color {
@@ -313,23 +338,23 @@ fn main(flag: bool) rootmod::a::h::Color {
     write(
         &root.join("rootmod.nia"),
         r#"
-import .a;
+using root::a;
 pub using a;
 "#,
     );
     write(
         &root.join("a.nia"),
         r#"
-import .b;
-import .d;
-import .h;
+using root::b;
+using root::d;
+using root::h;
 pub using {b, d, h};
 "#,
     );
     write(
         &root.join("b.nia"),
         r#"
-import .c;
+using root::c;
 pub using c;
 "#,
     );
@@ -340,14 +365,14 @@ pub using c;
     write(
         &root.join("d.nia"),
         r#"
-import .e;
+using root::e;
 pub using e;
 "#,
     );
     write(
         &root.join("e.nia"),
         r#"
-import .f;
+using root::f;
 pub using f;
 pub fn g(a: i32) i32 { a + 3 }
 "#,
@@ -365,7 +390,8 @@ fn using_unknown_name_reports_diagnostic() {
     write(
         &root.join("main.nia"),
         r#"
-import .math;
+module math;
+using root::math;
 using math::missing;
 
 fn main() i32 { 0 }
@@ -390,13 +416,24 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn pub_import_is_rejected() {
-    let root = temp_dir("pub_import_is_rejected");
+fn pub_using_module_path_reexports_module_namespace() {
+    let root = temp_dir("pub_using_module_path_reexports_module_namespace");
     write(
         &root.join("main.nia"),
         r#"
-pub import .math;
-fn main() i32 { 0 }
+module math;
+module facade;
+using root::facade;
+
+fn main() i32 {
+    facade::math::add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+pub using root::math;
 "#,
     );
     write(
@@ -405,14 +442,7 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("`pub` cannot be applied")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -459,7 +489,8 @@ fn using_cross_module_enum_variant_three_segments() {
     write(
         &root.join("main.nia"),
         r#"
-import .palette;
+module palette;
+using root::palette;
 using palette::Color::{Red, Black as Dark};
 
 fn main() palette::Color {
@@ -485,7 +516,9 @@ fn pub_using_enum_variant_reexports_for_downstream() {
     write(
         &root.join("main.nia"),
         r#"
-import .facade;
+module facade;
+module palette;
+using root::facade;
 
 fn main() facade::Color {
     facade::Red
@@ -495,7 +528,7 @@ fn main() facade::Color {
     write(
         &root.join("facade.nia"),
         r#"
-import .palette;
+using root::palette;
 pub using palette::Color;
 pub using palette::Color::Red;
 "#,
@@ -541,7 +574,8 @@ fn qualified_cross_module_enum_variant_access() {
     write(
         &root.join("main.nia"),
         r#"
-import .palette;
+module palette;
+using root::palette;
 
 fn main() palette::Color {
     var c: palette::Color = palette::Color::Red;
@@ -564,7 +598,8 @@ fn lowers_cross_module_enum_equality_as_intrinsic_operator() {
     write(
         &root.join("main.nia"),
         r#"
-import .palette;
+module palette;
+using root::palette;
 
 fn same(a: palette::Color, b: palette::Color) bool {
     a == b
@@ -604,7 +639,8 @@ fn using_imported_type_supports_enum_variants_and_associated_functions() {
     write(
         &root.join("main.nia"),
         r#"
-import .defs;
+module defs;
+using root::defs;
 
 using defs::{Box, Mode};
 
@@ -644,7 +680,8 @@ fn switch_exhaustive_over_cross_module_enum() {
     write(
         &root.join("main.nia"),
         r#"
-import .palette;
+module palette;
+using root::palette;
 
 fn pick(c: palette::Color) i32 {
     switch c {
@@ -673,7 +710,8 @@ fn switch_over_cross_module_enum_reports_missing_variants() {
     write(
         &root.join("main.nia"),
         r#"
-import .palette;
+module palette;
+using root::palette;
 
 fn pick(c: palette::Color) i32 {
     switch c {
@@ -707,7 +745,8 @@ fn uses_cross_module_public_union() {
     write(
         &root.join("main.nia"),
         r#"
-import .bits;
+module bits;
+using root::bits;
 
 fn main() i32 {
     var value: bits::Bits = { i: 7 };
@@ -730,7 +769,8 @@ fn rejects_cross_module_nia_types_at_extern_abi_boundaries() {
     write(
         &root.join("main.nia"),
         r#"
-import .types;
+module types;
+using root::types;
 
 extern fn bad_struct(point: types::Point);
 extern fn bad_union(bits: types::Bits);

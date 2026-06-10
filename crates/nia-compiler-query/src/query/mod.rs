@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
+    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
     module_diagnostics,
     program_signatures::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
@@ -17,7 +17,7 @@ use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ImportAliasMap, ModuleGraph};
+use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
@@ -63,9 +63,18 @@ pub fn check_loaded_program_with_options(
     loaded: LoadedProgram,
     optimization: NiaOptimizationLevel,
 ) -> CheckedProgram {
+    check_loaded_program_with_options_and_timings(loaded, optimization, TimingMode::Off)
+}
+
+pub fn check_loaded_program_with_options_and_timings(
+    loaded: LoadedProgram,
+    optimization: NiaOptimizationLevel,
+    timings: TimingMode,
+) -> CheckedProgram {
     check_loaded_program_with_providers(
         loaded,
         optimization.policy(),
+        timings,
         CompilerQueryProviders::default(),
     )
 }
@@ -73,10 +82,10 @@ pub fn check_loaded_program_with_options(
 fn check_loaded_program_with_providers(
     loaded: LoadedProgram,
     optimization: OptimizationPolicy,
+    timings: TimingMode,
     providers: CompilerQueryProviders,
 ) -> CheckedProgram {
     let graph = loaded.graph.clone();
-    let imports = loaded.imports.clone();
     let target = loaded.target.clone();
     let modules_by_id = index_loaded_modules(&loaded);
     let db = QueryDb::new(DriverContext {
@@ -84,15 +93,16 @@ fn check_loaded_program_with_providers(
         modules_by_id,
         target,
         optimization,
+        timings,
         providers,
     });
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         db.try_query(CheckedProgramQuery)
     })) {
         Ok(Ok(checked)) => checked,
-        Ok(Err(err)) => checked_program_from_query_error(graph, imports, optimization, err),
+        Ok(Err(err)) => checked_program_from_query_error(graph, optimization, err),
         Err(payload) => match payload.downcast::<QueryError>() {
-            Ok(err) => checked_program_from_query_error(graph, imports, optimization, *err),
+            Ok(err) => checked_program_from_query_error(graph, optimization, *err),
             Err(payload) => std::panic::resume_unwind(payload),
         },
     }
@@ -100,13 +110,11 @@ fn check_loaded_program_with_providers(
 
 fn checked_program_from_query_error(
     graph: ModuleGraph,
-    imports: ImportAliasMap,
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CheckedProgram {
     CheckedProgram {
         graph,
-        imports,
         optimization,
         modules: Vec::new(),
         monomorphization: nia_monomorphize::Monomorphization {
@@ -152,6 +160,7 @@ struct DriverContext {
     modules_by_id: HashMap<ModuleId, usize>,
     target: TargetConfig,
     optimization: OptimizationPolicy,
+    timings: TimingMode,
     providers: CompilerQueryProviders,
 }
 
@@ -187,7 +196,6 @@ mod tests {
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
         LoadedProgram {
             graph: ModuleGraph::new(SourcePath::new("main.nia")),
-            imports: ImportAliasMap::default(),
             target: TargetConfig::host(),
             modules,
             diagnostics: Vec::new(),
@@ -226,6 +234,7 @@ mod tests {
             modules_by_id,
             target,
             optimization: OptimizationPolicy::default(),
+            timings: TimingMode::Off,
             providers: CompilerQueryProviders::default(),
         })
     }
@@ -297,6 +306,7 @@ fn main() i32 {
                 "fn main() i32 { 0 }",
             )]),
             OptimizationPolicy::default(),
+            TimingMode::Off,
             providers,
         );
 
@@ -321,6 +331,7 @@ fn main() i32 {
                 "fn main() i32 { 0 }",
             )]),
             policy,
+            TimingMode::Off,
             providers,
         );
 

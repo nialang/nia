@@ -1,5 +1,5 @@
 comptime if @builtin().target.os == "linux"
     and @builtin().target.arch == "x86_64"
 {
-    import std.start.freestanding.linux.x86_64;
+    pub module freestanding;
 }

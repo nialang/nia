@@ -693,7 +693,7 @@ fn validate_trait_impl(
         let Some(actual) = module.signatures.functions.get(&method_id) else {
             continue;
         };
-        let required_signature = import_trait_method_signature(TraitMethodImport {
+        let required_signature = lower_trait_method_signature(TraitMethodImport {
             target_interner: &mut comparison_interner,
             module,
             source_interner: trait_signature.interner,
@@ -1357,15 +1357,15 @@ fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> Strin
         .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }
 
-fn import_trait_method_signature(import: TraitMethodImport<'_>) -> FunctionSignature {
-    let mut substitutions = import
+fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignature {
+    let mut substitutions = input
         .trait_generics
         .iter()
-        .zip(import.trait_args)
+        .zip(input.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
         .collect::<HashMap<_, _>>();
-    substitutions.insert("Self".to_string(), import.self_ty);
-    let mut signature = import.signature.clone();
+    substitutions.insert("Self".to_string(), input.self_ty);
+    let mut signature = input.signature.clone();
     signature.params = signature
         .params
         .iter()
@@ -1373,46 +1373,46 @@ fn import_trait_method_signature(import: TraitMethodImport<'_>) -> FunctionSigna
             name: param.name.clone(),
             receiver: param.receiver,
             ty: substitute_imported_type(
-                import.target_interner,
-                import.module,
-                import.source_interner,
+                input.target_interner,
+                input.module,
+                input.source_interner,
                 param.ty,
                 &substitutions,
                 Some(ProjectionImplContext {
-                    trait_id: import.trait_id,
-                    trait_args: import.trait_args,
-                    self_ty: import.self_ty,
-                    extend: import.extend,
+                    trait_id: input.trait_id,
+                    trait_args: input.trait_args,
+                    self_ty: input.self_ty,
+                    extend: input.extend,
                 }),
             ),
             span: param.span,
         })
         .collect();
     signature.return_type = substitute_imported_type(
-        import.target_interner,
-        import.module,
-        import.source_interner,
+        input.target_interner,
+        input.module,
+        input.source_interner,
         signature.return_type,
         &substitutions,
         Some(ProjectionImplContext {
-            trait_id: import.trait_id,
-            trait_args: import.trait_args,
-            self_ty: import.self_ty,
-            extend: import.extend,
+            trait_id: input.trait_id,
+            trait_args: input.trait_args,
+            self_ty: input.self_ty,
+            extend: input.extend,
         }),
     );
     signature
 }
 
-fn normalize_impl_method_signature(import: ImplMethodSignatureNormalize<'_>) -> FunctionSignature {
+fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> FunctionSignature {
     let substitutions = HashMap::new();
     let context = Some(ProjectionImplContext {
-        trait_id: import.trait_id,
-        trait_args: import.trait_args,
-        self_ty: import.self_ty,
-        extend: import.extend,
+        trait_id: input.trait_id,
+        trait_args: input.trait_args,
+        self_ty: input.self_ty,
+        extend: input.extend,
     });
-    let mut signature = import.signature.clone();
+    let mut signature = input.signature.clone();
     signature.params = signature
         .params
         .iter()
@@ -1420,9 +1420,9 @@ fn normalize_impl_method_signature(import: ImplMethodSignatureNormalize<'_>) -> 
             name: param.name.clone(),
             receiver: param.receiver,
             ty: substitute_imported_type(
-                import.target_interner,
-                import.module,
-                import.source_interner,
+                input.target_interner,
+                input.module,
+                input.source_interner,
                 param.ty,
                 &substitutions,
                 context,
@@ -1431,9 +1431,9 @@ fn normalize_impl_method_signature(import: ImplMethodSignatureNormalize<'_>) -> 
         })
         .collect();
     signature.return_type = substitute_imported_type(
-        import.target_interner,
-        import.module,
-        import.source_interner,
+        input.target_interner,
+        input.module,
+        input.source_interner,
         signature.return_type,
         &substitutions,
         context,
@@ -1859,14 +1859,15 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
 
 pub(crate) fn visible_extensions_for_module(
     module_id: nia_ids::ModuleId,
-    imports: &nia_imports::ImportAliasMap,
+    graph: &nia_imports::ModuleGraph,
+    using_scope: &nia_defs::ModuleUsingScope,
     public_surfaces: &PublicSurfaces,
     defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
     normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
     extensions: &ExtensionMethods,
     associated_values: &ExtensionAssociatedValues,
 ) -> VisibleExtensionsForModule {
-    let imported_modules = transitive_import_closure(module_id, imports);
+    let visible_modules = declared_module_closure(module_id, graph, using_scope);
     let Some(current_normalization) = normalizations.get(&module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
@@ -1875,7 +1876,7 @@ pub(crate) fn visible_extensions_for_module(
     };
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
-    for method in extensions.visible_methods(module_id, imported_modules.iter().copied()) {
+    for method in extensions.visible_methods(module_id, visible_modules.iter().copied()) {
         let Some(method_defs) = defs_by_module.get(&method.def_id.module_id) else {
             continue;
         };
@@ -1885,7 +1886,7 @@ pub(crate) fn visible_extensions_for_module(
         let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
             trait_id_is_visible(
                 module_id,
-                &imported_modules,
+                &visible_modules,
                 trait_id,
                 public_surfaces,
                 defs_by_module,
@@ -1928,7 +1929,7 @@ pub(crate) fn visible_extensions_for_module(
             },
         );
     }
-    for value in associated_values.visible_values(module_id, imported_modules.iter().copied()) {
+    for value in associated_values.visible_values(module_id, visible_modules.iter().copied()) {
         let Some(value_defs) = defs_by_module.get(&value.def_id.module_id) else {
             continue;
         };
@@ -2018,25 +2019,29 @@ fn import_where_predicates(
         .collect()
 }
 
-fn transitive_import_closure(
+fn declared_module_closure(
     module_id: nia_ids::ModuleId,
-    imports: &nia_imports::ImportAliasMap,
+    graph: &nia_imports::ModuleGraph,
+    using_scope: &nia_defs::ModuleUsingScope,
 ) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
-    if let Some(aliases) = imports.module_aliases(module_id) {
-        for alias in aliases.values() {
-            queue.push_back(alias.target);
+    if let Some(module) = graph.get(module_id) {
+        queue.extend(module.children.values().copied());
+        if let Some(parent) = module.parent {
+            queue.push_back(parent);
         }
     }
+    queue.extend(using_scope.modules.values().copied());
 
-    while let Some(imported) = queue.pop_front() {
-        if imported == module_id || !seen.insert(imported) {
+    while let Some(visible) = queue.pop_front() {
+        if visible == module_id || !seen.insert(visible) {
             continue;
         }
-        if let Some(aliases) = imports.module_aliases(imported) {
-            for alias in aliases.values() {
-                queue.push_back(alias.target);
+        if let Some(module) = graph.get(visible) {
+            queue.extend(module.children.values().copied());
+            if let Some(parent) = module.parent {
+                queue.push_back(parent);
             }
         }
     }

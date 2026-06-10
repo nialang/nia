@@ -72,11 +72,8 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         "{:?}",
         comptime.diagnostics
     );
-    let normalization = nia_type_normalize::normalize_module_types(
-        ModuleId(0),
-        &lowered.interner,
-        &signatures,
-    );
+    let normalization =
+        nia_type_normalize::normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
     assert!(
         normalization.diagnostics.is_empty(),
         "{:?}",
@@ -238,7 +235,7 @@ pub(super) fn semantic_use_table(
             nia_value_resolve::ValueNameResolution::External(global_id) => {
                 builder.insert_node_global_value_use(key.clone(), *global_id);
             }
-            nia_value_resolve::ValueNameResolution::ImportAlias
+            nia_value_resolve::ValueNameResolution::Module
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }

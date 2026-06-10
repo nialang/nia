@@ -1,9 +1,18 @@
-import std.os.linux.fd;
-import std.os.linux.mem as memory;
-import std.os.linux.process;
-import std.os.linux.random as random_impl;
-import std.os.linux.stat;
-import std.os.linux.types;
+pub module fd;
+pub module mem;
+pub module process;
+pub module random;
+pub module stat;
+pub module syscall;
+pub module types;
+pub module x86_64;
+
+using std::os::linux::fd;
+using std::os::linux::mem as memory;
+using std::os::linux::process;
+using std::os::linux::random as random_impl;
+using std::os::linux::stat;
+using std::os::linux::types;
 
 pub using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 

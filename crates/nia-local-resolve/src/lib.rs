@@ -72,7 +72,7 @@ pub enum LocalKind {
 pub enum LocalUse {
     Local(LocalId),
     ModuleValue,
-    ImportAlias,
+    Module,
     TypePrefix,
     Unresolved,
 }
@@ -223,7 +223,7 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(value);
                 }
             }
-            ItemTreeNodeKind::Import(_)
+            ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_)
             | ItemTreeNodeKind::Struct(_)
@@ -619,7 +619,7 @@ impl<'a> LocalResolver<'a> {
                 .contains_key(&expr.node_key)
             {
                 // The Qualified's own span resolves to a type — recurse into
-                // lhs so the import-alias span still gets marked, then mark us.
+                // lhs so the module-alias span still gets marked, then mark us.
                 self.resolve_expr(lhs);
                 self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
                 return true;
@@ -740,8 +740,8 @@ impl<'a> LocalResolver<'a> {
             Some(ValueNameResolution::Def(_)) | Some(ValueNameResolution::External(_)) => {
                 self.record_use(node_key, LocalUse::ModuleValue);
             }
-            Some(ValueNameResolution::ImportAlias) => {
-                self.record_use(node_key, LocalUse::ImportAlias);
+            Some(ValueNameResolution::Module) => {
+                self.record_use(node_key, LocalUse::Module);
             }
             Some(ValueNameResolution::LocalDeferred) | None => {
                 self.record_use(node_key, LocalUse::Unresolved);
@@ -1139,7 +1139,6 @@ comptime if false {
         let values = resolve_module_values_from_active_item_tree(
             &active,
             &defs,
-            &nia_imports::ImportAliasMap::default(),
             ValueProgramDefsContext::empty(),
             &nia_defs::PublicSurfaces::default(),
             &nia_defs::ModuleUsingScope::default(),
