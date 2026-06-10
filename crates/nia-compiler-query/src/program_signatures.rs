@@ -1876,7 +1876,14 @@ pub(crate) fn visible_extensions_for_module(
     };
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
-    for method in extensions.visible_methods(module_id, visible_modules.iter().copied()) {
+    let extension_visibility_allows = |visibility, defining_module| {
+        nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
+    };
+    for method in extensions.visible_methods(
+        module_id,
+        visible_modules.iter().copied(),
+        extension_visibility_allows,
+    ) {
         let Some(method_defs) = defs_by_module.get(&method.def_id.module_id) else {
             continue;
         };
@@ -1923,13 +1930,19 @@ pub(crate) fn visible_extensions_for_module(
                     &method_normalization.interner,
                     &method.where_predicates,
                 ),
-                is_callable: method.def_id.module_id == module_id
-                    || method.visibility == nia_ast::Visibility::Public,
+                is_callable: extension_visibility_allows(
+                    method.visibility,
+                    method.def_id.module_id,
+                ),
                 is_trait_witness: trait_is_visible,
             },
         );
     }
-    for value in associated_values.visible_values(module_id, visible_modules.iter().copied()) {
+    for value in associated_values.visible_values(
+        module_id,
+        visible_modules.iter().copied(),
+        extension_visibility_allows,
+    ) {
         let Some(value_defs) = defs_by_module.get(&value.def_id.module_id) else {
             continue;
         };
