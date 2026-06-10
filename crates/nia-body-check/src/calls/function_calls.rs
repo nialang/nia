@@ -134,7 +134,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<FunctionItemRef> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
-        let method_id = self.single_method_candidate(span, name, candidates)?;
+        let method_id = self.single_method_candidate(span, name, &candidates)?;
         let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
         let resolved = self.resolved_function_signature(method_id)?;
         let receiver_ty = resolved

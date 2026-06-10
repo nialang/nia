@@ -75,25 +75,34 @@ impl<'a> BodyChecker<'a> {
         let span = expr.span;
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
-        let trait_candidates = self.trait_method_candidates_for_receiver(receiver_ty, name);
-        let dynamic_candidates =
-            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name);
+        let trait_candidates = if candidates.is_empty() {
+            self.trait_method_candidates_for_receiver(receiver_ty, name)
+        } else {
+            Vec::new()
+        };
+        let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
+            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+        } else {
+            Vec::new()
+        };
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
             BuiltinTraitMethod::from_name(name)?;
         }
-        if !candidates.is_empty() {
-            self.single_method_candidate(span, name, candidates)?;
-        }
-        self.check_method_call_with_receiver_ty(MethodCall {
-            span,
-            node_key: &expr.node_key,
-            receiver,
-            receiver_ty,
-            name,
-            type_args: None,
-            args,
-            expected,
-        })
+        self.check_method_call_with_receiver_ty(
+            MethodCall {
+                span,
+                node_key: &expr.node_key,
+                receiver,
+                receiver_ty,
+                name,
+                type_args: None,
+                args,
+                expected,
+            },
+            candidates,
+            trait_candidates,
+            dynamic_candidates,
+        )
     }
 
     pub(super) fn check_explicit_generic_field_method_call(
@@ -108,45 +117,51 @@ impl<'a> BodyChecker<'a> {
         let span = expr.span;
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
+        let trait_candidates = if candidates.is_empty() {
+            self.trait_method_candidates_for_receiver(receiver_ty, name)
+        } else {
+            Vec::new()
+        };
+        let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
+            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+        } else {
+            Vec::new()
+        };
         if candidates.is_empty()
-            && self
-                .trait_method_candidates_for_receiver(receiver_ty, name)
-                .is_empty()
-            && self
-                .dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
-                .is_empty()
+            && trait_candidates.is_empty()
+            && dynamic_candidates.is_empty()
             && BuiltinTraitMethod::from_name(name).is_none()
         {
             return None;
         }
-        if !candidates.is_empty() {
-            self.single_method_candidate(span, name, candidates)?;
-        }
-        self.check_method_call_with_receiver_ty(MethodCall {
-            span,
-            node_key: &expr.node_key,
-            receiver,
-            receiver_ty,
-            name,
-            type_args: Some(type_args),
-            args,
-            expected,
-        })
+        self.check_method_call_with_receiver_ty(
+            MethodCall {
+                span,
+                node_key: &expr.node_key,
+                receiver,
+                receiver_ty,
+                name,
+                type_args: Some(type_args),
+                args,
+                expected,
+            },
+            candidates,
+            trait_candidates,
+            dynamic_candidates,
+        )
     }
 
-    fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<InternedTyId> {
+    fn check_method_call_with_receiver_ty(
+        &mut self,
+        call: MethodCall<'_>,
+        candidates: Vec<MethodCandidate>,
+        trait_candidates: Vec<TraitMethodCandidate>,
+        dynamic_candidates: Vec<DynamicTraitMethodCandidate>,
+    ) -> Option<InternedTyId> {
         let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
-        let dynamic_candidates =
-            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, call.name);
         if !dynamic_candidates.is_empty() {
             return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
         }
-        let candidates = self.method_candidates_for_receiver(receiver_ty, call.name);
-        let trait_candidates = if candidates.is_empty() {
-            self.trait_method_candidates_for_receiver(receiver_ty, call.name)
-        } else {
-            Vec::new()
-        };
         if candidates.is_empty() && !trait_candidates.is_empty() {
             return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
         }
@@ -155,7 +170,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
-        let method_id = self.single_method_candidate(call.span, call.name, candidates)?;
+        let method_id = self.single_method_candidate(call.span, call.name, &candidates)?;
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)

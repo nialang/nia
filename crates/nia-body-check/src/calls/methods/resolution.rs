@@ -90,16 +90,26 @@ impl<'a> BodyChecker<'a> {
         ) {
             return target_ty;
         }
-        self.resolved_function_signature(method_id)
+        self.method_receiver_kind(method_id)
+            .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
+            .unwrap_or(target_ty)
+    }
+
+    fn method_receiver_kind(&mut self, method_id: GlobalDefId) -> Option<ReceiverKind> {
+        if let Some(receiver_kind) = self.method_receiver_kinds.get(&method_id).copied() {
+            return receiver_kind;
+        }
+        let receiver_kind = self
+            .resolved_function_signature(method_id)
             .and_then(|resolved| {
                 resolved
                     .signature
                     .params
                     .first()
                     .and_then(|param| param.receiver)
-            })
-            .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
-            .unwrap_or(target_ty)
+            });
+        self.method_receiver_kinds.insert(method_id, receiver_kind);
+        receiver_kind
     }
 
     fn match_extension_receiver_target(
@@ -465,34 +475,30 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         name: &str,
-        candidates: Vec<MethodCandidate>,
+        candidates: &[MethodCandidate],
     ) -> Option<GlobalDefId> {
-        let candidates = self.most_specific_candidates(&candidates);
-        match candidates.as_slice() {
-            [method] => Some(method.method.def_id),
-            [] => None,
-            _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
-                    span,
-                    format!("ambiguous method `{name}`"),
-                ));
-                None
+        let mut selected = None;
+        let mut count = 0;
+        for candidate in candidates {
+            if candidates.iter().any(|other| {
+                other.method.def_id != candidate.method.def_id
+                    && self.strictly_more_specific(other.target_ty, candidate.target_ty)
+            }) {
+                continue;
             }
+            selected = Some(candidate.method.def_id);
+            count += 1;
+            if count <= 1 {
+                continue;
+            }
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!("ambiguous method `{name}`"),
+            ));
+            return None;
         }
-    }
-
-    fn most_specific_candidates(&self, candidates: &[MethodCandidate]) -> Vec<MethodCandidate> {
-        candidates
-            .iter()
-            .cloned()
-            .filter(|candidate| {
-                !candidates.iter().any(|other| {
-                    other.method.def_id != candidate.method.def_id
-                        && self.strictly_more_specific(other.target_ty, candidate.target_ty)
-                })
-            })
-            .collect()
+        selected
     }
 
     fn strictly_more_specific(&self, specific: InternedTyId, general: InternedTyId) -> bool {
@@ -871,6 +877,9 @@ impl<'a> BodyChecker<'a> {
         method: &nia_defs::VisibleExtensionMethod,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> bool {
+        if method.where_predicates.is_empty() {
+            return true;
+        }
         let predicates = method
             .where_predicates
             .iter()
