@@ -14,6 +14,7 @@ The package manager and build system are expected to live as separate projects.
 
 ```nia
 using std::process;
+using std::slice;
 
 struct Point {
     x: i32,
