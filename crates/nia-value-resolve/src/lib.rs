@@ -750,6 +750,19 @@ impl<'a> ValueResolver<'a> {
             });
         }
 
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.lookup_type(name)
+            && entry.namespace == PublicNamespace::Type
+        {
+            self.insert_qualified_type_prefix(
+                node_key,
+                GlobalDefId {
+                    module_id: entry.target_module,
+                    def_id: entry.target_def_id,
+                },
+            );
+        }
+
         // Local bindings and parameters are resolved by nia-local-resolve.
         ValueNameResolution::LocalDeferred
     }

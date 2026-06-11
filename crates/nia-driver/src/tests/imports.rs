@@ -889,6 +889,25 @@ fn main() usize {
 }
 
 #[test]
+fn imported_type_alias_can_be_used_as_associated_call_prefix() {
+    let root = temp_dir("imported_type_alias_can_be_used_as_associated_call_prefix");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::collections::ArrayList;
+
+fn main() usize {
+    var list = ArrayList[i32]::init();
+    list.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn std_facade_does_not_reexport_standard_library_module_namespaces() {
     let root = temp_dir("std_facade_does_not_reexport_standard_library_module_namespaces");
     write(
