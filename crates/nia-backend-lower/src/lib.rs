@@ -109,6 +109,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
+    pub roots: BackendFunctionRoots,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_extension_methods: &'a ExtensionMethods,
@@ -124,6 +125,13 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackendFunctionRoots {
+    #[default]
+    Public,
+    FunctionBodies,
 }
 
 pub fn lower_backend_program(
@@ -595,6 +603,7 @@ impl<'a> ModuleLowerer<'a> {
                         );
                         if extend.trait_ref.is_some()
                             && let Some(def_id) = def_id
+                            && self.is_eager_trait_impl_method_root(def_id)
                         {
                             enqueue_function_ref(
                                 &mut pending_functions,
@@ -728,6 +737,15 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn is_eager_trait_impl_method_root(&self, def_id: GlobalDefId) -> bool {
+        match self.input.roots {
+            BackendFunctionRoots::Public => true,
+            BackendFunctionRoots::FunctionBodies => {
+                self.input.function_bodies.contains_key(&def_id)
+            }
+        }
+    }
+
     fn index_function_source(
         &mut self,
         span: nia_span::Span,
@@ -752,6 +770,9 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         function: &nia_ast::FunctionItem,
     ) -> bool {
+        if self.input.roots == BackendFunctionRoots::FunctionBodies {
+            return function.is_extern || self.input.function_bodies.contains_key(&def_id);
+        }
         if function.is_comptime
             || function.is_extern
             || function.name == "main"
@@ -841,10 +862,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_object_vtables,
             );
             if !pending_instances.is_empty() {
-                self.lower_pending_instance_templates(
-                    function_templates,
-                    pending_instances,
-                );
+                self.lower_pending_instance_templates(function_templates, pending_instances);
                 let refs = std::mem::take(pending_instances);
                 let additional = self.lower_additional_function_instances(
                     refs,
@@ -894,9 +912,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|function| function.def_id)
             .collect::<HashSet<_>>();
         for instance in pending_instances {
-            if instance.def_id.module_id != self.input.module_id
-                || !known.insert(instance.def_id)
-            {
+            if instance.def_id.module_id != self.input.module_id || !known.insert(instance.def_id) {
                 continue;
             }
             let Some(source) = self.function_sources.get(&instance.def_id).copied() else {
@@ -993,7 +1009,11 @@ impl<'a> ModuleLowerer<'a> {
                 &mut pending_instances,
                 &mut queued_instances,
             );
-            let before = (functions.len(), function_instances.len(), trait_object_vtables.len());
+            let before = (
+                functions.len(),
+                function_instances.len(),
+                trait_object_vtables.len(),
+            );
             self.lower_reachable_instances_and_vtables(
                 functions,
                 function_templates,
@@ -1004,7 +1024,13 @@ impl<'a> ModuleLowerer<'a> {
                 &mut queued_instances,
                 trait_object_vtables,
             );
-            if before == (functions.len(), function_instances.len(), trait_object_vtables.len()) {
+            if before
+                == (
+                    functions.len(),
+                    function_instances.len(),
+                    trait_object_vtables.len(),
+                )
+            {
                 break;
             }
         }

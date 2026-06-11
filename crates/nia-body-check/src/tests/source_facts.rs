@@ -97,6 +97,7 @@ fn main() i32 {
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: crate::BodyCheckFilter::All,
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -225,6 +226,7 @@ fn main() i32 {
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: crate::BodyCheckFilter::All,
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);

@@ -218,6 +218,7 @@ fn main() i32 {
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: nia_body_check::BodyCheckFilter::All,
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -248,6 +249,7 @@ fn main() i32 {
         comptime: &comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
+        roots: BackendFunctionRoots::Public,
         program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
@@ -4543,6 +4545,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: nia_body_check::BodyCheckFilter::All,
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -4599,6 +4602,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         comptime: &comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
+        roots: BackendFunctionRoots::Public,
         program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),

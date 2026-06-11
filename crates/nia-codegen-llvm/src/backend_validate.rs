@@ -38,6 +38,8 @@ pub(super) fn validate_backend_program(
         struct_fields_lookup_cache: RefCell::new(HashMap::new()),
         union_fields_lookup_cache: RefCell::new(HashMap::new()),
         local_tys: Vec::new(),
+        current_item: None,
+        current_subject: None,
     };
     for module in &program.modules {
         validator.validate_module(module);
@@ -55,68 +57,96 @@ pub(super) struct BackendValidator<'a> {
     struct_fields_lookup_cache: AggregateFieldsLookup,
     union_fields_lookup_cache: AggregateFieldsLookup,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
+    current_item: Option<String>,
+    current_subject: Option<&'static str>,
 }
 
 impl BackendValidator<'_> {
     fn validate_module(&mut self, module: &BackendModule) {
         for function in &module.functions {
             if function.generics.is_empty() {
+                self.current_item = Some(format!("function {}", function.name));
                 self.validate_type(function.return_type, function.span);
                 for param in &function.params {
+                    self.current_subject = Some("param passing_ty");
                     self.validate_runtime_type(param.passing_ty, param.span);
+                    self.current_subject = Some("param local_ty");
                     self.validate_runtime_type(param.local_ty, param.span);
+                    self.current_subject = None;
                 }
                 if let Some(body) = &function.function_body {
                     self.validate_function_param_locals(&function.params, body);
                     self.validate_function_body(body);
                 }
+                self.current_item = None;
             }
         }
         for function in &module.function_instances {
+            self.current_item = Some(format!(
+                "function instance {}::{:?}",
+                function.name, function.args
+            ));
             self.validate_type(function.return_type, function.span);
             for param in &function.params {
+                self.current_subject = Some("param passing_ty");
                 self.validate_runtime_type(param.passing_ty, param.span);
+                self.current_subject = Some("param local_ty");
                 self.validate_runtime_type(param.local_ty, param.span);
+                self.current_subject = None;
             }
             if let Some(body) = &function.function_body {
                 self.validate_function_param_locals(&function.params, body);
                 self.validate_function_body(body);
             }
+            self.current_item = None;
         }
         for global in &module.globals {
+            self.current_item = Some(format!("global {}", global.name));
             self.validate_runtime_type(global.ty, global.span);
             if let Some(init) = &global.init {
                 self.validate_static_init(global.ty, init, global.span);
             }
+            self.current_item = None;
         }
         for item in &module.structs {
             if item.generics.is_empty() {
+                self.current_item = Some(format!("struct {}", item.name));
                 for field in &item.fields {
                     self.validate_runtime_type(field.ty, field.span);
                 }
+                self.current_item = None;
             }
         }
         for item in &module.struct_instances {
+            self.current_item = Some(format!("struct instance {}::{:?}", item.name, item.args));
             for field in &item.fields {
                 self.validate_runtime_type(field.ty, field.span);
             }
+            self.current_item = None;
         }
         for item in &module.unions {
             if item.generics.is_empty() {
+                self.current_item = Some(format!("union {}", item.name));
                 for field in &item.fields {
                     self.validate_runtime_type(field.ty, field.span);
                 }
+                self.current_item = None;
             }
         }
         for item in &module.union_instances {
+            self.current_item = Some(format!("union instance {}::{:?}", item.name, item.args));
             for field in &item.fields {
                 self.validate_runtime_type(field.ty, field.span);
             }
+            self.current_item = None;
         }
         for item in &module.enums {
+            self.current_item = Some(format!("enum {}", item.name));
             self.validate_runtime_type(item.backing_type, item.span);
+            self.current_item = None;
         }
         for vtable in &module.trait_object_vtables {
+            self.current_item = Some(format!("trait object vtable {:?}", vtable.key));
             self.validate_runtime_type(vtable.key.self_ty, vtable.span);
             self.validate_runtime_type(vtable.key.object_ty, vtable.span);
             for entry in &vtable.entries {
@@ -143,6 +173,7 @@ impl BackendValidator<'_> {
                     }
                 }
             }
+            self.current_item = None;
         }
     }
 
