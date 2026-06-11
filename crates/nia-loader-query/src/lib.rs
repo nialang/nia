@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{UsingGroupItem, UsingSelector};
-use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
+use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ModuleGraph, ModuleMap, ModuleNode, ResolvedModuleDeclaration,
@@ -129,9 +129,17 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
         LoadedProgram {
             graph,
             target: db.context().target.clone(),
+            runtime: runtime_model(db.context().entry_runtime),
             modules,
             diagnostics,
         }
+    }
+}
+
+fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
+    match entry_runtime {
+        EntryRuntime::None => RuntimeModel::Bare,
+        EntryRuntime::Freestanding => RuntimeModel::FreestandingExecutable,
     }
 }
 
@@ -1007,6 +1015,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         );
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.runtime, RuntimeModel::Bare);
         assert!(program.graph.package_root("std").is_some());
         assert!(program.modules.iter().any(
             |module| module.path.as_str() == root.join("std/io.nia").to_string_lossy().as_ref()
@@ -1062,6 +1071,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         );
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.runtime, RuntimeModel::FreestandingExecutable);
         assert!(
             program
                 .modules

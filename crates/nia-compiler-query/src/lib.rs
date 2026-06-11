@@ -57,8 +57,16 @@ impl TimingMode {
 pub struct LoadedProgram {
     pub graph: ModuleGraph,
     pub target: TargetConfig,
+    pub runtime: RuntimeModel,
     pub modules: Vec<LoadedModule>,
     pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RuntimeModel {
+    #[default]
+    Bare,
+    FreestandingExecutable,
 }
 
 #[derive(Debug, Clone, PartialEq)]

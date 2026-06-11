@@ -208,6 +208,7 @@ mod tests {
         LoadedProgram {
             graph: ModuleGraph::new(SourcePath::new("main.nia")),
             target: TargetConfig::host(),
+            runtime: RuntimeModel::Bare,
             modules,
             diagnostics: Vec::new(),
         }
