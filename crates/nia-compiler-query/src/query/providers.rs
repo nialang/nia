@@ -45,10 +45,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
     pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
-    pub(super) body_ir: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_ir::BodyIr,
-    pub(super) semantic_facts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticFacts,
-    pub(super) body_diagnostics: fn(&QueryDb<DriverContext>, ModuleId) -> Vec<Diagnostic>,
-    pub(super) function_bodies: fn(&QueryDb<DriverContext>, ModuleId) -> LoweredFunctionBodies,
     pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
     pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
     pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
@@ -91,10 +87,6 @@ impl Default for CompilerQueryProviders {
             static_check: provide_static_check,
             flow_check: provide_flow_check,
             body_check: provide_body_check,
-            body_ir: provide_body_ir,
-            semantic_facts: provide_semantic_facts,
-            body_diagnostics: provide_body_diagnostics,
-            function_bodies: provide_function_bodies,
             checked_module: provide_checked_module,
             checked_modules: provide_checked_modules,
             monomorphization: provide_monomorphization,
@@ -108,7 +100,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<DriverContext>) -> CheckedPro
     time_provider(db.context().timings, "checked_program", || CheckedProgram {
         graph: db.query(ModuleGraphQuery),
         optimization: db.context().optimization,
-        modules: db.query(CheckedModulesQuery),
+        modules: checked_modules_for_codegen(db),
         monomorphization: db.query(MonomorphizationQuery),
         backend_lowering: db.query(BackendLoweringQuery),
         diagnostics: db.query(ProgramDiagnosticsQuery),
@@ -750,62 +742,71 @@ pub(super) fn provide_body_check(
     module_id: ModuleId,
 ) -> nia_body_check::BodyCheck {
     time_module_provider(db, "body_check", module_id, || {
-        let loaded = db.query(LoadedModuleQuery(module_id));
-        let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = defs_by_module_id(db);
-        let values = db.query(ValueResolutionQuery(module_id));
-        let locals = db.query(LocalResolutionQuery(module_id));
-        let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-        let lowered = db.query(TypeLoweringQuery(module_id));
-        let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
-        let signatures = db.query(ItemSignaturesQuery(module_id));
-        let normalization = db.query(TypeNormalizationQuery(module_id));
-        let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
-        let comptime = db.query(ComptimeQuery(module_id));
-        let comptime_module = db.query(ComptimeModuleQuery(module_id));
-        let layouts = db.query(LayoutsQuery(module_id));
-        let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
-        let extensions = db.query(VisibleExtensionsQuery(module_id));
-        let extension_methods = db.query(ExtensionMethodsQuery);
-        let program_signatures = db.query(ProgramSignaturesQuery);
-        let program_item_signatures = db.query(ProgramItemSignaturesQuery);
-        let program_comptime = db.query(ProgramComptimeQuery);
-        let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
-        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-            nia_body_check::BodyCheckInput {
-                source_version: Some(loaded.source_version),
-                origins: &loaded.origins,
-                module: &loaded.module,
-                defs: &defs,
-                values: &values,
-                locals: &locals,
-                semantic_uses: &semantic_uses,
-                lowered: &lowered,
-                signatures: &signatures,
-                normalization: &normalization,
-                target: &db.context().target,
-                comptime: &comptime,
-                comptime_module: &comptime_module.module,
-                layouts: &layouts,
-                extensions: &extensions.methods,
-                program_extension_methods: &extension_methods.methods,
-                extension_interner: Some(&extensions.interner),
-                program: nia_body_check::BodyProgramContext {
-                    defs: Some(&program_defs),
-                    type_lowerings: Some(&program_type_lowerings),
-                    type_normalizations: Some(&program_type_normalizations),
-                    signatures: Some(&program_item_signatures),
-                    layouts: Some(&program_layouts),
-                },
-                program_signatures: program_signatures.maps(),
-                program_comptime: nia_body_check::ProgramComptimeMaps {
-                    comptimes: &program_comptime,
-                    modules: &program_comptime_modules,
-                },
-            },
-            body_timing_mode(db.context().timings),
-        )
+        body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)
     })
+}
+
+fn body_check_with_filter(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+) -> nia_body_check::BodyCheck {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let program_defs = defs_by_module_id(db);
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+    let lowered = db.query(TypeLoweringQuery(module_id));
+    let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
+    let signatures = db.query(ItemSignaturesQuery(module_id));
+    let normalization = db.query(TypeNormalizationQuery(module_id));
+    let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
+    let comptime = db.query(ComptimeQuery(module_id));
+    let comptime_module = db.query(ComptimeModuleQuery(module_id));
+    let layouts = db.query(LayoutsQuery(module_id));
+    let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
+    let extensions = db.query(VisibleExtensionsQuery(module_id));
+    let extension_methods = db.query(ExtensionMethodsQuery);
+    let program_signatures = db.query(ProgramSignaturesQuery);
+    let program_item_signatures = db.query(ProgramItemSignaturesQuery);
+    let program_comptime = db.query(ProgramComptimeQuery);
+    let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
+    nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+        nia_body_check::BodyCheckInput {
+            source_version: Some(loaded.source_version),
+            origins: &loaded.origins,
+            module: &loaded.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            lowered: &lowered,
+            signatures: &signatures,
+            normalization: &normalization,
+            target: &db.context().target,
+            comptime: &comptime,
+            comptime_module: &comptime_module.module,
+            layouts: &layouts,
+            extensions: &extensions.methods,
+            program_extension_methods: &extension_methods.methods,
+            extension_interner: Some(&extensions.interner),
+            program: nia_body_check::BodyProgramContext {
+                defs: Some(&program_defs),
+                type_lowerings: Some(&program_type_lowerings),
+                type_normalizations: Some(&program_type_normalizations),
+                signatures: Some(&program_item_signatures),
+                layouts: Some(&program_layouts),
+            },
+            program_signatures: program_signatures.maps(),
+            program_comptime: nia_body_check::ProgramComptimeMaps {
+                comptimes: &program_comptime,
+                modules: &program_comptime_modules,
+            },
+            filter,
+        },
+        body_timing_mode(db.context().timings),
+    )
 }
 
 fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
@@ -816,68 +817,41 @@ fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
     }
 }
 
-pub(super) fn provide_function_bodies(
-    db: &QueryDb<DriverContext>,
-    module_id: ModuleId,
-) -> LoweredFunctionBodies {
-    time_module_provider(db, "function_bodies", module_id, || {
-        let body_ir = db.query(BodyIrQuery(module_id));
-        let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
-            body_ir.function_bodies.iter(),
-            &body_ir.interner,
-        );
-        LoweredFunctionBodies { interner, bodies }
-    })
-}
-
-pub(super) fn provide_body_ir(
-    db: &QueryDb<DriverContext>,
-    module_id: ModuleId,
-) -> nia_body_ir::BodyIr {
-    db.query(BodyCheckQuery(module_id)).ir
-}
-
-pub(super) fn provide_semantic_facts(
-    db: &QueryDb<DriverContext>,
-    module_id: ModuleId,
-) -> nia_sema_ir::SemanticFacts {
-    db.query(BodyCheckQuery(module_id)).facts
-}
-
-pub(super) fn provide_body_diagnostics(
-    db: &QueryDb<DriverContext>,
-    module_id: ModuleId,
-) -> Vec<Diagnostic> {
-    db.query(BodyCheckQuery(module_id)).diagnostics
-}
-
 pub(super) fn provide_checked_module(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> CheckedModule {
     time_module_provider(db, "checked_module", module_id, || {
-        let loaded = db.query(LoadedModuleQuery(module_id));
-        CheckedModule {
-            id: loaded.id,
-            path: loaded.path,
-            defs: db.query(ModuleDefsQuery(module_id)),
-            type_resolution: db.query(TypeResolutionQuery(module_id)),
-            type_lowering: db.query(TypeLoweringQuery(module_id)),
-            value_resolution: db.query(ValueResolutionQuery(module_id)),
-            local_resolution: db.query(LocalResolutionQuery(module_id)),
-            item_signatures: db.query(ItemSignaturesQuery(module_id)),
-            type_normalization: db.query(TypeNormalizationQuery(module_id)),
-            comptime: db.query(ComptimeQuery(module_id)),
-            static_check: db.query(StaticCheckQuery(module_id)),
-            layouts: db.query(LayoutsQuery(module_id)),
-            abi_check: db.query(AbiCheckQuery(module_id)),
-            flow_check: db.query(FlowCheckQuery(module_id)),
-            body_ir: db.query(BodyIrQuery(module_id)),
-            semantic_uses: db.query(SemanticUseTableQuery(module_id)),
-            semantic_facts: db.query(SemanticFactsQuery(module_id)),
-            body_diagnostics: db.query(BodyDiagnosticsQuery(module_id)),
-        }
+        checked_module_with_body_check(db, module_id, db.query(BodyCheckQuery(module_id)))
     })
+}
+
+fn checked_module_with_body_check(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+    body_check: nia_body_check::BodyCheck,
+) -> CheckedModule {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    CheckedModule {
+        id: loaded.id,
+        path: loaded.path,
+        defs: db.query(ModuleDefsQuery(module_id)),
+        type_resolution: db.query(TypeResolutionQuery(module_id)),
+        type_lowering: db.query(TypeLoweringQuery(module_id)),
+        value_resolution: db.query(ValueResolutionQuery(module_id)),
+        local_resolution: db.query(LocalResolutionQuery(module_id)),
+        item_signatures: db.query(ItemSignaturesQuery(module_id)),
+        type_normalization: db.query(TypeNormalizationQuery(module_id)),
+        comptime: db.query(ComptimeQuery(module_id)),
+        static_check: db.query(StaticCheckQuery(module_id)),
+        layouts: db.query(LayoutsQuery(module_id)),
+        abi_check: db.query(AbiCheckQuery(module_id)),
+        flow_check: db.query(FlowCheckQuery(module_id)),
+        body_ir: body_check.ir,
+        semantic_uses: db.query(SemanticUseTableQuery(module_id)),
+        semantic_facts: body_check.facts,
+        body_diagnostics: body_check.diagnostics,
+    }
 }
 
 pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
@@ -903,16 +877,281 @@ pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<Checke
     })
 }
 
+pub(super) fn provide_executable_checked_modules(
+    db: &QueryDb<DriverContext>,
+) -> Vec<CheckedModule> {
+    time_provider(db.context().timings, "executable_checked_modules", || {
+        if db.context().loaded.runtime != RuntimeModel::FreestandingExecutable {
+            return db.query(CheckedModulesQuery);
+        }
+        time_provider(
+            db.context().timings,
+            "executable_checked_modules.shared_inputs",
+            || {
+                let _ = db.query(ProgramTypeLoweringsQuery);
+                let _ = db.query(ProgramItemSignaturesQuery);
+                let _ = db.query(ProgramTypeNormalizationsQuery);
+                let _ = db.query(ProgramSignaturesQuery);
+                let _ = db.query(ExtensionMethodsQuery);
+                let _ = db.query(ProgramComptimeModulesQuery);
+                let _ = db.query(ProgramComptimeQuery);
+            },
+        );
+        executable_checked_modules_inner(db)
+    })
+}
+
+fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+    let parse_ok = db.query(ParseOkModuleIdsQuery);
+    let graph = db.query(ModuleGraphQuery);
+    let defs_by_id = defs_by_module_id(db);
+    let program_signatures = db.query(ProgramSignaturesQuery);
+    let extension_methods = db.query(ExtensionMethodsQuery);
+
+    let mut reachable_functions = executable_root_functions(&graph, &defs_by_id);
+    let mut reachable_modules = reachable_functions
+        .iter()
+        .map(|def_id| def_id.module_id)
+        .collect::<HashSet<_>>();
+    add_reachable_module(graph.root(), &mut reachable_modules, &mut VecDeque::new());
+
+    let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
+    let mut checked_by_id = HashMap::<ModuleId, CheckedModule>::new();
+    let mut checked_functions_by_module = HashMap::<ModuleId, HashSet<GlobalDefId>>::new();
+    loop {
+        let before = (reachable_functions.len(), reachable_modules.len());
+        let filter = nia_body_check::BodyCheckFilter::ReachableFunctions(&reachable_functions);
+        let module_ids = parse_ok
+            .iter()
+            .copied()
+            .filter(|module_id| reachable_modules.contains(module_id))
+            .collect::<Vec<_>>();
+        for module_id in module_ids {
+            let module_functions = reachable_functions
+                .iter()
+                .copied()
+                .filter(|def_id| def_id.module_id == module_id)
+                .collect::<HashSet<_>>();
+            if checked_by_id.contains_key(&module_id)
+                && checked_functions_by_module.get(&module_id) == Some(&module_functions)
+            {
+                continue;
+            }
+            let body_check = time_module_provider(db, "executable_body_check", module_id, || {
+                body_check_with_filter(db, module_id, filter)
+            });
+            let checked = checked_module_with_body_check(db, module_id, body_check);
+            checked_by_id.insert(module_id, checked);
+            checked_functions_by_module.insert(module_id, module_functions);
+        }
+
+        let mut reachable_traits = HashSet::new();
+        for checked in checked_by_id.values() {
+            let mut pending_modules = VecDeque::new();
+            extend_reachable_functions_from_semantic_facts(
+                checked,
+                &program_signatures,
+                &mut reachable_functions,
+                &mut reachable_modules,
+                &mut pending_modules,
+            );
+            collect_semantic_fact_trait_ids(checked, &mut reachable_traits);
+            collect_interner_owner_modules(
+                &checked.body_ir.interner,
+                &mut reachable_modules,
+                &mut pending_modules,
+                &mut reachable_traits,
+            );
+            collect_interner_owner_modules(
+                &checked.type_normalization.interner,
+                &mut reachable_modules,
+                &mut pending_modules,
+                &mut reachable_traits,
+            );
+        }
+        let mut pending_modules = VecDeque::new();
+        extend_reachable_functions_from_traits(
+            &program_signatures,
+            &extension_methods.methods,
+            &reachable_traits,
+            &reachable_modules,
+            &mut reachable_functions,
+            &mut pending_modules,
+        );
+        while let Some(module_id) = pending_modules.pop_front() {
+            if !parse_ok_set.contains(&module_id) {
+                continue;
+            }
+            reachable_modules.insert(module_id);
+        }
+        if before == (reachable_functions.len(), reachable_modules.len()) {
+            break;
+        }
+    }
+
+    if db.context().timings.detail() {
+        let checked_module_count = checked_by_id.len();
+        let checked_body_count = checked_by_id
+            .values()
+            .map(|module| module.body_ir.function_bodies.len())
+            .sum::<usize>();
+        eprintln!(
+            "query timing executable_checked_modules.reachable: modules={} functions={} bodies={}",
+            reachable_modules.len(),
+            reachable_functions.len(),
+            checked_body_count
+        );
+        eprintln!(
+            "query timing executable_checked_modules.checked: modules={checked_module_count}"
+        );
+    }
+
+    parse_ok
+        .into_iter()
+        .filter(|module_id| reachable_modules.contains(module_id))
+        .filter_map(|module_id| checked_by_id.remove(&module_id))
+        .collect()
+}
+
+fn executable_root_functions(
+    graph: &ModuleGraph,
+    defs_by_id: &HashMap<ModuleId, DefCollection>,
+) -> HashSet<GlobalDefId> {
+    let mut roots = HashSet::new();
+    if let Some(main) = named_function(defs_by_id, graph.root(), "main") {
+        roots.insert(main);
+    }
+    if let Some(start_module) = freestanding_start_module(graph)
+        && let Some(start) = named_function(defs_by_id, start_module, "_start")
+    {
+        roots.insert(start);
+        roots.extend(module_functions(defs_by_id, start_module));
+    }
+    roots
+}
+
+fn module_functions(
+    defs_by_id: &HashMap<ModuleId, DefCollection>,
+    module_id: ModuleId,
+) -> impl Iterator<Item = GlobalDefId> + '_ {
+    defs_by_id
+        .get(&module_id)
+        .into_iter()
+        .flat_map(move |defs| {
+            defs.defs.iter().filter_map(move |(def_id, def)| {
+                (def.kind == DefKind::Function).then_some(GlobalDefId { module_id, def_id })
+            })
+        })
+}
+
+fn named_function(
+    defs_by_id: &HashMap<ModuleId, DefCollection>,
+    module_id: ModuleId,
+    name: &str,
+) -> Option<GlobalDefId> {
+    defs_by_id.get(&module_id).and_then(|defs| {
+        defs.defs.iter().find_map(|(def_id, def)| {
+            (def.kind == DefKind::Function && def.name == name)
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+    })
+}
+
+fn extend_reachable_functions_from_semantic_facts(
+    module: &CheckedModule,
+    program_signatures: &ProgramSignatures,
+    reachable_functions: &mut HashSet<GlobalDefId>,
+    reachable_modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+) {
+    for def_id in semantic_fact_callees(module) {
+        add_reachable_function(
+            def_id,
+            program_signatures,
+            reachable_functions,
+            reachable_modules,
+            pending_modules,
+        );
+    }
+}
+
+fn extend_reachable_functions_from_traits(
+    program_signatures: &ProgramSignatures,
+    extension_methods: &nia_defs::ExtensionMethods,
+    reachable_traits: &HashSet<TraitId>,
+    reachable_modules: &HashSet<ModuleId>,
+    reachable_functions: &mut HashSet<GlobalDefId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+) {
+    let mut modules = reachable_modules.clone();
+    for trait_id in reachable_traits {
+        let TraitId::Source(trait_def) = trait_id else {
+            continue;
+        };
+        if !reachable_modules.contains(&trait_def.module_id) {
+            continue;
+        }
+        let Some(trait_signature) = program_signatures.traits.get(trait_def) else {
+            continue;
+        };
+        for method in &trait_signature.signature.methods {
+            if method.has_default {
+                add_reachable_function(
+                    GlobalDefId {
+                        module_id: trait_def.module_id,
+                        def_id: method.def_id,
+                    },
+                    program_signatures,
+                    reachable_functions,
+                    &mut modules,
+                    pending_modules,
+                );
+            }
+        }
+    }
+    for method in extension_methods.all_methods() {
+        if method
+            .trait_id
+            .is_some_and(|trait_id| reachable_traits.contains(&trait_id))
+        {
+            add_reachable_function(
+                method.def_id,
+                program_signatures,
+                reachable_functions,
+                &mut modules,
+                pending_modules,
+            );
+        }
+    }
+}
+
+fn add_reachable_function(
+    def_id: GlobalDefId,
+    program_signatures: &ProgramSignatures,
+    reachable_functions: &mut HashSet<GlobalDefId>,
+    reachable_modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+) {
+    let Some(signature) = program_signatures.functions.get(&def_id) else {
+        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
+        return;
+    };
+    if signature.signature.is_comptime || !signature.signature.has_body {
+        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
+        return;
+    }
+    if reachable_functions.insert(def_id) {
+        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
+    }
+}
+
 pub(super) fn provide_monomorphization(
     db: &QueryDb<DriverContext>,
 ) -> nia_monomorphize::Monomorphization {
     time_provider(db.context().timings, "monomorphization", || {
-        let checked_modules = db.query(CheckedModulesQuery);
+        let checked_modules = checked_modules_for_codegen(db);
         let program_signatures = db.query(ProgramSignaturesQuery);
-        let function_bodies = checked_modules
-            .iter()
-            .map(|module| (module.id, db.query(FunctionBodiesQuery(module.id))))
-            .collect::<HashMap<_, _>>();
+        let function_bodies = function_bodies_from_checked_modules(&checked_modules);
         nia_monomorphize::collect_monomorphizations(
             &checked_modules
                 .iter()
@@ -937,6 +1176,29 @@ pub(super) fn provide_monomorphization(
     })
 }
 
+fn checked_modules_for_codegen(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+    if db.context().loaded.runtime == RuntimeModel::FreestandingExecutable {
+        db.query(ExecutableCheckedModulesQuery)
+    } else {
+        db.query(CheckedModulesQuery)
+    }
+}
+
+fn function_bodies_from_checked_modules(
+    checked_modules: &[CheckedModule],
+) -> HashMap<ModuleId, LoweredFunctionBodies> {
+    checked_modules
+        .iter()
+        .map(|module| {
+            let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
+                module.body_ir.function_bodies.iter(),
+                &module.body_ir.interner,
+            );
+            (module.id, LoweredFunctionBodies { interner, bodies })
+        })
+        .collect()
+}
+
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<DriverContext>,
 ) -> nia_backend_lower::BackendLowering {
@@ -948,9 +1210,9 @@ pub(super) fn provide_backend_lowering(
 fn provide_backend_lowering_inner(
     db: &QueryDb<DriverContext>,
 ) -> nia_backend_lower::BackendLowering {
-    let all_checked_modules = db.query(CheckedModulesQuery);
+    let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
-    let checked_modules = backend_checked_modules(db, all_checked_modules, &monomorphization);
+    let checked_modules = all_checked_modules;
     let (loaded_modules, visible_extensions, extension_methods, function_bodies) =
         time_provider(db.context().timings, "backend_lowering.inputs", || {
             let loaded_modules = checked_modules
@@ -962,9 +1224,15 @@ fn provide_backend_lowering_inner(
                 .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
                 .collect::<Vec<_>>();
             let extension_methods = db.query(ExtensionMethodsQuery);
+            let function_bodies_by_id = function_bodies_from_checked_modules(&checked_modules);
             let function_bodies = checked_modules
                 .iter()
-                .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
+                .map(|checked_module| {
+                    function_bodies_by_id
+                        .get(&checked_module.id)
+                        .expect("missing lowered function bodies")
+                        .clone()
+                })
                 .collect::<Vec<_>>();
             (
                 loaded_modules,
@@ -1035,6 +1303,7 @@ fn provide_backend_lowering_inner(
                             comptime: &checked_module.comptime,
                             layouts: &checked_module.layouts,
                             function_bodies: &function_bodies.bodies,
+                            roots: backend_function_roots(),
                             program_function_bodies: &program_function_bodies,
                             extension_interner: Some(&visible_extensions.interner),
                             program_extension_methods: &extension_methods.methods,
@@ -1067,147 +1336,8 @@ fn provide_backend_lowering_inner(
     )
 }
 
-fn backend_checked_modules(
-    db: &QueryDb<DriverContext>,
-    checked_modules: Vec<CheckedModule>,
-    monomorphization: &nia_monomorphize::Monomorphization,
-) -> Vec<CheckedModule> {
-    if db.context().loaded.runtime != RuntimeModel::FreestandingExecutable {
-        return checked_modules;
-    }
-    let reachable = executable_backend_modules(db, &checked_modules, monomorphization);
-    if reachable.is_empty() {
-        return checked_modules;
-    }
-    checked_modules
-        .into_iter()
-        .filter(|module| reachable.contains(&module.id))
-        .collect()
-}
-
-fn executable_backend_modules(
-    db: &QueryDb<DriverContext>,
-    checked_modules: &[CheckedModule],
-    monomorphization: &nia_monomorphize::Monomorphization,
-) -> HashSet<ModuleId> {
-    let mut functions_by_def = HashMap::new();
-    let mut named_functions = HashMap::<(ModuleId, &str), GlobalDefId>::new();
-    for module in checked_modules {
-        for (def_id, def) in module.defs.defs.iter() {
-            if def.kind != DefKind::Function {
-                continue;
-            }
-            let global = GlobalDefId {
-                module_id: module.id,
-                def_id,
-            };
-            functions_by_def.insert(global, module);
-            named_functions.insert((module.id, def.name.as_str()), global);
-        }
-    }
-
-    let graph = db.query(ModuleGraphQuery);
-    let mut pending = VecDeque::new();
-    if let Some(root_main) = named_functions.get(&(graph.root(), "main")).copied() {
-        pending.push_back(root_main);
-    }
-    if let Some(start_module) = freestanding_start_module(&graph)
-        && let Some(start) = named_functions.get(&(start_module, "_start")).copied()
-    {
-        pending.push_back(start);
-    }
-
-    let mut reachable_modules = HashSet::new();
-    let mut pending_modules = VecDeque::new();
-    let mut expanded_modules = HashSet::new();
-    let mut reachable_traits = HashSet::new();
-    let mut functions_seen = HashSet::new();
-    let checked_by_id = checked_modules
-        .iter()
-        .map(|module| (module.id, module))
-        .collect::<HashMap<_, _>>();
-    while let Some(function) = pending.pop_front() {
-        if !functions_seen.insert(function) {
-            continue;
-        }
-        add_reachable_module(
-            function.module_id,
-            &mut reachable_modules,
-            &mut pending_modules,
-        );
-        expand_reachable_module_owners(
-            function.module_id,
-            &checked_by_id,
-            &mut reachable_modules,
-            &mut pending_modules,
-            &mut expanded_modules,
-            &mut reachable_traits,
-        );
-        let Some(module) = functions_by_def.get(&function).copied() else {
-            continue;
-        };
-        for callee in semantic_fact_callees(module) {
-            if functions_by_def.contains_key(&callee) {
-                pending.push_back(callee);
-            } else {
-                add_reachable_module(
-                    callee.module_id,
-                    &mut reachable_modules,
-                    &mut pending_modules,
-                );
-            }
-        }
-    }
-
-    add_reachable_module(graph.root(), &mut reachable_modules, &mut pending_modules);
-    for instance in &monomorphization.instances {
-        add_reachable_module(
-            instance.def_id.module_id,
-            &mut reachable_modules,
-            &mut pending_modules,
-        );
-        collect_ty_ids_owner_modules(&instance.args, &mut reachable_modules, &mut pending_modules);
-    }
-    while let Some(module_id) = pending_modules.pop_front() {
-        expand_reachable_module_owners(
-            module_id,
-            &checked_by_id,
-            &mut reachable_modules,
-            &mut pending_modules,
-            &mut expanded_modules,
-            &mut reachable_traits,
-        );
-    }
-    let program_signatures = db.query(ProgramSignaturesQuery);
-    for trait_impl in &program_signatures.trait_impls {
-        if reachable_traits.contains(&trait_impl.trait_id)
-            || trait_id_module_is_reachable(trait_impl.trait_id, &reachable_modules)
-        {
-            add_reachable_module(
-                trait_impl.module_id,
-                &mut reachable_modules,
-                &mut pending_modules,
-            );
-        }
-    }
-    while let Some(module_id) = pending_modules.pop_front() {
-        expand_reachable_module_owners(
-            module_id,
-            &checked_by_id,
-            &mut reachable_modules,
-            &mut pending_modules,
-            &mut expanded_modules,
-            &mut reachable_traits,
-        );
-    }
-    reachable_modules
-}
-
-fn trait_id_module_is_reachable(trait_id: TraitId, reachable_modules: &HashSet<ModuleId>) -> bool {
-    match trait_id {
-        TraitId::Source(def_id) => reachable_modules.contains(&def_id.module_id),
-        TraitId::Builtin(_) => true,
-    }
+fn backend_function_roots() -> nia_backend_lower::BackendFunctionRoots {
+    nia_backend_lower::BackendFunctionRoots::FunctionBodies
 }
 
 fn add_reachable_module(
@@ -1218,50 +1348,6 @@ fn add_reachable_module(
     if reachable_modules.insert(module_id) {
         pending_modules.push_back(module_id);
     }
-}
-
-fn expand_reachable_module_owners(
-    module_id: ModuleId,
-    checked_modules: &HashMap<ModuleId, &CheckedModule>,
-    reachable_modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
-    expanded_modules: &mut HashSet<ModuleId>,
-    reachable_traits: &mut HashSet<TraitId>,
-) {
-    if !expanded_modules.insert(module_id) {
-        return;
-    }
-    let Some(module) = checked_modules.get(&module_id).copied() else {
-        return;
-    };
-    expand_reachable_module(module, reachable_modules, pending_modules, reachable_traits);
-}
-
-fn expand_reachable_module(
-    module: &CheckedModule,
-    reachable_modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
-    reachable_traits: &mut HashSet<TraitId>,
-) {
-    for def_id in semantic_fact_owner_defs(module) {
-        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
-    }
-    for def_id in semantic_fact_callees(module) {
-        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
-    }
-    collect_semantic_fact_trait_ids(module, reachable_traits);
-    collect_interner_owner_modules(
-        &module.type_normalization.interner,
-        reachable_modules,
-        pending_modules,
-        reachable_traits,
-    );
-    collect_interner_owner_modules(
-        &module.body_ir.interner,
-        reachable_modules,
-        pending_modules,
-        reachable_traits,
-    );
 }
 
 fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
@@ -1312,41 +1398,6 @@ fn semantic_fact_callees(module: &CheckedModule) -> Vec<GlobalDefId> {
         }
     }
     callees
-}
-
-fn semantic_fact_owner_defs(module: &CheckedModule) -> Vec<GlobalDefId> {
-    let mut owners = Vec::new();
-    owners.extend(
-        module
-            .semantic_uses
-            .node_value_uses
-            .values()
-            .filter_map(|value| match value {
-                nia_sema_ir::SemanticValueUse::Global(def_id) => Some(*def_id),
-                nia_sema_ir::SemanticValueUse::Local(_) => None,
-            }),
-    );
-    for call in module.semantic_facts.node_resolved_calls.values() {
-        match call {
-            ResolvedCall::Function(def_id)
-            | ResolvedCall::FunctionInstance { def_id, .. }
-            | ResolvedCall::Method { def_id, .. } => owners.push(*def_id),
-            ResolvedCall::TraitMethod {
-                trait_id,
-                method_id,
-                ..
-            } => {
-                owners.push(*trait_id);
-                owners.push(*method_id);
-            }
-            ResolvedCall::DynamicTraitMethod { method_id, .. } => owners.push(*method_id),
-            ResolvedCall::BuiltinTraitMethod { .. }
-            | ResolvedCall::BuiltinMethod { .. }
-            | ResolvedCall::BuiltinPlaceMethod { .. }
-            | ResolvedCall::FunctionPointer => {}
-        }
-    }
-    owners
 }
 
 fn collect_semantic_fact_trait_ids(module: &CheckedModule, traits: &mut HashSet<TraitId>) {

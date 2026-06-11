@@ -564,7 +564,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn backend_lowering_uses_function_body_query() {
+    fn backend_lowering_uses_checked_module_body_ir() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -576,14 +576,74 @@ fn main() i32 {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering" && dependency.to.name == "function_bodies"
+            dependency.from.name == "backend_lowering" && dependency.to.name == "checked_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "function_bodies" && dependency.to.name == "body_ir"
+            dependency.from.name == "checked_module" && dependency.to.name == "body_check"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_ir" && dependency.to.name == "body_check"
-        }));
+    }
+
+    #[test]
+    fn executable_checked_modules_include_reachable_builtin_trait_witness_bodies() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+fn main() i32 {
+    var total = 0;
+    var iter = Counter { current: 0, end: 3 };
+    for value in iter {
+        total += value;
+    }
+    total
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("root module should be executable-reachable");
+        let next = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Method && def.name == "next").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("Iterator witness method");
+
+        assert!(
+            module.body_ir.function_bodies.contains_key(&next),
+            "executable body checking must include builtin trait witness bodies"
+        );
     }
 
     #[test]

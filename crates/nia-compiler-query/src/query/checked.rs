@@ -30,3 +30,18 @@ impl QueryKey<DriverContext> for CheckedModulesQuery {
         (db.context().providers.checked_modules)(db)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableCheckedModulesQuery;
+
+impl QueryKey<DriverContext> for ExecutableCheckedModulesQuery {
+    type Value = Vec<CheckedModule>;
+
+    fn name() -> &'static str {
+        "executable_checked_modules"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        provide_executable_checked_modules(db)
+    }
+}

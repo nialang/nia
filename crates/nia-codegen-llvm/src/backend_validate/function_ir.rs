@@ -28,7 +28,9 @@ impl BackendValidator<'_> {
                 .collect(),
         );
         for local in &body.locals {
+            self.current_subject = Some("local");
             self.validate_runtime_type(local.ty, local.span);
+            self.current_subject = None;
         }
         for block in &body.blocks {
             for op in &block.ops {
@@ -51,7 +53,9 @@ impl BackendValidator<'_> {
     fn validate_op(&mut self, op: &FunctionOp) {
         match op {
             FunctionOp::Binding(binding) => {
+                self.current_subject = Some("binding");
                 self.validate_runtime_type(binding.ty, Span::default());
+                self.current_subject = None;
                 if let Some(local_tys) = self.local_tys.last_mut() {
                     local_tys.insert(binding.local_id, binding.ty);
                 }
@@ -106,7 +110,9 @@ impl BackendValidator<'_> {
         if matches!(expr.kind, FunctionExprKind::Error) {
             return;
         }
+        self.current_subject = Some("expr");
         self.validate_type(expr.ty, expr.span);
+        self.current_subject = None;
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {
                 if !self.index.globals.contains_key(def_id) {

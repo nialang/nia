@@ -69,6 +69,22 @@ pub struct ProgramComptimeMaps<'a> {
     pub modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum BodyCheckFilter<'a> {
+    #[default]
+    All,
+    ReachableFunctions(&'a HashSet<GlobalDefId>),
+}
+
+impl BodyCheckFilter<'_> {
+    fn includes(self, def_id: GlobalDefId) -> bool {
+        match self {
+            Self::All => true,
+            Self::ReachableFunctions(functions) => functions.contains(&def_id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BodyTimingMode {
     #[default]
@@ -137,6 +153,7 @@ pub struct BodyCheckInput<'a> {
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
     pub program_comptime: ProgramComptimeMaps<'a>,
+    pub filter: BodyCheckFilter<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -236,6 +253,7 @@ pub fn check_module_bodies(
             comptimes: &empty_program_comptime,
             modules: &empty_program_comptime_modules,
         },
+        filter: BodyCheckFilter::All,
     });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -280,6 +298,7 @@ pub fn check_module_bodies_with_program_signatures(
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: BodyCheckFilter::All,
     });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -349,6 +368,16 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
 ) -> BodyCheck {
     let timing = timings.enabled();
     let module_id = input.defs.module_id;
+    let mut interner = input
+        .extension_interner
+        .cloned()
+        .unwrap_or_else(|| input.normalization.interner.clone());
+    let extension_methods_by_id = BodyChecker::extension_method_lookup(
+        input.extensions,
+        input.program_extension_methods,
+        &mut interner,
+        input.program.type_normalizations,
+    );
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         module: input.module,
         defs: input.defs,
@@ -356,10 +385,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
-        interner: input
-            .extension_interner
-            .cloned()
-            .unwrap_or_else(|| input.normalization.interner.clone()),
+        interner,
         node_type_uses: &input.lowered.node_type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
@@ -380,7 +406,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         program_comptime_modules: input.program_comptime.modules,
-        extension_methods_by_id: BodyChecker::extension_method_lookup(input.extensions),
+        extension_methods_by_id,
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
@@ -410,6 +436,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         current_param_locals: Vec::new(),
         comptime_context_depth: 0,
         comptime_call_locals: Vec::new(),
+        body_filter: input.filter,
     });
     time_body_stage(timing, "body_check.seed_global_types", module_id, || {
         checker.seed_global_types();
@@ -538,6 +565,7 @@ struct BodyChecker<'a> {
     current_param_locals: Vec<LocalId>,
     comptime_context_depth: usize,
     comptime_call_locals: Vec<ComptimeCallFrame>,
+    body_filter: BodyCheckFilter<'a>,
 }
 
 #[derive(Debug, Clone)]
@@ -567,6 +595,9 @@ struct ReceiverBase {
 impl<'a> BodyChecker<'a> {
     fn extension_method_lookup(
         extensions: &VisibleExtensionMethods,
+        program_extensions: &ExtensionMethods,
+        interner: &mut TyInterner,
+        program_normalizations: Option<&HashMap<ModuleId, TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
         for target in extensions.targets() {
@@ -579,6 +610,25 @@ impl<'a> BodyChecker<'a> {
                     },
                 );
             }
+        }
+        for method in program_extensions.all_methods() {
+            if methods.contains_key(&method.def_id) {
+                continue;
+            }
+            let target_ty = program_normalizations
+                .and_then(|normalizations| normalizations.get(&method.def_id.module_id))
+                .map(|normalization| {
+                    let target_ty = normalization.normalize(method.target_ty);
+                    nia_ty::import_type_into(interner, &normalization.interner, target_ty)
+                })
+                .unwrap_or(method.target_ty);
+            methods.insert(
+                method.def_id,
+                ExtensionMethodLookup {
+                    target_ty,
+                    impl_generics: method.impl_generics.clone(),
+                },
+            );
         }
         Arc::new(methods)
     }
@@ -915,6 +965,9 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
+        if !self.body_filter.includes(self.global_def_id(def_id)) {
+            return;
+        }
         self.check_function(def_id, function);
     }
 
@@ -923,6 +976,9 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
+        if !self.body_filter.includes(self.global_def_id(def_id)) {
+            return;
+        }
         self.check_function(def_id, function);
     }
 
@@ -932,6 +988,9 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
+        if !self.body_filter.includes(self.global_def_id(def_id)) {
+            return;
+        }
         self.check_function(def_id, function);
     }
 

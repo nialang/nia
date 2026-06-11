@@ -160,6 +160,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
+        filter: crate::BodyCheckFilter::All,
     })
 }
 

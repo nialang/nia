@@ -48,12 +48,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
         let method_id = self.global_def_id(def_id);
-        for item in self.extensions.targets() {
-            if item.methods.iter().any(|method| method.def_id == method_id) {
-                return Some(item.target_ty);
-            }
-        }
-        None
+        self.extension_methods_by_id
+            .get(&method_id)
+            .map(|method| method.target_ty)
     }
 
     pub(crate) fn method_owner_trait_object_type(&mut self, def_id: DefId) -> Option<InternedTyId> {

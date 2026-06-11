@@ -796,6 +796,7 @@ impl<'a> BodyChecker<'a> {
             current_param_locals: self.current_param_locals.clone(),
             comptime_context_depth: self.comptime_context_depth,
             comptime_call_locals: Vec::new(),
+            body_filter: self.body_filter,
         }
     }
 
