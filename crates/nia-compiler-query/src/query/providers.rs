@@ -964,7 +964,7 @@ fn provide_backend_lowering_inner(
 ) -> nia_backend_lower::BackendLowering {
     let all_checked_modules = db.query(CheckedModulesQuery);
     let monomorphization = db.query(MonomorphizationQuery);
-    let checked_modules = backend_checked_modules(db, all_checked_modules);
+    let checked_modules = backend_checked_modules(db, all_checked_modules, &monomorphization);
     let (loaded_modules, visible_extensions, extension_methods, function_bodies) =
         time_provider(db.context().timings, "backend_lowering.inputs", || {
             let loaded_modules = checked_modules
@@ -1084,11 +1084,12 @@ fn provide_backend_lowering_inner(
 fn backend_checked_modules(
     db: &QueryDb<DriverContext>,
     checked_modules: Vec<CheckedModule>,
+    monomorphization: &nia_monomorphize::Monomorphization,
 ) -> Vec<CheckedModule> {
     if db.context().loaded.runtime != RuntimeModel::FreestandingExecutable {
         return checked_modules;
     }
-    let reachable = executable_backend_modules(db, &checked_modules);
+    let reachable = executable_backend_modules(db, &checked_modules, monomorphization);
     if reachable.is_empty() {
         return checked_modules;
     }
@@ -1101,6 +1102,7 @@ fn backend_checked_modules(
 fn executable_backend_modules(
     db: &QueryDb<DriverContext>,
     checked_modules: &[CheckedModule],
+    monomorphization: &nia_monomorphize::Monomorphization,
 ) -> HashSet<ModuleId> {
     let mut functions_by_def = HashMap::new();
     let mut named_functions = HashMap::<(ModuleId, &str), GlobalDefId>::new();
@@ -1132,7 +1134,12 @@ fn executable_backend_modules(
     let mut reachable_modules = HashSet::new();
     let mut pending_modules = VecDeque::new();
     let mut expanded_modules = HashSet::new();
+    let mut reachable_traits = HashSet::new();
     let mut functions_seen = HashSet::new();
+    let checked_by_id = checked_modules
+        .iter()
+        .map(|module| (module.id, module))
+        .collect::<HashMap<_, _>>();
     while let Some(function) = pending.pop_front() {
         if !functions_seen.insert(function) {
             continue;
@@ -1144,10 +1151,11 @@ fn executable_backend_modules(
         );
         expand_reachable_module_owners(
             function.module_id,
-            checked_modules,
+            &checked_by_id,
             &mut reachable_modules,
             &mut pending_modules,
             &mut expanded_modules,
+            &mut reachable_traits,
         );
         let Some(module) = functions_by_def.get(&function).copied() else {
             continue;
@@ -1166,24 +1174,54 @@ fn executable_backend_modules(
     }
 
     add_reachable_module(graph.root(), &mut reachable_modules, &mut pending_modules);
-    let program_signatures = db.query(ProgramSignaturesQuery);
-    for trait_impl in &program_signatures.trait_impls {
+    for instance in &monomorphization.instances {
         add_reachable_module(
-            trait_impl.module_id,
+            instance.def_id.module_id,
             &mut reachable_modules,
             &mut pending_modules,
         );
+        collect_ty_ids_owner_modules(&instance.args, &mut reachable_modules, &mut pending_modules);
     }
     while let Some(module_id) = pending_modules.pop_front() {
         expand_reachable_module_owners(
             module_id,
-            checked_modules,
+            &checked_by_id,
             &mut reachable_modules,
             &mut pending_modules,
             &mut expanded_modules,
+            &mut reachable_traits,
+        );
+    }
+    let program_signatures = db.query(ProgramSignaturesQuery);
+    for trait_impl in &program_signatures.trait_impls {
+        if reachable_traits.contains(&trait_impl.trait_id)
+            || trait_id_module_is_reachable(trait_impl.trait_id, &reachable_modules)
+        {
+            add_reachable_module(
+                trait_impl.module_id,
+                &mut reachable_modules,
+                &mut pending_modules,
+            );
+        }
+    }
+    while let Some(module_id) = pending_modules.pop_front() {
+        expand_reachable_module_owners(
+            module_id,
+            &checked_by_id,
+            &mut reachable_modules,
+            &mut pending_modules,
+            &mut expanded_modules,
+            &mut reachable_traits,
         );
     }
     reachable_modules
+}
+
+fn trait_id_module_is_reachable(trait_id: TraitId, reachable_modules: &HashSet<ModuleId>) -> bool {
+    match trait_id {
+        TraitId::Source(def_id) => reachable_modules.contains(&def_id.module_id),
+        TraitId::Builtin(_) => true,
+    }
 }
 
 fn add_reachable_module(
@@ -1198,29 +1236,46 @@ fn add_reachable_module(
 
 fn expand_reachable_module_owners(
     module_id: ModuleId,
-    checked_modules: &[CheckedModule],
+    checked_modules: &HashMap<ModuleId, &CheckedModule>,
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     expanded_modules: &mut HashSet<ModuleId>,
+    reachable_traits: &mut HashSet<TraitId>,
 ) {
     if !expanded_modules.insert(module_id) {
         return;
     }
-    let Some(module) = checked_modules.iter().find(|module| module.id == module_id) else {
+    let Some(module) = checked_modules.get(&module_id).copied() else {
         return;
     };
+    expand_reachable_module(module, reachable_modules, pending_modules, reachable_traits);
+}
+
+fn expand_reachable_module(
+    module: &CheckedModule,
+    reachable_modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+    reachable_traits: &mut HashSet<TraitId>,
+) {
     for def_id in semantic_fact_owner_defs(module) {
         add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
     }
     for def_id in semantic_fact_callees(module) {
         add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
     }
+    collect_semantic_fact_trait_ids(module, reachable_traits);
     collect_interner_owner_modules(
         &module.type_normalization.interner,
         reachable_modules,
         pending_modules,
+        reachable_traits,
     );
-    collect_interner_owner_modules(&module.body_ir.interner, reachable_modules, pending_modules);
+    collect_interner_owner_modules(
+        &module.body_ir.interner,
+        reachable_modules,
+        pending_modules,
+        reachable_traits,
+    );
 }
 
 fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
@@ -1308,13 +1363,36 @@ fn semantic_fact_owner_defs(module: &CheckedModule) -> Vec<GlobalDefId> {
     owners
 }
 
+fn collect_semantic_fact_trait_ids(module: &CheckedModule, traits: &mut HashSet<TraitId>) {
+    for call in module.semantic_facts.node_resolved_calls.values() {
+        match call {
+            ResolvedCall::TraitMethod { trait_id, .. } => {
+                traits.insert(TraitId::Source(*trait_id));
+            }
+            ResolvedCall::DynamicTraitMethod { trait_id, .. } => {
+                traits.insert(*trait_id);
+            }
+            ResolvedCall::BuiltinTraitMethod { trait_id, .. }
+            | ResolvedCall::BuiltinPlaceMethod { trait_id, .. } => {
+                traits.insert(TraitId::Builtin(*trait_id));
+            }
+            ResolvedCall::Function(_)
+            | ResolvedCall::FunctionInstance { .. }
+            | ResolvedCall::Method { .. }
+            | ResolvedCall::BuiltinMethod { .. }
+            | ResolvedCall::FunctionPointer => {}
+        }
+    }
+}
+
 fn collect_interner_owner_modules(
     interner: &TyInterner,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
 ) {
     for (_, ty) in interner.iter() {
-        collect_ty_owner_modules(ty, modules, pending_modules);
+        collect_ty_owner_modules(ty, modules, pending_modules, traits);
     }
 }
 
@@ -1322,6 +1400,7 @@ fn collect_ty_owner_modules(
     ty: &TyKind,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
 ) {
     match ty {
         TyKind::Nominal { def_id, args } => {
@@ -1367,12 +1446,13 @@ fn collect_ty_owner_modules(
             trait_args,
             associated_type_bindings,
         } => {
-            collect_trait_id_owner_module(*trait_id, modules, pending_modules);
+            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
             collect_ty_ids_owner_modules(trait_args, modules, pending_modules);
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
                 modules,
                 pending_modules,
+                traits,
             );
         }
         TyKind::Projection {
@@ -1382,7 +1462,7 @@ fn collect_ty_owner_modules(
             ..
         } => {
             add_reachable_module(self_ty.interner_id, modules, pending_modules);
-            collect_trait_id_owner_module(*trait_id, modules, pending_modules);
+            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
             collect_ty_ids_owner_modules(trait_args, modules, pending_modules);
         }
         TyKind::BuiltinTrait { args, .. } => {
@@ -1410,7 +1490,9 @@ fn collect_trait_id_owner_module(
     trait_id: TraitId,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
 ) {
+    traits.insert(trait_id);
     if let TraitId::Source(def_id) = trait_id {
         add_reachable_module(def_id.module_id, modules, pending_modules);
     }
@@ -1420,10 +1502,11 @@ fn collect_associated_binding_owner_modules(
     bindings: &[AssociatedTypeBindingTy],
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
 ) {
     for binding in bindings {
         if let Some(trait_id) = binding.trait_id {
-            collect_trait_id_owner_module(trait_id, modules, pending_modules);
+            collect_trait_id_owner_module(trait_id, modules, pending_modules, traits);
         }
         collect_ty_ids_owner_modules(&binding.trait_args, modules, pending_modules);
         add_reachable_module(binding.ty.interner_id, modules, pending_modules);

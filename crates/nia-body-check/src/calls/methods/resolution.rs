@@ -919,25 +919,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn extension_impl_generics_for_method(&self, method_id: GlobalDefId) -> Option<&[String]> {
-        self.extensions
-            .targets()
-            .iter()
-            .flat_map(|target| target.methods.iter())
-            .find(|method| method.def_id == method_id)
+        self.extension_methods_by_id
+            .get(&method_id)
             .map(|method| method.impl_generics.as_slice())
     }
 
     fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<InternedTyId> {
-        self.extensions
-            .targets()
-            .iter()
-            .find(|target| {
-                target
-                    .methods
-                    .iter()
-                    .any(|method| method.def_id == method_id)
-            })
-            .map(|target| target.target_ty)
+        self.extension_methods_by_id
+            .get(&method_id)
+            .map(|method| method.target_ty)
     }
 
     pub(crate) fn match_type_pattern(

@@ -164,6 +164,16 @@ pub fn lower_backend_program_with_timings(
     time_backend_stage(timing, "backend_lower.initial_modules", || {
         for lowerer in &mut lowerers {
             let module = lowerer.lower_module();
+            if timing {
+                eprintln!(
+                    "query timing backend_lower.module[{:?}]: functions={} instances={} structs={} unions={}",
+                    module.id,
+                    module.functions.len(),
+                    module.function_instances.len(),
+                    module.struct_instances.len(),
+                    module.union_instances.len()
+                );
+            }
             pending_foreign_instances
                 .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
             diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
