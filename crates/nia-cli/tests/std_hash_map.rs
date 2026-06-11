@@ -3,7 +3,7 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, temp_dir};
+use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
 fn emit_exe_std_hash_wyhash_matches_test_vectors() {

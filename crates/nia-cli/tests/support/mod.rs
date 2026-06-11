@@ -1,33 +1,64 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    collections::hash_map::DefaultHasher,
     fs,
+    hash::{Hash, Hasher},
     io::Read,
     path::PathBuf,
     process::{Command, ExitStatus, Output, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
-const COMMAND_LIMIT: usize = 4;
+const MAX_COMMAND_LIMIT: usize = 4;
+const MAX_ARTIFACT_EMIT_LIMIT: usize = 2;
+const COMMAND_SLOT_MEMORY_BYTES: usize = 384 * 1024 * 1024;
+const ARTIFACT_EMIT_SLOT_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const PERMIT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const COMMAND_SLOT_STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 
 struct CommandPermit {
-    slot: PathBuf,
+    slots: Vec<PathBuf>,
 }
 
-fn acquire_command_permit() -> CommandPermit {
-    let root = command_slot_root();
+#[derive(Clone, Copy)]
+enum CommandClass {
+    General,
+    ArtifactEmit,
+}
+
+#[derive(Clone, Copy)]
+enum SlotClass {
+    Command,
+    ArtifactEmit,
+}
+
+fn acquire_command_permit(class: CommandClass) -> CommandPermit {
+    let mut slots = vec![acquire_slot(SlotClass::Command)];
+    if matches!(class, CommandClass::ArtifactEmit) {
+        slots.push(acquire_slot(SlotClass::ArtifactEmit));
+    }
+    CommandPermit { slots }
+}
+
+fn acquire_slot(class: SlotClass) -> PathBuf {
+    let root = command_slot_root(class);
     fs::create_dir_all(&root).expect("create command slot root");
+    let start = Instant::now();
+    let mut sleep = Duration::from_millis(10);
     loop {
-        for index in 0..COMMAND_LIMIT {
+        for index in 0..slot_limit(class) {
             let slot = root.join(index.to_string());
             match fs::create_dir(&slot) {
                 Ok(()) => {
                     write_slot_owner(&slot);
-                    return CommandPermit { slot };
+                    return slot;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     reclaim_stale_slot(&slot);
@@ -35,14 +66,97 @@ fn acquire_command_permit() -> CommandPermit {
                 Err(error) => panic!("create command slot {}: {error}", slot.display()),
             }
         }
-        thread::sleep(Duration::from_millis(10));
+        if start.elapsed() >= PERMIT_TIMEOUT {
+            panic!(
+                "timed out after {PERMIT_TIMEOUT:?} waiting for {} command slot in {}",
+                class.slot_name(),
+                root.display()
+            );
+        }
+        thread::sleep(sleep);
+        sleep = (sleep * 2).min(Duration::from_millis(250));
     }
 }
 
-fn command_slot_root() -> PathBuf {
+fn command_slot_root(class: SlotClass) -> PathBuf {
     let mut root = std::env::temp_dir();
     root.push("nia_cli_command_slots");
+    root.push(workspace_slot_namespace());
+    root.push(class.slot_name());
     root
+}
+
+fn workspace_slot_namespace() -> String {
+    let mut hasher = DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn slot_limit(class: SlotClass) -> usize {
+    match class {
+        SlotClass::Command => command_slot_limit(),
+        SlotClass::ArtifactEmit => artifact_emit_slot_limit().min(command_slot_limit()),
+    }
+}
+
+fn command_slot_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let cpu_limit = available_parallelism().clamp(1, MAX_COMMAND_LIMIT);
+        let memory_limit =
+            memory_limited_parallelism(COMMAND_SLOT_MEMORY_BYTES).unwrap_or(MAX_COMMAND_LIMIT);
+        cpu_limit.min(memory_limit).clamp(1, MAX_COMMAND_LIMIT)
+    })
+}
+
+fn artifact_emit_slot_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let cpu_limit = (available_parallelism() / 4).clamp(1, MAX_ARTIFACT_EMIT_LIMIT);
+        let memory_limit =
+            memory_limited_parallelism(ARTIFACT_EMIT_SLOT_MEMORY_BYTES).unwrap_or(cpu_limit);
+        cpu_limit
+            .min(memory_limit)
+            .clamp(1, MAX_ARTIFACT_EMIT_LIMIT)
+    })
+}
+
+fn available_parallelism() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+}
+
+fn memory_limited_parallelism(bytes_per_slot: usize) -> Option<usize> {
+    let mem_available_kb = linux_mem_available_kb()?;
+    let available_bytes = mem_available_kb.saturating_mul(1024);
+    Some((available_bytes / bytes_per_slot).max(1))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_mem_available_kb() -> Option<usize> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    for line in meminfo.lines() {
+        let Some(rest) = line.strip_prefix("MemAvailable:") else {
+            continue;
+        };
+        return rest.split_whitespace().next()?.parse().ok();
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_mem_available_kb() -> Option<usize> {
+    None
+}
+
+impl SlotClass {
+    fn slot_name(self) -> &'static str {
+        match self {
+            SlotClass::Command => "command",
+            SlotClass::ArtifactEmit => "artifact_emit",
+        }
+    }
 }
 
 fn write_slot_owner(slot: &std::path::Path) {
@@ -53,15 +167,18 @@ fn reclaim_stale_slot(slot: &std::path::Path) {
     if slot_owner_is_alive(slot) {
         return;
     }
-    let stale_by_age = fs::metadata(slot)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-        .is_some_and(|elapsed| elapsed >= COMMAND_SLOT_STALE_AFTER);
-    if !stale_by_age && slot_owner_is_unknown(slot) {
+    if slot_owner_is_unknown(slot) && !slot_is_stale_by_age(slot) {
         return;
     }
     let _ = fs::remove_dir_all(slot);
+}
+
+fn slot_is_stale_by_age(slot: &std::path::Path) -> bool {
+    fs::metadata(slot)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|elapsed| elapsed >= COMMAND_SLOT_STALE_AFTER)
 }
 
 fn slot_owner_is_unknown(slot: &std::path::Path) -> bool {
@@ -93,18 +210,23 @@ fn process_is_alive(_pid: u32) -> bool {
 
 impl Drop for CommandPermit {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.slot);
+        while let Some(slot) = self.slots.pop() {
+            let _ = fs::remove_dir_all(slot);
+        }
     }
 }
 
 pub(crate) trait CommandExt {
     fn output_timeout(&mut self, context: &str) -> Output;
+}
+
+pub(crate) trait CommandStatusExt {
     fn status_timeout(&mut self, context: &str) -> ExitStatus;
 }
 
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
-        let _permit = acquire_command_permit();
+        let _permit = acquire_command_permit(classify_command(self));
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
         let mut child = self
@@ -143,14 +265,35 @@ impl CommandExt for Command {
             stderr,
         }
     }
+}
 
+impl CommandStatusExt for Command {
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
-        let _permit = acquire_command_permit();
+        let _permit = acquire_command_permit(classify_command(self));
+        self.stdout(Stdio::null()).stderr(Stdio::null());
         prepare_command(self);
         let mut child = self
             .spawn()
             .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
         wait_child_timeout(&mut child, context)
+    }
+}
+
+fn classify_command(command: &Command) -> CommandClass {
+    let mut saw_emit = false;
+    let mut saw_native_target = false;
+    for arg in command.get_args().filter_map(|arg| arg.to_str()) {
+        if arg == "emit" {
+            saw_emit = true;
+        }
+        if matches!(arg, "--exe" | "--obj") {
+            saw_native_target = true;
+        }
+    }
+    if saw_emit && saw_native_target {
+        CommandClass::ArtifactEmit
+    } else {
+        CommandClass::General
     }
 }
 
