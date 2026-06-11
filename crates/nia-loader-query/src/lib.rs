@@ -3,7 +3,7 @@ use nia_ast::{UsingGroupItem, UsingSelector};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ModuleGraph, ModuleMap, ResolvedModuleDeclaration, add_resolved_module_declarations,
+    ModuleGraph, ModuleMap, ModuleNode, ResolvedModuleDeclaration,
     resolve_module_declarations_from_active_item_tree,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
@@ -11,7 +11,7 @@ use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::{TargetConfig, prune_module_for_target};
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(root_path, ModuleMap::default())
@@ -148,6 +148,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let mut graph = ModuleGraph::new(db.context().root_path.clone());
         inject_entry_runtime(db, &mut graph);
+        let mut active_package_facades = HashSet::new();
         let mut index = 0;
         while index < graph.modules().count() {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -161,15 +162,152 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                     graph.intern_package_root(&package, path.clone());
                 }
             }
-            if let Err(diagnostic) =
-                add_resolved_module_declarations(&mut graph, node.id, declarations.declarations)
+            if should_eager_add_declarations(&node)
+                && let Err(diagnostic) = add_declared_module_children(db, &mut graph, node.id)
             {
                 graph.push_diagnostic(node.path.clone(), diagnostic);
+            }
+            if should_process_used_module_paths(&node, &active_package_facades) {
+                for path in declarations.used_module_paths {
+                    if let Some(package) = path.activates_package_facade() {
+                        active_package_facades.insert(package.to_string());
+                    }
+                    if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, &path) {
+                        graph.push_diagnostic(node.path.clone(), diagnostic);
+                    }
+                }
             }
             index += 1;
         }
         graph
     }
+}
+
+fn should_eager_add_declarations(node: &ModuleNode) -> bool {
+    node.module_path.package == nia_imports::ROOT_MODULE_MAP_NAME
+        || !node.module_path.is_package_root()
+        || (node.module_path.package == nia_imports::STD_MODULE_MAP_NAME
+            && node
+                .module_path
+                .segments
+                .first()
+                .is_some_and(|segment| segment == "start"))
+}
+
+fn should_process_used_module_paths(
+    node: &ModuleNode,
+    active_package_facades: &HashSet<String>,
+) -> bool {
+    node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
+        || !node.module_path.is_package_root()
+        || active_package_facades.contains(nia_imports::STD_MODULE_MAP_NAME)
+}
+
+fn add_used_module_path(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> Result<(), Diagnostic> {
+    let Some(start) = used_path_start(graph, current_module, path) else {
+        return Ok(());
+    };
+    let Some(module_id) = add_declared_module_path(db, graph, start, path.segments())? else {
+        return Ok(());
+    };
+    if path.include_declared_children() {
+        add_declared_module_children(db, graph, module_id)?;
+    }
+    Ok(())
+}
+
+fn used_path_start(
+    graph: &ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> Option<nia_imports::ModuleId> {
+    match path {
+        UsedModulePath::Package { package, .. } => graph.package_root(package),
+        UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
+        UsedModulePath::Local { .. } => Some(current_module),
+    }
+}
+
+fn add_declared_module_path(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    start: nia_imports::ModuleId,
+    segments: &[String],
+) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+    let mut current = start;
+    for segment in segments {
+        let Some(next) = add_declared_module_child_if_present(db, graph, current, segment)? else {
+            return Ok(None);
+        };
+        current = next;
+    }
+    Ok(Some(current))
+}
+
+fn add_declared_module_children(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.query(module_declarations_query(db, node.path));
+    for declaration in declarations.declarations {
+        add_declared_module_child(db, graph, module_id, declaration)?;
+    }
+    Ok(())
+}
+
+fn add_declared_module_child_if_present(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    name: &str,
+) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+    if let Some(existing) = graph
+        .get(module_id)
+        .and_then(|node| node.children.get(name).copied())
+    {
+        return Ok(Some(existing));
+    }
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(None);
+    };
+    let declarations = db.query(module_declarations_query(db, node.path));
+    let Some(declaration) = declarations
+        .declarations
+        .into_iter()
+        .find(|declaration| declaration.name == name)
+    else {
+        return Ok(None);
+    };
+    add_declared_module_child(db, graph, module_id, declaration).map(Some)
+}
+
+fn add_declared_module_child(
+    _db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    declaration: ResolvedModuleDeclaration,
+) -> Result<nia_imports::ModuleId, Diagnostic> {
+    if let Some(existing) = graph
+        .get(module_id)
+        .and_then(|node| node.children.get(&declaration.name).copied())
+    {
+        return Ok(existing);
+    }
+    graph.intern_declared_child(
+        module_id,
+        &declaration.name,
+        declaration.visibility,
+        declaration.span,
+    )
 }
 
 fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
@@ -432,7 +570,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             version: self.version,
         });
         let mut diagnostics = parsed.read_diagnostic.into_iter().collect::<Vec<_>>();
-        let (declarations, package_roots) = if diagnostics.is_empty()
+        let (declarations, package_roots, used_module_paths) = if diagnostics.is_empty()
             && parsed.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
         {
@@ -440,70 +578,89 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 &mut diagnostics,
                 &parsed.active_item_tree,
             );
-            let package_roots =
-                collect_used_package_roots(&parsed.active_item_tree, &db.context().module_map);
-            (declarations, package_roots)
+            let (package_roots, used_module_paths) =
+                collect_used_modules(&parsed.active_item_tree, &db.context().module_map);
+            (declarations, package_roots, used_module_paths)
         } else {
-            (Vec::new(), Vec::new())
+            (Vec::new(), Vec::new(), Vec::new())
         };
         ModuleDeclarations {
             declarations,
             package_roots,
+            used_module_paths,
             diagnostics,
         }
     }
 }
 
-fn collect_used_package_roots(
+fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
     module_map: &ModuleMap,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<UsedModulePath>) {
     let mut packages = Vec::new();
+    let mut paths = Vec::new();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
-        collect_using_package_roots(
-            using.host.first().map(|segment| segment.name.as_str()),
+        collect_using_modules(
+            &using.host,
             &using.selector,
             module_map,
             &mut packages,
+            &mut paths,
         );
     }
     packages.sort();
     packages.dedup();
-    packages
+    paths.sort();
+    paths.dedup();
+    (packages, paths)
 }
 
-fn collect_using_package_roots(
-    host_first: Option<&str>,
+fn collect_using_modules(
+    host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
     module_map: &ModuleMap,
     packages: &mut Vec<String>,
+    paths: &mut Vec<UsedModulePath>,
 ) {
-    if let Some(name) = host_first {
-        if name != nia_imports::ROOT_MODULE_MAP_NAME
-            && name != nia_imports::PACKAGE_MODULE_MAP_NAME
-            && module_map.get(name).is_some()
-        {
-            packages.push(name.to_string());
-        }
+    if host.is_empty() {
+        collect_root_group_modules(selector, module_map, packages, paths);
         return;
     }
-    if let UsingSelector::Group(items) = selector {
-        for item in items {
-            let first = match item {
-                UsingGroupItem::Name(name) => Some(name.name.as_str()),
-                UsingGroupItem::Nested { host, .. } => {
-                    host.first().map(|segment| segment.name.as_str())
+    let Some(root) = UsedModuleRoot::from_host(host, module_map, packages) else {
+        return;
+    };
+    collect_selector_modules(root, selector, paths);
+}
+
+fn collect_root_group_modules(
+    selector: &UsingSelector,
+    module_map: &ModuleMap,
+    packages: &mut Vec<String>,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    let UsingSelector::Group(items) = selector else {
+        return;
+    };
+    for item in items {
+        match item {
+            UsingGroupItem::Name(name) => {
+                if name.name != nia_imports::ROOT_MODULE_MAP_NAME
+                    && name.name != nia_imports::PACKAGE_MODULE_MAP_NAME
+                    && module_map.get(&name.name).is_some()
+                {
+                    packages.push(name.name.clone());
+                    paths.push(UsedModulePath::Package {
+                        package: name.name.clone(),
+                        segments: Vec::new(),
+                        include_declared_children: true,
+                    });
                 }
-            };
-            if let Some(name) = first
-                && name != nia_imports::ROOT_MODULE_MAP_NAME
-                && name != nia_imports::PACKAGE_MODULE_MAP_NAME
-                && module_map.get(name).is_some()
-            {
-                packages.push(name.to_string());
+            }
+            UsingGroupItem::Nested { host, selector } => {
+                collect_using_modules(host, selector, module_map, packages, paths);
             }
         }
     }
@@ -513,7 +670,191 @@ fn collect_using_package_roots(
 struct ModuleDeclarations {
     declarations: Vec<ResolvedModuleDeclaration>,
     package_roots: Vec<String>,
+    used_module_paths: Vec<UsedModulePath>,
     diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum UsedModulePath {
+    Package {
+        package: String,
+        segments: Vec<String>,
+        include_declared_children: bool,
+    },
+    PackageRelative {
+        segments: Vec<String>,
+        include_declared_children: bool,
+    },
+    Local {
+        segments: Vec<String>,
+        include_declared_children: bool,
+    },
+}
+
+impl UsedModulePath {
+    fn segments(&self) -> &[String] {
+        match self {
+            UsedModulePath::Package { segments, .. }
+            | UsedModulePath::PackageRelative { segments, .. }
+            | UsedModulePath::Local { segments, .. } => segments,
+        }
+    }
+
+    fn include_declared_children(&self) -> bool {
+        match self {
+            UsedModulePath::Package {
+                include_declared_children,
+                ..
+            }
+            | UsedModulePath::PackageRelative {
+                include_declared_children,
+                ..
+            }
+            | UsedModulePath::Local {
+                include_declared_children,
+                ..
+            } => *include_declared_children,
+        }
+    }
+
+    fn activates_package_facade(&self) -> Option<&str> {
+        match self {
+            UsedModulePath::Package {
+                package,
+                segments,
+                include_declared_children,
+            } if segments.is_empty() && *include_declared_children => Some(package),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UsedModuleRoot {
+    Package { package: String, base: Vec<String> },
+    PackageRelative { base: Vec<String> },
+    Local { base: Vec<String> },
+}
+
+impl UsedModuleRoot {
+    fn from_host(
+        host: &[nia_ast::UsingHostSegment],
+        module_map: &ModuleMap,
+        packages: &mut Vec<String>,
+    ) -> Option<Self> {
+        let first = host.first()?;
+        if first.name == nia_imports::ROOT_MODULE_MAP_NAME {
+            return None;
+        }
+        if first.name == nia_imports::PACKAGE_MODULE_MAP_NAME {
+            return Some(Self::PackageRelative {
+                base: host_segments(&host[1..]),
+            });
+        }
+        if module_map.get(&first.name).is_some() {
+            packages.push(first.name.clone());
+            return Some(Self::Package {
+                package: first.name.clone(),
+                base: host_segments(&host[1..]),
+            });
+        }
+        Some(Self::Local {
+            base: host_segments(host),
+        })
+    }
+
+    fn path(&self, extra: &[String], include_declared_children: bool) -> UsedModulePath {
+        match self {
+            UsedModuleRoot::Package { package, base } => UsedModulePath::Package {
+                package: package.clone(),
+                segments: joined_segments(base, extra),
+                include_declared_children,
+            },
+            UsedModuleRoot::PackageRelative { base } => UsedModulePath::PackageRelative {
+                segments: joined_segments(base, extra),
+                include_declared_children,
+            },
+            UsedModuleRoot::Local { base } => UsedModulePath::Local {
+                segments: joined_segments(base, extra),
+                include_declared_children,
+            },
+        }
+    }
+}
+
+fn collect_selector_modules(
+    root: UsedModuleRoot,
+    selector: &UsingSelector,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            let include_children = matches!(
+                &root,
+                UsedModuleRoot::Package { base, .. } if base.is_empty()
+            );
+            paths.push(root.path(&[], include_children));
+        }
+        UsingSelector::Wildcard { .. } => {
+            paths.push(root.path(&[], true));
+        }
+        UsingSelector::Single(name) => {
+            paths.push(root.path(&[], false));
+            paths.push(root.path(std::slice::from_ref(&name.name), false));
+        }
+        UsingSelector::Group(items) => {
+            let include_children = matches!(
+                &root,
+                UsedModuleRoot::Package { base, .. } if base.is_empty()
+            );
+            paths.push(root.path(&[], include_children));
+            for item in items {
+                collect_group_item_modules(&root, item, paths);
+            }
+        }
+    }
+}
+
+fn collect_group_item_modules(
+    root: &UsedModuleRoot,
+    item: &UsingGroupItem,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            paths.push(root.path(std::slice::from_ref(&name.name), false));
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested_root = root_with_extra(root, &host_segments(host));
+            collect_selector_modules(nested_root, selector, paths);
+        }
+    }
+}
+
+fn root_with_extra(root: &UsedModuleRoot, extra: &[String]) -> UsedModuleRoot {
+    match root {
+        UsedModuleRoot::Package { package, base } => UsedModuleRoot::Package {
+            package: package.clone(),
+            base: joined_segments(base, extra),
+        },
+        UsedModuleRoot::PackageRelative { base } => UsedModuleRoot::PackageRelative {
+            base: joined_segments(base, extra),
+        },
+        UsedModuleRoot::Local { base } => UsedModuleRoot::Local {
+            base: joined_segments(base, extra),
+        },
+    }
+}
+
+fn host_segments(host: &[nia_ast::UsingHostSegment]) -> Vec<String> {
+    host.iter().map(|segment| segment.name.clone()).collect()
+}
+
+fn joined_segments(base: &[String], extra: &[String]) -> Vec<String> {
+    let mut segments = Vec::with_capacity(base.len() + extra.len());
+    segments.extend_from_slice(base);
+    segments.extend_from_slice(extra);
+    segments
 }
 
 fn parsed_module_query(db: &QueryDb<LoaderContext>, path: SourcePath) -> ParsedModuleQuery {
@@ -765,6 +1106,29 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
     }
 
     #[test]
+    fn query_loader_loads_std_package_root_children_on_demand() {
+        let root = temp_dir("query_loader_loads_std_package_root_children_on_demand");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            "using std::process; pub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }",
+        );
+
+        let program = load_program_with_map_and_entry_runtime(
+            main_path.to_string_lossy().into_owned(),
+            ModuleMap::default(),
+            EntryRuntime::Freestanding,
+        );
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(&program, "lib/std/process.nia");
+        assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
+        assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
+        assert_module_not_loaded(&program, "lib/std/collections/array_list/list.nia");
+        assert_module_not_loaded(&program, "lib/std/debug.nia");
+    }
+
+    #[test]
     fn query_loader_resolves_root_children_relative_to_entry_file() {
         let root = temp_dir("query_loader_resolves_root_children_relative_to_entry_file");
         let main_path = root.join("main.nia");
@@ -953,5 +1317,35 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
 
     fn write(path: &Path, source: &str) {
         fs::write(path, source).expect("write source");
+    }
+
+    fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {
+        assert!(
+            program
+                .modules
+                .iter()
+                .any(|module| module.path.as_str().ends_with(suffix)),
+            "missing module {suffix}: {:?}",
+            program
+                .modules
+                .iter()
+                .map(|module| module.path.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    fn assert_module_not_loaded(program: &LoadedProgram, suffix: &str) {
+        assert!(
+            !program
+                .modules
+                .iter()
+                .any(|module| module.path.as_str().ends_with(suffix)),
+            "unexpected module {suffix}: {:?}",
+            program
+                .modules
+                .iter()
+                .map(|module| module.path.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 }

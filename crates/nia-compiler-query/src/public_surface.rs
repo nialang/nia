@@ -8,7 +8,10 @@ use nia_defs::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, visibility_allows};
+use nia_imports::{
+    ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
+    visibility_allows,
+};
 use nia_span::Span;
 
 /// Compute every module's exported public surface and per-module using scope.
@@ -25,6 +28,7 @@ pub(crate) fn compute_public_surfaces(
         .iter()
         .map(|defs| (defs.module_id, defs))
         .collect::<HashMap<_, _>>();
+    let inactive_std_root = inactive_std_root_facade(defs_by_module, graph);
 
     let mut surfaces = PublicSurfaces::new();
     for defs in defs_by_module {
@@ -77,6 +81,9 @@ pub(crate) fn compute_public_surfaces(
                 collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
             for using in &defs.module_usings {
                 if using.visibility != Visibility::Public {
+                    continue;
+                }
+                if inactive_std_root == Some(defs.module_id) {
                     continue;
                 }
                 match expand_using(&defs_by_id, defs, using, graph, &local_modules, &surfaces) {
@@ -135,6 +142,9 @@ pub(crate) fn compute_public_surfaces(
             if using.visibility != Visibility::Public {
                 continue;
             }
+            if inactive_std_root == Some(defs.module_id) {
+                continue;
+            }
             match expand_using(&defs_by_id, defs, using, graph, &local_modules, &surfaces) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
                 UsingExpansion::Unresolved => {
@@ -158,6 +168,9 @@ pub(crate) fn compute_public_surfaces(
     for defs in defs_by_module {
         let mut scope = ModuleUsingScope::default();
         for using in &defs.module_usings {
+            if inactive_std_root == Some(defs.module_id) && using.visibility == Visibility::Public {
+                continue;
+            }
             let entries =
                 match expand_using(&defs_by_id, defs, using, graph, &scope.modules, &surfaces) {
                     UsingExpansion::Resolved(entries) => entries,
@@ -242,6 +255,56 @@ pub(crate) fn compute_public_surfaces(
     }
 
     (surfaces, using_scopes, diagnostics)
+}
+
+fn inactive_std_root_facade(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+) -> Option<ModuleId> {
+    let std_root = graph.package_root(STD_MODULE_MAP_NAME)?;
+    let active = defs_by_module
+        .iter()
+        .filter(|defs| defs.module_id != std_root)
+        .any(|defs| {
+            defs.module_usings
+                .iter()
+                .any(using_activates_std_root_facade)
+        });
+    (!active).then_some(std_root)
+}
+
+fn using_activates_std_root_facade(using: &ModuleUsing) -> bool {
+    if using.host.is_empty() {
+        return selector_group_mentions_std_facade(&using.selector);
+    }
+    let Some(first) = using.host.first() else {
+        return false;
+    };
+    if first.name != STD_MODULE_MAP_NAME || using.host.len() != 1 {
+        return false;
+    }
+    match &using.selector {
+        UsingSelector::SelfName | UsingSelector::Wildcard { .. } | UsingSelector::Group(_) => true,
+        UsingSelector::Single(name) => name.name.chars().next().is_some_and(char::is_uppercase),
+    }
+}
+
+fn selector_group_mentions_std_facade(selector: &UsingSelector) -> bool {
+    let UsingSelector::Group(items) = selector else {
+        return false;
+    };
+    items.iter().any(|item| match item {
+        UsingGroupItem::Name(name) => name.name == STD_MODULE_MAP_NAME,
+        UsingGroupItem::Nested { host, selector } => {
+            host.first()
+                .is_some_and(|segment| segment.name == STD_MODULE_MAP_NAME)
+                && (host.len() == 1
+                    || matches!(
+                        selector.as_ref(),
+                        UsingSelector::Wildcard { .. } | UsingSelector::Group(_)
+                    ))
+        }
+    })
 }
 
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
