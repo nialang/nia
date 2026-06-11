@@ -713,11 +713,8 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        let impls = self.program_trait_impls.to_vec();
-        for impl_signature in impls {
-            if impl_signature.trait_id != trait_id {
-                continue;
-            }
+        for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
+            let impl_signature = self.program_trait_impls[impl_index].clone();
             if !self.trait_impl_signature_is_visible(&impl_signature) {
                 continue;
             }
@@ -740,6 +737,22 @@ impl<'a> BodyChecker<'a> {
             self.push_unique_trait_arg_candidate(&mut candidates, trait_args);
         }
         candidates
+    }
+
+    fn trait_impl_indexes_for_trait(&mut self, trait_id: TraitId) -> Vec<usize> {
+        if let Some(indexes) = self.trait_impls_by_trait.get(&trait_id) {
+            return indexes.clone();
+        }
+        let indexes = self
+            .program_trait_impls
+            .iter()
+            .enumerate()
+            .filter_map(|(index, impl_signature)| {
+                (impl_signature.trait_id == trait_id).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        self.trait_impls_by_trait.insert(trait_id, indexes.clone());
+        indexes
     }
 
     fn push_unique_trait_arg_candidate(

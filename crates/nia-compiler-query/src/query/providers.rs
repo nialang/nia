@@ -895,6 +895,20 @@ pub(super) fn provide_checked_module(
 
 pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
     time_provider(db.context().timings, "checked_modules", || {
+        time_provider(
+            db.context().timings,
+            "checked_modules.shared_inputs",
+            || {
+                let _ = db.query(ProgramTypeLoweringsQuery);
+                let _ = db.query(ProgramItemSignaturesQuery);
+                let _ = db.query(ProgramTypeNormalizationsQuery);
+                let _ = db.query(ProgramSignaturesQuery);
+                let _ = db.query(ExtensionMethodsQuery);
+                let _ = db.query(ProgramComptimeModulesQuery);
+                let _ = db.query(ProgramComptimeQuery);
+                let _ = db.query(ProgramLayoutsQuery);
+            },
+        );
         db.query_many(
             db.query(ParseOkModuleIdsQuery)
                 .into_iter()

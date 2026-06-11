@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Condvar, Mutex},
 };
 
-const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 8;
+const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
@@ -536,9 +536,11 @@ fn query_many_worker_count(work_items: usize) -> usize {
 }
 
 fn default_query_many_threads() -> usize {
-    std::thread::available_parallelism()
+    let available = std::thread::available_parallelism()
         .map(usize::from)
-        .unwrap_or(1)
+        .unwrap_or(1);
+    available
+        .div_ceil(2)
         .clamp(1, DEFAULT_MAX_QUERY_MANY_THREADS)
 }
 
