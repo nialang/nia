@@ -27,47 +27,32 @@ const MAX_BACKEND_FUNCTION_INSTANCES: usize = 4096;
 const MAX_BACKEND_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn lower_function_instances(
+    pub(crate) fn initial_monomorphized_function_instance_refs(
         &mut self,
-        functions: &[BackendFunction],
-    ) -> Vec<BackendFunctionInstance> {
-        let mut initial_instances = Vec::new();
-        for instance in self
-            .monomorphization
+    ) -> Vec<FunctionInstanceRef> {
+        self.monomorphization
             .instances
             .iter()
             .filter(|instance| instance.def_id.module_id == self.input.module_id)
-        {
-            let args = self.import_monomorphized_instance_args(&instance.args);
-            initial_instances.push(FunctionInstanceRef {
-                def_id: instance.def_id,
-                arg_module_id: instance.arg_module_id,
-                args,
-                span: instance.span,
-            });
-        }
-
-        let mut root_refs = FunctionRefs::default();
-        for function in functions {
-            if !function.generics.is_empty() {
-                continue;
-            }
-            collect_function_refs_from_optional_body(
-                self.input.module_id,
-                &function.function_body,
-                &mut root_refs,
-            );
-        }
-        initial_instances.extend(root_refs.instances);
-        self.lower_function_instances_from_refs(functions, initial_instances, &[])
+            .map(|instance| {
+                let args = self.import_monomorphized_instance_args(&instance.args);
+                FunctionInstanceRef {
+                    def_id: instance.def_id,
+                    arg_module_id: instance.arg_module_id,
+                    args,
+                    span: instance.span,
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn lower_additional_function_instances(
         &mut self,
         refs: Vec<FunctionInstanceRef>,
+        functions: &[BackendFunction],
         existing: &[BackendFunctionInstance],
     ) -> Vec<BackendFunctionInstance> {
-        self.lower_function_instances_from_refs(&[], refs, existing)
+        self.lower_function_instances_from_refs(functions, refs, existing)
     }
 
     fn lower_function_instances_from_refs(
