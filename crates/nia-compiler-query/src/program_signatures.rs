@@ -12,9 +12,9 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature, TraitSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
+    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ProgramTypeAliasSignature, ProgramUnionSignature, TraitSignature,
 };
 use nia_trait_solve::IntrinsicOverlap;
 use nia_ty::{
@@ -1864,6 +1864,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub public_surfaces: &'a PublicSurfaces,
     pub defs_by_module: &'a HashMap<nia_ids::ModuleId, DefCollection>,
     pub normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
+    pub program_signatures: ProgramSignatureMaps<'a>,
     pub extensions: &'a ExtensionMethods,
     pub associated_values: &'a ExtensionAssociatedValues,
 }
@@ -1878,10 +1879,21 @@ pub(crate) fn visible_extensions_for_module(
         public_surfaces,
         defs_by_module,
         normalizations,
+        program_signatures,
         extensions,
         associated_values,
     } = input;
-    let visible_modules = declared_module_closure(module_id, graph, using_scope);
+    let visible_modules = declared_module_closure(
+        module_id,
+        graph,
+        using_scope,
+        public_surfaces,
+        defs_by_module,
+        normalizations,
+        program_signatures,
+        extensions,
+        associated_values,
+    );
     let Some(current_normalization) = normalizations.get(&module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
@@ -2050,6 +2062,12 @@ fn declared_module_closure(
     module_id: nia_ids::ModuleId,
     graph: &nia_imports::ModuleGraph,
     using_scope: &nia_defs::ModuleUsingScope,
+    public_surfaces: &PublicSurfaces,
+    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    program_signatures: ProgramSignatureMaps<'_>,
+    extensions: &ExtensionMethods,
+    associated_values: &ExtensionAssociatedValues,
 ) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
@@ -2061,6 +2079,17 @@ fn declared_module_closure(
     }
     queue.extend(using_scope.modules.values().copied());
     queue.extend(using_scope.types.values().map(|entry| entry.target_module));
+    queue.extend(public_inherent_extension_providers_for_using_scope(
+        module_id,
+        graph,
+        using_scope,
+        public_surfaces,
+        defs_by_module,
+        normalizations,
+        program_signatures,
+        extensions,
+        associated_values,
+    ));
 
     while let Some(visible) = queue.pop_front() {
         if visible == module_id || !seen.insert(visible) {
@@ -2077,4 +2106,171 @@ fn declared_module_closure(
     let mut modules = seen.into_iter().collect::<Vec<_>>();
     modules.sort();
     modules
+}
+
+fn public_inherent_extension_providers_for_using_scope(
+    module_id: nia_ids::ModuleId,
+    graph: &nia_imports::ModuleGraph,
+    using_scope: &nia_defs::ModuleUsingScope,
+    public_surfaces: &PublicSurfaces,
+    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    program_signatures: ProgramSignatureMaps<'_>,
+    extensions: &ExtensionMethods,
+    associated_values: &ExtensionAssociatedValues,
+) -> Vec<nia_ids::ModuleId> {
+    let mut providers = Vec::new();
+    for type_def_id in using_scope
+        .types
+        .values()
+        .filter(|entry| entry.namespace == PublicNamespace::Type)
+        .filter_map(|entry| {
+            nominal_def_id_for_public_type(
+                GlobalDefId {
+                    module_id: entry.target_module,
+                    def_id: entry.target_def_id,
+                },
+                defs_by_module,
+                normalizations,
+                program_signatures,
+            )
+        })
+    {
+        providers.extend(public_inherent_method_providers_for_nominal(
+            module_id,
+            graph,
+            type_def_id,
+            normalizations,
+            extensions,
+        ));
+        providers.extend(public_associated_value_providers_for_nominal(
+            module_id,
+            graph,
+            type_def_id,
+            normalizations,
+            associated_values,
+        ));
+    }
+    if let Some(surface) = public_surfaces.get(module_id) {
+        for type_def_id in surface.types.values().filter_map(|item| {
+            nominal_def_id_for_public_type(
+                GlobalDefId {
+                    module_id: item.target_module,
+                    def_id: item.target_def_id,
+                },
+                defs_by_module,
+                normalizations,
+                program_signatures,
+            )
+        }) {
+            providers.extend(public_inherent_method_providers_for_nominal(
+                module_id,
+                graph,
+                type_def_id,
+                normalizations,
+                extensions,
+            ));
+            providers.extend(public_associated_value_providers_for_nominal(
+                module_id,
+                graph,
+                type_def_id,
+                normalizations,
+                associated_values,
+            ));
+        }
+    }
+    providers.sort();
+    providers.dedup();
+    providers
+}
+
+fn nominal_def_id_for_public_type(
+    def_id: GlobalDefId,
+    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    program_signatures: ProgramSignatureMaps<'_>,
+) -> Option<GlobalDefId> {
+    let defs = defs_by_module.get(&def_id.module_id)?;
+    let def = defs.defs.get(def_id.def_id)?;
+    if matches!(
+        def.kind,
+        nia_defs::DefKind::Struct | nia_defs::DefKind::Union | nia_defs::DefKind::Enum
+    ) {
+        return Some(def_id);
+    }
+    if def.kind != nia_defs::DefKind::TypeAlias {
+        return None;
+    }
+    let normalization = normalizations.get(&def_id.module_id)?;
+    let alias = program_signatures.type_aliases.get(&def_id)?;
+    let normalized = normalization.normalize(alias.signature.target);
+    match normalization.interner.get(normalized) {
+        Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
+        _ => None,
+    }
+}
+
+fn public_inherent_method_providers_for_nominal(
+    module_id: nia_ids::ModuleId,
+    graph: &nia_imports::ModuleGraph,
+    target_def_id: GlobalDefId,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    extensions: &ExtensionMethods,
+) -> Vec<nia_ids::ModuleId> {
+    let mut providers = Vec::new();
+    for method in extensions.all_methods() {
+        if method.trait_id.is_some()
+            || !nia_imports::visibility_allows(
+                method.visibility,
+                graph,
+                method.def_id.module_id,
+                module_id,
+            )
+        {
+            continue;
+        }
+        let Some(normalization) = normalizations.get(&method.def_id.module_id) else {
+            continue;
+        };
+        let target_ty = normalization.normalize(method.target_ty);
+        if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
+            providers.push(method.def_id.module_id);
+        }
+    }
+    providers
+}
+
+fn public_associated_value_providers_for_nominal(
+    module_id: nia_ids::ModuleId,
+    graph: &nia_imports::ModuleGraph,
+    target_def_id: GlobalDefId,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    associated_values: &ExtensionAssociatedValues,
+) -> Vec<nia_ids::ModuleId> {
+    let mut providers = Vec::new();
+    for value in associated_values.all_values() {
+        if !nia_imports::visibility_allows(
+            value.visibility,
+            graph,
+            value.def_id.module_id,
+            module_id,
+        ) {
+            continue;
+        }
+        let Some(normalization) = normalizations.get(&value.def_id.module_id) else {
+            continue;
+        };
+        let target_ty = normalization.normalize(value.target_ty);
+        if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
+            providers.push(value.def_id.module_id);
+        }
+    }
+    providers
+}
+
+fn nominal_target_def_id(interner: &TyInterner, ty: InternedTyId) -> Option<GlobalDefId> {
+    match interner.get(ty) {
+        Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
+        _ => None,
+    }
 }

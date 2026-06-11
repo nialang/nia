@@ -1328,6 +1328,95 @@ extend math::Point {
 }
 
 #[test]
+fn facade_reexported_type_exposes_public_inherent_extension_methods() {
+    let root = temp_dir("facade_reexported_type_exposes_public_inherent_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+module facade;
+module impls;
+module types;
+using root::facade;
+
+fn main(p: facade::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(&root.join("facade.nia"), r#"pub using root::types::Point;"#);
+    write(
+        &root.join("types.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using root::types;
+
+extend types::Point {
+    pub fn len2(& self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods() {
+    let root = temp_dir(
+        "facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module facade;
+module impls;
+module types;
+using root::facade;
+
+fn main() usize {
+    var bag = facade::Bag[i32]::init();
+    bag.len()
+}
+"#,
+    );
+    write(&root.join("facade.nia"), r#"pub using root::types::Bag;"#);
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct RawBag[T] {
+    len: usize,
+}
+
+pub type Bag[T] = RawBag[T];
+"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using root::types;
+
+extend[T] types::RawBag[T] {
+    pub fn init() types::RawBag[T] {
+        { len: 0usize }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imports_generic_structural_extension_methods() {
     let root = temp_dir("imports_generic_structural_extension_methods");
     write(
