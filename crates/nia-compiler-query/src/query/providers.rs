@@ -440,6 +440,7 @@ pub(super) fn provide_visible_extensions(
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
     let normalizations = db.query(ProgramTypeNormalizationsQuery);
+    let program_signatures = db.query(ProgramSignaturesQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
@@ -448,6 +449,7 @@ pub(super) fn provide_visible_extensions(
         public_surfaces: &public.surfaces,
         defs_by_module: &defs,
         normalizations: &normalizations,
+        program_signatures: program_signatures.maps(),
         extensions: &extensions.methods,
         associated_values: &extensions.associated_values,
     }))

@@ -166,6 +166,10 @@ impl ExtensionAssociatedValues {
         }
         values
     }
+
+    pub fn all_values(&self) -> impl Iterator<Item = &ExtensionAssociatedValue> {
+        self.by_module.values().flat_map(|values| values.iter())
+    }
 }
 
 impl VisibleExtensionMethods {
