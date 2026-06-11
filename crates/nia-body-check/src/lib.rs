@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::fmt;
 use std::time::Instant;
 use std::{
     collections::{HashMap, HashSet},
@@ -81,13 +82,13 @@ impl BodyTimingMode {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
     pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
-    pub layouts: Option<&'a HashMap<ModuleId, Layouts>>,
+    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -99,6 +100,18 @@ impl<'a> BodyProgramContext<'a> {
             signatures: None,
             layouts: None,
         }
+    }
+}
+
+impl fmt::Debug for BodyProgramContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BodyProgramContext")
+            .field("defs", &self.defs.is_some())
+            .field("type_lowerings", &self.type_lowerings.is_some())
+            .field("type_normalizations", &self.type_normalizations.is_some())
+            .field("signatures", &self.signatures.is_some())
+            .field("layouts", &self.layouts.is_some())
+            .finish()
     }
 }
 
