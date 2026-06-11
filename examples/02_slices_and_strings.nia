@@ -14,13 +14,18 @@ pub fn main(init: Init) ExitCode!void {
     _ = init;
 
     var values: [4]i32 = [1, 2, 3, 4];
+    // Ranges create slice views; this one contains values[1] and values[2].
     var window = &values[1..=2];
     var zeros: [4]i32 = [0; 4];
+    // Mutability belongs to the pointer/slice, so pass &mut when writing.
     var writable = &mut zeros[..];
     write_first(writable, first(window));
 
+    // Text literals are arrays. They coerce to slices when a slice is expected.
     let name = "nia";
+    // Adjacent byte-string literals concatenate.
     let bytes = b"ni" b"a";
+    // c"..." includes a trailing NUL byte for C ABI calls.
     let c_name = c"nia";
     var window_len = window.len();
     var name_len = name.len();

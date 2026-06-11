@@ -5,6 +5,7 @@ pub enum Color: u8 {
 }
 
 pub fn code(color: Color) i32 {
+    // switch over an enum must cover every variant unless a wildcard is used.
     switch color {
         Color::Red => 1,
         Color::Black => 2,

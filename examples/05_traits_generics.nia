@@ -16,6 +16,7 @@ extend Count : Measured {
     }
 }
 
+// Operator syntax is trait syntax. Implement Add to make left + right valid.
 extend Count : Add[Count] {
     type Output = Count;
 
@@ -33,6 +34,7 @@ where T: Add[T, Output = T]
 fn read[T](value: &T) i32
 where T: Measured
 {
+    // Trait bounds make trait methods available inside generic functions.
     value.measure()
 }
 

@@ -1,6 +1,8 @@
 using root::math;
 using root::palette;
 
+// A facade module can re-export modules, selected items, renamed items, and enum
+// variants so users do not need to know the internal file layout.
 pub using math;
 pub using math::{Point, add};
 pub using palette::Color;

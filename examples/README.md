@@ -1,6 +1,10 @@
 # Nia Examples
 
 Small executable Nia programs for the current compiler and standard library.
+The source files are intended to be read as tutorials, not just copied as smoke
+tests: inline comments call out Nia-specific syntax, ownership rules, runtime
+entry points, and standard-library idioms.
+
 Each top-level `.nia` file uses the current entry contract:
 `pub fn main(process::Init) process::ExitCode!void`.
 
@@ -28,6 +32,11 @@ Check all examples from the repository root with:
 for file in examples/*.nia; do cargo run -p nia-cli -- check --exe "$file"; done
 cargo run -p nia-cli -- check --exe examples/modules/main.nia
 ```
+
+The CLI test suite parses every repository example and freestanding-checks
+representative minimal, collection-heavy, and multi-module examples. Before a
+release, run the full loop above as a manual gate so every example is checked
+against the executable runtime.
 
 Build and run an executable:
 

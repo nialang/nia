@@ -8,8 +8,12 @@ fn run(init: Init) mem::Error!void {
     _ = init;
 
     var storage: [256]u8 = [_]u8[0; 256];
+    // FixedBufferAllocator never touches the OS; allocation fails when this
+    // local byte array runs out of space.
     var allocator = mem::FixedBufferAllocator::init(storage);
     var values = std::ArrayList[i32]::init();
+    // Containers do not own an allocator. Deinitialize with the same allocator
+    // that provided their backing storage.
     defer values.deinit(&mut allocator).?;
 
     values.push(&mut allocator, 10).?;
@@ -33,6 +37,7 @@ fn run(init: Init) mem::Error!void {
 }
 
 pub fn main(init: Init) ExitCode!void {
+    // Standard-library memory errors know how to become process exit codes.
     run(init).exit().?;
     !{}
 }

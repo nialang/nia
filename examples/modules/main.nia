@@ -9,6 +9,7 @@ using std::process;
 using root::config;
 using root::facade as api;
 
+// using can import selected names, rename them, and import enum variants.
 using api::{Point, add as plus, Color::Green};
 using process::{Init, ExitCode, exit};
 

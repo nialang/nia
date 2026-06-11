@@ -23,6 +23,8 @@ fn run(init: Init) mem::Error!void {
     _ = init;
 
     var page = mem::PageAllocator::init();
+    // ArenaAllocator gets pages from a child allocator and frees/reset them as
+    // a group. It is a good fit for phase-local scratch data.
     var arena = mem::ArenaAllocator::init(&mut page);
     defer arena.deinit().?;
 
@@ -37,6 +39,7 @@ fn run(init: Init) mem::Error!void {
     // reset. Only keep copied scalar results across this boundary.
     arena.reset_retain_capacity().?;
 
+    // New allocations after reset may reuse retained arena storage.
     var labels = arena.alloc_slice[u8](16).?;
     labels[0] = b'o';
     labels[1] = b'k';
