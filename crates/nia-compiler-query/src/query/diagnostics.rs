@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramDiagnosticsQuery;
@@ -17,7 +16,7 @@ impl QueryKey<DriverContext> for ProgramDiagnosticsQuery {
     }
 }
 
-pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection> {
+pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> ProgramDefsById {
     db.query(ProgramDefsByIdQuery)
 }
 

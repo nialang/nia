@@ -40,7 +40,7 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
 pub(super) struct ProgramTypeLoweringsQuery;
 
 impl QueryKey<DriverContext> for ProgramTypeLoweringsQuery {
-    type Value = HashMap<ModuleId, TypeLowering>;
+    type Value = ProgramTypeLowerings;
 
     fn name() -> &'static str {
         "program_type_lowerings"
@@ -74,7 +74,7 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
 pub(super) struct ProgramItemSignaturesQuery;
 
 impl QueryKey<DriverContext> for ProgramItemSignaturesQuery {
-    type Value = HashMap<ModuleId, ItemSignatures>;
+    type Value = ProgramItemSignaturesById;
 
     fn name() -> &'static str {
         "program_item_signatures"
@@ -104,7 +104,7 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
 pub(super) struct ProgramTypeNormalizationsQuery;
 
 impl QueryKey<DriverContext> for ProgramTypeNormalizationsQuery {
-    type Value = HashMap<ModuleId, TypeNormalization>;
+    type Value = ProgramTypeNormalizations;
 
     fn name() -> &'static str {
         "program_type_normalizations"
@@ -154,7 +154,7 @@ impl ProgramSignatures {
 pub(super) struct ProgramSignaturesQuery;
 
 impl QueryKey<DriverContext> for ProgramSignaturesQuery {
-    type Value = ProgramSignatures;
+    type Value = ProgramSignaturesValue;
 
     fn name() -> &'static str {
         "program_signatures"
@@ -176,7 +176,7 @@ pub(super) struct ExtensionMethodsQueryValue {
 pub(super) struct ExtensionMethodsQuery;
 
 impl QueryKey<DriverContext> for ExtensionMethodsQuery {
-    type Value = ExtensionMethodsQueryValue;
+    type Value = ExtensionMethodsValue;
 
     fn name() -> &'static str {
         "extension_methods"
@@ -191,7 +191,7 @@ impl QueryKey<DriverContext> for ExtensionMethodsQuery {
 pub(super) struct VisibleExtensionsQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for VisibleExtensionsQuery {
-    type Value = VisibleExtensionsForModule;
+    type Value = VisibleExtensionsValue;
 
     fn name() -> &'static str {
         "visible_extensions"

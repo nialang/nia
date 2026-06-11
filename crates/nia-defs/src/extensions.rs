@@ -68,6 +68,9 @@ pub struct ExtensionMethod {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VisibleExtensionMethods {
     targets: Vec<VisibleExtensionTarget>,
+    callable_by_name: HashMap<String, Vec<(usize, usize)>>,
+    trait_witnesses_by_name: HashMap<String, Vec<(usize, usize)>>,
+    associated_values_by_target_name: HashMap<(InternedTyId, String), Vec<(usize, usize)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,20 +175,21 @@ impl VisibleExtensionMethods {
         target_ty: InternedTyId,
         method: VisibleExtensionMethod,
     ) {
-        if let Some(existing) = self
-            .targets
-            .iter_mut()
-            .find(|item| item.impl_index == impl_index && item.target_ty == target_ty)
-        {
-            existing.methods.push(method);
-            return;
+        let target_index = self.target_index(impl_index, target_ty);
+        let method_index = self.targets[target_index].methods.len();
+        if method.is_callable {
+            self.callable_by_name
+                .entry(method.name.clone())
+                .or_default()
+                .push((target_index, method_index));
         }
-        self.targets.push(VisibleExtensionTarget {
-            impl_index,
-            target_ty,
-            methods: vec![method],
-            associated_values: Vec::new(),
-        });
+        if method.is_trait_witness {
+            self.trait_witnesses_by_name
+                .entry(method.name.clone())
+                .or_default()
+                .push((target_index, method_index));
+        }
+        self.targets[target_index].methods.push(method);
     }
 
     pub fn insert_associated_value(
@@ -194,42 +198,42 @@ impl VisibleExtensionMethods {
         target_ty: InternedTyId,
         value: VisibleExtensionAssociatedValue,
     ) {
-        if let Some(existing) = self
-            .targets
-            .iter_mut()
-            .find(|item| item.impl_index == impl_index && item.target_ty == target_ty)
-        {
-            existing.associated_values.push(value);
-            return;
-        }
-        self.targets.push(VisibleExtensionTarget {
-            impl_index,
-            target_ty,
-            methods: Vec::new(),
-            associated_values: vec![value],
-        });
+        let target_index = self.target_index(impl_index, target_ty);
+        let value_index = self.targets[target_index].associated_values.len();
+        self.associated_values_by_target_name
+            .entry((target_ty, value.name.clone()))
+            .or_default()
+            .push((target_index, value_index));
+        self.targets[target_index].associated_values.push(value);
     }
 
     pub fn methods(&self, target_ty: InternedTyId, name: &str) -> Vec<GlobalDefId> {
-        self.targets
-            .iter()
-            .filter(|item| item.target_ty == target_ty)
-            .flat_map(|item| item.methods.iter())
-            .filter(|method| method.name == name)
-            .map(|method| method.def_id)
+        self.callable_by_name
+            .get(name)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|(target_index, method_index)| {
+                let target = self.targets.get(*target_index)?;
+                if target.target_ty != target_ty {
+                    return None;
+                }
+                target
+                    .methods
+                    .get(*method_index)
+                    .map(|method| method.def_id)
+            })
             .collect()
     }
 
     pub fn all_methods_named(&self, name: &str) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
-        self.targets
-            .iter()
-            .flat_map(|item| {
-                item.methods
-                    .iter()
-                    .filter(|method| method.is_callable)
-                    .filter(move |method| method.name == name)
-                    .cloned()
-                    .map(move |method| (item.target_ty, method))
+        self.callable_by_name
+            .get(name)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|(target_index, method_index)| {
+                let target = self.targets.get(*target_index)?;
+                let method = target.methods.get(*method_index)?;
+                Some((target.target_ty, method.clone()))
             })
             .collect()
     }
@@ -238,15 +242,14 @@ impl VisibleExtensionMethods {
         &self,
         name: &str,
     ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
-        self.targets
-            .iter()
-            .flat_map(|item| {
-                item.methods
-                    .iter()
-                    .filter(|method| method.is_trait_witness)
-                    .filter(move |method| method.name == name)
-                    .cloned()
-                    .map(move |method| (item.target_ty, method))
+        self.trait_witnesses_by_name
+            .get(name)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|(target_index, method_index)| {
+                let target = self.targets.get(*target_index)?;
+                let method = target.methods.get(*method_index)?;
+                Some((target.target_ty, method.clone()))
             })
             .collect()
     }
@@ -261,15 +264,37 @@ impl VisibleExtensionMethods {
         name: &str,
     ) -> Option<VisibleExtensionAssociatedValue> {
         let mut matches = self
-            .targets
+            .associated_values_by_target_name
+            .get(&(target_ty, name.to_string()))?
             .iter()
-            .filter(|item| item.target_ty == target_ty)
-            .flat_map(|item| item.associated_values.iter())
-            .filter(|value| value.name == name);
+            .filter_map(|(target_index, value_index)| {
+                self.targets
+                    .get(*target_index)?
+                    .associated_values
+                    .get(*value_index)
+            });
         let first = matches.next()?.clone();
         if matches.next().is_some() {
             return None;
         }
         Some(first)
+    }
+
+    fn target_index(&mut self, impl_index: usize, target_ty: InternedTyId) -> usize {
+        if let Some(index) = self
+            .targets
+            .iter()
+            .position(|item| item.impl_index == impl_index && item.target_ty == target_ty)
+        {
+            return index;
+        }
+        let index = self.targets.len();
+        self.targets.push(VisibleExtensionTarget {
+            impl_index,
+            target_ty,
+            methods: Vec::new(),
+            associated_values: Vec::new(),
+        });
+        index
     }
 }

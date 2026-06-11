@@ -2,11 +2,14 @@
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::{self, Debug},
     hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, Condvar, Mutex},
 };
+
+const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 8;
+const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Clone + Send + Sync + 'static;
@@ -305,6 +308,9 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         let keys = keys.into_iter().collect::<Vec<_>>();
+        if keys.is_empty() {
+            return Vec::new();
+        }
         for key in &keys {
             self.record_dependency::<K>(key);
         }
@@ -313,25 +319,45 @@ impl<C> QueryDb<C> {
         // a worker that asks for an ancestor query would wait on the parent
         // thread, while the parent is waiting for the worker to finish.
         let parent_stack = current_query_stack();
+        let worker_count = query_many_worker_count(keys.len());
+        if worker_count == 1 {
+            let _stack_guard = install_query_stack(parent_stack);
+            return keys.into_iter().map(|key| self.query(key)).collect();
+        }
+        let queue = Arc::new(Mutex::new(
+            keys.into_iter().enumerate().collect::<VecDeque<_>>(),
+        ));
         std::thread::scope(|scope| {
-            let handles = keys
-                .into_iter()
-                .map(|key| {
+            let handles = (0..worker_count)
+                .map(|_| {
                     let db = self.clone();
                     let parent_stack = parent_stack.clone();
+                    let queue = queue.clone();
                     scope.spawn(move || {
                         let _stack_guard = install_query_stack(parent_stack);
-                        db.query(key)
+                        let mut values = Vec::new();
+                        loop {
+                            let work = queue
+                                .lock()
+                                .expect("query_many work queue lock poisoned")
+                                .pop_front();
+                            let Some((index, key)) = work else {
+                                return values;
+                            };
+                            values.push((index, db.query(key)));
+                        }
                     })
                 })
                 .collect::<Vec<_>>();
-            handles
-                .into_iter()
-                .map(|handle| match handle.join() {
-                    Ok(value) => value,
+            let mut values = Vec::new();
+            for handle in handles {
+                match handle.join() {
+                    Ok(worker_values) => values.extend(worker_values),
                     Err(payload) => std::panic::resume_unwind(payload),
-                })
-                .collect()
+                }
+            }
+            values.sort_by_key(|(index, _)| *index);
+            values.into_iter().map(|(_, value)| value).collect()
         })
     }
 
@@ -495,6 +521,25 @@ impl<C> QueryDb<C> {
             .expect("query dependency lock poisoned")
             .remove_dependencies_from(from);
     }
+}
+
+fn query_many_worker_count(work_items: usize) -> usize {
+    if work_items <= 1 {
+        return work_items;
+    }
+    let configured = std::env::var(QUERY_THREADS_ENV)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0);
+    let available = configured.unwrap_or_else(default_query_many_threads);
+    available.clamp(1, work_items)
+}
+
+fn default_query_many_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .clamp(1, DEFAULT_MAX_QUERY_MANY_THREADS)
 }
 
 impl QueryDependencyGraph {
@@ -712,6 +757,14 @@ mod tests {
 
         assert_eq!(values, vec![2, 8, 6]);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn default_query_many_threads_is_bounded() {
+        let count = default_query_many_threads();
+
+        assert!(count >= 1);
+        assert!(count <= DEFAULT_MAX_QUERY_MANY_THREADS);
     }
 
     #[test]

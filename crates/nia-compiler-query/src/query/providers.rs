@@ -14,34 +14,29 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<DriverContext>, ModuleId) -> ActiveModuleItemTree,
     pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
-    pub(super) program_defs_by_id: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection>,
+    pub(super) program_defs_by_id: fn(&QueryDb<DriverContext>) -> ProgramDefsById,
     pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
-    pub(super) program_type_lowerings:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeLowering>,
+    pub(super) program_type_lowerings: fn(&QueryDb<DriverContext>) -> ProgramTypeLowerings,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
-    pub(super) program_item_signatures:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ItemSignatures>,
+    pub(super) program_item_signatures: fn(&QueryDb<DriverContext>) -> ProgramItemSignaturesById,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeNormalization>,
-    pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignatures,
-    pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsQueryValue,
-    pub(super) visible_extensions:
-        fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsForModule,
+        fn(&QueryDb<DriverContext>) -> ProgramTypeNormalizations,
+    pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignaturesValue,
+    pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsValue,
+    pub(super) visible_extensions: fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsValue,
     pub(super) value_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> ValueResolution,
     pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
     pub(super) semantic_use_table:
         fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
     pub(super) comptime_module: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeModuleLowering,
-    pub(super) program_comptime_modules:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ResolvedComptimeModule>,
+    pub(super) program_comptime_modules: fn(&QueryDb<DriverContext>) -> ProgramComptimeModules,
     pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
-    pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeCheck>,
+    pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> ProgramComptimeById,
     pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
-    pub(super) program_layouts:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, nia_layout::Layouts>,
+    pub(super) program_layouts: fn(&QueryDb<DriverContext>) -> ProgramLayoutsById,
     pub(super) abi_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_abi_check::AbiCheck,
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
@@ -210,13 +205,13 @@ pub(super) fn provide_defs_by_module(db: &QueryDb<DriverContext>) -> Vec<DefColl
     )
 }
 
-pub(super) fn provide_program_defs_by_id(
-    db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, DefCollection> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
-        .collect()
+pub(super) fn provide_program_defs_by_id(db: &QueryDb<DriverContext>) -> ProgramDefsById {
+    Arc::new(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
+            .collect(),
+    )
 }
 
 pub(super) fn provide_public_surface(db: &QueryDb<DriverContext>) -> PublicSurfaceQueryValue {
@@ -290,12 +285,14 @@ pub(super) fn provide_item_signatures(
 
 pub(super) fn provide_program_item_signatures(
     db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, ItemSignatures> {
+) -> ProgramItemSignaturesById {
     time_provider(db.context().timings, "program_item_signatures", || {
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-            .collect()
+        Arc::new(
+            db.query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+                .collect(),
+        )
     })
 }
 
@@ -308,29 +305,31 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
-pub(super) fn provide_program_type_lowerings(
-    db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, TypeLowering> {
+pub(super) fn provide_program_type_lowerings(db: &QueryDb<DriverContext>) -> ProgramTypeLowerings {
     time_provider(db.context().timings, "program_type_lowerings", || {
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
-            .collect()
+        Arc::new(
+            db.query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
+                .collect(),
+        )
     })
 }
 
 pub(super) fn provide_program_type_normalizations(
     db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, TypeNormalization> {
+) -> ProgramTypeNormalizations {
     time_provider(db.context().timings, "program_type_normalizations", || {
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
-            .collect()
+        Arc::new(
+            db.query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+                .collect(),
+        )
     })
 }
 
-pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
+pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignaturesValue {
     time_provider(db.context().timings, "program_signatures", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let type_lowerings = module_ids
@@ -363,7 +362,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
                 },
             )
             .collect::<Vec<_>>();
-        ProgramSignatures {
+        Arc::new(ProgramSignatures {
             functions: collect_program_functions(&modules),
             globals: collect_program_globals(&modules),
             comptimes: collect_program_comptimes(&modules),
@@ -373,11 +372,11 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
             traits: collect_program_traits(&modules),
             type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
             trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
-        }
+        })
     })
 }
 
-pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsQueryValue {
+pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsValue {
     time_provider(db.context().timings, "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let modules = module_ids
@@ -423,18 +422,18 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_values(&inputs);
         diagnostics.extend(associated_value_diagnostics);
-        ExtensionMethodsQueryValue {
+        Arc::new(ExtensionMethodsQueryValue {
             methods,
             associated_values,
             diagnostics,
-        }
+        })
     })
 }
 
 pub(super) fn provide_visible_extensions(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
-) -> VisibleExtensionsForModule {
+) -> VisibleExtensionsValue {
     let graph = db.query(ModuleGraphQuery);
     let defs = defs_by_module_id(db);
     let public = db.query(PublicSurfaceQuery);
@@ -442,7 +441,7 @@ pub(super) fn provide_visible_extensions(
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
     let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let extensions = db.query(ExtensionMethodsQuery);
-    visible_extensions_for_module(VisibleExtensionsInput {
+    Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
         graph: &graph,
         using_scope,
@@ -451,7 +450,7 @@ pub(super) fn provide_visible_extensions(
         normalizations: &normalizations,
         extensions: &extensions.methods,
         associated_values: &extensions.associated_values,
-    })
+    }))
 }
 
 pub(super) fn provide_value_resolution(
@@ -580,12 +579,14 @@ pub(super) fn provide_comptime_module(
 
 pub(super) fn provide_program_comptime_modules(
     db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, ResolvedComptimeModule> {
+) -> ProgramComptimeModules {
     let ids = db.query(ParseOkModuleIdsQuery);
     let modules = db.query_many(ids.iter().copied().map(ComptimeModuleQuery));
-    ids.into_iter()
-        .zip(modules.into_iter().map(|lowering| lowering.module))
-        .collect()
+    Arc::new(
+        ids.into_iter()
+            .zip(modules.into_iter().map(|lowering| lowering.module))
+            .collect(),
+    )
 }
 
 pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
@@ -628,13 +629,11 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
     })
 }
 
-pub(super) fn provide_program_comptime(
-    db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, ComptimeCheck> {
+pub(super) fn provide_program_comptime(db: &QueryDb<DriverContext>) -> ProgramComptimeById {
     time_provider(db.context().timings, "program_comptime", || {
         let ids = db.query(ParseOkModuleIdsQuery);
         let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
-        ids.into_iter().zip(comptimes).collect()
+        Arc::new(ids.into_iter().zip(comptimes).collect())
     })
 }
 
@@ -669,14 +668,14 @@ pub(super) fn provide_layouts(
     })
 }
 
-pub(super) fn provide_program_layouts(
-    db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, nia_layout::Layouts> {
+pub(super) fn provide_program_layouts(db: &QueryDb<DriverContext>) -> ProgramLayoutsById {
     time_provider(db.context().timings, "program_layouts", || {
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(|module_id| (module_id, db.query(LayoutsQuery(module_id))))
-            .collect()
+        Arc::new(
+            db.query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(|module_id| (module_id, db.query(LayoutsQuery(module_id))))
+                .collect(),
+        )
     })
 }
 
@@ -1099,7 +1098,8 @@ fn provide_program_diagnostics_inner(db: &QueryDb<DriverContext>) -> Vec<Program
     diagnostics.extend(
         db.query(ExtensionMethodsQuery)
             .diagnostics
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|diagnostic| ProgramDiagnostic {
                 path: first_path.clone(),
                 diagnostic,
