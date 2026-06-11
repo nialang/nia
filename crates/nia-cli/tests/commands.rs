@@ -1360,7 +1360,7 @@ fn object_dir_defines_symbol(dir: &std::path::Path, symbol: &str) -> bool {
     for entry in entries {
         let entry = entry.expect("read object entry");
         let path = entry.path();
-        if !path.extension().is_some_and(|extension| extension == "o") {
+        if path.extension().is_none_or(|extension| extension != "o") {
             continue;
         }
         let output = Command::new("nm")
