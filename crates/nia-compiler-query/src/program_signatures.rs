@@ -2060,6 +2060,7 @@ fn declared_module_closure(
         }
     }
     queue.extend(using_scope.modules.values().copied());
+    queue.extend(using_scope.types.values().map(|entry| entry.target_module));
 
     while let Some(visible) = queue.pop_front() {
         if visible == module_id || !seen.insert(visible) {
