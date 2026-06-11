@@ -43,6 +43,10 @@ fn help_and_version_use_nia_command_name() {
     );
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
     assert!(check_stdout.contains("--exe"), "{check_stdout}");
+    assert!(
+        check_stdout.contains("--runtime <bare|freestanding>"),
+        "{check_stdout}"
+    );
     assert!(check_stdout.contains("--opt-report"), "{check_stdout}");
     assert!(
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
@@ -84,6 +88,11 @@ fn help_and_version_use_nia_command_name() {
         "{emit_stdout}"
     );
     assert!(emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
+    assert!(
+        emit_stdout.contains("--runtime <bare|freestanding>"),
+        "{emit_stdout}"
+    );
+    assert!(emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
     assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
     assert!(emit_stdout.contains("--timings"), "{emit_stdout}");
     assert!(
@@ -589,6 +598,47 @@ pub fn main(init: process::Init) process::ExitCode!void {
         "stderr:\n{}",
         String::from_utf8_lossy(&exe_check.stderr)
     );
+
+    let runtime_check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&public_main)
+        .arg("--runtime")
+        .arg("freestanding")
+        .output_timeout("run nia check --runtime freestanding");
+
+    assert!(
+        runtime_check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&runtime_check.stderr)
+    );
+
+    let repeated_runtime_check = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&public_main)
+        .arg("--runtime")
+        .arg("freestanding")
+        .arg("--runtime=bare")
+        .output_timeout("run nia check with repeated runtime");
+
+    assert!(
+        repeated_runtime_check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&repeated_runtime_check.stderr)
+    );
+
+    let conflict = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg("--exe")
+        .arg("--runtime=bare")
+        .arg(&public_main)
+        .output_timeout("run nia check --exe --runtime=bare");
+
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8_lossy(&conflict.stderr);
+    assert!(
+        stderr.contains("`--runtime bare` cannot be combined with `--exe`"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -962,6 +1012,147 @@ fn main() i32 {
     assert!(metadata.len() > 0);
 }
 
+#[cfg(all(unix, target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn emit_obj_defaults_to_bare_runtime_and_can_emit_freestanding_startup() {
+    let root = temp_dir("emit_obj_defaults_to_bare_runtime_and_can_emit_freestanding_startup");
+    let main = root.join("main.nia");
+    let bare_dir = root.join("bare");
+    let freestanding_dir = root.join("freestanding");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let bare = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--obj")
+        .arg(&main)
+        .arg("--out-dir")
+        .arg(&bare_dir)
+        .output_timeout("run nia emit --obj bare runtime");
+
+    assert!(
+        bare.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&bare.stderr)
+    );
+    assert!(
+        !object_dir_defines_symbol(&bare_dir, "_start"),
+        "bare object output unexpectedly defines _start"
+    );
+
+    let freestanding = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--obj")
+        .arg(&main)
+        .arg("--runtime=freestanding")
+        .arg("--out-dir")
+        .arg(&freestanding_dir)
+        .output_timeout("run nia emit --obj --runtime=freestanding");
+
+    assert!(
+        freestanding.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&freestanding.stderr)
+    );
+    assert!(
+        object_dir_defines_symbol(&freestanding_dir, "_start"),
+        "freestanding object output did not define _start"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn emit_exe_passes_link_args_to_linker() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir("emit_exe_passes_link_args_to_linker");
+    let main = root.join("main.nia");
+    let executable = root.join("main");
+    let linker = root.join("linker.sh");
+    let args_log = root.join("linker.args");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+    std::fs::write(
+        &linker,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n",
+            args_log.display()
+        ),
+    )
+    .expect("write linker script");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make linker executable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .env("NIA_LINKER", &linker)
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--link-arg")
+        .arg("-lc")
+        .arg("--link-arg=-lm")
+        .arg("--link-arg")
+        .arg("-Olinker")
+        .arg("-o")
+        .arg(&executable)
+        .output_timeout("run nia emit --exe --link-arg");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = std::fs::read_to_string(&args_log).expect("read linker args");
+    assert!(args.lines().any(|arg| arg == "-lc"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-lm"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-Olinker"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-o"), "{args}");
+    assert!(
+        args.lines().any(|arg| arg == executable.to_string_lossy()),
+        "{args}"
+    );
+
+    let bare_runtime = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--runtime")
+        .arg("bare")
+        .arg("-o")
+        .arg(root.join("bare-main"))
+        .output_timeout("run nia emit --exe --runtime bare");
+
+    assert!(!bare_runtime.status.success());
+    let stderr = String::from_utf8_lossy(&bare_runtime.stderr);
+    assert!(
+        stderr.contains("`nia emit --exe` currently supports only `--runtime freestanding`"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn emit_obj_accepts_each_optimization_level() {
     let root = temp_dir("emit_obj_accepts_each_optimization_level");
@@ -1160,4 +1351,34 @@ fn main() i32 {
     let metadata =
         std::fs::metadata(&object_before_output_flag).expect("object metadata before output flag");
     assert!(metadata.len() > 0);
+}
+
+#[cfg(all(unix, target_os = "linux", target_arch = "x86_64"))]
+fn object_dir_defines_symbol(dir: &std::path::Path, symbol: &str) -> bool {
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("read object dir {}: {error}", dir.display()));
+    for entry in entries {
+        let entry = entry.expect("read object entry");
+        let path = entry.path();
+        if !path.extension().is_some_and(|extension| extension == "o") {
+            continue;
+        }
+        let output = Command::new("nm")
+            .arg("--defined-only")
+            .arg(&path)
+            .output_timeout("run nm on emitted object");
+        assert!(
+            output.status.success(),
+            "nm stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout
+            .lines()
+            .any(|line| line.split_whitespace().last() == Some(symbol))
+        {
+            return true;
+        }
+    }
+    false
 }
