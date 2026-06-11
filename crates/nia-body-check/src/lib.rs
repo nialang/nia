@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
 use std::time::Instant;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 mod aggregates;
 mod bir;
@@ -364,6 +367,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         program_comptime_modules: input.program_comptime.modules,
+        extension_methods_by_id: BodyChecker::extension_method_lookup(input.extensions),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
@@ -491,6 +495,7 @@ struct BodyChecker<'a> {
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
+    extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     node_expr_types: HashMap<NodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
@@ -522,6 +527,12 @@ struct BodyChecker<'a> {
     comptime_call_locals: Vec<ComptimeCallFrame>,
 }
 
+#[derive(Debug, Clone)]
+struct ExtensionMethodLookup {
+    target_ty: InternedTyId,
+    impl_generics: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
     module_id: Option<ModuleId>,
@@ -541,6 +552,24 @@ struct ReceiverBase {
 }
 
 impl<'a> BodyChecker<'a> {
+    fn extension_method_lookup(
+        extensions: &VisibleExtensionMethods,
+    ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
+        let mut methods = HashMap::new();
+        for target in extensions.targets() {
+            for method in &target.methods {
+                methods.insert(
+                    method.def_id,
+                    ExtensionMethodLookup {
+                        target_ty: target.target_ty,
+                        impl_generics: method.impl_generics.clone(),
+                    },
+                );
+            }
+        }
+        Arc::new(methods)
+    }
+
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
@@ -753,7 +782,7 @@ impl<'a> BodyChecker<'a> {
                             "body_check.extend_method",
                             module_id,
                             &method.function.name,
-                            0.050,
+                            0.010,
                             || {
                                 self.check_function_def(method.function.span, &method.function);
                             },
