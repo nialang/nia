@@ -16,11 +16,13 @@ use std::{
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 const MAX_COMMAND_LIMIT: usize = 4;
+const MAX_HEAVY_COMPILER_LIMIT: usize = 1;
 const MAX_ARTIFACT_EMIT_LIMIT: usize = 2;
 const COMMAND_SLOT_MEMORY_BYTES: usize = 384 * 1024 * 1024;
+const HEAVY_COMPILER_SLOT_MEMORY_BYTES: usize = 1024 * 1024 * 1024;
 const ARTIFACT_EMIT_SLOT_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
-const PERMIT_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+const PERMIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const COMMAND_SLOT_STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 
 struct CommandPermit {
@@ -30,20 +32,30 @@ struct CommandPermit {
 #[derive(Clone, Copy)]
 enum CommandClass {
     General,
+    HeavyCompiler,
     ArtifactEmit,
 }
 
 #[derive(Clone, Copy)]
 enum SlotClass {
     Command,
+    HeavyCompiler,
     ArtifactEmit,
 }
 
 fn acquire_command_permit(class: CommandClass) -> CommandPermit {
-    let mut slots = vec![acquire_slot(SlotClass::Command)];
-    if matches!(class, CommandClass::ArtifactEmit) {
-        slots.push(acquire_slot(SlotClass::ArtifactEmit));
+    let mut slots = Vec::new();
+    match class {
+        CommandClass::General => {}
+        CommandClass::HeavyCompiler => {
+            slots.push(acquire_slot(SlotClass::HeavyCompiler));
+        }
+        CommandClass::ArtifactEmit => {
+            slots.push(acquire_slot(SlotClass::HeavyCompiler));
+            slots.push(acquire_slot(SlotClass::ArtifactEmit));
+        }
     }
+    slots.push(acquire_slot(SlotClass::Command));
     CommandPermit { slots }
 }
 
@@ -95,6 +107,7 @@ fn workspace_slot_namespace() -> String {
 fn slot_limit(class: SlotClass) -> usize {
     match class {
         SlotClass::Command => command_slot_limit(),
+        SlotClass::HeavyCompiler => heavy_compiler_slot_limit().min(command_slot_limit()),
         SlotClass::ArtifactEmit => artifact_emit_slot_limit().min(command_slot_limit()),
     }
 }
@@ -102,6 +115,9 @@ fn slot_limit(class: SlotClass) -> usize {
 fn command_slot_limit() -> usize {
     static LIMIT: OnceLock<usize> = OnceLock::new();
     *LIMIT.get_or_init(|| {
+        if let Some(limit) = env_slot_limit("NIA_CLI_TEST_COMMAND_LIMIT") {
+            return limit;
+        }
         let cpu_limit = available_parallelism().clamp(1, MAX_COMMAND_LIMIT);
         let memory_limit =
             memory_limited_parallelism(COMMAND_SLOT_MEMORY_BYTES).unwrap_or(MAX_COMMAND_LIMIT);
@@ -109,9 +125,27 @@ fn command_slot_limit() -> usize {
     })
 }
 
+fn heavy_compiler_slot_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        if let Some(limit) = env_slot_limit("NIA_CLI_TEST_HEAVY_LIMIT") {
+            return limit;
+        }
+        let cpu_limit = (available_parallelism() / 4).clamp(1, MAX_HEAVY_COMPILER_LIMIT);
+        let memory_limit =
+            memory_limited_parallelism(HEAVY_COMPILER_SLOT_MEMORY_BYTES).unwrap_or(cpu_limit);
+        cpu_limit
+            .min(memory_limit)
+            .clamp(1, MAX_HEAVY_COMPILER_LIMIT)
+    })
+}
+
 fn artifact_emit_slot_limit() -> usize {
     static LIMIT: OnceLock<usize> = OnceLock::new();
     *LIMIT.get_or_init(|| {
+        if let Some(limit) = env_slot_limit("NIA_CLI_TEST_ARTIFACT_LIMIT") {
+            return limit;
+        }
         let cpu_limit = (available_parallelism() / 4).clamp(1, MAX_ARTIFACT_EMIT_LIMIT);
         let memory_limit =
             memory_limited_parallelism(ARTIFACT_EMIT_SLOT_MEMORY_BYTES).unwrap_or(cpu_limit);
@@ -119,6 +153,13 @@ fn artifact_emit_slot_limit() -> usize {
             .min(memory_limit)
             .clamp(1, MAX_ARTIFACT_EMIT_LIMIT)
     })
+}
+
+fn env_slot_limit(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|limit| limit.max(1))
 }
 
 fn available_parallelism() -> usize {
@@ -154,6 +195,7 @@ impl SlotClass {
     fn slot_name(self) -> &'static str {
         match self {
             SlotClass::Command => "command",
+            SlotClass::HeavyCompiler => "heavy_compiler",
             SlotClass::ArtifactEmit => "artifact_emit",
         }
     }
@@ -281,10 +323,18 @@ impl CommandStatusExt for Command {
 
 fn classify_command(command: &Command) -> CommandClass {
     let mut saw_emit = false;
+    let mut saw_check = false;
+    let mut saw_heavy_emit_target = false;
     let mut saw_native_target = false;
     for arg in command.get_args().filter_map(|arg| arg.to_str()) {
+        if arg == "check" {
+            saw_check = true;
+        }
         if arg == "emit" {
             saw_emit = true;
+        }
+        if matches!(arg, "--checked" | "--backend" | "--llvm") {
+            saw_heavy_emit_target = true;
         }
         if matches!(arg, "--exe" | "--obj") {
             saw_native_target = true;
@@ -292,6 +342,8 @@ fn classify_command(command: &Command) -> CommandClass {
     }
     if saw_emit && saw_native_target {
         CommandClass::ArtifactEmit
+    } else if saw_check || (saw_emit && saw_heavy_emit_target) {
+        CommandClass::HeavyCompiler
     } else {
         CommandClass::General
     }
