@@ -238,19 +238,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         name: &str,
     ) {
-        let trait_ids = self
-            .program_traits
-            .iter()
-            .filter_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .any(|method| method.name == name)
-                    .then_some(*trait_id)
-            })
-            .collect::<Vec<_>>();
-        for trait_id in trait_ids {
+        for trait_id in self.trait_ids_with_method_named(name) {
             let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
                 continue;
             };
@@ -266,6 +254,27 @@ impl<'a> BodyChecker<'a> {
                 );
             }
         }
+    }
+
+    fn trait_ids_with_method_named(&mut self, name: &str) -> Vec<GlobalDefId> {
+        if let Some(trait_ids) = self.traits_by_method_name.get(name) {
+            return trait_ids.clone();
+        }
+        let trait_ids = self
+            .program_traits
+            .iter()
+            .filter_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .any(|method| method.name == name)
+                    .then_some(*trait_id)
+            })
+            .collect::<Vec<_>>();
+        self.traits_by_method_name
+            .insert(name.to_string(), trait_ids.clone());
+        trait_ids
     }
 
     pub(in crate::calls::methods) fn dynamic_trait_method_candidates_for_receiver(

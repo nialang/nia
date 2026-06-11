@@ -201,6 +201,7 @@ fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::RuntimeModel;
     use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceRevision};
 

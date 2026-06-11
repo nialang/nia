@@ -785,6 +785,8 @@ impl<'a> BodyChecker<'a> {
             global_types: HashMap::new(),
             comptime_types: HashMap::new(),
             method_receiver_kinds: HashMap::new(),
+            traits_by_method_name: HashMap::new(),
+            trait_impls_by_trait: HashMap::new(),
             diagnostics: Vec::new(),
             timing: self.timing,
             timing_module_id: self.timing_module_id,
