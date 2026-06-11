@@ -141,7 +141,7 @@ impl QueryKey<DriverContext> for DefsByModuleQuery {
 pub(super) struct ProgramDefsByIdQuery;
 
 impl QueryKey<DriverContext> for ProgramDefsByIdQuery {
-    type Value = HashMap<ModuleId, DefCollection>;
+    type Value = ProgramDefsById;
 
     fn name() -> &'static str {
         "program_defs_by_id"

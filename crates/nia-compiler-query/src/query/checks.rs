@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ComptimeModuleQuery(pub(super) ModuleId);
@@ -21,7 +20,7 @@ impl QueryKey<DriverContext> for ComptimeModuleQuery {
 pub(super) struct ProgramComptimeModulesQuery;
 
 impl QueryKey<DriverContext> for ProgramComptimeModulesQuery {
-    type Value = HashMap<ModuleId, ResolvedComptimeModule>;
+    type Value = ProgramComptimeModules;
 
     fn name() -> &'static str {
         "program_comptime_modules"
@@ -51,7 +50,7 @@ impl QueryKey<DriverContext> for ComptimeQuery {
 pub(super) struct ProgramComptimeQuery;
 
 impl QueryKey<DriverContext> for ProgramComptimeQuery {
-    type Value = HashMap<ModuleId, ComptimeCheck>;
+    type Value = ProgramComptimeById;
 
     fn name() -> &'static str {
         "program_comptime"
@@ -81,7 +80,7 @@ impl QueryKey<DriverContext> for LayoutsQuery {
 pub(super) struct ProgramLayoutsQuery;
 
 impl QueryKey<DriverContext> for ProgramLayoutsQuery {
-    type Value = HashMap<ModuleId, nia_layout::Layouts>;
+    type Value = ProgramLayoutsById;
 
     fn name() -> &'static str {
         "program_layouts"

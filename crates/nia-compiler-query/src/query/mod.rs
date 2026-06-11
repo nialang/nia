@@ -35,7 +35,7 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 mod base;
 mod checked;
@@ -54,6 +54,17 @@ use program::*;
 use providers::*;
 use resolve::*;
 use types::*;
+
+type ProgramDefsById = Arc<HashMap<ModuleId, DefCollection>>;
+type ProgramTypeLowerings = Arc<HashMap<ModuleId, TypeLowering>>;
+type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
+type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;
+type ProgramComptimeModules = Arc<HashMap<ModuleId, ResolvedComptimeModule>>;
+type ProgramComptimeById = Arc<HashMap<ModuleId, ComptimeCheck>>;
+type ProgramLayoutsById = Arc<HashMap<ModuleId, nia_layout::Layouts>>;
+type ProgramSignaturesValue = Arc<ProgramSignatures>;
+type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
+type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 
 pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
     check_loaded_program_with_options(loaded, NiaOptimizationLevel::default())
