@@ -61,7 +61,6 @@ type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
 type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;
 type ProgramComptimeModules = Arc<HashMap<ModuleId, ResolvedComptimeModule>>;
 type ProgramComptimeById = Arc<HashMap<ModuleId, ComptimeCheck>>;
-type ProgramLayoutsById = Arc<HashMap<ModuleId, nia_layout::Layouts>>;
 type ProgramSignaturesValue = Arc<ProgramSignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;

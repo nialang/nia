@@ -860,7 +860,7 @@ impl<'a> BodyChecker<'a> {
         if def_id.module_id == self.defs.module_id {
             return self.layouts.nominal_type_layout(*def_id, args);
         }
-        let layouts = self.program.layouts?.get(&def_id.module_id)?;
+        let layouts = (self.program.layouts?)(def_id.module_id)?;
         layouts.nominal_type_layout(*def_id, args)
     }
 
