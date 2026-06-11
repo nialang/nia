@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::DefId;
 use nia_ast::Visibility;
@@ -70,6 +70,7 @@ pub struct VisibleExtensionMethods {
     targets: Vec<VisibleExtensionTarget>,
     callable_by_name: HashMap<String, Vec<(usize, usize)>>,
     trait_witnesses_by_name: HashMap<String, Vec<(usize, usize)>>,
+    trait_witness_impls: HashSet<(ModuleId, usize)>,
     associated_values_by_target_name: HashMap<(InternedTyId, String), Vec<(usize, usize)>>,
 }
 
@@ -192,6 +193,8 @@ impl VisibleExtensionMethods {
                 .entry(method.name.clone())
                 .or_default()
                 .push((target_index, method_index));
+            self.trait_witness_impls
+                .insert((method.def_id.module_id, method.impl_index));
         }
         self.targets[target_index].methods.push(method);
     }
@@ -260,6 +263,10 @@ impl VisibleExtensionMethods {
 
     pub fn targets(&self) -> &[VisibleExtensionTarget] {
         &self.targets
+    }
+
+    pub fn has_trait_witness_impl(&self, module_id: ModuleId, impl_index: usize) -> bool {
+        self.trait_witness_impls.contains(&(module_id, impl_index))
     }
 
     pub fn associated_value(

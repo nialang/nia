@@ -762,13 +762,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         impl_signature: &ProgramTraitImplSignature,
     ) -> bool {
-        self.extensions.targets().iter().any(|target| {
-            target.methods.iter().any(|method| {
-                method.is_trait_witness
-                    && method.def_id.module_id == impl_signature.module_id
-                    && method.impl_index == impl_signature.local_index
-            })
-        })
+        self.extensions
+            .has_trait_witness_impl(impl_signature.module_id, impl_signature.local_index)
     }
 
     fn check_type_projection_obligations(
