@@ -13,7 +13,6 @@ The package manager and build system are expected to live as separate projects.
 ## A Small Example
 
 ```nia
-using std;
 using std::process;
 
 struct Point {
@@ -29,7 +28,7 @@ extend Point {
 
 fn sum(xs: &[i32]) i32 {
     var total = 0;
-    for &value in xs::iter() {
+    for &value in xs.iter() {
         total = total + value;
     }
     total
@@ -40,11 +39,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var point: Point = { x: 3, y: 4 };
     var also_point = Point { x: 5, y: 12 };
-    var values = [_]i32[point::len2(), also_point::len2(), 7];
+    var values: [_]i32 = [point.len2(), also_point.len2(), 7];
     var borrowed = &([3]i32[1, 2, 3])[..];
 
-    if point::len2() + sum(&values[..]) + sum(borrowed) != 232 {
-        return process::ExitCode::init(1)!;
+    if point.len2() + sum(values) + sum(borrowed) != 232 {
+        return process::exit(1)!;
     }
 
     !{}
