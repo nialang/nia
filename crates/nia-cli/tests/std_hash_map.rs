@@ -433,7 +433,7 @@ fn run(init: process::Init) mem::Error!void {
     _ = init;
     var page = mem::PageAllocator::init();
     var gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer gpa.deinit().?.ok().?;
+    defer gpa.deinit().ok().?;
 
     var map = std::HashMap[i32, i32]::init_seed(1234u64);
     defer map.deinit(&mut gpa).?;
@@ -1382,7 +1382,7 @@ fn run(init: process::Init) mem::Error!void {
     _ = init;
     var page = mem::PageAllocator::init();
     var gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer gpa.deinit().?.ok().?;
+    defer gpa.deinit().ok().?;
 
     var model_map = std::HashMap[i32, i32]::init_seed(557u64);
     defer model_map.deinit(&mut gpa).?;

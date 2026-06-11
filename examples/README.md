@@ -61,7 +61,7 @@ same allocator must later deinitialize or free the allocation.
 - Use `std::mem.GeneralPurposeAllocator` for ordinary heap-backed containers and
   mixed allocation lifetimes. Its `deinit` returns `mem::DeinitStatus::Leak`
   when allocations are still live, so examples that expect clean shutdown check
-  it with `.ok().?`.
+  it with `deinit().ok().?`.
 - Use `std::mem.PageAllocator` as low-level backing storage for other
   allocators, or when whole page mappings are exactly what the program wants.
 

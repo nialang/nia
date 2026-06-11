@@ -9,7 +9,7 @@ fn run(init: Init) mem::Error!void {
 
     var page = mem::PageAllocator::init();
     var gpa = mem::GeneralPurposeAllocator::init(&mut page);
-    defer gpa.deinit().?.ok().?;
+    defer gpa.deinit().ok().?;
 
     // init_seed is deterministic, which keeps example output stable.
     var scores = std::HashMap[i32, i32]::init_seed(2024u64);
