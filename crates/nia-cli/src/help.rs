@@ -75,12 +75,16 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Check => HelpDoc {
             title: "nia check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["nia check <file.nia> [--exe] [--opt-report] [options]"],
+            usage: &["nia check <file.nia> [--exe | --runtime <runtime>] [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
                     left: "--exe",
-                    right: "check with the freestanding executable startup runtime injected",
+                    right: "alias for --runtime freestanding",
+                },
+                HelpRow {
+                    left: "--runtime <bare|freestanding>",
+                    right: "select checking runtime; bare is the default, freestanding injects the executable startup runtime",
                 },
                 HelpRow {
                     left: "--opt-report",
@@ -106,6 +110,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             examples: &[
                 "nia check src/main.nia",
                 "nia check --exe src/main.nia",
+                "nia check src/main.nia --runtime freestanding",
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
             ],
@@ -120,8 +125,8 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --checked <file.nia> [--opt-report] [options]",
                 "nia emit --backend <file.nia> [--opt-report] [options]",
                 "nia emit --llvm <file.nia> [--opt-report] [options]",
-                "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--opt-report] [options]",
-                "nia emit --exe <file.nia> [-o <executable>] [--opt-report] [options]",
+                "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --exe <file.nia> [-o <executable>] [--runtime freestanding] [--link-arg <arg>] [--opt-report] [options]",
             ],
             commands: &[],
             options: &[
@@ -152,6 +157,14 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 HelpRow {
                     left: "--exe",
                     right: "link a freestanding executable",
+                },
+                HelpRow {
+                    left: "--runtime <bare|freestanding>",
+                    right: "select runtime for --obj; bare is the default, --exe supports freestanding",
+                },
+                HelpRow {
+                    left: "--link-arg <arg>",
+                    right: "pass an extra argument to the executable linker; may appear multiple times",
                 },
                 HelpRow {
                     left: "-o <file.o>",
@@ -188,12 +201,15 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia -O2 emit --backend src/main.nia --opt-report",
                 "nia emit --llvm src/main.nia",
                 "nia emit --obj src/main.nia --out-dir build/obj",
+                "nia emit --obj src/main.nia --runtime freestanding -o build/startup.o",
                 "nia emit --exe src/main.nia -o build/main",
+                "nia emit --exe src/main.nia --link-arg -lc -o build/main",
             ],
             notes: &[
                 "Use exactly one emit target flag.",
                 "The optimization report is written to stderr so stdout remains inspection output and native targets remain file-only.",
                 "Timing reports are written to stderr so stdout remains inspection output and native targets remain file-only.",
+                "`emit --obj` defaults to the bare runtime and does not inject startup code.",
                 "Use --out-dir when --obj emits multiple codegen units.",
                 "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",

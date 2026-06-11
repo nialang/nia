@@ -74,7 +74,7 @@ enum CliCommand {
     Check {
         path: String,
         opt_report: bool,
-        exe: bool,
+        runtime: Runtime,
     },
     Emit {
         path: String,
@@ -92,6 +92,12 @@ enum EmitTarget {
     Llvm,
     Obj { args: Vec<String> },
     Exe { args: Vec<String> },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Runtime {
+    Bare,
+    Freestanding,
 }
 
 enum CliAction {
@@ -142,7 +148,9 @@ fn run_cli(cli: Cli) -> ExitCode {
 
     match cli.command {
         CliCommand::Check {
-            opt_report, exe, ..
+            opt_report,
+            runtime,
+            ..
         } => run_check(
             &path,
             &source,
@@ -150,7 +158,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             cli.optimization,
             cli.timings,
             opt_report,
-            exe,
+            runtime,
         ),
         CliCommand::Emit {
             target, opt_report, ..
@@ -252,7 +260,7 @@ fn extract_global_options(
                 .map_err(|message| CliError::new(message, help))?;
             continue;
         }
-        if native_emit_option_takes_path(&arg) {
+        if emit_target_option_takes_value(&arg) {
             preserve_next = true;
             remaining.push(arg);
             continue;
@@ -277,8 +285,8 @@ fn extract_global_options(
     ))
 }
 
-fn native_emit_option_takes_path(arg: &str) -> bool {
-    arg == "-o" || arg == "--out-dir"
+fn emit_target_option_takes_value(arg: &str) -> bool {
+    matches!(arg, "-o" | "--out-dir" | "--runtime" | "--link-arg")
 }
 
 fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
@@ -365,11 +373,54 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let mut path = None;
     let mut opt_report = false;
-    let mut exe = false;
-    for arg in args {
+    let mut runtime = Runtime::Bare;
+    let mut explicit_runtime = None::<Runtime>;
+    let mut saw_exe = false;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--runtime=") {
+            explicit_runtime = Some(parse_runtime(value).map_err(|message| {
+                CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
+            })?);
+            if matches!(explicit_runtime, Some(Runtime::Bare)) && saw_exe {
+                return Err(CliError::new(
+                    "`--runtime bare` cannot be combined with `--exe`",
+                    HelpTopic::Check,
+                ));
+            }
+            runtime = explicit_runtime.expect("runtime just set");
+            continue;
+        }
         match arg.as_str() {
             "--opt-report" => opt_report = true,
-            "--exe" => exe = true,
+            "--exe" => {
+                if matches!(explicit_runtime, Some(Runtime::Bare)) {
+                    return Err(CliError::new(
+                        "`--exe` cannot be combined with `--runtime bare`",
+                        HelpTopic::Check,
+                    ));
+                }
+                saw_exe = true;
+                runtime = Runtime::Freestanding;
+            }
+            "--runtime" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing runtime after `--runtime`",
+                        HelpTopic::Check,
+                    ));
+                };
+                explicit_runtime = Some(parse_runtime(&value).map_err(|message| {
+                    CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
+                })?);
+                if matches!(explicit_runtime, Some(Runtime::Bare)) && saw_exe {
+                    return Err(CliError::new(
+                        "`--runtime bare` cannot be combined with `--exe`",
+                        HelpTopic::Check,
+                    ));
+                }
+                runtime = explicit_runtime.expect("runtime just set");
+            }
             _ if path.is_none() => path = Some(arg),
             _ => {
                 return Err(CliError::new(
@@ -388,7 +439,7 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     Ok(CliCommand::Check {
         path,
         opt_report,
-        exe,
+        runtime,
     })
 }
 
@@ -432,8 +483,11 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         }
         match arg.as_str() {
             "--opt-report" => opt_report = true,
-            _ if native_emit_option_takes_path(&arg) => {
+            _ if emit_target_option_takes_value(&arg) => {
                 preserve_next = true;
+                target_args.push(arg);
+            }
+            _ if arg.starts_with("--runtime=") || arg.starts_with("--link-arg=") => {
                 target_args.push(arg);
             }
             _ if arg.starts_with('-') && path.is_none() => {
@@ -596,10 +650,10 @@ fn run_check(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
-    exe: bool,
+    runtime: Runtime,
 ) -> ExitCode {
     let program = time_stage(timings, "check", || {
-        if exe {
+        if runtime == Runtime::Freestanding {
             nia_driver::check_freestanding_executable_with_map_options_and_timings(
                 path,
                 module_map,
@@ -790,12 +844,21 @@ fn run_emit_obj(
         }
     };
     let program = time_stage(timings, "check", || {
-        nia_driver::check_program_with_map_options_and_timings(
-            path,
-            module_map,
-            optimization,
-            timings,
-        )
+        if options.runtime == Runtime::Freestanding {
+            nia_driver::check_freestanding_executable_with_map_options_and_timings(
+                path,
+                module_map,
+                optimization,
+                timings,
+            )
+        } else {
+            nia_driver::check_program_with_map_options_and_timings(
+                path,
+                module_map,
+                optimization,
+                timings,
+            )
+        }
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -815,8 +878,8 @@ fn run_emit_obj(
         return ExitCode::FAILURE;
     }
 
-    match options {
-        EmitObjOptions::Single(path) => {
+    match options.output {
+        EmitObjOutput::Single(path) => {
             if output.modules.len() != 1 {
                 eprintln!(
                     "`-o` can only be used when the program has one codegen unit; use `--out-dir`"
@@ -828,7 +891,7 @@ fn run_emit_obj(
                 return ExitCode::FAILURE;
             }
         }
-        EmitObjOptions::Directory(dir) => {
+        EmitObjOutput::Directory(dir) => {
             if let Err(err) = fs::create_dir_all(&dir) {
                 eprintln!("failed to create `{}`: {err}", dir.display());
                 return ExitCode::FAILURE;
@@ -854,8 +917,8 @@ fn run_emit_exe(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let output_path = match parse_emit_exe_options(path, args) {
-        Ok(path) => path,
+    let options = match parse_emit_exe_options(path, args) {
+        Ok(options) => options,
         Err(message) => {
             eprintln!("{message}");
             return ExitCode::FAILURE;
@@ -906,7 +969,7 @@ fn run_emit_exe(
     }) else {
         return ExitCode::FAILURE;
     };
-    if let Some(parent) = output_path.parent()
+    if let Some(parent) = options.output.parent()
         && !parent.as_os_str().is_empty()
         && let Err(err) = fs::create_dir_all(parent)
     {
@@ -920,8 +983,9 @@ fn run_emit_exe(
             .args(&linker.args_before_objects)
             .args(&object_paths)
             .args(&linker.args_after_objects)
+            .args(&options.link_args)
             .arg("-o")
-            .arg(&output_path)
+            .arg(&options.output)
             .status()
     });
     match status {
@@ -964,7 +1028,12 @@ fn codegen_options(optimization: OptimizationPolicy) -> nia_codegen_llvm::LlvmCo
     nia_codegen_llvm::LlvmCodegenOptions { optimization }
 }
 
-enum EmitObjOptions {
+struct EmitObjOptions {
+    output: EmitObjOutput,
+    runtime: Runtime,
+}
+
+enum EmitObjOutput {
     Single(PathBuf),
     Directory(PathBuf),
 }
@@ -972,8 +1041,14 @@ enum EmitObjOptions {
 fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOptions, String> {
     let mut output = None::<PathBuf>;
     let mut out_dir = None::<PathBuf>;
+    let mut runtime = Runtime::Bare;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--runtime=") {
+            runtime = parse_runtime(value)
+                .map_err(|message| format!("{message} for `nia emit --obj`"))?;
+            continue;
+        }
         match arg.as_str() {
             "-o" => {
                 let Some(path) = iter.next() else {
@@ -987,21 +1062,49 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
                 };
                 out_dir = Some(PathBuf::from(path));
             }
+            "--runtime" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing runtime after `--runtime`".to_string());
+                };
+                runtime = parse_runtime(&value)
+                    .map_err(|message| format!("{message} for `nia emit --obj`"))?;
+            }
             _ => return Err(format!("unknown `nia emit --obj` option `{arg}`")),
         }
     }
-    match (output, out_dir) {
+    let output = match (output, out_dir) {
         (Some(_), Some(_)) => Err("use either `-o` or `--out-dir`, not both".to_string()),
-        (Some(path), None) => Ok(EmitObjOptions::Single(path)),
-        (None, Some(path)) => Ok(EmitObjOptions::Directory(path)),
-        (None, None) => Ok(EmitObjOptions::Single(default_output_path(source, "o"))),
-    }
+        (Some(path), None) => Ok(EmitObjOutput::Single(path)),
+        (None, Some(path)) => Ok(EmitObjOutput::Directory(path)),
+        (None, None) => Ok(EmitObjOutput::Single(default_output_path(source, "o"))),
+    }?;
+    Ok(EmitObjOptions { output, runtime })
 }
 
-fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<PathBuf, String> {
+struct EmitExeOptions {
+    output: PathBuf,
+    link_args: Vec<String>,
+}
+
+fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
+    let mut link_args = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--runtime=") {
+            let runtime = parse_runtime(value)
+                .map_err(|message| format!("{message} for `nia emit --exe`"))?;
+            if runtime != Runtime::Freestanding {
+                return Err(
+                    "`nia emit --exe` currently supports only `--runtime freestanding`".to_string(),
+                );
+            }
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--link-arg=") {
+            link_args.push(value.to_string());
+            continue;
+        }
         match arg.as_str() {
             "-o" => {
                 let Some(path) = iter.next() else {
@@ -1009,10 +1112,42 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<PathBuf, St
                 };
                 output = Some(PathBuf::from(path));
             }
+            "--runtime" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing runtime after `--runtime`".to_string());
+                };
+                let runtime = parse_runtime(&value)
+                    .map_err(|message| format!("{message} for `nia emit --exe`"))?;
+                if runtime != Runtime::Freestanding {
+                    return Err(
+                        "`nia emit --exe` currently supports only `--runtime freestanding`"
+                            .to_string(),
+                    );
+                }
+            }
+            "--link-arg" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing argument after `--link-arg`".to_string());
+                };
+                link_args.push(value);
+            }
             _ => return Err(format!("unknown `nia emit --exe` option `{arg}`")),
         }
     }
-    Ok(output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)))
+    Ok(EmitExeOptions {
+        output: output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)),
+        link_args,
+    })
+}
+
+fn parse_runtime(value: &str) -> Result<Runtime, String> {
+    match value {
+        "bare" => Ok(Runtime::Bare),
+        "freestanding" => Ok(Runtime::Freestanding),
+        _ => Err(format!(
+            "unknown runtime `{value}`; expected `bare` or `freestanding`"
+        )),
+    }
 }
 
 fn default_output_path(source: &str, extension: &str) -> PathBuf {

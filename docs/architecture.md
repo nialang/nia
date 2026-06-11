@@ -199,8 +199,10 @@ Current Nia-owned optimization consumers:
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
   `nia check <file.nia> --opt-report` prints this report for direct CLI
-  inspection. `nia check --exe <file.nia>` checks with the same freestanding
-  startup runtime that `emit --exe` injects. `nia emit --checked <file.nia> --opt-report`,
+  inspection. `nia check --exe <file.nia>` is an alias for
+  `nia check <file.nia> --runtime freestanding`, which checks with the same
+  startup runtime that `emit --exe` injects.
+  `nia emit --checked <file.nia> --opt-report`,
   `nia emit --backend <file.nia> --opt-report`,
   `nia emit --llvm <file.nia> --opt-report`,
   `nia emit --obj <file.nia> --opt-report`, and
@@ -1050,14 +1052,14 @@ The package is `nia-cli`. The installed binary name is `nia`.
 The CLI supports:
 
 ```text
-nia check <file.nia> [--exe] [--opt-report]
+nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
 nia emit --checked <file.nia> [--opt-report]
 nia emit --backend <file.nia> [--opt-report]
 nia emit --llvm <file.nia> [--opt-report]
-nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
-nia emit --exe <file.nia> [-o executable] [--opt-report]
+nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
+nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
 
 Global module-map options:
@@ -1083,8 +1085,8 @@ Global optimization options are listed explicitly in CLI help:
 policy, LLVM codegen optimization level, enabled backend module/function/global
 pass inventories, the backend optimization change count, and backend
 optimization changes to stdout. `nia check --exe <file.nia>` injects the
-freestanding startup runtime and checks the same entry contract used by
-`emit --exe`.
+freestanding startup runtime through the `--runtime freestanding` model and
+checks the same entry contract used by `emit --exe`.
 `nia emit --backend` prints the optimized backend IR to stdout for pass review.
 `nia emit --checked <file.nia> --opt-report`,
 `nia emit --backend <file.nia> --opt-report`,
@@ -1103,10 +1105,13 @@ generic instance calls, local cleanup, and size-safe forwarding wrappers while
 checking that the freestanding executable exits with the same value at every
 level.
 
-`emit --obj` may produce multiple object files because backend lowering can
-produce multiple codegen units. `-o` is only valid for single-unit output;
-`--out-dir` is the multi-unit form. `emit --exe` lowers the freestanding
-runtime-selected executable model and invokes the configured target linker.
+`emit --obj` defaults to the bare runtime and may produce multiple object files
+because backend lowering can produce multiple codegen units. `emit --obj
+--runtime freestanding` lowers with the same startup injection used by
+executable emission. `-o` is only valid for single-unit output; `--out-dir` is
+the multi-unit form. `emit --exe` lowers the freestanding runtime-selected
+executable model and invokes the configured target linker. Extra linker
+arguments are passed with repeated `--link-arg` options.
 Native output paths are
 mkdir-friendly by design: missing parent directories for `emit --obj -o`,
 `emit --obj --out-dir`, and `emit --exe -o` are created before writing or

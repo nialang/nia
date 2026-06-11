@@ -99,14 +99,14 @@ cargo run -p nia-cli -- --help
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
-nia check <file.nia> [--exe] [--opt-report]
+nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
 nia emit --checked <file.nia> [--opt-report]
 nia emit --backend <file.nia> [--opt-report]
 nia emit --llvm <file.nia> [--opt-report]
-nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
-nia emit --exe <file.nia> [-o executable] [--opt-report]
+nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
+nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
 
 Module aliases can be supplied with `-M name=path`.
@@ -163,9 +163,11 @@ See [docs/platform-support.md](docs/platform-support.md).
 
 Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
 means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy to stdout. `nia check --exe <file.nia>` checks with the
-same freestanding startup runtime that `emit --exe` injects. Emit commands
-write the same report to stderr when `--opt-report` is supplied.
+optimization policy to stdout. `nia check --exe <file.nia>` is an alias for
+`nia check <file.nia> --runtime freestanding`, which checks with the same
+startup runtime that `emit --exe` injects. `emit --obj` defaults to the bare
+runtime and can opt into startup injection with `--runtime freestanding`.
+Emit commands write the same report to stderr when `--opt-report` is supplied.
 
 ## Testing
 
