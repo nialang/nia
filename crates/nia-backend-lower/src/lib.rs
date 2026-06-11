@@ -15,10 +15,11 @@ mod trait_object_vtables;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use nia_ast::{Expr, ItemKind, Module};
+use nia_ast::{Expr, ItemKind, Module, Visibility};
 use nia_backend_ir::{
-    BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
-    BackendStructInstanceKey,
+    BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
+    BackendStructInstanceKey, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey,
 };
 use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
@@ -42,6 +43,8 @@ use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
+
+use crate::function_refs::{FunctionInstanceKey, FunctionInstanceRef, FunctionRefs};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLowering {
@@ -215,6 +218,7 @@ pub fn lower_backend_program_with_timings(
                     let lowerer = &mut lowerers[owner_index];
                     lowerer.lower_additional_function_instances(
                         refs,
+                        &lowered_modules[owner_index].functions,
                         &lowered_modules[owner_index].function_instances,
                     )
                 };
@@ -223,6 +227,9 @@ pub fn lower_backend_program_with_timings(
                         &mut lowerers[owner_index],
                         &mut lowered_modules[owner_index],
                         additional,
+                    );
+                    lowerers[owner_index].lower_additional_reachable_functions_from_instances(
+                        &mut lowered_modules[owner_index],
                     );
                     refresh_known_backend_type_interners(&mut lowerers);
                 }
@@ -278,6 +285,71 @@ fn append_function_instances(
     );
     module.layouts = backend_layouts;
     module.interner = lowerer.interner.clone();
+}
+
+fn enqueue_function_ref(
+    pending: &mut VecDeque<GlobalDefId>,
+    queued: &mut HashSet<GlobalDefId>,
+    def_id: GlobalDefId,
+) {
+    if queued.insert(def_id) {
+        pending.push_back(def_id);
+    }
+}
+
+fn enqueue_function_refs(
+    refs: FunctionRefs,
+    pending_functions: &mut VecDeque<GlobalDefId>,
+    queued_functions: &mut HashSet<GlobalDefId>,
+    pending_instances: &mut Vec<FunctionInstanceRef>,
+    queued_instances: &mut HashSet<FunctionInstanceKey>,
+) {
+    for function in refs.functions {
+        enqueue_function_ref(pending_functions, queued_functions, function);
+    }
+    enqueue_function_instance_refs(refs.instances, pending_instances, queued_instances);
+}
+
+fn enqueue_function_instance_refs(
+    refs: impl IntoIterator<Item = FunctionInstanceRef>,
+    pending_instances: &mut Vec<FunctionInstanceRef>,
+    queued_instances: &mut HashSet<FunctionInstanceKey>,
+) {
+    for instance in refs {
+        if queued_instances.insert(instance.key()) {
+            pending_instances.push(instance);
+        }
+    }
+}
+
+fn enqueue_trait_object_vtable_refs(
+    vtable: &BackendTraitObjectVtable,
+    pending_functions: &mut VecDeque<GlobalDefId>,
+    queued_functions: &mut HashSet<GlobalDefId>,
+    pending_instances: &mut Vec<FunctionInstanceRef>,
+    queued_instances: &mut HashSet<FunctionInstanceKey>,
+) {
+    for entry in &vtable.entries {
+        match &entry.function {
+            BackendTraitObjectVtableFunction::Function(function) => {
+                enqueue_function_ref(pending_functions, queued_functions, *function);
+            }
+            BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => enqueue_function_instance_refs(
+                [FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    args: args.clone(),
+                    span: vtable.span,
+                }],
+                pending_instances,
+                queued_instances,
+            ),
+        }
+    }
 }
 
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
@@ -348,6 +420,7 @@ pub(crate) struct ModuleLowerer<'a> {
     def_names: HashMap<GlobalDefId, String>,
     method_names_by_def: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
+    function_sources: HashMap<GlobalDefId, BackendFunctionSource<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -388,6 +461,12 @@ impl BackendLowerShared {
             known_type_interners: index_shared_known_type_interners(modules, monomorphization),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct BackendFunctionSource<'a> {
+    span: nia_span::Span,
+    function: &'a nia_ast::FunctionItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -450,6 +529,7 @@ impl<'a> ModuleLowerer<'a> {
             def_names: HashMap::new(),
             method_names_by_def: index_method_names_by_def(input),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
+            function_sources: HashMap::new(),
         }
     }
 
@@ -462,6 +542,10 @@ impl<'a> ModuleLowerer<'a> {
         let mut globals = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
+        let mut pending_functions = VecDeque::new();
+        let mut queued_functions = HashSet::new();
+        let mut pending_instances = Vec::new();
+        let mut queued_instances = HashSet::new();
         let mut trait_object_vtables = Vec::new();
 
         for item in &self.input.module.items {
@@ -493,26 +577,30 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
-                        if method.function.body.is_some()
-                            && let Some(function) =
-                                self.lower_function(method.function.span, &method.function)
-                        {
-                            function_templates.push(function);
-                        }
+                        self.index_function_source(
+                            method.function.span,
+                            &method.function,
+                            &mut pending_functions,
+                            &mut queued_functions,
+                        );
                     }
                 }
                 ItemKind::Extend(extend) => {
                     for method in &extend.methods {
-                        if let Some(function) =
-                            self.lower_function(method.function.span, &method.function)
+                        let def_id = self.index_function_source(
+                            method.function.span,
+                            &method.function,
+                            &mut pending_functions,
+                            &mut queued_functions,
+                        );
+                        if extend.trait_ref.is_some()
+                            && let Some(def_id) = def_id
                         {
-                            if self
-                                .effective_generics(function.def_id, &function.generics)
-                                .is_empty()
-                            {
-                                functions.push(function.clone());
-                            }
-                            function_templates.push(function);
+                            enqueue_function_ref(
+                                &mut pending_functions,
+                                &mut queued_functions,
+                                def_id,
+                            );
                         }
                     }
                 }
@@ -522,21 +610,33 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemKind::Function(function) => {
-                    if let Some(function) = self.lower_function(item.span, function) {
-                        if self
-                            .effective_generics(function.def_id, &function.generics)
-                            .is_empty()
-                        {
-                            functions.push(function.clone());
-                        }
-                        function_templates.push(function);
-                    }
+                    self.index_function_source(
+                        item.span,
+                        function,
+                        &mut pending_functions,
+                        &mut queued_functions,
+                    );
                 }
                 ItemKind::Binding(binding) => {
                     if binding.is_comptime {
                         continue;
                     }
                     if let Some(global) = self.lower_global(&binding.node_key, item.span, binding) {
+                        if let Some(init) = &global.init {
+                            let mut refs = FunctionRefs::default();
+                            function_refs::collect_function_refs_from_static_init(
+                                self.input.module_id,
+                                init,
+                                &mut refs,
+                            );
+                            enqueue_function_refs(
+                                refs,
+                                &mut pending_functions,
+                                &mut queued_functions,
+                                &mut pending_instances,
+                                &mut queued_instances,
+                            );
+                        }
                         globals.push(global);
                     }
                 }
@@ -547,15 +647,35 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
 
-        let mut function_instances = self.lower_function_instances(&function_templates);
-        self.collect_trait_object_vtables(
+        pending_instances.extend(self.initial_monomorphized_function_instance_refs());
+        self.lower_reachable_function_closure(
+            &mut functions,
+            &mut pending_functions,
+            &mut queued_functions,
+            &mut pending_instances,
+            &mut queued_instances,
             &mut trait_object_vtables,
-            &functions,
-            &function_instances,
+        );
+        let mut function_instances = Vec::new();
+        self.lower_reachable_instances_and_vtables(
+            &mut functions,
+            &mut function_templates,
+            &mut function_instances,
+            &mut pending_functions,
+            &mut queued_functions,
+            &mut pending_instances,
+            &mut queued_instances,
+            &mut trait_object_vtables,
         );
         self.devirtualize_direct_trait_calls(&mut functions, &mut function_instances);
         self.propagate_cross_function_constants(&mut functions, &mut function_instances);
         self.inline_leaf_functions(&mut functions, &mut function_instances);
+        self.complete_reachable_backend_items(
+            &mut functions,
+            &mut function_templates,
+            &mut function_instances,
+            &mut trait_object_vtables,
+        );
         self.remove_unused_private_functions(
             &mut functions,
             &mut function_instances,
@@ -606,6 +726,322 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect(),
         }
+    }
+
+    fn index_function_source(
+        &mut self,
+        span: nia_span::Span,
+        function: &'a nia_ast::FunctionItem,
+        pending: &mut VecDeque<GlobalDefId>,
+        queued: &mut HashSet<GlobalDefId>,
+    ) -> Option<GlobalDefId> {
+        let Some(def_id) = self.def_id_for_node_any_function(&function.node_key) else {
+            return None;
+        };
+        let global_def_id = self.global_def_id(def_id);
+        self.function_sources
+            .insert(global_def_id, BackendFunctionSource { span, function });
+        if self.is_backend_function_root(global_def_id, function) {
+            enqueue_function_ref(pending, queued, global_def_id);
+        }
+        Some(global_def_id)
+    }
+
+    fn is_backend_function_root(
+        &self,
+        def_id: GlobalDefId,
+        function: &nia_ast::FunctionItem,
+    ) -> bool {
+        if function.is_comptime
+            || function.is_extern
+            || function.name == "main"
+            || function.name == "_start"
+        {
+            return true;
+        }
+        let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
+            return false;
+        };
+        def.visibility != Visibility::Private
+    }
+
+    fn lower_reachable_function_closure(
+        &mut self,
+        functions: &mut Vec<BackendFunction>,
+        pending_functions: &mut VecDeque<GlobalDefId>,
+        queued_functions: &mut HashSet<GlobalDefId>,
+        pending_instances: &mut Vec<FunctionInstanceRef>,
+        queued_instances: &mut HashSet<FunctionInstanceKey>,
+        trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
+    ) -> bool {
+        let mut changed = false;
+        let mut lowered = functions
+            .iter()
+            .map(|function| function.def_id)
+            .collect::<HashSet<_>>();
+        while let Some(def_id) = pending_functions.pop_front() {
+            if def_id.module_id != self.input.module_id || lowered.contains(&def_id) {
+                continue;
+            }
+            let Some(source) = self.function_sources.get(&def_id).copied() else {
+                continue;
+            };
+            let Some(function) = self.lower_function(source.span, source.function) else {
+                continue;
+            };
+            lowered.insert(def_id);
+            if function.generics.is_empty() {
+                let mut refs = FunctionRefs::default();
+                function_refs::collect_function_refs_from_optional_body(
+                    self.input.module_id,
+                    &function.function_body,
+                    &mut refs,
+                );
+                enqueue_function_refs(
+                    refs,
+                    pending_functions,
+                    queued_functions,
+                    pending_instances,
+                    queued_instances,
+                );
+                functions.push(function);
+                changed = true;
+            }
+        }
+        changed |= self.collect_new_trait_object_vtables(
+            trait_object_vtables,
+            functions,
+            &[],
+            pending_functions,
+            queued_functions,
+            pending_instances,
+            queued_instances,
+        );
+        changed
+    }
+
+    fn lower_reachable_instances_and_vtables(
+        &mut self,
+        functions: &mut Vec<BackendFunction>,
+        function_templates: &mut Vec<BackendFunction>,
+        function_instances: &mut Vec<BackendFunctionInstance>,
+        pending_functions: &mut VecDeque<GlobalDefId>,
+        queued_functions: &mut HashSet<GlobalDefId>,
+        pending_instances: &mut Vec<FunctionInstanceRef>,
+        queued_instances: &mut HashSet<FunctionInstanceKey>,
+        trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
+    ) {
+        loop {
+            let mut changed = self.lower_reachable_function_closure(
+                functions,
+                pending_functions,
+                queued_functions,
+                pending_instances,
+                queued_instances,
+                trait_object_vtables,
+            );
+            if !pending_instances.is_empty() {
+                self.lower_pending_instance_templates(
+                    function_templates,
+                    pending_instances,
+                );
+                let refs = std::mem::take(pending_instances);
+                let additional = self.lower_additional_function_instances(
+                    refs,
+                    function_templates,
+                    function_instances,
+                );
+                for instance in &additional {
+                    let mut refs = FunctionRefs::default();
+                    function_refs::collect_function_refs_from_optional_body(
+                        instance.arg_module_id,
+                        &instance.function_body,
+                        &mut refs,
+                    );
+                    enqueue_function_refs(
+                        refs,
+                        pending_functions,
+                        queued_functions,
+                        pending_instances,
+                        queued_instances,
+                    );
+                }
+                changed |= !additional.is_empty();
+                function_instances.extend(additional);
+            }
+            changed |= self.collect_new_trait_object_vtables(
+                trait_object_vtables,
+                functions,
+                function_instances,
+                pending_functions,
+                queued_functions,
+                pending_instances,
+                queued_instances,
+            );
+            if !changed && pending_functions.is_empty() && pending_instances.is_empty() {
+                break;
+            }
+        }
+    }
+
+    fn lower_pending_instance_templates(
+        &mut self,
+        function_templates: &mut Vec<BackendFunction>,
+        pending_instances: &[FunctionInstanceRef],
+    ) {
+        let mut known = function_templates
+            .iter()
+            .map(|function| function.def_id)
+            .collect::<HashSet<_>>();
+        for instance in pending_instances {
+            if instance.def_id.module_id != self.input.module_id
+                || !known.insert(instance.def_id)
+            {
+                continue;
+            }
+            let Some(source) = self.function_sources.get(&instance.def_id).copied() else {
+                continue;
+            };
+            if let Some(function) = self.lower_function(source.span, source.function) {
+                function_templates.push(function);
+            }
+        }
+    }
+
+    fn lower_additional_reachable_functions_from_instances(&mut self, module: &mut BackendModule) {
+        let mut function_templates = Vec::new();
+        self.complete_reachable_backend_items(
+            &mut module.functions,
+            &mut function_templates,
+            &mut module.function_instances,
+            &mut module.trait_object_vtables,
+        );
+        self.extend_struct_instances_from_functions(
+            &mut module.struct_instances,
+            &mut module.union_instances,
+            &module.functions,
+            &module.function_instances,
+        );
+        let mut backend_layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut backend_layouts,
+            &module.struct_instances,
+            &module.union_instances,
+        );
+        module.layouts = backend_layouts;
+        module.interner = self.interner.clone();
+    }
+
+    fn complete_reachable_backend_items(
+        &mut self,
+        functions: &mut Vec<BackendFunction>,
+        function_templates: &mut Vec<BackendFunction>,
+        function_instances: &mut Vec<BackendFunctionInstance>,
+        trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
+    ) {
+        loop {
+            let mut refs = FunctionRefs::default();
+            for function in functions.iter() {
+                function_refs::collect_function_refs_from_optional_body(
+                    self.input.module_id,
+                    &function.function_body,
+                    &mut refs,
+                );
+            }
+            for instance in function_instances.iter() {
+                function_refs::collect_function_refs_from_optional_body(
+                    instance.arg_module_id,
+                    &instance.function_body,
+                    &mut refs,
+                );
+            }
+            for vtable in trait_object_vtables.iter() {
+                for entry in &vtable.entries {
+                    match &entry.function {
+                        BackendTraitObjectVtableFunction::Function(function) => {
+                            refs.functions.insert(*function);
+                        }
+                        BackendTraitObjectVtableFunction::FunctionInstance {
+                            def_id,
+                            arg_module_id,
+                            args,
+                        } => refs.instances.push(FunctionInstanceRef {
+                            def_id: *def_id,
+                            arg_module_id: *arg_module_id,
+                            args: args.clone(),
+                            span: vtable.span,
+                        }),
+                    }
+                }
+            }
+
+            let mut pending_functions = VecDeque::new();
+            let mut queued_functions = functions
+                .iter()
+                .map(|function| function.def_id)
+                .collect::<HashSet<_>>();
+            let mut pending_instances = Vec::new();
+            let mut queued_instances = function_instances
+                .iter()
+                .map(FunctionInstanceKey::from)
+                .collect::<HashSet<_>>();
+            enqueue_function_refs(
+                refs,
+                &mut pending_functions,
+                &mut queued_functions,
+                &mut pending_instances,
+                &mut queued_instances,
+            );
+            let before = (functions.len(), function_instances.len(), trait_object_vtables.len());
+            self.lower_reachable_instances_and_vtables(
+                functions,
+                function_templates,
+                function_instances,
+                &mut pending_functions,
+                &mut queued_functions,
+                &mut pending_instances,
+                &mut queued_instances,
+                trait_object_vtables,
+            );
+            if before == (functions.len(), function_instances.len(), trait_object_vtables.len()) {
+                break;
+            }
+        }
+    }
+
+    fn collect_new_trait_object_vtables(
+        &mut self,
+        trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
+        functions: &[BackendFunction],
+        function_instances: &[BackendFunctionInstance],
+        pending_functions: &mut VecDeque<GlobalDefId>,
+        queued_functions: &mut HashSet<GlobalDefId>,
+        pending_instances: &mut Vec<FunctionInstanceRef>,
+        queued_instances: &mut HashSet<FunctionInstanceKey>,
+    ) -> bool {
+        let mut discovered = Vec::new();
+        self.collect_trait_object_vtables(&mut discovered, functions, function_instances);
+        let mut seen = trait_object_vtables
+            .iter()
+            .map(|vtable| vtable.key.clone())
+            .collect::<HashSet<BackendTraitObjectVtableKey>>();
+        let mut changed = false;
+        for vtable in discovered {
+            if !seen.insert(vtable.key.clone()) {
+                continue;
+            }
+            enqueue_trait_object_vtable_refs(
+                &vtable,
+                pending_functions,
+                queued_functions,
+                pending_instances,
+                queued_instances,
+            );
+            trait_object_vtables.push(vtable);
+            changed = true;
+        }
+        changed
     }
 
     fn extend_backend_layouts_for_instances(

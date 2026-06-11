@@ -493,7 +493,7 @@ fn main() i32 {
 }
 
 #[test]
-fn lowers_all_concrete_extension_methods_to_backend_functions() {
+fn lowers_reachable_concrete_extension_methods_to_backend_functions() {
     let source = r#"
 struct Args {
     len: usize,
@@ -515,23 +515,23 @@ extend Init {
         { argc: argc, argv: argv, envp: envp }
     }
 
-    fn argc(&self) usize {
+    pub fn argc(&self) usize {
         self.argc
     }
 
-    fn args(&self) Args {
+    pub fn args(&self) Args {
         { len: self.argc, ptr: self.argv }
     }
 
-    fn env(&self) Env {
+    pub fn env(&self) Env {
         { ptr: self.envp }
     }
 
-    fn argv(&self) &&u8 {
+    pub fn argv(&self) &&u8 {
         self.argv
     }
 
-    fn envp(&self) &&u8 {
+    pub fn envp(&self) &&u8 {
         self.envp
     }
 }
@@ -568,12 +568,16 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
         .map(|function| function.name.as_str())
         .collect::<Vec<_>>();
 
-    for name in ["init", "argc", "args", "env", "argv", "envp"] {
+    for name in ["argc", "args", "env", "argv", "envp"] {
         assert!(
             init_methods.contains(&name),
             "missing concrete extension method `{name}` from backend functions: {init_methods:?}"
         );
     }
+    assert!(
+        !init_methods.contains(&"init"),
+        "unused extension constructors should not be lowered eagerly: {init_methods:?}"
+    );
 }
 
 #[test]
@@ -1376,7 +1380,7 @@ fn main() u8 {
 }
 
 #[test]
-fn o2_removes_unused_private_functions() {
+fn o2_skips_lowering_unused_private_functions() {
     let source = r#"
 fn used(value: i32) i32 {
     var out = value;
@@ -1431,11 +1435,10 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| matches!(
+            .all(|change| !matches!(
                 change,
                 BackendOptimizationChange::Function {
                     pass: "remove-unused-functions",
-                    is_instance: false,
                     ..
                 }
             ))
@@ -1509,11 +1512,10 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| matches!(
+            .all(|change| !matches!(
                 change,
                 BackendOptimizationChange::Function {
                     pass: "remove-unused-functions",
-                    is_instance: false,
                     ..
                 }
             ))
@@ -1603,11 +1605,10 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| matches!(
+            .all(|change| !matches!(
                 change,
                 BackendOptimizationChange::Function {
                     pass: "remove-unused-functions",
-                    is_instance: false,
                     ..
                 }
             ))
@@ -1663,7 +1664,7 @@ fn main() i32 {
 }
 
 #[test]
-fn o1_preserves_unused_private_functions() {
+fn o1_skips_lowering_unused_private_functions() {
     let source = r#"
 fn unused() i32 {
     2
@@ -1681,7 +1682,7 @@ fn main() i32 {
     let module = &lowering.program.modules[0];
 
     assert!(
-        module
+        !module
             .functions
             .iter()
             .any(|function| function.name == "unused")
