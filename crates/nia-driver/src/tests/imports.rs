@@ -2,8 +2,9 @@
 use super::common::*;
 use crate::{check_program, check_program_with_map, load_program};
 
+use nia_ast::Visibility;
 use nia_ids::ModuleId;
-use nia_imports::{ModuleMap, SourcePath};
+use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath};
 use std::fs;
 
 #[test]
@@ -1004,136 +1005,88 @@ fn main() void {}
 
 #[test]
 fn std_facades_do_not_expose_package_private_implementation_modules() {
-    for (name, source) in [
-        (
-            "std_io_traits",
-            r#"
+    let root = temp_dir("std_facades_do_not_expose_package_private_implementation_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+
+fn main() void {}
+"#,
+    );
+
+    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    for path in [
+        &["io", "traits"][..],
+        &["mem", "allocator"],
+        &["collections", "array_list"],
+        &["collections", "array_list", "list"],
+        &["collections", "array_list", "raw"],
+        &["collections", "hash_map"],
+        &["collections", "hash_map", "raw"],
+        &["collections", "hash_map", "map"],
+        &["collections", "hash_map", "iterators"],
+        &["fs", "convert"],
+        &["hash", "wyhash"],
+        &["hash", "traits"],
+        &["hash", "impls"],
+        &["fmt", "core"],
+    ] {
+        assert_eq!(
+            std_module_declaration_visibility(&program.graph, path),
+            Visibility::PublicPackage,
+            "std::{} should remain package-private",
+            path.join("::")
+        );
+    }
+}
+
+fn std_module_declaration_visibility(graph: &ModuleGraph, path: &[&str]) -> Visibility {
+    let child_name = path.last().expect("module path should not be empty");
+    let parent = ModulePath {
+        package: "std".to_string(),
+        segments: path[..path.len() - 1]
+            .iter()
+            .map(|segment| (*segment).to_string())
+            .collect(),
+    };
+    let parent_id = graph
+        .module_id_for_module_path(&parent)
+        .unwrap_or_else(|| panic!("missing std::{} module", parent.segments.join("::")));
+    let parent = graph.get(parent_id).expect("std parent module");
+    parent
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == *child_name)
+        .unwrap_or_else(|| panic!("missing std::{} declaration", path.join("::")))
+        .visibility
+}
+
+#[test]
+fn std_package_private_implementation_module_is_not_resolved_from_root_package() {
+    let root =
+        temp_dir("std_package_private_implementation_module_is_not_resolved_from_root_package");
+    write(
+        &root.join("main.nia"),
+        r#"
 using std::io::traits;
 
 fn main() void {}
 "#,
-        ),
-        (
-            "std_mem_allocator",
-            r#"
-using std::mem::allocator;
+    );
 
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_array_list",
-            r#"
-using std::collections::array_list;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_array_list_list",
-            r#"
-using std::collections::array_list::list;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_array_list_raw",
-            r#"
-using std::collections::array_list::raw;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_hash_map",
-            r#"
-using std::collections::hash_map;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_hash_map_raw",
-            r#"
-using std::collections::hash_map::raw;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_hash_map_map",
-            r#"
-using std::collections::hash_map::map;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_collections_hash_map_iterators",
-            r#"
-using std::collections::hash_map::iterators;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_fs_convert",
-            r#"
-using std::fs::convert;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_hash_wyhash_module",
-            r#"
-using std::hash::wyhash::Wyhash;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_hash_traits_module",
-            r#"
-using std::hash::traits::Hash;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_hash_impls_module",
-            r#"
-using std::hash::impls;
-
-fn main() void {}
-"#,
-        ),
-        (
-            "std_fmt_core",
-            r#"
-using std::fmt::core;
-
-fn main() void {}
-"#,
-        ),
-    ] {
-        let root = temp_dir(&format!(
-            "std_facades_do_not_expose_package_private_implementation_modules_{name}"
-        ));
-        write(&root.join("main.nia"), source);
-
-        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-        assert!(
-            program.diagnostics.iter().any(|diagnostic| diagnostic
-                .diagnostic
-                .summary
-                .contains("could not be resolved")
-                || diagnostic.diagnostic.summary.contains("unknown namespace")),
-            "{name}: {:?}",
-            program.diagnostics
-        );
-    }
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("could not be resolved")
+            || diagnostic.diagnostic.summary.contains("unknown namespace")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
