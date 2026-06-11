@@ -21,6 +21,15 @@ extend DeinitStatus {
     }
 }
 
+extend Error!DeinitStatus {
+    pub fn ok(self) Error!void {
+        switch self {
+            !status => status.ok(),
+            err! => err!,
+        }
+    }
+}
+
 comptime let max_small_size: usize = 2048usize;
 comptime let min_slot_size: usize = 16usize;
 comptime let small_magic: usize = 0x6e69615f67707331usize;

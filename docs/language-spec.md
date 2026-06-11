@@ -150,10 +150,11 @@ entry points at `std::ArrayList` and `std::HashMap`.
   and is single-threaded/external-synchronization by contract. `deinit` frees
   allocator-owned backing memory and returns `DeinitStatus::Leak` if any
   allocations were still live at shutdown. `DeinitStatus.ok()` maps a clean
-  shutdown to `void` and a leak to `std::mem.Error::Invalid` for callers that
-  want to require leak-free deinit; use `deinit_without_leak_check` only when
-  that cleanup is intentionally unchecked. Wrap a GPA later in synchronization
-  primitives rather than sharing one instance concurrently.
+  shutdown to `void` and a leak to `std::mem.Error::Invalid`; the common
+  `deinit().ok().?` form checks both deallocation errors and leak status with
+  one propagation point. Use `deinit_without_leak_check` only when that cleanup
+  is intentionally unchecked. Wrap a GPA later in synchronization primitives
+  rather than sharing one instance concurrently.
 - `std::atomic` defines `Atomic[T]`, ordering constants, and ordering-specific
   load/store/read-modify-write/compare-exchange/fence helpers. It is a thin
   standard-library facade over the compiler atomic builtins.
