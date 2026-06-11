@@ -3,11 +3,14 @@ using std::debug;
 using std::process;
 using process::{Init, ExitCode, exit};
 
+// Point is local to this module, so its fields can be initialized and read here.
 struct Point {
     x: i32,
     y: i32,
 }
 
+// Methods live in extend blocks. The receiver decides the call syntax:
+// point.len2() is shorthand for the method declared on Point.
 extend Point {
     fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
@@ -16,6 +19,7 @@ extend Point {
 
 fn sum(values: &[i32]) i32 {
     var total = 0;
+    // Slice iteration yields &i32 items. The &value pattern copies out each i32.
     for &value in values.iter() {
         total += value;
     }
@@ -23,6 +27,7 @@ fn sum(values: &[i32]) i32 {
 }
 
 fn grade(score: i32) i32 {
+    // switch ranges are half-open with .. and inclusive with ..=.
     switch score {
         0..60 => 0,
         60..=79 => 1,
@@ -35,14 +40,18 @@ fn grade(score: i32) i32 {
 pub fn main(init: Init) ExitCode!void {
     _ = init;
 
+    // This literal gets its type from the binding annotation.
     var point: Point = { x: 3, y: 4 };
+    // Use Type { ... } when a literal needs to stand on its own.
     var other = Point { x: 5, y: 12 };
     var point_len2 = point.len2();
     var other_len2 = other.len2();
     var score = grade(87);
+    // [_] lets the compiler infer the array length from the elements.
     var values = [_]i32[point_len2, other_len2, score];
     var total = sum(&values[..]);
 
+    // defer runs at scope exit, including returns after this point.
     defer point.x = point.x + 1;
 
     if total != 25 + 169 + 2 {

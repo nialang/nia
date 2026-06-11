@@ -8,10 +8,14 @@ fn run(init: Init) mem::Error!void {
     _ = init;
 
     var page = mem::PageAllocator::init();
+    // The general-purpose allocator is the usual heap-backed allocator for
+    // mixed lifetimes. The page allocator is its low-level backing source.
     var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    // .ok() turns a leak report into mem::Error so examples fail on leaks.
     defer gpa.deinit().?.ok().?;
 
     var values = std::ArrayList[i32]::init();
+    // Register container cleanup after allocator cleanup so it runs first.
     defer values.deinit(&mut gpa).?;
 
     values.push(&mut gpa, 10).?;

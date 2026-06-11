@@ -1,1 +1,3 @@
+// comptime values can be used where the compiler needs a constant, such as an
+// array length in another module.
 pub comptime let width: usize = 4;

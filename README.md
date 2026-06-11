@@ -120,10 +120,12 @@ for file in examples/*.nia; do cargo run -p nia-cli -- check --exe "$file"; done
 cargo run -p nia-cli -- check --exe examples/modules/main.nia
 ```
 
-See [examples/README.md](examples/README.md) for the reading order. The examples
-cover real Nia executables, arrays and slices, structs and enums, control flow,
-standard-library I/O, collections, generics, traits, error handling, and
-multi-file imports. They use the current executable entry contract:
+See [examples/README.md](examples/README.md) for the reading order. The example
+source files are the main tutorial material and include inline comments for Nia
+syntax and standard-library idioms. They cover real Nia executables, arrays and
+slices, structs and enums, control flow, standard-library I/O, collections,
+generics, traits, error handling, and multi-file imports. They use the current
+executable entry contract:
 `pub fn main(process::Init) process::ExitCode!void`. They print visible results
 with `std::debug.print`, and `03_stdout.nia` shows explicit stdout output through
 `std::io` and `std::fmt`.

@@ -3,6 +3,8 @@ pub struct Point {
     y: i32,
 }
 
+// pub exposes items to modules that import this module directly or through a
+// facade re-export.
 pub fn add(a: i32, b: i32) i32 {
     a + b
 }

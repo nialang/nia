@@ -40,6 +40,59 @@ fn readme_nia_examples_check_as_freestanding_programs() {
     }
 }
 
+#[test]
+fn repository_examples_parse_and_representative_examples_check() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let examples_dir = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("nia-cli lives under crates/")
+        .join("examples");
+    let examples = [
+        "00_minimal.nia",
+        "01_values_control_flow.nia",
+        "02_slices_and_strings.nia",
+        "03_stdout.nia",
+        "04_array_list.nia",
+        "05_traits_generics.nia",
+        "06_optional_error.nia",
+        "07_arena_allocator.nia",
+        "08_general_purpose_allocator.nia",
+        "09_hash_map.nia",
+        "modules/main.nia",
+    ];
+
+    for example in examples {
+        let path = examples_dir.join(example);
+        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+            .arg("emit")
+            .arg("--ast")
+            .arg(&path)
+            .output_timeout(&format!("run nia emit --ast on {example}"));
+
+        assert!(
+            output.status.success(),
+            "example {example} failed to parse\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    for example in ["00_minimal.nia", "09_hash_map.nia", "modules/main.nia"] {
+        let path = examples_dir.join(example);
+        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+            .arg("check")
+            .arg("--exe")
+            .arg(&path)
+            .output_timeout(&format!("run nia check --exe on {example}"));
+
+        assert!(
+            output.status.success(),
+            "representative example {example} failed\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
     let mut blocks = Vec::new();
     let mut current = None::<String>;

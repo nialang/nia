@@ -4,6 +4,7 @@ using process::{Init, ExitCode, exit};
 
 fn at(values: &[i32], index: usize) ?i32 {
     if index < values.len() {
+        // ?value constructs the present side of an optional.
         ?values[index]
     } else {
         null
@@ -12,12 +13,15 @@ fn at(values: &[i32], index: usize) ?i32 {
 
 fn require_at(values: &[i32], index: usize) i32!i32 {
     switch at(values, index) {
+        // !value constructs the success side of an error union.
         ?value => !value,
+        // error! constructs the error side; here the error type is i32.
         null => 1i32!,
     }
 }
 
 fn checked_pair(values: &[i32]) i32!i32 {
+    // .? unwraps the success side or propagates the error side.
     let left = require_at(values, 0).?;
     let right = require_at(values, 2).?;
     !(left + right)
@@ -28,6 +32,7 @@ pub fn main(init: Init) ExitCode!void {
 
     var values: [3]i32 = [10, 20, 32];
     var pair_sum = 0;
+    // switch can destructure both success and error-union cases explicitly.
     switch checked_pair(values) {
         !sum => {
             pair_sum = sum;
