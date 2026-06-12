@@ -27,6 +27,9 @@ addresses (`{:p}`). Literal braces are written as `{{` and `}}`. The matching
 parse helpers are `fmt::parse[T](text)` for primitive integers and bools, with
 integer prefixes such as `0x`, `0b`, and `0o`, and
 `fmt::parse_radix[T](text, radix)` for bare digits in an explicit radix.
+Process arguments and environment entries are C-string-backed views; use
+`arg.bytes()` for raw argument bytes, `arg.cstr()` for the underlying
+`std::cstr::CStr`, or format the argument value directly with `{}`.
 
 Run an example from the repository root with:
 

@@ -576,6 +576,7 @@ fn emit_exe_exposes_process_args_without_raw_argv() {
     std::fs::write(
         &main,
         r#"
+using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -591,8 +592,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         ?value => value,
         null => return (3 as process::ExitCode)!,
     };
-    var first = first_arg.raw_bytes();
-    var second = second_arg.raw_bytes();
+    var first = first_arg.bytes();
+    var second = second_arg.bytes();
     if first.len() != 3 {
         return (4 as process::ExitCode)!;
     }
@@ -601,6 +602,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if second.len() != 4 {
         return (6 as process::ExitCode)!;
+    }
+    var storage: [16]u8 = [0; 16];
+    var writer = io::FixedBufferWriter::init(&mut storage[..]);
+    writer.print("{:_>5.2}", [&first_arg]).exit().?;
+    let written = writer.written();
+    if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
+        return (8 as process::ExitCode)!;
     }
     switch args.get(3) {
         ?value => {
@@ -669,7 +677,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             ?value => value,
             null => return (1 as process::ExitCode)!,
         };
-        if starts_with_needle(item.raw_bytes()) {
+        if starts_with_needle(item.bytes()) {
             return !{};
         }
         index += 1usize;

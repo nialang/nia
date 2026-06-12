@@ -1,3 +1,4 @@
+using package::cstr;
 using package::fs;
 using package::fmt;
 using package::io;
@@ -15,7 +16,7 @@ pub struct Args {
 }
 
 pub struct Arg {
-    ptr: &u8,
+    text: cstr::CStr,
 }
 
 pub struct Env {
@@ -23,7 +24,7 @@ pub struct Env {
 }
 
 pub struct EnvVar {
-    ptr: &u8,
+    text: cstr::CStr,
 }
 
 pub struct Init {
@@ -63,39 +64,39 @@ extend Init {
     }
 }
 
-extend &u8 {
-    fn c_string_len(self) usize {
-        var len = 0usize;
-        while self[len] != 0u8 {
-            len += 1;
-        }
-        len
-    }
-
-    fn c_string_bytes(self) &[u8] {
-        & self[0..self.c_string_len()]
-    }
-}
-
 extend Arg {
     fn init(ptr: &u8) Arg {
-        { ptr: ptr }
+        { text: cstr::CStr::from_ptr(ptr) }
     }
 
     pub fn raw_ptr(&self) &u8 {
-        self.ptr
+        self.text.raw_ptr()
     }
 
-    pub fn raw_bytes(&self) &[u8] {
-        self.ptr.c_string_bytes()
+    pub fn cstr(&self) cstr::CStr {
+        self.text
     }
 
-    pub fn raw_len(&self) usize {
-        self.ptr.c_string_len()
+    pub fn bytes(&self) &[u8] {
+        self.text.bytes()
+    }
+
+    pub fn len(&self) usize {
+        self.text.len()
     }
 
     pub fn is_empty(&self) bool {
-        self.raw_len() == 0
+        self.len() == 0usize
+    }
+}
+
+extend Arg : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        self.text.format(formatter)
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        self.text.format_spec(formatter, spec)
     }
 }
 
@@ -127,23 +128,37 @@ extend Args {
 
 extend EnvVar {
     fn init(ptr: &u8) EnvVar {
-        { ptr: ptr }
+        { text: cstr::CStr::from_ptr(ptr) }
     }
 
     pub fn raw_ptr(&self) &u8 {
-        self.ptr
+        self.text.raw_ptr()
     }
 
-    pub fn raw_bytes(&self) &[u8] {
-        self.ptr.c_string_bytes()
+    pub fn cstr(&self) cstr::CStr {
+        self.text
     }
 
-    pub fn raw_len(&self) usize {
-        self.ptr.c_string_len()
+    pub fn bytes(&self) &[u8] {
+        self.text.bytes()
+    }
+
+    pub fn len(&self) usize {
+        self.text.len()
     }
 
     pub fn is_empty(&self) bool {
-        self.raw_len() == 0
+        self.len() == 0usize
+    }
+}
+
+extend EnvVar : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        self.text.format(formatter)
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        self.text.format_spec(formatter, spec)
     }
 }
 

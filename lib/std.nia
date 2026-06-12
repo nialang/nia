@@ -6,6 +6,7 @@
 
 pub module atomic;
 pub module collections;
+pub module cstr;
 pub module debug;
 pub module fmt;
 pub module fs;
