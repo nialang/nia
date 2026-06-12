@@ -122,12 +122,13 @@ impl<'a> BodyChecker<'a> {
         else {
             return None;
         };
-        let Some(TyKind::Pointer {
-            is_readonly: actual_const,
-            elem: self_ty,
-        }) = self.interner.get(actual).cloned()
-        else {
-            return None;
+        let (actual_const, self_ty) = match self.interner.get(actual).cloned() {
+            Some(TyKind::Pointer { is_readonly, elem }) => (is_readonly, elem),
+            Some(TyKind::Slice { is_readonly, elem }) => (
+                is_readonly,
+                self.interner.intern(TyKind::SlicePointee { elem }),
+            ),
+            _ => return None,
         };
         if !expected_const && actual_const {
             return None;
@@ -167,6 +168,7 @@ impl<'a> BodyChecker<'a> {
         let source_ty = self.normalization.normalize(source_ty);
         match self.interner.get(source_ty).cloned() {
             Some(TyKind::Pointer { elem, .. }) => elem,
+            Some(TyKind::Slice { elem, .. }) => self.interner.intern(TyKind::SlicePointee { elem }),
             _ => source_ty,
         }
     }

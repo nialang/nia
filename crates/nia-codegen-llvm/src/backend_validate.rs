@@ -147,7 +147,7 @@ impl BackendValidator<'_> {
         }
         for vtable in &module.trait_object_vtables {
             self.current_item = Some(format!("trait object vtable {:?}", vtable.key));
-            self.validate_runtime_type(vtable.key.self_ty, vtable.span);
+            self.validate_trait_object_self_type(vtable.key.self_ty, vtable.span);
             self.validate_runtime_type(vtable.key.object_ty, vtable.span);
             for entry in &vtable.entries {
                 match &entry.function {

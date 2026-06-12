@@ -30,6 +30,7 @@ type InstanceTypeLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<StructType<'
 type FunctionInstanceLookup<'ctx> =
     RefCell<HashMap<FunctionInstanceKey, Option<FunctionValue<'ctx>>>>;
 type AggregateLayoutLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
+type TraitObjectAdapterKey = (InternedTyId, GlobalDefId, ModuleId, Vec<InternedTyId>);
 
 struct FunctionSignature<'a, P> {
     param_tys: P,
@@ -71,6 +72,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
+    trait_object_adapters: RefCell<HashMap<TraitObjectAdapterKey, FunctionValue<'ctx>>>,
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -107,6 +109,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             union_layout_lookups: RefCell::new(HashMap::new()),
             trait_object_vtables: HashMap::new(),
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
+            trait_object_adapters: RefCell::new(HashMap::new()),
         })
     }
 

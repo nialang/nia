@@ -587,7 +587,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self_ty: InternedTyId,
         target_ty: InternedTyId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let object_ptr = self.emit_expr(inner)?.into_pointer_value()?;
+        let object_ptr = self.emit_trait_object_data_ptr(span, inner)?;
         let Some(vtable) = self.module.trait_object_vtable(self_ty, target_ty) else {
             return Err(self.error(span, "missing trait object vtable"));
         };
@@ -605,6 +605,29 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_insert_value(result, metadata, 1, "traitobj.vtable")
             .map_err(|_| self.error(span, "failed to build trait object"))?;
         Ok(result)
+    }
+
+    fn emit_trait_object_data_ptr(
+        &mut self,
+        span: Span,
+        inner: &FunctionExpr,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        match self.module.ty_kind(inner.ty) {
+            Some(TyKind::Pointer { .. }) => Ok(self.emit_expr(inner)?.into_pointer_value()?),
+            Some(TyKind::Slice { .. }) => {
+                let ty = self.module.llvm_basic_type(inner.ty, span)?;
+                let ptr = self
+                    .builder
+                    .build_alloca(ty, "traitobj.self")
+                    .map_err(|_| self.error(span, "failed to allocate trait object self"))?;
+                let value = self.emit_expr(inner)?;
+                self.builder
+                    .build_store(ptr, value)
+                    .map_err(|_| self.error(span, "failed to store trait object self"))?;
+                Ok(ptr)
+            }
+            _ => Err(self.error(span, "trait object source is not representable")),
+        }
     }
 
     fn emit_trait_object_upcast(

@@ -33,6 +33,26 @@ impl BackendValidator<'_> {
         }
     }
 
+    pub(super) fn validate_trait_object_self_type(&mut self, ty: InternedTyId, span: Span) {
+        self.validate_type(ty, span);
+        let Some(module) = self.index.module(ty.interner_id) else {
+            return;
+        };
+        if matches!(
+            module.interner.get(ty),
+            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
+        ) {
+            return;
+        }
+        if self.layout_of(ty).is_none() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("backend IR trait object self type {ty:?} is not representable"),
+            ));
+        }
+    }
+
     pub(super) fn validate_type(&mut self, ty: InternedTyId, span: Span) {
         if !self.seen_types.insert(ty) {
             return;

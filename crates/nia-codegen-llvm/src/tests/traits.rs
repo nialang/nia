@@ -196,6 +196,88 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_slice_trait_object_coercions_through_adapter() {
+    let root = temp_dir("emits_slice_trait_object_coercions_through_adapter");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend[T] [T] : Source {
+    fn get(& self) i32 {
+        self.len() as i32
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.get()
+}
+
+fn main() i32 {
+    var values: [3]i32 = [1, 2, 3];
+    read(&values[..])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("traitobj.self"), "{ir}");
+    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+}
+
+#[test]
+fn slice_trait_object_adapter_preserves_value_argument_abi() {
+    let root = temp_dir("slice_trait_object_adapter_preserves_value_argument_abi");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Empty {}
+
+trait Source {
+    fn add(& self, empty: Empty, rhs: i32) i32;
+}
+
+extend[T] [T] : Source {
+    fn add(& self, empty: Empty, rhs: i32) i32 {
+        _ = empty;
+        self.len() as i32 + rhs
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.add({}, 4)
+}
+
+fn main() i32 {
+    var values: [3]i32 = [1, 2, 3];
+    read(&values[..])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fn(ptr %"), "{ir}");
+}
+
+#[test]
 fn size_levels_deduplicate_repeated_trait_object_vtables() {
     let root = temp_dir("size_levels_deduplicate_repeated_trait_object_vtables");
     let main = root.join("main.nia");
