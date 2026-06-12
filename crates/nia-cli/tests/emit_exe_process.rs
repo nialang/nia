@@ -139,6 +139,111 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_runs_slice_trait_object_dynamic_dispatch() {
+    let root = temp_dir("emit_exe_runs_slice_trait_object_dynamic_dispatch");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+trait Source {
+    fn get(& self) i32;
+}
+
+extend[T] [T] : Source {
+    fn get(& self) i32 {
+        self.len() as i32
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.get()
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var values: [3]i32 = [1, 2, 3];
+    (read(&values[..]) as process::ExitCode)!
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(3));
+}
+
+#[test]
+fn emit_exe_runs_slice_trait_object_dispatch_with_zst_argument() {
+    let root = temp_dir("emit_exe_runs_slice_trait_object_dispatch_with_zst_argument");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct Empty {}
+
+trait Source {
+    fn add(& self, empty: Empty, rhs: i32) i32;
+}
+
+extend[T] [T] : Source {
+    fn add(& self, empty: Empty, rhs: i32) i32 {
+        _ = empty;
+        self.len() as i32 + rhs
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.add({}, 4)
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var values: [3]i32 = [1, 2, 3];
+    (read(&values[..]) as process::ExitCode)!
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(7));
+}
+
+#[test]
 fn emit_exe_links_freestanding_u128_division_builtins() {
     let root = temp_dir("emit_exe_links_freestanding_u128_division_builtins");
     let main = root.join("main.nia");

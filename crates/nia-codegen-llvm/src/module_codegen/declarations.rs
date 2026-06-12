@@ -1,8 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::{FunctionSignature, ModuleCodegen};
-use nia_backend_ir::BackendTraitObjectVtableFunction;
+use super::{AbiParam, AbiReturn, FunctionSignature, ModuleCodegen};
+use nia_backend_ir::{
+    BackendFunction, BackendFunctionInstance, BackendParam, BackendTraitObjectVtableEntry,
+    BackendTraitObjectVtableFunction,
+};
 use nia_diagnostic::Diagnostic;
-use nia_llvm::{Attribute, AttributeLoc, module::Linkage};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_llvm::{Attribute, AttributeLoc, module::Linkage, values::FunctionValue};
+use nia_span::Span;
+use nia_ty::TyKind;
+
+enum AdapterFunction<'a> {
+    Function(&'a BackendFunction),
+    Instance(&'a BackendFunctionInstance),
+}
+
+impl<'a> AdapterFunction<'a> {
+    fn params(&self) -> &'a [BackendParam] {
+        match self {
+            AdapterFunction::Function(function) => &function.params,
+            AdapterFunction::Instance(instance) => &instance.params,
+        }
+    }
+
+    fn return_type(&self) -> InternedTyId {
+        match self {
+            AdapterFunction::Function(function) => function.return_type,
+            AdapterFunction::Instance(instance) => instance.return_type,
+        }
+    }
+}
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
@@ -283,29 +310,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 } else {
                     let mut values = Vec::new();
                     for entry in &vtable.entries {
-                        let value = match &entry.function {
-                            BackendTraitObjectVtableFunction::Function(def_id) => self
-                                .function(*def_id)
-                                .ok_or_else(|| {
-                                    self.error(vtable.span, "missing vtable method function")
-                                })?
-                                .as_global_value()
-                                .as_pointer_value(),
-                            BackendTraitObjectVtableFunction::FunctionInstance {
-                                def_id,
-                                arg_module_id,
-                                args,
-                            } => self
-                                .function_instance_value(*def_id, *arg_module_id, args)
-                                .ok_or_else(|| {
-                                    self.error(
-                                        vtable.span,
-                                        "missing vtable method function instance",
-                                    )
-                                })?
-                                .as_global_value()
-                                .as_pointer_value(),
-                        };
+                        let value = self
+                            .trait_object_vtable_entry_function(
+                                vtable.key.self_ty,
+                                entry,
+                                vtable.span,
+                            )?
+                            .as_global_value()
+                            .as_pointer_value();
                         values.push(value);
                     }
                     global.set_initializer(&ptr_ty.const_array(&values));
@@ -320,5 +332,138 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.trait_object_vtable_lookups.borrow_mut().clear();
         }
         Ok(())
+    }
+
+    fn trait_object_vtable_entry_function(
+        &self,
+        self_ty: InternedTyId,
+        entry: &BackendTraitObjectVtableEntry,
+        span: Span,
+    ) -> Result<FunctionValue<'ctx>, Diagnostic> {
+        let (def_id, arg_module_id, args, function) = match &entry.function {
+            BackendTraitObjectVtableFunction::Function(def_id) => {
+                let function = self
+                    .function(*def_id)
+                    .ok_or_else(|| self.error(span, "missing vtable method function"))?;
+                (*def_id, self.source.id, Vec::new(), function)
+            }
+            BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => {
+                let function = self
+                    .function_instance_value(*def_id, *arg_module_id, args)
+                    .ok_or_else(|| self.error(span, "missing vtable method function instance"))?;
+                (*def_id, *arg_module_id, args.clone(), function)
+            }
+        };
+        if !matches!(self.ty_kind(self_ty), Some(TyKind::SlicePointee { .. })) {
+            return Ok(function);
+        }
+        self.trait_object_slice_adapter(self_ty, def_id, arg_module_id, &args, function, span)
+    }
+
+    fn trait_object_slice_adapter(
+        &self,
+        self_ty: InternedTyId,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+        target: FunctionValue<'ctx>,
+        span: Span,
+    ) -> Result<FunctionValue<'ctx>, Diagnostic> {
+        let key = (self_ty, def_id, arg_module_id, args.to_vec());
+        if let Some(function) = self.trait_object_adapters.borrow().get(&key).copied() {
+            return Ok(function);
+        }
+        let Some(item) = (if args.is_empty() {
+            self.function_item(def_id).map(AdapterFunction::Function)
+        } else {
+            self.function_instance_item_with_arg_module(def_id, arg_module_id, args)
+                .map(AdapterFunction::Instance)
+        }) else {
+            return Err(self.error(span, "missing vtable adapter target"));
+        };
+        let params = item.params();
+        let Some(receiver) = params.first() else {
+            return Err(self.error(span, "vtable adapter target has no receiver"));
+        };
+        let value_params = params
+            .iter()
+            .skip(1)
+            .map(|param| param.passing_ty)
+            .collect::<Vec<_>>();
+        let function_ty =
+            self.dynamic_trait_method_type(self_ty, &value_params, item.return_type(), span)?;
+        let name = format!(
+            "nia__traitobj_adapter__{}__{}__{}__{}",
+            self.mangle_ty(self_ty),
+            def_id.module_id.0,
+            def_id.def_id.0,
+            self.trait_object_adapters.borrow().len()
+        );
+        let adapter = self
+            .module
+            .add_function(&name, function_ty, None)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let builder = self.context.create_builder();
+        let entry = self.context.append_basic_block(adapter, "entry")?;
+        builder.position_at_end(entry);
+        let mut param_index = 0;
+        let mut call_args = Vec::new();
+        if let AbiReturn::IndirectOut(_) = self.classify_function_return(item.return_type()) {
+            let out_ptr = adapter
+                .get_nth_param(param_index)
+                .ok_or_else(|| self.error(span, "missing vtable adapter out pointer"))?
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            call_args.push(out_ptr);
+            param_index += 1;
+        }
+        let self_ptr = adapter
+            .get_nth_param(param_index)
+            .ok_or_else(|| self.error(span, "missing vtable adapter self pointer"))?
+            .map_err(Self::diagnostic_from_llvm_error)?
+            .into_pointer_value()?;
+        param_index += 1;
+        let slice_ty = self.llvm_basic_type(receiver.passing_ty, receiver.span)?;
+        let slice_value = builder
+            .build_load(slice_ty, self_ptr, "traitobj.self")
+            .map_err(|_| self.error(receiver.span, "failed to load trait object self"))?;
+        call_args.push(slice_value);
+        for classification in self.classify_function_params(value_params.iter().copied()) {
+            match classification {
+                AbiParam::Direct(_) | AbiParam::IndirectReadonly(_) => {
+                    let arg = adapter
+                        .get_nth_param(param_index)
+                        .ok_or_else(|| self.error(span, "missing vtable adapter argument"))?
+                        .map_err(Self::diagnostic_from_llvm_error)?;
+                    call_args.push(arg);
+                    param_index += 1;
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        let call = builder
+            .build_call(target, &call_args, "traitobj.call")
+            .map_err(|_| self.error(span, "failed to build vtable adapter call"))?;
+        match self.classify_function_return(item.return_type()) {
+            AbiReturn::Direct(_) => {
+                let value = call
+                    .try_as_basic_value()
+                    .unwrap_basic()
+                    .map_err(|_| self.error(span, "vtable adapter call did not return a value"))?;
+                builder
+                    .build_return(Some(&value))
+                    .map_err(|_| self.error(span, "failed to return vtable adapter value"))?;
+            }
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
+                builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to return from vtable adapter"))?;
+            }
+        }
+        self.trait_object_adapters.borrow_mut().insert(key, adapter);
+        Ok(adapter)
     }
 }
