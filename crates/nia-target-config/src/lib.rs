@@ -342,7 +342,7 @@ pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::Comp
     );
     fields.insert(
         "pointer_width".to_string(),
-        nia_comptime_engine::ComptimeValue::Int(i128::from(config.pointer_width)),
+        nia_comptime_engine::ComptimeValue::Int(i128::from(config.pointer_width).into()),
     );
     nia_comptime_engine::ComptimeValue::Struct(fields)
 }

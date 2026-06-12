@@ -890,7 +890,9 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 ),
             });
         };
-        Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128))
+        Ok(ComptimeValue::Int(nia_ty::IntConst::unsigned(
+            layout.builtin_value(builtin) as u128,
+        )))
     }
 
     fn call_resolved_function(

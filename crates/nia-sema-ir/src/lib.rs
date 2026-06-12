@@ -5,7 +5,7 @@ use nia_ast::{BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, PrimitiveTy, TraitId};
+use nia_ty::{BuiltinTrait, IntConst, PrimitiveTy, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
@@ -132,7 +132,7 @@ pub enum PrimitiveIntLimit {
 }
 
 impl PrimitiveIntLimit {
-    pub fn value(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<i128> {
+    pub fn value(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<IntConst> {
         let (min, max) = primitive_int_range(primitive, pointer_width)?;
         Some(match self {
             PrimitiveIntLimit::Min => min,
@@ -145,20 +145,20 @@ pub fn supports_primitive_int_limit(primitive: PrimitiveTy) -> bool {
     primitive_int_range(primitive, 64).is_some()
 }
 
-fn primitive_int_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(i128, i128)> {
+fn primitive_int_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(IntConst, IntConst)> {
     match primitive {
-        PrimitiveTy::I8 => Some((i8::MIN as i128, i8::MAX as i128)),
-        PrimitiveTy::I16 => Some((i16::MIN as i128, i16::MAX as i128)),
-        PrimitiveTy::I32 => Some((i32::MIN as i128, i32::MAX as i128)),
-        PrimitiveTy::I64 => Some((i64::MIN as i128, i64::MAX as i128)),
-        PrimitiveTy::I128 => Some((i128::MIN, i128::MAX)),
+        PrimitiveTy::I8 => Some(signed_int_range(8)),
+        PrimitiveTy::I16 => Some(signed_int_range(16)),
+        PrimitiveTy::I32 => Some(signed_int_range(32)),
+        PrimitiveTy::I64 => Some(signed_int_range(64)),
+        PrimitiveTy::I128 => Some(signed_int_range(128)),
         PrimitiveTy::Isize => signed_integer_range(pointer_width),
-        PrimitiveTy::U8 => Some((0, u8::MAX as i128)),
-        PrimitiveTy::U16 => Some((0, u16::MAX as i128)),
-        PrimitiveTy::U32 => Some((0, u32::MAX as i128)),
-        PrimitiveTy::U64 => Some((0, u64::MAX as i128)),
+        PrimitiveTy::U8 => Some(unsigned_int_range(8)),
+        PrimitiveTy::U16 => Some(unsigned_int_range(16)),
+        PrimitiveTy::U32 => Some(unsigned_int_range(32)),
+        PrimitiveTy::U64 => Some(unsigned_int_range(64)),
+        PrimitiveTy::U128 => Some(unsigned_int_range(128)),
         PrimitiveTy::Usize => unsigned_integer_range(pointer_width),
-        PrimitiveTy::U128 => None,
         PrimitiveTy::F32
         | PrimitiveTy::F64
         | PrimitiveTy::Bool
@@ -168,19 +168,38 @@ fn primitive_int_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(i1
     }
 }
 
-fn signed_integer_range(bits: u32) -> Option<(i128, i128)> {
+fn signed_integer_range(bits: u32) -> Option<(IntConst, IntConst)> {
     match bits {
-        1..=127 => Some((-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)),
-        128 => Some((i128::MIN, i128::MAX)),
+        1..=128 => Some(signed_int_range(bits)),
         _ => None,
     }
 }
 
-fn unsigned_integer_range(bits: u32) -> Option<(i128, i128)> {
+fn unsigned_integer_range(bits: u32) -> Option<(IntConst, IntConst)> {
     match bits {
-        1..=126 => Some((0, (1i128 << bits) - 1)),
-        127 | 128 => Some((0, i128::MAX)),
+        1..=128 => Some(unsigned_int_range(bits)),
         _ => None,
+    }
+}
+
+fn signed_int_range(bits: u32) -> (IntConst, IntConst) {
+    let min_bits = 1u128 << (bits - 1);
+    let mask = int_mask(bits);
+    (
+        IntConst::signed_bits(min_bits),
+        IntConst::signed_bits(mask ^ min_bits),
+    )
+}
+
+fn unsigned_int_range(bits: u32) -> (IntConst, IntConst) {
+    (IntConst::unsigned(0), IntConst::unsigned(int_mask(bits)))
+}
+
+fn int_mask(bits: u32) -> u128 {
+    if bits == 128 {
+        u128::MAX
+    } else {
+        (1u128 << bits) - 1
     }
 }
 
@@ -231,7 +250,7 @@ pub enum ComptimeIfSelection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinValue {
-    Int(i128),
+    Int(IntConst),
     Usize(u64),
     Layout {
         builtin: LayoutBuiltin,

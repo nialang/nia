@@ -315,7 +315,14 @@ impl StaticChecker<'_> {
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
         self.eval_static_resolved_expr(expr, |expr, env| {
-            nia_comptime_engine::eval_resolved_comptime_int_expr(expr, env)
+            nia_comptime_engine::eval_resolved_comptime_int_expr(expr, env).and_then(|value| {
+                value
+                    .as_i128()
+                    .ok_or_else(|| nia_comptime_engine::ComptimeError {
+                        span: expr.span(),
+                        message: "static integer expression is out of range".to_string(),
+                    })
+            })
         })
     }
 

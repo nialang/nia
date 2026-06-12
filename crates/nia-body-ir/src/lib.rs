@@ -10,6 +10,7 @@ pub use nia_sema_ir::{
 };
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+use nia_ty::IntConst;
 use nia_ty::{BuiltinTrait, TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -332,7 +333,7 @@ pub enum BuiltinConst {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
-    Int(i128),
+    Int(IntConst),
 }
 
 #[derive(Debug, Clone, PartialEq)]

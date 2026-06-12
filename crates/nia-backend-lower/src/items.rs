@@ -94,7 +94,7 @@ impl<'a> ModuleLowerer<'a> {
                         .enum_values
                         .get(&variant.def_id)
                         .and_then(|value| match value {
-                            ComptimeValue::Int(value) => Some(*value),
+                            ComptimeValue::Int(value) => value.as_i128(),
                             _ => None,
                         }),
                     span: variant.span,
@@ -354,8 +354,8 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
             repeated_static_init(bytes, StaticInit::Byte).unwrap_or_else(StaticInit::Bytes)
         }
         StaticInit::Float(text) if is_zero_float_static_init(&text) => StaticInit::Zero,
-        StaticInit::Int(0)
-        | StaticInit::Bool(false)
+        StaticInit::Int(value) if value.bits() == 0 => StaticInit::Zero,
+        StaticInit::Bool(false)
         | StaticInit::Char(0)
         | StaticInit::Byte(0)
         | StaticInit::NullPtr
@@ -366,8 +366,8 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
 
 fn is_zero_static_init(init: &StaticInit) -> bool {
     match init {
+        StaticInit::Int(value) if value.bits() == 0 => true,
         StaticInit::Zero
-        | StaticInit::Int(0)
         | StaticInit::Bool(false)
         | StaticInit::Char(0)
         | StaticInit::Byte(0)
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn simplifies_empty_repeat_static_init_to_zero() {
         let init = StaticInit::Repeat {
-            value: Box::new(StaticInit::Int(1)),
+            value: Box::new(StaticInit::Int(nia_ty::IntConst::signed(1))),
             count: 0,
         };
 

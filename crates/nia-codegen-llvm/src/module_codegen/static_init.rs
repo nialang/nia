@@ -29,7 +29,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     );
                 };
                 let int_ty = self.integer_llvm_type(*primitive, span)?;
-                Ok(int_ty.const_u128(*value as u128).into())
+                Ok(int_ty.const_u128(value.bits()).into())
             }
             StaticInit::Bool(value) => Ok(self
                 .context
@@ -395,8 +395,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
 fn is_zero_static_init(init: &StaticInit) -> bool {
     match init {
+        StaticInit::Int(value) if value.bits() == 0 => true,
         StaticInit::Zero
-        | StaticInit::Int(0)
         | StaticInit::Bool(false)
         | StaticInit::Char(0)
         | StaticInit::Byte(0)

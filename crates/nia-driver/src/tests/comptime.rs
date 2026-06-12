@@ -2,6 +2,11 @@
 use super::common::*;
 use crate::check_program;
 use nia_static_ir::StaticInit;
+use nia_ty::IntConst;
+
+fn static_int(value: i128) -> StaticInit {
+    StaticInit::Int(IntConst::from_i128(value))
+}
 
 #[test]
 fn public_comptime_values_are_visible_through_import_closure() {
@@ -69,7 +74,7 @@ var value: i32 = base + 2;
         .iter()
         .find(|global| global.name == "value")
         .expect("value global");
-    assert_eq!(value.init, Some(StaticInit::Int(22)));
+    assert_eq!(value.init, Some(static_int(22)));
 }
 
 #[test]
@@ -3058,13 +3063,13 @@ var signed_global: i32 = signed_value;
         .iter()
         .find(|global| global.name == "narrow_global")
         .expect("narrow_global");
-    assert_eq!(narrow_global.init, Some(StaticInit::Int(2)));
+    assert_eq!(narrow_global.init, Some(static_int(2)));
     let signed_global = main_module
         .globals
         .iter()
         .find(|global| global.name == "signed_global")
         .expect("signed_global");
-    assert_eq!(signed_global.init, Some(StaticInit::Int(-1)));
+    assert_eq!(signed_global.init, Some(static_int(-1)));
 }
 
 #[test]
@@ -3107,7 +3112,7 @@ var value: i32 = n as i32;
         .iter()
         .find(|global| global.name == "value")
         .expect("value global");
-    assert_eq!(value.init, Some(StaticInit::Int(7)));
+    assert_eq!(value.init, Some(static_int(7)));
 }
 
 #[test]
@@ -3192,7 +3197,7 @@ var value: i32 = n as i32;
         .iter()
         .find(|global| global.name == "value")
         .expect("value global");
-    assert_eq!(value.init, Some(StaticInit::Int(8)));
+    assert_eq!(value.init, Some(static_int(8)));
 }
 
 #[test]

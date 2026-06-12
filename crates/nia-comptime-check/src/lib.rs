@@ -33,7 +33,9 @@ use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
-use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind, import_type_into};
+use nia_ty::{
+    ArrayLenTy, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind, import_type_into,
+};
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -957,14 +959,14 @@ impl Analyzer<'_> {
     fn eval_enum(&mut self, item_enum: &ResolvedComptimeEnum) {
         let enum_id = item_enum.def_id();
         let range = self.enum_backing_range(enum_id.def_id);
-        let mut next_value = 0i128;
+        let mut next_value = IntConst::from_i128(0);
         for variant in item_enum.variants() {
             let value = if let Some(expr) = variant.value() {
                 match nia_comptime_engine::eval_resolved_comptime_int_expr(expr, self) {
                     Ok(value) => value,
                     Err(err) => {
                         self.push_engine_error(err);
-                        next_value = next_value.saturating_add(1);
+                        next_value = enum_next_value(next_value);
                         continue;
                     }
                 }
@@ -972,12 +974,12 @@ impl Analyzer<'_> {
                 next_value
             };
             if let Some((min, max)) = range
-                && (value < min || value > max)
+                && !int_const_in_i128_range(value, min, max)
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0401",
                     variant.span(),
-                    format!("enum variant value {value} is out of range for backing type"),
+                    format!("enum variant value {value:?} is out of range for backing type"),
                 ));
             }
             let variant_id = variant.def_id();
@@ -997,7 +999,7 @@ impl Analyzer<'_> {
                     ty: ComptimeValueType::Runtime(ty),
                 },
             );
-            next_value = value.saturating_add(1);
+            next_value = enum_next_value(value);
         }
     }
 
@@ -1397,12 +1399,12 @@ impl Analyzer<'_> {
                     self.push_comptime_primitive_mismatch(span, primitive);
                     return;
                 };
-                if *value < min || *value > max {
+                if !int_const_in_i128_range(*value, min, max) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0401",
                         span,
                         format!(
-                            "comptime integer value {value} is out of range for {}",
+                            "comptime integer value {value:?} is out of range for {}",
                             primitive.name()
                         ),
                     ));
@@ -1923,14 +1925,18 @@ impl Analyzer<'_> {
                 self.compute_program_layout(def_id.module_id, &layout_array_lengths)
             && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
         {
-            return Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128));
+            return Ok(ComptimeValue::Int(IntConst::unsigned(
+                layout.builtin_value(builtin) as u128,
+            )));
         }
         if ty.interner_id != module_id
             && let Some(layouts) =
                 self.compute_program_layout(ty.interner_id, &layout_array_lengths)
             && let Some(layout) = layouts.types.get(&ty)
         {
-            return Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128));
+            return Ok(ComptimeValue::Int(IntConst::unsigned(
+                layout.builtin_value(builtin) as u128,
+            )));
         }
         let Some(layout) = layouts.types.get(&ty) else {
             return Err(ComptimeError {
@@ -1941,7 +1947,9 @@ impl Analyzer<'_> {
                 ),
             });
         };
-        Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128))
+        Ok(ComptimeValue::Int(IntConst::unsigned(
+            layout.builtin_value(builtin) as u128,
+        )))
     }
 
     fn program_array_lengths_for_layout(
@@ -2221,7 +2229,9 @@ impl Analyzer<'_> {
     }
 
     fn probe_resolved_comptime_int_expr(&mut self, expr: &ResolvedComptimeExpr) -> Option<i128> {
-        nia_comptime_engine::eval_resolved_comptime_int_expr(expr, self).ok()
+        nia_comptime_engine::eval_resolved_comptime_int_expr(expr, self)
+            .ok()
+            .and_then(IntConst::as_i128)
     }
 
     fn probe_resolved_comptime_array_len_expr(
@@ -4749,7 +4759,14 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                             ),
                         });
                     };
-                    ComptimeValue::Int(value)
+                    ComptimeValue::Int(
+                        cast_comptime_integer(
+                            IntConst::from_i128(value),
+                            primitive,
+                            self.input.target.pointer_width,
+                        )
+                        .unwrap_or_else(|| IntConst::from_i128(value)),
+                    )
                 } else {
                     ComptimeValue::Float(value)
                 }
@@ -5128,23 +5145,49 @@ fn validate_assignment_shape(
 fn comptime_string_to_char_array(value: &str) -> Vec<ComptimeValue> {
     value
         .chars()
-        .map(|value| ComptimeValue::Int(value as i128))
+        .map(|value| ComptimeValue::Int(IntConst::unsigned(value as u128)))
         .collect()
 }
 
-fn cast_comptime_integer(value: i128, ty: PrimitiveTy, pointer_width: u32) -> Option<i128> {
-    let (bits, signed) = primitive_integer_layout(ty, pointer_width)?;
-    let mask = integer_mask(bits)?;
-    let raw = (value as u128) & mask;
-    if signed {
-        Some(sign_extend_integer(raw, bits))
+fn int_const_in_i128_range(value: IntConst, min: i128, max: i128) -> bool {
+    value
+        .as_i128()
+        .is_some_and(|value| value >= min && value <= max)
+}
+
+fn enum_next_value(value: IntConst) -> IntConst {
+    if value.is_signed() {
+        value
+            .as_i128()
+            .and_then(|value| value.checked_add(1))
+            .map(IntConst::from_i128)
+            .unwrap_or(value)
     } else {
-        i128::try_from(raw).ok()
+        value
+            .bits()
+            .checked_add(1)
+            .map(IntConst::unsigned)
+            .unwrap_or(value)
     }
 }
 
-fn cast_int_to_float(value: i128, ty: PrimitiveTy) -> Option<f64> {
-    let value = value as f64;
+fn cast_comptime_integer(value: IntConst, ty: PrimitiveTy, pointer_width: u32) -> Option<IntConst> {
+    let (bits, signed) = primitive_integer_layout(ty, pointer_width)?;
+    let mask = integer_mask(bits)?;
+    let raw = value.bits() & mask;
+    if signed {
+        Some(IntConst::from_i128(sign_extend_integer(raw, bits)))
+    } else {
+        Some(IntConst::unsigned(raw))
+    }
+}
+
+fn cast_int_to_float(value: IntConst, ty: PrimitiveTy) -> Option<f64> {
+    let value = if let Some(value) = value.as_i128() {
+        value as f64
+    } else {
+        value.bits() as f64
+    };
     cast_float_to_float(value, ty)
 }
 

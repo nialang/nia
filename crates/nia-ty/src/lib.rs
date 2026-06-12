@@ -113,6 +113,66 @@ pub enum PrimitiveTy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IntConst {
+    bits: u128,
+    signed: bool,
+}
+
+impl IntConst {
+    pub fn from_i128(value: i128) -> Self {
+        Self::signed_bits(value as u128)
+    }
+
+    pub fn signed_bits(bits: u128) -> Self {
+        Self { bits, signed: true }
+    }
+
+    pub fn signed(value: i128) -> Self {
+        Self::from_i128(value)
+    }
+
+    pub fn unsigned(bits: u128) -> Self {
+        Self {
+            bits,
+            signed: false,
+        }
+    }
+
+    pub fn bits(self) -> u128 {
+        self.bits
+    }
+
+    pub fn is_signed(self) -> bool {
+        self.signed
+    }
+
+    pub fn as_i128(self) -> Option<i128> {
+        if self.signed {
+            Some(self.bits as i128)
+        } else {
+            i128::try_from(self.bits).ok()
+        }
+    }
+
+    pub fn cast_to_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
+        let bits = primitive.integer_bits(pointer_width)?;
+        let mask = integer_mask(bits);
+        let bits = self.bits & mask;
+        if primitive.is_signed_integer() {
+            Some(Self::signed_bits(bits))
+        } else {
+            Some(Self::unsigned(bits))
+        }
+    }
+}
+
+impl From<i128> for IntConst {
+    fn from(value: i128) -> Self {
+        Self::from_i128(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimitiveTypeSpelling {
     Scalar(PrimitiveTy),
     Vector { elem: PrimitiveTy, lanes: u32 },
@@ -713,8 +773,35 @@ impl PrimitiveTy {
         )
     }
 
+    pub fn is_signed_integer(self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
+        )
+    }
+
+    pub fn integer_bits(self, pointer_width: u32) -> Option<u32> {
+        match self {
+            Self::I8 | Self::U8 => Some(8),
+            Self::I16 | Self::U16 => Some(16),
+            Self::I32 | Self::U32 => Some(32),
+            Self::I64 | Self::U64 => Some(64),
+            Self::I128 | Self::U128 => Some(128),
+            Self::Isize | Self::Usize => Some(pointer_width),
+            _ => None,
+        }
+    }
+
     pub fn is_float(self) -> bool {
         matches!(self, Self::F32 | Self::F64)
+    }
+}
+
+fn integer_mask(bits: u32) -> u128 {
+    if bits >= u128::BITS {
+        u128::MAX
+    } else {
+        (1u128 << bits) - 1
     }
 }
 
