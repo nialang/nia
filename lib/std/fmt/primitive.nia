@@ -1,21 +1,11 @@
 using package::fmt::core;
 
-fn has_precision(spec: core::FormatSpec) bool {
-    switch spec.precision() {
-        ?precision => {
-            _ = precision;
-            true
-        },
-        null => false,
-    }
-}
-
 fn format_signed_spec(
     value: i128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!void {
-    if has_precision(spec) {
+    if spec.has_precision() {
         return core::Error::InvalidTemplate!;
     }
     switch spec.presentation() {
@@ -33,7 +23,7 @@ fn format_unsigned_spec(
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!void {
-    if spec.sign_plus() or has_precision(spec) {
+    if spec.sign_plus() or spec.has_precision() {
         return core::Error::InvalidTemplate!;
     }
     switch spec.presentation() {
@@ -180,6 +170,42 @@ extend usize : core::Format {
     }
 }
 
+fn format_pointer_spec(
+    value: usize,
+    formatter: &mut core::Formatter,
+    spec: core::FormatSpec,
+) core::Error!void {
+    if spec.presentation() == core::FormatPresentation::Display or spec.presentation() == core::FormatPresentation::Pointer {
+        formatter.write_pointer_spec(value, spec)
+    } else {
+        core::Error::InvalidTemplate!
+    }
+}
+
+extend[T] &T : core::Format
+where T: Sized
+{
+    fn format(&self, formatter: &mut core::Formatter) core::Error!void {
+        formatter.write_pointer(self.* as usize)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_pointer_spec(self.* as usize, formatter, spec)
+    }
+}
+
+extend[T] &mut T : core::Format
+where T: Sized
+{
+    fn format(&self, formatter: &mut core::Formatter) core::Error!void {
+        formatter.write_pointer(self.* as usize)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_pointer_spec(self.* as usize, formatter, spec)
+    }
+}
+
 extend bool : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         if self.* {
@@ -248,7 +274,7 @@ where T: Sized + core::Format
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
-        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or has_precision(spec) or spec.sign_plus() or spec.alternate() {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.has_precision() or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         self.format(formatter)

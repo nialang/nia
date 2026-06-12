@@ -31,6 +31,7 @@ pub enum FormatPresentation: i32 {
     UpperHex = 2,
     Binary = 3,
     Octal = 4,
+    Pointer = 5,
     _,
 }
 
@@ -93,6 +94,10 @@ extend FormatSpec {
         FormatSpec::init(FormatPresentation::Octal, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
+    pub fn pointer() FormatSpec {
+        FormatSpec::init(FormatPresentation::Pointer, 0usize, null, ' ', FormatAlignment::None, false, false)
+    }
+
     pub fn presentation(&self) FormatPresentation {
         self.presentation
     }
@@ -103,6 +108,16 @@ extend FormatSpec {
 
     pub fn precision(&self) ?usize {
         self.precision
+    }
+
+    pub fn has_precision(&self) bool {
+        switch self.precision {
+            ?precision => {
+                _ = precision;
+                true
+            },
+            null => false,
+        }
     }
 
     pub fn fill(&self) char {
@@ -213,6 +228,26 @@ extend Formatter {
 
     pub fn write_unsigned(&mut self, value: u128) Error!void {
         self.write_unsigned_radix(value, 10u128, false)
+    }
+
+    pub fn write_pointer(&mut self, value: usize) Error!void {
+        self.write_pointer_spec(value, FormatSpec::pointer())
+    }
+
+    pub fn write_pointer_spec(&mut self, value: usize, spec: FormatSpec) Error!void {
+        if spec.sign_plus() or spec.alternate() or spec.has_precision() {
+            return Error::InvalidTemplate!;
+        }
+        let pointer_spec = FormatSpec::init(
+            FormatPresentation::LowerHex,
+            spec.width(),
+            null,
+            spec.fill(),
+            spec.alignment(),
+            false,
+            true,
+        );
+        self.write_unsigned_radix_spec(value as u128, 16u128, false, pointer_spec)
     }
 
     pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!void {
