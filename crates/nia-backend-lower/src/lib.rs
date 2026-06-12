@@ -239,7 +239,7 @@ pub fn lower_backend_program_with_timings(
                     lowerers[owner_index].lower_additional_reachable_functions_from_instances(
                         &mut lowered_modules[owner_index],
                     );
-                    refresh_known_backend_type_interners(&mut lowerers);
+                    refresh_known_backend_type_interner_from_source(&mut lowerers, owner_index);
                 }
                 pending_foreign_instances.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_instance_refs,
@@ -1357,14 +1357,23 @@ impl<'a> ModuleLowerer<'a> {
 }
 
 fn refresh_known_backend_type_interners(lowerers: &mut [ModuleLowerer<'_>]) {
-    let interners = lowerers
-        .iter()
+    for index in 0..lowerers.len() {
+        refresh_known_backend_type_interner_from_source(lowerers, index);
+    }
+}
+
+fn refresh_known_backend_type_interner_from_source(
+    lowerers: &mut [ModuleLowerer<'_>],
+    source_index: usize,
+) {
+    let Some(interner) = lowerers
+        .get(source_index)
         .map(|lowerer| lowerer.interner.clone())
-        .collect::<Vec<_>>();
+    else {
+        return;
+    };
     for lowerer in lowerers {
-        for interner in &interners {
-            lowerer.remember_type_interner(interner);
-        }
+        lowerer.remember_type_interner(&interner);
     }
 }
 
