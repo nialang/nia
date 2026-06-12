@@ -1066,7 +1066,10 @@ Global module-map options:
 
 ```text
 -M name=path
+-Mname=path
+-M=name=path
 --module name=path
+--module=name=path
 ```
 
 Global optimization options are listed explicitly in CLI help:
@@ -1079,6 +1082,14 @@ Global optimization options are listed explicitly in CLI help:
 -O3
 -Os
 -Oz
+```
+
+Global timing options are also accepted before or after the command:
+
+```text
+--timings
+--timings=summary
+--timings=detail
 ```
 
 `nia check <file.nia> --opt-report` prints the active optimization
@@ -1096,6 +1107,7 @@ checks the same entry contract used by `emit --exe`.
 leaving stdout as backend IR or LLVM IR, and while keeping native
 object/executable output file-only. This is useful when reviewing pass behavior
 next to emitted code or native codegen artifacts.
+Timing reports are written to stderr; detail mode also includes query timings.
 The CLI does not yet expose separate before/after backend optimization snapshots;
 `emit --backend` is the post-lowering optimized backend IR, and
 `--opt-report` is the stable pass-observability interface.

@@ -40,17 +40,17 @@ not yet claim support for them.
 This is the current known working environment snapshot, not a minimum
 requirement or support guarantee.
 
-Snapshot date: 2026-05-25.
+Snapshot date: 2026-06-12.
 
-- OS: Fedora release 44 (Forty Four)
+- OS: Fedora Linux 44 (WSL)
 - Architecture: x86_64
 - libc: GNU libc 2.43
-- Rust: rustc 1.95.0
-- Cargo: cargo 1.95.0
+- Rust: rustc 1.96.0
+- Cargo: cargo 1.96.0
 - default executable linker: `ld` resolves to `/usr/sbin/ld`
 - linker implementation: GNU ld 2.46
 - LLVM config tool: `/usr/sbin/llvm-config`
-- LLVM version: 22.1.5
+- LLVM version: 22.1.6
 - LLVM host target: x86_64-redhat-linux-gnu
 - Rust LLVM binding dependency: `llvm-sys = 221.0.1`
 

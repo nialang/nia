@@ -493,8 +493,8 @@ var x = p.*;
 mp.* = 1;
 ```
 
-`&place` takes a read-only reference to a place. `&mut place` takes a writable
-reference to a writable place. Identifiers, field access, array indexing, slice
+`&place` takes a read-only pointer to a place. `&mut place` takes a writable
+pointer to a writable place. Identifiers, field access, array indexing, slice
 indexing, and pointer dereference may be places. Field access and indexing
 inherit place-ness from their left-hand side.
 
@@ -1268,8 +1268,8 @@ _ = &mut p;      // error
 
 Nia does not perform definite initialization analysis. Reading uninitialized
 storage is the programmer's responsibility. `let` only controls binding-level
-assignment and writable borrowing; it does not provide deep immutability and does
-not prove that the value was initialized.
+assignment and whether a writable pointer may be taken from the binding; it does
+not provide deep immutability and does not prove that the value was initialized.
 
 Top-level uninitialized bindings require explicit types. Non-extern top-level
 uninitialized bindings create static storage initialized to zero. Extern
@@ -2076,8 +2076,8 @@ fn method(...)
 
 Receiver meaning:
 
-- `&self` borrows the receiver as read-only `&Type`;
-- `&mut self` borrows the receiver as writable `&mut Type`;
+- `&self` passes the receiver as read-only `&Type`;
+- `&mut self` passes the receiver as writable `&mut Type`;
 - `self` passes the receiver by value;
 - no `self` means the function is an associated function called as
   `Type::method(...)`.
@@ -2868,7 +2868,10 @@ Module-map options are accepted before or after the command:
 
 ```text
 -M name=path
+-Mname=path
+-M=name=path
 --module name=path
+--module=name=path
 ```
 
 Optimization options are accepted before or after the command:
@@ -2883,6 +2886,14 @@ Optimization options are accepted before or after the command:
 -Oz
 ```
 
+Timing options are accepted before or after the command:
+
+```text
+--timings
+--timings=summary
+--timings=detail
+```
+
 `-O` means `-O2`. `nia check <file.nia> --opt-report` prints the active
 optimization policy and backend optimization report to stdout. `nia check --exe
 <file.nia>` is an alias for `nia check <file.nia> --runtime freestanding`, which
@@ -2891,6 +2902,8 @@ public `root::main(process::Init) process::ExitCode!void` entry contract. Emit
 commands write the same report to stderr when
 `--opt-report` is supplied, so stdout remains backend IR or LLVM IR and native
 emit targets remain file-only.
+Timing reports are written to stderr; `--timings=detail` also includes query
+timings.
 
 `emit --obj` defaults to the bare runtime and writes one object per backend
 codegen unit without injecting startup code. `emit --obj --runtime freestanding`
@@ -2974,7 +2987,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var v: Vec2 = { x: 3, y: 4 };
     var values = [_]i32[add(40, 2), v.len2(), 7];
-    var pair: Pair[i32, i32] = { first: values[0], second: sum(&values[..]) };
+    var pair: Pair[i32, i32] = { first: values[0], second: sum(values) };
 
     if score(pair) != 116 {
         return process::exit(1)!;
