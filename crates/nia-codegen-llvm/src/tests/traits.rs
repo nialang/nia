@@ -236,6 +236,50 @@ fn main() i32 {
 }
 
 #[test]
+fn slice_trait_object_default_method_preserves_receiver_abi() {
+    let root = temp_dir("slice_trait_object_default_method_preserves_receiver_abi");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Source {
+    fn get(& self) i32;
+
+    fn get_plus(& self, rhs: i32) i32 {
+        self.get() + rhs
+    }
+}
+
+extend[T] [T] : Source {
+    fn get(& self) i32 {
+        self.len() as i32
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.get_plus(4)
+}
+
+fn main() i32 {
+    var values: [3]i32 = [1, 2, 3];
+    read(&values[..])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("traitobj.self"), "{ir}");
+    assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+}
+
+#[test]
 fn slice_trait_object_adapter_preserves_value_argument_abi() {
     let root = temp_dir("slice_trait_object_adapter_preserves_value_argument_abi");
     let main = root.join("main.nia");

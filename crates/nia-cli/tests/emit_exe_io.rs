@@ -192,8 +192,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let ch = 'λ';
     let byte = 171u8;
     let neg = -171i32;
-    stdout.print("list={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={x} HEX={X} bin={b} oct={o} neg_hex={x}\n", [
+    let numbers: [3]i32 = [4, 5, 6];
+    stdout.print("list={} slice={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={x} HEX={X} bin={b} oct={o} neg_hex={x}\n", [
         &values,
+        &numbers[..],
         &total,
         &signed,
         &wide,
@@ -231,7 +233,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 max_u128=340282366920938463463374607431768211455 ok=true ch=λ hex=ab HEX=AB bin=10101011 oct=253 neg_hex=-ab\n"
+        "list=[10, 20, 30] slice=[4, 5, 6] total=60 signed=-5 wide=123456789 max_u128=340282366920938463463374607431768211455 ok=true ch=λ hex=ab HEX=AB bin=10101011 oct=253 neg_hex=-ab\n"
     );
 }
 

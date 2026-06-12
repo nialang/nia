@@ -397,6 +397,168 @@ fn main(text: &[char]) i32 {
 }
 
 #[test]
+fn concrete_trait_impl_is_more_specific_than_generic_slice_trait_impl() {
+    let root = temp_dir("concrete_trait_impl_is_more_specific_than_generic_slice_trait_impl");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Show {
+    fn show(& self) i32;
+}
+
+extend[T] [T] : Show
+where T: Sized + Show
+{
+    fn show(& self) i32 {
+        1
+    }
+}
+
+extend [char] : Show {
+    fn show(& self) i32 {
+        2
+    }
+}
+
+fn main(text: &[char]) i32 {
+    text.show()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn concrete_trait_arg_impl_is_more_specific_than_generic_trait_arg_impl() {
+    let root = temp_dir("concrete_trait_arg_impl_is_more_specific_than_generic_trait_arg_impl");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Convert[T] {
+    fn convert(& self, value: T) i32;
+}
+
+struct Target {}
+
+extend[T] Target : Convert[T]
+where T: Sized
+{
+    fn convert(& self, value: T) i32 {
+        _ = value;
+        1
+    }
+}
+
+extend Target : Convert[i32] {
+    fn convert(& self, value: i32) i32 {
+        value
+    }
+}
+
+fn main(target: &Target) i32 {
+    target.convert(2)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_slice_trait_impl_body_uses_element_trait_bound() {
+    let root = temp_dir("generic_slice_trait_impl_body_uses_element_trait_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Show {
+    fn show(& self) i32;
+}
+
+extend i32 : Show {
+    fn show(& self) i32 {
+        self.*
+    }
+}
+
+extend[T] [T] : Show
+where T: Sized + Show
+{
+    fn show(& self) i32 {
+        self[0].show()
+    }
+}
+
+fn main(values: &[i32]) i32 {
+    values.show()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_nominal_trait_impl_body_uses_element_trait_bound_with_slice_impls() {
+    let root =
+        temp_dir("generic_nominal_trait_impl_body_uses_element_trait_bound_with_slice_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Formatter {}
+
+trait Format {
+    fn format(& self, formatter: &mut Formatter) void;
+}
+
+struct List[T] {
+    value: T,
+}
+
+extend i32 : Format {
+    fn format(& self, formatter: &mut Formatter) void {
+        _ = formatter;
+        _ = self;
+    }
+}
+
+extend [char] : Format {
+    fn format(& self, formatter: &mut Formatter) void {
+        _ = formatter;
+        _ = self;
+    }
+}
+
+extend[T] [T] : Format
+where T: Sized + Format
+{
+    fn format(& self, formatter: &mut Formatter) void {
+        self[0].format(formatter);
+    }
+}
+
+extend[T] List[T] : Format
+where T: Sized + Format
+{
+    fn format(& self, formatter: &mut Formatter) void {
+        self.value.format(formatter);
+    }
+}
+
+fn main(list: List[i32], formatter: &mut Formatter) void {
+    list.format(formatter);
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn reports_ambiguous_extension_method_specialization() {
     let root = temp_dir("reports_ambiguous_extension_method_specialization");
     write(

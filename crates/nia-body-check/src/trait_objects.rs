@@ -167,6 +167,18 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let source_ty = self.normalization.normalize(source_ty);
         match self.interner.get(source_ty).cloned() {
+            Some(TyKind::Pointer { elem, .. })
+                if matches!(
+                    self.interner.get(self.normalization.normalize(elem)),
+                    Some(TyKind::Slice { .. })
+                ) =>
+            {
+                let elem = self.normalization.normalize(elem);
+                let Some(TyKind::Slice { elem, .. }) = self.interner.get(elem).cloned() else {
+                    return source_ty;
+                };
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Pointer { elem, .. }) => elem,
             Some(TyKind::Slice { elem, .. }) => self.interner.intern(TyKind::SlicePointee { elem }),
             _ => source_ty,

@@ -176,3 +176,20 @@ extend [char] : core::Format {
         !{}
     }
 }
+
+extend[T] [T] : core::Format
+where T: Sized + core::Format
+{
+    fn format(&self, formatter: &mut core::Formatter) core::Error!void {
+        formatter.write_byte(b'[').?;
+        var index = 0usize;
+        while index < self.len() {
+            if index != 0usize {
+                formatter.write_text(", ").?;
+            }
+            self[index].format(formatter).?;
+            index += 1usize;
+        }
+        formatter.write_byte(b']')
+    }
+}
