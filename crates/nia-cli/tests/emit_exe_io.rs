@@ -190,7 +190,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let max_u128 = u128::MAX;
     let ok = true;
     let ch = 'λ';
-    stdout.print("list={} total={} signed={} wide={} max_u128={} ok={} ch={}\n", [
+    let byte = 171u8;
+    let neg = -171i32;
+    stdout.print("list={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={x} HEX={X} bin={b} oct={o} neg_hex={x}\n", [
         &values,
         &total,
         &signed,
@@ -198,6 +200,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &max_u128,
         &ok,
         &ch,
+        &byte,
+        &byte,
+        &byte,
+        &byte,
+        &neg,
     ]).exit().?;
     stdout.flush().exit().?;
     !{}
@@ -224,7 +231,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 max_u128=340282366920938463463374607431768211455 ok=true ch=λ\n"
+        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 max_u128=340282366920938463463374607431768211455 ok=true ch=λ hex=ab HEX=AB bin=10101011 oct=253 neg_hex=-ab\n"
     );
 }
 
@@ -278,6 +285,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let written = writer.written();
     if written[0] != b'{' or written[1] != b'7' or written[2] != b'}' {
         return (7 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{q}", [&value]), fmt::Error::InvalidTemplate) {
+        return (8 as process::ExitCode)!;
+    }
+    let flag = true;
+    if not expect_error(writer.print("{x}", [&flag]), fmt::Error::InvalidTemplate) {
+        return (9 as process::ExitCode)!;
+    }
+    switch fmt::print_unchecked(&mut writer, "{X}", [&value]) {
+        !ok => _ = ok,
+        error! => return (10 as process::ExitCode)!,
     }
     !{}
 }
@@ -344,6 +362,26 @@ fn expect_error_u8(result: fmt::ParseError!u8, expected: fmt::ParseError) bool {
     }
 }
 
+fn expect_u8(result: fmt::ParseError!u8, expected: u8) bool {
+    switch result {
+        !value => value == expected,
+        error! => {
+            _ = error;
+            false
+        },
+    }
+}
+
+fn expect_error_bool(result: fmt::ParseError!bool, expected: fmt::ParseError) bool {
+    switch result {
+        !value => {
+            _ = value;
+            false
+        },
+        error! => error == expected,
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
@@ -389,6 +427,42 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not expect_error_u8(fmt::parse[u8]("256"), fmt::ParseError::Overflow) {
         return (14 as process::ExitCode)!;
+    }
+    if not expect_u8(fmt::parse_radix[u8]("ff", 16u32), 255u8) {
+        return (15 as process::ExitCode)!;
+    }
+    if not expect_u8([u8]::parse_radix("10101010", 2u32), 170u8) {
+        return (16 as process::ExitCode)!;
+    }
+    if not expect_i32(fmt::parse_radix[i32]("-7B", 16u32), -123) {
+        return (17 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse_radix[u8]("2", 2u32), fmt::ParseError::InvalidDigit) {
+        return (18 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse_radix[u8]("10", 1u32), fmt::ParseError::InvalidRadix) {
+        return (19 as process::ExitCode)!;
+    }
+    if not expect_error_bool(fmt::parse_radix[bool]("true", 10u32), fmt::ParseError::InvalidRadix) {
+        return (20 as process::ExitCode)!;
+    }
+    switch fmt::parse_radix[u128]("ffffffffffffffffffffffffffffffff", 16u32) {
+        !value => if value != u128::MAX {
+            return (21 as process::ExitCode)!;
+        },
+        error! => return (22 as process::ExitCode)!,
+    }
+    switch fmt::parse_radix[u128]("100000000000000000000000000000000", 16u32) {
+        !value => {
+            _ = value;
+            return (23 as process::ExitCode)!;
+        },
+        error! => if error != fmt::ParseError::Overflow {
+            return (24 as process::ExitCode)!;
+        },
+    }
+    if not expect_error_u8(fmt::parse[u8]("+1"), fmt::ParseError::InvalidSign) {
+        return (25 as process::ExitCode)!;
     }
     !{}
 }

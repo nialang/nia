@@ -15,6 +15,53 @@ pub trait FormatWriter {
 
 pub trait Format {
     fn format(&self, formatter: &mut Formatter) Error!void;
+
+    fn format_spec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!void {
+        if spec.presentation() == FormatPresentation::Display {
+            self.format(formatter)
+        } else {
+            Error::InvalidTemplate!
+        }
+    }
+}
+
+pub enum FormatPresentation: i32 {
+    Display = 0,
+    LowerHex = 1,
+    UpperHex = 2,
+    Binary = 3,
+    Octal = 4,
+    _,
+}
+
+pub struct FormatSpec {
+    presentation: FormatPresentation,
+}
+
+extend FormatSpec {
+    pub fn display() FormatSpec {
+        { presentation: FormatPresentation::Display }
+    }
+
+    pub fn lower_hex() FormatSpec {
+        { presentation: FormatPresentation::LowerHex }
+    }
+
+    pub fn upper_hex() FormatSpec {
+        { presentation: FormatPresentation::UpperHex }
+    }
+
+    pub fn binary() FormatSpec {
+        { presentation: FormatPresentation::Binary }
+    }
+
+    pub fn octal() FormatSpec {
+        { presentation: FormatPresentation::Octal }
+    }
+
+    pub fn presentation(&self) FormatPresentation {
+        self.presentation
+    }
 }
 
 pub struct Formatter {
@@ -50,6 +97,35 @@ extend Formatter {
     }
 
     pub fn write_unsigned(&mut self, value: u128) Error!void {
+        self.write_unsigned_radix(value, 10u128, false)
+    }
+
+    pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!void {
+        if radix == 10u128 {
+            self.write_unsigned_base10(value, uppercase)
+        } else if radix == 16u128 {
+            self.write_unsigned_power_of_two(value, 124u32, 4u32, 15u128, uppercase)
+        } else if radix == 2u128 {
+            self.write_unsigned_power_of_two(value, 127u32, 1u32, 1u128, uppercase)
+        } else if radix == 8u128 {
+            self.write_unsigned_power_of_two(value, 126u32, 3u32, 7u128, uppercase)
+        } else {
+            Error::InvalidTemplate!
+        }
+    }
+
+    fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!void {
+        if digit < 10u128 {
+            self.write_byte((digit as u8) + b'0')
+        } else if uppercase {
+            self.write_byte(((digit - 10u128) as u8) + b'A')
+        } else {
+            self.write_byte(((digit - 10u128) as u8) + b'a')
+        }
+    }
+
+    fn write_unsigned_base10(&mut self, value: u128, uppercase: bool) Error!void {
+        _ = uppercase;
         if value == 0u128 {
             self.write_byte(b'0')
         } else {
@@ -75,12 +151,45 @@ extend Formatter {
         }
     }
 
+    fn write_unsigned_power_of_two(
+        &mut self,
+        value: u128,
+        start_shift: u32,
+        step: u32,
+        mask: u128,
+        uppercase: bool,
+    ) Error!void {
+        if value == 0u128 {
+            self.write_byte(b'0')
+        } else {
+            var shift = start_shift;
+            var started = false;
+            while shift != 0u32 {
+                let digit = (value >> shift) & mask;
+                if digit != 0u128 or started {
+                    self.write_unsigned_digit(digit, uppercase).?;
+                    started = true;
+                }
+                shift -= step;
+            }
+            let digit = value & mask;
+            if digit != 0u128 or started {
+                self.write_unsigned_digit(digit, uppercase).?;
+            }
+            !{}
+        }
+    }
+
     pub fn write_signed(&mut self, value: i128) Error!void {
+        self.write_signed_radix(value, 10u128, false)
+    }
+
+    pub fn write_signed_radix(&mut self, value: i128, radix: u128, uppercase: bool) Error!void {
         if value < 0i128 {
             self.write_byte(b'-').?;
-            self.write_unsigned(((0i128 - (value + 1i128)) as u128) + 1u128)
+            self.write_unsigned_radix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
         } else {
-            self.write_unsigned(value as u128)
+            self.write_unsigned_radix(value as u128, radix, uppercase)
         }
     }
 
