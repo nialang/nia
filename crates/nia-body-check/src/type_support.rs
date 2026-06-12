@@ -780,6 +780,7 @@ impl<'a> BodyChecker<'a> {
             node_resolved_calls: HashMap::new(),
             node_function_references: HashMap::new(),
             generic_instantiations: Vec::new(),
+            function_facts: HashMap::new(),
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
             local_types: HashMap::new(),

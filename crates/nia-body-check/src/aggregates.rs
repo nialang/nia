@@ -1068,11 +1068,6 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn record_array_repeat_count(&mut self, expr: &Expr, value: u64) {
-        self.node_array_repeat_counts
-            .insert(expr.node_key.clone(), value);
-    }
-
     fn instantiate_resolved_comptime_function_generics(
         &mut self,
         span: Span,

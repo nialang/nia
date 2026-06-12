@@ -8,7 +8,7 @@ use nia_body_ir::{
 };
 use nia_defs::DefKind;
 use nia_ids::{InternedTyId, TraitId};
-use nia_sema_ir::SemanticFacts;
+use nia_sema_ir::{FunctionSemanticFacts, SemanticFacts};
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -943,14 +943,9 @@ fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedM
                 &mut pending_modules,
             );
             collect_reachable_body_trait_ids(checked, &reachable_functions, &mut reachable_traits);
-            collect_interner_owner_modules(
-                &checked.body_ir.interner,
-                &mut reachable_modules,
-                &mut pending_modules,
-                &mut reachable_traits,
-            );
-            collect_interner_owner_modules(
-                &checked.type_normalization.interner,
+            collect_reachable_fact_owner_modules(
+                checked,
+                &reachable_functions,
                 &mut reachable_modules,
                 &mut pending_modules,
                 &mut reachable_traits,
@@ -1134,6 +1129,8 @@ fn collect_typed_stmt_refs(stmt: &TypedStmt, refs: &mut TypedBodyRefs) {
             }
         }
         TypedStmtKind::ForIn(for_in) => {
+            refs.traits
+                .insert(TraitId::Builtin(nia_ty::BuiltinTrait::Iterator));
             collect_typed_expr_refs(&for_in.iter, refs);
             collect_typed_body_refs(&for_in.body, refs);
         }
@@ -1403,15 +1400,70 @@ fn filter_checked_module_for_codegen(
 }
 
 fn semantic_facts_for_reachable_functions(
-    mut facts: SemanticFacts,
+    facts: SemanticFacts,
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> SemanticFacts {
-    facts.generic_instantiations.retain(|instantiation| {
-        instantiation
-            .source_def_id
-            .is_none_or(|source_def_id| reachable_functions.contains(&source_def_id))
-    });
-    facts
+    let mut reachable_facts = SemanticFacts::default();
+    for def_id in reachable_functions {
+        let Some(function_facts) = facts.function_facts.get(def_id) else {
+            continue;
+        };
+        reachable_facts
+            .local_types
+            .extend(function_facts.local_types.clone());
+        reachable_facts
+            .generic_instantiations
+            .extend(function_facts.generic_instantiations.clone());
+        reachable_facts
+            .node_expr_types
+            .extend(function_facts.node_expr_types.clone());
+        reachable_facts
+            .node_bracket_suffix_resolutions
+            .extend(function_facts.node_bracket_suffix_resolutions.clone());
+        reachable_facts
+            .node_array_to_slice_coercions
+            .extend(function_facts.node_array_to_slice_coercions.clone());
+        reachable_facts
+            .node_c_string_pointer_coercions
+            .extend(function_facts.node_c_string_pointer_coercions.clone());
+        reachable_facts
+            .node_trait_object_coercions
+            .extend(function_facts.node_trait_object_coercions.clone());
+        reachable_facts
+            .node_trait_object_upcasts
+            .extend(function_facts.node_trait_object_upcasts.clone());
+        reachable_facts
+            .node_comptime_if_selections
+            .extend(function_facts.node_comptime_if_selections.clone());
+        reachable_facts
+            .node_builtin_values
+            .extend(function_facts.node_builtin_values.clone());
+        reachable_facts
+            .node_array_repeat_counts
+            .extend(function_facts.node_array_repeat_counts.clone());
+        reachable_facts
+            .node_switch_pattern_values
+            .extend(function_facts.node_switch_pattern_values.clone());
+        reachable_facts
+            .node_resolved_calls
+            .extend(function_facts.node_resolved_calls.clone());
+        reachable_facts
+            .node_function_references
+            .extend(function_facts.node_function_references.clone());
+    }
+    reachable_facts.generic_instantiations.extend(
+        facts
+            .generic_instantiations
+            .into_iter()
+            .filter(|instantiation| instantiation.source_def_id.is_none()),
+    );
+    reachable_facts.node_builtin_associated_values = facts.node_builtin_associated_values;
+    reachable_facts.function_facts = facts
+        .function_facts
+        .into_iter()
+        .filter(|(def_id, _)| reachable_functions.contains(def_id))
+        .collect();
+    reachable_facts
 }
 
 fn extend_reachable_functions_from_traits(
@@ -1701,19 +1753,246 @@ fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
     })
 }
 
-fn collect_interner_owner_modules(
-    interner: &TyInterner,
+fn collect_reachable_fact_owner_modules(
+    checked: &CheckedModule,
+    reachable_functions: &HashSet<GlobalDefId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut HashSet<TraitId>,
 ) {
-    for (_, ty) in interner.iter() {
-        collect_ty_owner_modules(ty, modules, pending_modules, traits);
+    let mut type_ids = Vec::new();
+    for def_id in reachable_functions
+        .iter()
+        .filter(|def_id| def_id.module_id == checked.id)
+    {
+        let Some(function_facts) = checked.semantic_facts.function_facts.get(def_id) else {
+            continue;
+        };
+        collect_function_fact_owner_modules(
+            function_facts,
+            modules,
+            pending_modules,
+            traits,
+            &mut type_ids,
+        );
+    }
+    collect_module_signature_owner_type_ids(&checked.item_signatures, &mut type_ids);
+    collect_ty_ids_owner_modules(
+        type_ids,
+        &checked.body_ir.interner,
+        &checked.type_lowering.interner,
+        &checked.type_normalization.interner,
+        modules,
+        pending_modules,
+        traits,
+    );
+}
+
+fn collect_module_signature_owner_type_ids(
+    signatures: &ItemSignatures,
+    type_ids: &mut Vec<InternedTyId>,
+) {
+    for signature in signatures.structs.values() {
+        type_ids.extend(signature.fields.iter().map(|field| field.ty));
+        collect_where_predicate_type_ids(&signature.where_predicates, type_ids);
+    }
+    for signature in signatures.unions.values() {
+        type_ids.extend(signature.fields.iter().map(|field| field.ty));
+        collect_where_predicate_type_ids(&signature.where_predicates, type_ids);
+    }
+    for signature in signatures.type_aliases.values() {
+        type_ids.push(signature.target);
+    }
+    for signature in signatures.enums.values() {
+        type_ids.push(signature.backing_type);
+    }
+    for signature in &signatures.trait_impls {
+        type_ids.push(signature.target_ty);
+        if let Some(trait_ty) = signature.trait_ty {
+            type_ids.push(trait_ty);
+        }
+        collect_where_predicate_type_ids(&signature.where_predicates, type_ids);
+        type_ids.extend(
+            signature
+                .associated_types
+                .iter()
+                .map(|associated| associated.ty),
+        );
+    }
+    for signature in signatures.globals.values() {
+        if let Some(ty) = signature.explicit_type {
+            type_ids.push(ty);
+        }
+    }
+}
+
+fn collect_where_predicate_type_ids(
+    predicates: &[nia_defs::WherePredicateSignature],
+    type_ids: &mut Vec<InternedTyId>,
+) {
+    for predicate in predicates {
+        type_ids.push(predicate.ty);
+        for bound in &predicate.bounds {
+            type_ids.push(bound.trait_ty);
+            type_ids.extend(
+                bound
+                    .associated_type_bindings
+                    .iter()
+                    .map(|binding| binding.ty),
+            );
+        }
+    }
+}
+
+fn collect_function_fact_owner_modules(
+    facts: &FunctionSemanticFacts,
+    modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
+    type_ids: &mut Vec<InternedTyId>,
+) {
+    type_ids.extend(facts.local_types.values().copied());
+    type_ids.extend(facts.node_expr_types.values().copied());
+    for instantiation in &facts.generic_instantiations {
+        add_reachable_module(instantiation.def_id.module_id, modules, pending_modules);
+        type_ids.extend(instantiation.args.iter().copied());
+    }
+    for coercion in facts.node_array_to_slice_coercions.values() {
+        type_ids.extend([coercion.array_ty, coercion.slice_ty]);
+    }
+    for coercion in facts.node_c_string_pointer_coercions.values() {
+        type_ids.extend([coercion.array_ty, coercion.pointer_ty]);
+    }
+    for coercion in facts.node_trait_object_coercions.values() {
+        type_ids.extend([coercion.source_ty, coercion.target_ty]);
+    }
+    for upcast in facts.node_trait_object_upcasts.values() {
+        type_ids.extend([upcast.source_ty, upcast.target_ty]);
+    }
+    for value in facts.node_builtin_values.values() {
+        if let nia_sema_ir::BuiltinValue::Layout { ty, .. } = value {
+            type_ids.push(*ty);
+        }
+    }
+    for call in facts.node_resolved_calls.values() {
+        collect_resolved_call_owner_modules(call, modules, pending_modules, traits, type_ids);
+    }
+    for reference in facts.node_function_references.values() {
+        add_reachable_module(reference.def_id.module_id, modules, pending_modules);
+        add_reachable_module(reference.arg_module_id, modules, pending_modules);
+        type_ids.extend(reference.args.iter().copied());
+    }
+}
+
+fn collect_resolved_call_owner_modules(
+    call: &nia_sema_ir::ResolvedCall,
+    modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
+    type_ids: &mut Vec<InternedTyId>,
+) {
+    match call {
+        nia_sema_ir::ResolvedCall::Function(def_id) => {
+            add_reachable_module(def_id.module_id, modules, pending_modules);
+        }
+        nia_sema_ir::ResolvedCall::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => {
+            add_reachable_module(def_id.module_id, modules, pending_modules);
+            add_reachable_module(*arg_module_id, modules, pending_modules);
+            type_ids.extend(args.iter().copied());
+        }
+        nia_sema_ir::ResolvedCall::Method { def_id, args, .. } => {
+            add_reachable_module(def_id.module_id, modules, pending_modules);
+            type_ids.extend(args.iter().copied());
+        }
+        nia_sema_ir::ResolvedCall::TraitMethod {
+            trait_id,
+            method_id,
+            self_ty,
+            trait_args,
+            args,
+            ..
+        } => {
+            add_reachable_module(method_id.module_id, modules, pending_modules);
+            collect_trait_id_owner_module(
+                TraitId::Source(*trait_id),
+                modules,
+                pending_modules,
+                traits,
+            );
+            type_ids.push(*self_ty);
+            type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(args.iter().copied());
+        }
+        nia_sema_ir::ResolvedCall::DynamicTraitMethod {
+            object_ty,
+            trait_id,
+            method_id,
+            trait_args,
+            params,
+            return_type,
+            ..
+        } => {
+            add_reachable_module(method_id.module_id, modules, pending_modules);
+            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
+            type_ids.push(*object_ty);
+            type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(params.iter().copied());
+            type_ids.push(*return_type);
+        }
+        nia_sema_ir::ResolvedCall::BuiltinTraitMethod { trait_id, .. } => {
+            traits.insert(TraitId::Builtin(*trait_id));
+        }
+        nia_sema_ir::ResolvedCall::BuiltinMethod { self_ty, .. } => {
+            type_ids.push(*self_ty);
+        }
+        nia_sema_ir::ResolvedCall::BuiltinPlaceMethod {
+            trait_id,
+            self_ty,
+            trait_args,
+            ..
+        } => {
+            traits.insert(TraitId::Builtin(*trait_id));
+            type_ids.push(*self_ty);
+            type_ids.extend(trait_args.iter().copied());
+        }
+        nia_sema_ir::ResolvedCall::FunctionPointer => {}
+    }
+}
+
+fn collect_ty_ids_owner_modules(
+    tys: impl IntoIterator<Item = InternedTyId>,
+    body_interner: &TyInterner,
+    type_lowering_interner: &TyInterner,
+    normalization_interner: &TyInterner,
+    modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut HashSet<TraitId>,
+) {
+    let mut pending = tys.into_iter().collect::<VecDeque<_>>();
+    let mut seen = HashSet::new();
+    while let Some(ty_id) = pending.pop_front() {
+        add_reachable_module(ty_id.interner_id, modules, pending_modules);
+        if !seen.insert(ty_id) {
+            continue;
+        }
+        let Some(ty) = body_interner
+            .get(ty_id)
+            .or_else(|| type_lowering_interner.get(ty_id))
+            .or_else(|| normalization_interner.get(ty_id))
+        else {
+            continue;
+        };
+        collect_ty_owner_modules(ty, &mut pending, modules, pending_modules, traits);
     }
 }
 
 fn collect_ty_owner_modules(
     ty: &TyKind,
+    type_ids: &mut VecDeque<InternedTyId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut HashSet<TraitId>,
@@ -1721,20 +2000,21 @@ fn collect_ty_owner_modules(
     match ty {
         TyKind::Nominal { def_id, args } => {
             add_reachable_module(def_id.module_id, modules, pending_modules);
-            for arg in args {
-                add_reachable_module(arg.interner_id, modules, pending_modules);
-            }
+            type_ids.extend(args.iter().copied());
         }
         TyKind::Pointer { elem, .. }
         | TyKind::Slice { elem, .. }
         | TyKind::SlicePointee { elem }
-        | TyKind::Array { elem, .. }
         | TyKind::Optional { elem } => {
-            add_reachable_module(elem.interner_id, modules, pending_modules);
+            type_ids.push_back(*elem);
+        }
+        TyKind::Array { len, elem } => {
+            type_ids.push_back(*elem);
+            collect_array_len_owner_modules(len, type_ids);
         }
         TyKind::Range { bound, .. } => {
             if let Some(bound) = bound {
-                add_reachable_module(bound.interner_id, modules, pending_modules);
+                type_ids.push_back(*bound);
             }
         }
         TyKind::FunctionPointer {
@@ -1742,14 +2022,12 @@ fn collect_ty_owner_modules(
             return_type,
             ..
         } => {
-            for param in params {
-                add_reachable_module(param.interner_id, modules, pending_modules);
-            }
-            add_reachable_module(return_type.interner_id, modules, pending_modules);
+            type_ids.extend(params.iter().copied());
+            type_ids.push_back(*return_type);
         }
         TyKind::ErrorUnion { error, value } => {
-            add_reachable_module(error.interner_id, modules, pending_modules);
-            add_reachable_module(value.interner_id, modules, pending_modules);
+            type_ids.push_back(*error);
+            type_ids.push_back(*value);
         }
         TyKind::TraitObject {
             trait_id,
@@ -1763,9 +2041,10 @@ fn collect_ty_owner_modules(
             associated_type_bindings,
         } => {
             collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
-            collect_ty_ids_owner_modules(trait_args, modules, pending_modules);
+            type_ids.extend(trait_args.iter().copied());
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
+                type_ids,
                 modules,
                 pending_modules,
                 traits,
@@ -1777,13 +2056,11 @@ fn collect_ty_owner_modules(
             trait_args,
             ..
         } => {
-            add_reachable_module(self_ty.interner_id, modules, pending_modules);
+            type_ids.push_back(*self_ty);
             collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
-            collect_ty_ids_owner_modules(trait_args, modules, pending_modules);
+            type_ids.extend(trait_args.iter().copied());
         }
-        TyKind::BuiltinTrait { args, .. } => {
-            collect_ty_ids_owner_modules(args, modules, pending_modules)
-        }
+        TyKind::BuiltinTrait { args, .. } => type_ids.extend(args.iter().copied()),
         TyKind::Error
         | TyKind::ComptimeOnly
         | TyKind::Primitive(_)
@@ -1792,13 +2069,12 @@ fn collect_ty_owner_modules(
     }
 }
 
-fn collect_ty_ids_owner_modules(
-    tys: &[InternedTyId],
-    modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+fn collect_array_len_owner_modules(
+    len: &nia_ty::ArrayLenTy,
+    type_ids: &mut VecDeque<InternedTyId>,
 ) {
-    for ty in tys {
-        add_reachable_module(ty.interner_id, modules, pending_modules);
+    if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
+        type_ids.push_back(*ty);
     }
 }
 
@@ -1816,6 +2092,7 @@ fn collect_trait_id_owner_module(
 
 fn collect_associated_binding_owner_modules(
     bindings: &[AssociatedTypeBindingTy],
+    type_ids: &mut VecDeque<InternedTyId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut HashSet<TraitId>,
@@ -1824,8 +2101,8 @@ fn collect_associated_binding_owner_modules(
         if let Some(trait_id) = binding.trait_id {
             collect_trait_id_owner_module(trait_id, modules, pending_modules, traits);
         }
-        collect_ty_ids_owner_modules(&binding.trait_args, modules, pending_modules);
-        add_reachable_module(binding.ty.interner_id, modules, pending_modules);
+        type_ids.extend(binding.trait_args.iter().copied());
+        type_ids.push_back(binding.ty);
     }
 }
 

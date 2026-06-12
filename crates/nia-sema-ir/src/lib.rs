@@ -188,6 +188,7 @@ fn unsigned_integer_range(bits: u32) -> Option<(i128, i128)> {
 pub struct SemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
+    pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     pub node_expr_types: HashMap<NodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
@@ -197,6 +198,24 @@ pub struct SemanticFacts {
     pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
+    pub node_array_repeat_counts: HashMap<NodeKey, u64>,
+    pub node_switch_pattern_values: HashMap<NodeKey, i128>,
+    pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
+    pub node_function_references: HashMap<NodeKey, FunctionReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FunctionSemanticFacts {
+    pub local_types: HashMap<LocalId, InternedTyId>,
+    pub generic_instantiations: Vec<GenericInstantiation>,
+    pub node_expr_types: HashMap<NodeKey, InternedTyId>,
+    pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
+    pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
+    pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
+    pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
+    pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
+    pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_array_repeat_counts: HashMap<NodeKey, u64>,
     pub node_switch_pattern_values: HashMap<NodeKey, i128>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,

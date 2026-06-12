@@ -38,8 +38,8 @@ use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall, SemanticFacts,
-    SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast,
+    ComptimeIfSelection, FunctionReference, FunctionSemanticFacts, GenericInstantiation,
+    ResolvedCall, SemanticFacts, SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -420,6 +420,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
+        function_facts: HashMap::new(),
         function_bodies: HashMap::new(),
         global_inits: HashMap::new(),
         local_types: HashMap::new(),
@@ -453,6 +454,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         facts: SemanticFacts {
             local_types: checker.local_types,
             generic_instantiations: checker.generic_instantiations,
+            function_facts: checker.function_facts,
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
@@ -549,6 +551,7 @@ struct BodyChecker<'a> {
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     node_function_references: HashMap<NodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
+    function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
@@ -636,6 +639,9 @@ impl<'a> BodyChecker<'a> {
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
+        if let Some(facts) = self.current_function_facts() {
+            facts.node_expr_types.insert(expr.node_key.clone(), ty);
+        }
     }
 
     fn record_bracket_suffix_node_resolution(
@@ -645,15 +651,28 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_bracket_suffix_resolutions
             .insert(expr.node_key.clone(), resolution);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_bracket_suffix_resolutions
+                .insert(expr.node_key.clone(), resolution);
+        }
     }
 
     fn record_resolved_node_call(&mut self, _span: Span, key: &NodeKey, call: ResolvedCall) {
-        self.node_resolved_calls.insert(key.clone(), call);
+        self.node_resolved_calls.insert(key.clone(), call.clone());
+        if let Some(facts) = self.current_function_facts() {
+            facts.node_resolved_calls.insert(key.clone(), call);
+        }
     }
 
     fn record_array_to_slice_node_coercion(&mut self, expr: &Expr, coercion: ArrayToSliceCoercion) {
         self.node_array_to_slice_coercions
             .insert(expr.node_key.clone(), coercion);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_array_to_slice_coercions
+                .insert(expr.node_key.clone(), coercion);
+        }
     }
 
     fn record_c_string_pointer_node_coercion(
@@ -663,21 +682,41 @@ impl<'a> BodyChecker<'a> {
     ) {
         self.node_c_string_pointer_coercions
             .insert(expr.node_key.clone(), coercion);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_c_string_pointer_coercions
+                .insert(expr.node_key.clone(), coercion);
+        }
     }
 
     fn record_trait_object_node_coercion(&mut self, expr: &Expr, coercion: TraitObjectCoercion) {
         self.node_trait_object_coercions
             .insert(expr.node_key.clone(), coercion);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_trait_object_coercions
+                .insert(expr.node_key.clone(), coercion);
+        }
     }
 
     fn record_trait_object_node_upcast(&mut self, expr: &Expr, upcast: TraitObjectUpcast) {
         self.node_trait_object_upcasts
             .insert(expr.node_key.clone(), upcast);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_trait_object_upcasts
+                .insert(expr.node_key.clone(), upcast);
+        }
     }
 
     fn record_builtin_node_value(&mut self, expr: &Expr, value: BuiltinValue) {
         self.node_builtin_values
-            .insert(expr.node_key.clone(), value);
+            .insert(expr.node_key.clone(), value.clone());
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_builtin_values
+                .insert(expr.node_key.clone(), value);
+        }
     }
 
     fn record_function_node_reference(
@@ -686,7 +725,55 @@ impl<'a> BodyChecker<'a> {
         key: &NodeKey,
         reference: FunctionReference,
     ) {
-        self.node_function_references.insert(key.clone(), reference);
+        self.node_function_references
+            .insert(key.clone(), reference.clone());
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_function_references
+                .insert(key.clone(), reference);
+        }
+    }
+
+    fn record_comptime_if_selection(&mut self, expr: &Expr, selection: ComptimeIfSelection) {
+        self.node_comptime_if_selections
+            .insert(expr.node_key.clone(), selection);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_comptime_if_selections
+                .insert(expr.node_key.clone(), selection);
+        }
+    }
+
+    fn record_array_repeat_count(&mut self, expr: &Expr, value: u64) {
+        self.node_array_repeat_counts
+            .insert(expr.node_key.clone(), value);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_array_repeat_counts
+                .insert(expr.node_key.clone(), value);
+        }
+    }
+
+    fn record_switch_pattern_value(&mut self, expr: &Expr, value: i128) {
+        self.node_switch_pattern_values
+            .insert(expr.node_key.clone(), value);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_switch_pattern_values
+                .insert(expr.node_key.clone(), value);
+        }
+    }
+
+    fn record_local_type(&mut self, local_id: LocalId, ty: InternedTyId) {
+        self.local_types.insert(local_id, ty);
+        if let Some(facts) = self.current_function_facts() {
+            facts.local_types.insert(local_id, ty);
+        }
+    }
+
+    fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {
+        self.current_def_id
+            .map(|def_id| self.function_facts.entry(def_id).or_default())
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
@@ -1106,7 +1193,7 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     param_sig.ty
                 };
-                self.local_types.insert(local_id, ty);
+                self.record_local_type(local_id, ty);
                 self.current_param_locals.push(local_id);
             }
         }
@@ -1227,7 +1314,7 @@ impl<'a> BodyChecker<'a> {
                 if for_stmt.pattern.name().is_some()
                     && let Some(local_id) = self.local_def(&for_stmt.pattern.node_key)
                 {
-                    self.local_types.insert(local_id, binding_ty);
+                    self.record_local_type(local_id, binding_ty);
                 }
                 self.check_block(&for_stmt.body);
             }
@@ -1476,7 +1563,7 @@ impl<'a> BodyChecker<'a> {
             }
         };
         if let Some(local_id) = self.local_def(self.local_binding_pattern_key(stmt, binding)) {
-            self.local_types.insert(local_id, binding_ty);
+            self.record_local_type(local_id, binding_ty);
         }
     }
 
@@ -1490,7 +1577,7 @@ impl<'a> BodyChecker<'a> {
 
     fn record_error_local_binding(&mut self, key: &NodeKey) {
         if let Some(local_id) = self.local_def(key) {
-            self.local_types.insert(local_id, self.error());
+            self.record_local_type(local_id, self.error());
         }
     }
 
@@ -1657,7 +1744,7 @@ impl<'a> BodyChecker<'a> {
                 _ => continue,
             };
             if let Some(local_id) = self.local_def(node_key) {
-                self.local_types.insert(local_id, ty);
+                self.record_local_type(local_id, ty);
             }
         }
     }
@@ -1935,8 +2022,7 @@ impl<'a> BodyChecker<'a> {
                 _ => return None,
             }
         };
-        self.node_switch_pattern_values
-            .insert(expr.node_key.clone(), value);
+        self.record_switch_pattern_value(expr, value);
         Some(value)
     }
 
