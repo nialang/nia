@@ -584,14 +584,30 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if args.len() != 3 {
         return (1 as process::ExitCode)!;
     }
-    var first_arg = switch args.get(1) {
+    switch args.program() {
+        ?program => if program.is_empty() {
+            return (9 as process::ExitCode)!;
+        },
+        null => return (10 as process::ExitCode)!,
+    }
+    var iter = args.skip_program();
+    if iter.remaining() != 2usize {
+        return (11 as process::ExitCode)!;
+    }
+    var first_arg = switch iter.next() {
         ?value => value,
         null => return (2 as process::ExitCode)!,
     };
-    var second_arg = switch args.get(2) {
+    if iter.remaining() != 1usize {
+        return (12 as process::ExitCode)!;
+    }
+    var second_arg = switch iter.next() {
         ?value => value,
         null => return (3 as process::ExitCode)!,
     };
+    if iter.remaining() != 0usize {
+        return (13 as process::ExitCode)!;
+    }
     var first = first_arg.bytes();
     var second = second_arg.bytes();
     if first.len() != 3 {
@@ -610,7 +626,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return (8 as process::ExitCode)!;
     }
-    switch args.get(3) {
+    switch iter.next() {
         ?value => {
             _ = value;
             return (7 as process::ExitCode)!;
@@ -670,17 +686,15 @@ fn starts_with_needle(bytes: &[u8]) bool {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var env = init.env();
-    var index = 0usize;
-    while index < env.len() {
-        var item = switch env.get(index) {
+    var iter = init.env().iter();
+    while iter.remaining() != 0usize {
+        var item = switch iter.next() {
             ?value => value,
             null => return (1 as process::ExitCode)!,
         };
         if starts_with_needle(item.bytes()) {
             return !{};
         }
-        index += 1usize;
     }
     return (2 as process::ExitCode)!;
 }

@@ -114,7 +114,10 @@ entry points at `std::ArrayList` and `std::HashMap`.
 - `std::process` exposes program arguments and environment entries as
   `Arg`/`EnvVar` values. These values provide `len()`, `bytes()`, `is_empty()`,
   `cstr()`, and `raw_ptr()`; they also implement `std::fmt::Format`, so they can
-  be printed directly.
+  be printed directly. `Args` provides `program()`, `get(index)`, `iter()`,
+  `skip_program()`, and `raw_argv()`; `ArgsIter` provides `next()` and
+  `remaining()`. `Env` provides `get(index)`, `iter()`, and `raw_envp()`;
+  `EnvIter` provides `next()` and `remaining()`.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `as_exit_code` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`

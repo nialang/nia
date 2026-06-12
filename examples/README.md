@@ -30,6 +30,8 @@ integer prefixes such as `0x`, `0b`, and `0o`, and
 Process arguments and environment entries are C-string-backed views; use
 `arg.bytes()` for raw argument bytes, `arg.cstr()` for the underlying
 `std::cstr::CStr`, or format the argument value directly with `{}`.
+Use `init.args().program()` for argv[0], `init.args().skip_program()` for
+application arguments, and `init.env().iter()` for environment traversal.
 
 Run an example from the repository root with:
 
