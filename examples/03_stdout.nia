@@ -5,8 +5,8 @@ using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!void {
     var buffer: [128]u8 = [_]u8[0; 128];
-    // Application stdout goes through std::io. The writer borrows both the
-    // runtime I/O state and caller-provided scratch buffer.
+    // Application stdout goes through std::io. The writer keeps pointers to
+    // the runtime I/O state and caller-provided scratch buffer.
     var stdout = io::FileWriter::stdout(init.io(), buffer);
 
     // .exit().? maps std I/O errors into process exit errors and propagates.

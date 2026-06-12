@@ -43,8 +43,10 @@ pub fn main(init: Init) ExitCode!void {
 
     var left: Count = { value: 20 };
     var right: Count = { value: 22 };
-    var total = combine[Count](left, right);
-    var measured = read[Count](&total);
+    // Function type arguments can be inferred from arguments when the call is
+    // unambiguous. `combine[Count](left, right)` is the explicit form.
+    var total = combine(left, right);
+    var measured = read(&total);
 
     if measured != 42 {
         return exit(1)!;

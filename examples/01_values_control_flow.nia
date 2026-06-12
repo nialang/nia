@@ -49,7 +49,9 @@ pub fn main(init: Init) ExitCode!void {
     var score = grade(87);
     // [_] lets the compiler infer the array length from the elements.
     var values = [_]i32[point_len2, other_len2, score];
-    var total = sum(&values[..]);
+    // Arrays coerce to slices when a slice is expected. The explicit underlying
+    // form is sum(&values[..]), but the direct call is the usual Nia style.
+    var total = sum(values);
 
     // defer runs at scope exit, including returns after this point.
     defer point.x = point.x + 1;
