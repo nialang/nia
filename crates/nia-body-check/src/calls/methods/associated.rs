@@ -41,8 +41,27 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let span = expr.span;
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
+        self.check_associated_call_for_target(
+            expr,
+            target_ty,
+            name,
+            method_type_args,
+            args,
+            expected,
+        )
+    }
+
+    pub(in crate::calls) fn check_associated_call_for_target(
+        &mut self,
+        expr: &Expr,
+        target_ty: InternedTyId,
+        name: &str,
+        method_type_args: Option<&[BracketArg]>,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let span = expr.span;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let trait_candidates = if candidates.is_empty() {
             self.trait_method_candidates_for_target(target_ty, name)

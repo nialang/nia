@@ -694,6 +694,119 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn checks_unqualified_associated_function_calls_inside_extension_methods() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+}
+
+extend Point {
+    fn helper() i32 {
+        1
+    }
+
+    fn value(&self) i32 {
+        helper()
+    }
+}
+
+fn main() i32 {
+    let point = Point { x: 0 };
+    point.value()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_unqualified_associated_function_calls_inside_generic_extension_methods() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn wrap(value: T) Box[T] {
+        { value: value }
+    }
+
+    fn copy(&self) Box[T] {
+        wrap(self.value)
+    }
+}
+
+fn main() i32 {
+    let boxed = Box[i32] { value: 7 };
+    boxed.copy().value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn module_function_takes_precedence_over_extension_helper_in_method_body() {
+    let checked = pipeline(
+        r#"
+struct S {}
+
+fn helper() i32 {
+    10
+}
+
+extend S {
+    fn helper() i32 {
+        1
+    }
+
+    fn method(&self) i32 {
+        helper()
+    }
+}
+
+fn main() i32 {
+    let value = S {};
+    value.method()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn local_callable_takes_precedence_over_extension_helper_in_method_body() {
+    let checked = pipeline(
+        r#"
+struct S {}
+
+fn chosen() i32 {
+    10
+}
+
+extend S {
+    fn helper() i32 {
+        1
+    }
+
+    fn method(&self) i32 {
+        let helper = &chosen;
+        helper()
+    }
+}
+
+fn main() i32 {
+    let value = S {};
+    value.method()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_generic_type_prefix_associated_function_calls() {
     let checked = pipeline(
         r#"

@@ -103,6 +103,56 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_resolves_unqualified_extension_helpers() {
+    let root = temp_dir("emit_exe_resolves_unqualified_extension_helpers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct S {}
+
+extend S {
+    fn helper() i32 {
+        41
+    }
+
+    fn method(&self) i32 {
+        helper() + 1
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let value = S {};
+    if value.method() != 42 {
+        return process::exit(1)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe extension helper");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted extension helper executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_links_freestanding_executable() {
     let root = temp_dir("emit_exe_links_freestanding_executable");
     let main = root.join("main.nia");
