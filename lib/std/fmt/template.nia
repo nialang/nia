@@ -1,0 +1,92 @@
+using package::fmt::core;
+using package::io;
+
+pub fn print_unchecked[W](
+    writer: &mut W,
+    template: &[char],
+    args: &[&core::Format],
+) core::Error!void
+where W: io::Writer
+{
+    var formatter = core::Formatter::init(writer);
+    var index = 0usize;
+    var arg_index = 0usize;
+    while index < template.len() {
+        let ch = template[index];
+        if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '}' {
+            args[arg_index].format(&mut formatter).?;
+            arg_index += 1usize;
+            index += 2usize;
+        } else if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '{' {
+            formatter.write_char('{').?;
+            index += 2usize;
+        } else if ch == '}' and index + 1usize < template.len() and template[index + 1usize] == '}' {
+            formatter.write_char('}').?;
+            index += 2usize;
+        } else {
+            formatter.write_char(ch).?;
+            index += 1usize;
+        }
+    }
+    !{}
+}
+
+pub fn print_checked[W](
+    writer: &mut W,
+    template: &[char],
+    args: &[&core::Format],
+) core::Error!void
+where W: io::Writer
+{
+    var formatter = core::Formatter::init(writer);
+    var index = 0usize;
+    var arg_index = 0usize;
+    while index < template.len() {
+        let ch = template[index];
+        if ch == '{' {
+            if index + 1usize >= template.len() {
+                return core::Error::InvalidTemplate!;
+            }
+            let next = template[index + 1usize];
+            if next == '}' {
+                if arg_index >= args.len() {
+                    return core::Error::MissingArgument!;
+                }
+                args[arg_index].format(&mut formatter).?;
+                arg_index += 1usize;
+                index += 2usize;
+            } else if next == '{' {
+                formatter.write_char('{').?;
+                index += 2usize;
+            } else {
+                return core::Error::InvalidTemplate!;
+            }
+        } else if ch == '}' {
+            if index + 1usize < template.len() and template[index + 1usize] == '}' {
+                formatter.write_char('}').?;
+                index += 2usize;
+            } else {
+                return core::Error::InvalidTemplate!;
+            }
+        } else {
+            formatter.write_char(ch).?;
+            index += 1usize;
+        }
+    }
+    if arg_index != args.len() {
+        return core::Error::ExtraArgument!;
+    }
+    !{}
+}
+
+extend[W] W
+where W: io::Writer
+{
+    pub fn print(
+        &mut self,
+        template: &[char],
+        args: &[&core::Format],
+    ) core::Error!void {
+        print_checked(self, template, args)
+    }
+}
