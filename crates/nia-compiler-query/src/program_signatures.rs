@@ -1883,7 +1883,7 @@ pub(crate) fn visible_extensions_for_module(
         extensions,
         associated_values,
     } = input;
-    let visible_modules = declared_module_closure(
+    let visibility_context = VisibilityClosureContext {
         module_id,
         graph,
         using_scope,
@@ -1893,7 +1893,8 @@ pub(crate) fn visible_extensions_for_module(
         program_signatures,
         extensions,
         associated_values,
-    );
+    };
+    let visible_modules = declared_module_closure(&visibility_context);
     let Some(current_normalization) = normalizations.get(&module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
@@ -2058,44 +2059,30 @@ fn import_where_predicates(
         .collect()
 }
 
-fn declared_module_closure(
-    module_id: nia_ids::ModuleId,
-    graph: &nia_imports::ModuleGraph,
-    using_scope: &nia_defs::ModuleUsingScope,
-    public_surfaces: &PublicSurfaces,
-    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
-    program_signatures: ProgramSignatureMaps<'_>,
-    extensions: &ExtensionMethods,
-    associated_values: &ExtensionAssociatedValues,
-) -> Vec<nia_ids::ModuleId> {
+fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
-    if let Some(module) = graph.get(module_id) {
+    if let Some(module) = context.graph.get(context.module_id) {
         queue.extend(module.children.values().copied());
         if let Some(parent) = module.parent {
             queue.push_back(parent);
         }
     }
-    queue.extend(using_scope.modules.values().copied());
-    queue.extend(using_scope.types.values().map(|entry| entry.target_module));
-    queue.extend(public_inherent_extension_providers_for_using_scope(
-        module_id,
-        graph,
-        using_scope,
-        public_surfaces,
-        defs_by_module,
-        normalizations,
-        program_signatures,
-        extensions,
-        associated_values,
-    ));
+    queue.extend(context.using_scope.modules.values().copied());
+    queue.extend(
+        context
+            .using_scope
+            .types
+            .values()
+            .map(|entry| entry.target_module),
+    );
+    queue.extend(public_inherent_extension_providers_for_using_scope(context));
 
     while let Some(visible) = queue.pop_front() {
-        if visible == module_id || !seen.insert(visible) {
+        if visible == context.module_id || !seen.insert(visible) {
             continue;
         }
-        if let Some(module) = graph.get(visible) {
+        if let Some(module) = context.graph.get(visible) {
             queue.extend(module.children.values().copied());
             if let Some(parent) = module.parent {
                 queue.push_back(parent);
@@ -2108,19 +2095,24 @@ fn declared_module_closure(
     modules
 }
 
-fn public_inherent_extension_providers_for_using_scope(
+struct VisibilityClosureContext<'a> {
     module_id: nia_ids::ModuleId,
-    graph: &nia_imports::ModuleGraph,
-    using_scope: &nia_defs::ModuleUsingScope,
-    public_surfaces: &PublicSurfaces,
-    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
-    program_signatures: ProgramSignatureMaps<'_>,
-    extensions: &ExtensionMethods,
-    associated_values: &ExtensionAssociatedValues,
+    graph: &'a nia_imports::ModuleGraph,
+    using_scope: &'a nia_defs::ModuleUsingScope,
+    public_surfaces: &'a PublicSurfaces,
+    defs_by_module: &'a HashMap<nia_ids::ModuleId, DefCollection>,
+    normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
+    program_signatures: ProgramSignatureMaps<'a>,
+    extensions: &'a ExtensionMethods,
+    associated_values: &'a ExtensionAssociatedValues,
+}
+
+fn public_inherent_extension_providers_for_using_scope(
+    context: &VisibilityClosureContext<'_>,
 ) -> Vec<nia_ids::ModuleId> {
     let mut providers = Vec::new();
-    for type_def_id in using_scope
+    for type_def_id in context
+        .using_scope
         .types
         .values()
         .filter(|entry| entry.namespace == PublicNamespace::Type)
@@ -2130,52 +2122,52 @@ fn public_inherent_extension_providers_for_using_scope(
                     module_id: entry.target_module,
                     def_id: entry.target_def_id,
                 },
-                defs_by_module,
-                normalizations,
-                program_signatures,
+                context.defs_by_module,
+                context.normalizations,
+                context.program_signatures,
             )
         })
     {
         providers.extend(public_inherent_method_providers_for_nominal(
-            module_id,
-            graph,
+            context.module_id,
+            context.graph,
             type_def_id,
-            normalizations,
-            extensions,
+            context.normalizations,
+            context.extensions,
         ));
         providers.extend(public_associated_value_providers_for_nominal(
-            module_id,
-            graph,
+            context.module_id,
+            context.graph,
             type_def_id,
-            normalizations,
-            associated_values,
+            context.normalizations,
+            context.associated_values,
         ));
     }
-    if let Some(surface) = public_surfaces.get(module_id) {
+    if let Some(surface) = context.public_surfaces.get(context.module_id) {
         for type_def_id in surface.types.values().filter_map(|item| {
             nominal_def_id_for_public_type(
                 GlobalDefId {
                     module_id: item.target_module,
                     def_id: item.target_def_id,
                 },
-                defs_by_module,
-                normalizations,
-                program_signatures,
+                context.defs_by_module,
+                context.normalizations,
+                context.program_signatures,
             )
         }) {
             providers.extend(public_inherent_method_providers_for_nominal(
-                module_id,
-                graph,
+                context.module_id,
+                context.graph,
                 type_def_id,
-                normalizations,
-                extensions,
+                context.normalizations,
+                context.extensions,
             ));
             providers.extend(public_associated_value_providers_for_nominal(
-                module_id,
-                graph,
+                context.module_id,
+                context.graph,
                 type_def_id,
-                normalizations,
-                associated_values,
+                context.normalizations,
+                context.associated_values,
             ));
         }
     }

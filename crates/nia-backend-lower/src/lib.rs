@@ -295,71 +295,6 @@ fn append_function_instances(
     module.interner = lowerer.interner.clone();
 }
 
-fn enqueue_function_ref(
-    pending: &mut VecDeque<GlobalDefId>,
-    queued: &mut HashSet<GlobalDefId>,
-    def_id: GlobalDefId,
-) {
-    if queued.insert(def_id) {
-        pending.push_back(def_id);
-    }
-}
-
-fn enqueue_function_refs(
-    refs: FunctionRefs,
-    pending_functions: &mut VecDeque<GlobalDefId>,
-    queued_functions: &mut HashSet<GlobalDefId>,
-    pending_instances: &mut Vec<FunctionInstanceRef>,
-    queued_instances: &mut HashSet<FunctionInstanceKey>,
-) {
-    for function in refs.functions {
-        enqueue_function_ref(pending_functions, queued_functions, function);
-    }
-    enqueue_function_instance_refs(refs.instances, pending_instances, queued_instances);
-}
-
-fn enqueue_function_instance_refs(
-    refs: impl IntoIterator<Item = FunctionInstanceRef>,
-    pending_instances: &mut Vec<FunctionInstanceRef>,
-    queued_instances: &mut HashSet<FunctionInstanceKey>,
-) {
-    for instance in refs {
-        if queued_instances.insert(instance.key()) {
-            pending_instances.push(instance);
-        }
-    }
-}
-
-fn enqueue_trait_object_vtable_refs(
-    vtable: &BackendTraitObjectVtable,
-    pending_functions: &mut VecDeque<GlobalDefId>,
-    queued_functions: &mut HashSet<GlobalDefId>,
-    pending_instances: &mut Vec<FunctionInstanceRef>,
-    queued_instances: &mut HashSet<FunctionInstanceKey>,
-) {
-    for entry in &vtable.entries {
-        match &entry.function {
-            BackendTraitObjectVtableFunction::Function(function) => {
-                enqueue_function_ref(pending_functions, queued_functions, *function);
-            }
-            BackendTraitObjectVtableFunction::FunctionInstance {
-                def_id,
-                arg_module_id,
-                args,
-            } => enqueue_function_instance_refs(
-                [FunctionInstanceRef {
-                    def_id: *def_id,
-                    arg_module_id: *arg_module_id,
-                    args: args.clone(),
-                    span: vtable.span,
-                }],
-                pending_instances,
-                queued_instances,
-            ),
-        }
-    }
-}
-
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
     let mut passes = Vec::new();
     if optimization.level == nia_opt::NiaOptimizationLevel::O3 {
@@ -477,6 +412,57 @@ struct BackendFunctionSource<'a> {
     function: &'a nia_ast::FunctionItem,
 }
 
+#[derive(Default)]
+struct ReachabilityWorklist {
+    pending_functions: VecDeque<GlobalDefId>,
+    queued_functions: HashSet<GlobalDefId>,
+    pending_instances: Vec<FunctionInstanceRef>,
+    queued_instances: HashSet<FunctionInstanceKey>,
+}
+
+impl ReachabilityWorklist {
+    fn enqueue_function(&mut self, def_id: GlobalDefId) {
+        if self.queued_functions.insert(def_id) {
+            self.pending_functions.push_back(def_id);
+        }
+    }
+
+    fn enqueue_refs(&mut self, refs: FunctionRefs) {
+        for function in refs.functions {
+            self.enqueue_function(function);
+        }
+        self.enqueue_instances(refs.instances);
+    }
+
+    fn enqueue_instances(&mut self, refs: impl IntoIterator<Item = FunctionInstanceRef>) {
+        for instance in refs {
+            if self.queued_instances.insert(instance.key()) {
+                self.pending_instances.push(instance);
+            }
+        }
+    }
+
+    fn enqueue_vtable_refs(&mut self, vtable: &BackendTraitObjectVtable) {
+        for entry in &vtable.entries {
+            match &entry.function {
+                BackendTraitObjectVtableFunction::Function(function) => {
+                    self.enqueue_function(*function);
+                }
+                BackendTraitObjectVtableFunction::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                } => self.enqueue_instances([FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    args: args.clone(),
+                    span: vtable.span,
+                }]),
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeInstantiationKey {
     ty: InternedTyId,
@@ -550,10 +536,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut globals = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
-        let mut pending_functions = VecDeque::new();
-        let mut queued_functions = HashSet::new();
-        let mut pending_instances = Vec::new();
-        let mut queued_instances = HashSet::new();
+        let mut worklist = ReachabilityWorklist::default();
         let mut trait_object_vtables = Vec::new();
 
         for item in &self.input.module.items {
@@ -588,8 +571,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.index_function_source(
                             method.function.span,
                             &method.function,
-                            &mut pending_functions,
-                            &mut queued_functions,
+                            &mut worklist,
                         );
                     }
                 }
@@ -598,18 +580,13 @@ impl<'a> ModuleLowerer<'a> {
                         let def_id = self.index_function_source(
                             method.function.span,
                             &method.function,
-                            &mut pending_functions,
-                            &mut queued_functions,
+                            &mut worklist,
                         );
                         if extend.trait_ref.is_some()
                             && let Some(def_id) = def_id
                             && self.is_eager_trait_impl_method_root(def_id)
                         {
-                            enqueue_function_ref(
-                                &mut pending_functions,
-                                &mut queued_functions,
-                                def_id,
-                            );
+                            worklist.enqueue_function(def_id);
                         }
                     }
                 }
@@ -619,12 +596,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemKind::Function(function) => {
-                    self.index_function_source(
-                        item.span,
-                        function,
-                        &mut pending_functions,
-                        &mut queued_functions,
-                    );
+                    self.index_function_source(item.span, function, &mut worklist);
                 }
                 ItemKind::Binding(binding) => {
                     if binding.is_comptime {
@@ -638,13 +610,7 @@ impl<'a> ModuleLowerer<'a> {
                                 init,
                                 &mut refs,
                             );
-                            enqueue_function_refs(
-                                refs,
-                                &mut pending_functions,
-                                &mut queued_functions,
-                                &mut pending_instances,
-                                &mut queued_instances,
-                            );
+                            worklist.enqueue_refs(refs);
                         }
                         globals.push(global);
                     }
@@ -656,13 +622,10 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
 
-        pending_instances.extend(self.initial_monomorphized_function_instance_refs());
+        worklist.enqueue_instances(self.initial_monomorphized_function_instance_refs());
         self.lower_reachable_function_closure(
             &mut functions,
-            &mut pending_functions,
-            &mut queued_functions,
-            &mut pending_instances,
-            &mut queued_instances,
+            &mut worklist,
             &mut trait_object_vtables,
         );
         let mut function_instances = Vec::new();
@@ -670,10 +633,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut functions,
             &mut function_templates,
             &mut function_instances,
-            &mut pending_functions,
-            &mut queued_functions,
-            &mut pending_instances,
-            &mut queued_instances,
+            &mut worklist,
             &mut trait_object_vtables,
         );
         self.devirtualize_direct_trait_calls(&mut functions, &mut function_instances);
@@ -750,17 +710,14 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         span: nia_span::Span,
         function: &'a nia_ast::FunctionItem,
-        pending: &mut VecDeque<GlobalDefId>,
-        queued: &mut HashSet<GlobalDefId>,
+        worklist: &mut ReachabilityWorklist,
     ) -> Option<GlobalDefId> {
-        let Some(def_id) = self.def_id_for_node_any_function(&function.node_key) else {
-            return None;
-        };
+        let def_id = self.def_id_for_node_any_function(&function.node_key)?;
         let global_def_id = self.global_def_id(def_id);
         self.function_sources
             .insert(global_def_id, BackendFunctionSource { span, function });
         if self.is_backend_function_root(global_def_id, function) {
-            enqueue_function_ref(pending, queued, global_def_id);
+            worklist.enqueue_function(global_def_id);
         }
         Some(global_def_id)
     }
@@ -789,10 +746,7 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_reachable_function_closure(
         &mut self,
         functions: &mut Vec<BackendFunction>,
-        pending_functions: &mut VecDeque<GlobalDefId>,
-        queued_functions: &mut HashSet<GlobalDefId>,
-        pending_instances: &mut Vec<FunctionInstanceRef>,
-        queued_instances: &mut HashSet<FunctionInstanceKey>,
+        worklist: &mut ReachabilityWorklist,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) -> bool {
         let mut changed = false;
@@ -800,7 +754,7 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|function| function.def_id)
             .collect::<HashSet<_>>();
-        while let Some(def_id) = pending_functions.pop_front() {
+        while let Some(def_id) = worklist.pending_functions.pop_front() {
             if def_id.module_id != self.input.module_id || lowered.contains(&def_id) {
                 continue;
             }
@@ -818,26 +772,13 @@ impl<'a> ModuleLowerer<'a> {
                     &function.function_body,
                     &mut refs,
                 );
-                enqueue_function_refs(
-                    refs,
-                    pending_functions,
-                    queued_functions,
-                    pending_instances,
-                    queued_instances,
-                );
+                worklist.enqueue_refs(refs);
                 functions.push(function);
                 changed = true;
             }
         }
-        changed |= self.collect_new_trait_object_vtables(
-            trait_object_vtables,
-            functions,
-            &[],
-            pending_functions,
-            queued_functions,
-            pending_instances,
-            queued_instances,
-        );
+        changed |=
+            self.collect_new_trait_object_vtables(trait_object_vtables, functions, &[], worklist);
         changed
     }
 
@@ -846,24 +787,18 @@ impl<'a> ModuleLowerer<'a> {
         functions: &mut Vec<BackendFunction>,
         function_templates: &mut Vec<BackendFunction>,
         function_instances: &mut Vec<BackendFunctionInstance>,
-        pending_functions: &mut VecDeque<GlobalDefId>,
-        queued_functions: &mut HashSet<GlobalDefId>,
-        pending_instances: &mut Vec<FunctionInstanceRef>,
-        queued_instances: &mut HashSet<FunctionInstanceKey>,
+        worklist: &mut ReachabilityWorklist,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) {
         loop {
-            let mut changed = self.lower_reachable_function_closure(
-                functions,
-                pending_functions,
-                queued_functions,
-                pending_instances,
-                queued_instances,
-                trait_object_vtables,
-            );
-            if !pending_instances.is_empty() {
-                self.lower_pending_instance_templates(function_templates, pending_instances);
-                let refs = std::mem::take(pending_instances);
+            let mut changed =
+                self.lower_reachable_function_closure(functions, worklist, trait_object_vtables);
+            if !worklist.pending_instances.is_empty() {
+                self.lower_pending_instance_templates(
+                    function_templates,
+                    &worklist.pending_instances,
+                );
+                let refs = std::mem::take(&mut worklist.pending_instances);
                 let additional = self.lower_additional_function_instances(
                     refs,
                     function_templates,
@@ -876,13 +811,7 @@ impl<'a> ModuleLowerer<'a> {
                         &instance.function_body,
                         &mut refs,
                     );
-                    enqueue_function_refs(
-                        refs,
-                        pending_functions,
-                        queued_functions,
-                        pending_instances,
-                        queued_instances,
-                    );
+                    worklist.enqueue_refs(refs);
                 }
                 changed |= !additional.is_empty();
                 function_instances.extend(additional);
@@ -891,12 +820,12 @@ impl<'a> ModuleLowerer<'a> {
                 trait_object_vtables,
                 functions,
                 function_instances,
-                pending_functions,
-                queued_functions,
-                pending_instances,
-                queued_instances,
+                worklist,
             );
-            if !changed && pending_functions.is_empty() && pending_instances.is_empty() {
+            if !changed
+                && worklist.pending_functions.is_empty()
+                && worklist.pending_instances.is_empty()
+            {
                 break;
             }
         }
@@ -992,23 +921,19 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
 
-            let mut pending_functions = VecDeque::new();
-            let mut queued_functions = functions
-                .iter()
-                .map(|function| function.def_id)
-                .collect::<HashSet<_>>();
-            let mut pending_instances = Vec::new();
-            let mut queued_instances = function_instances
-                .iter()
-                .map(FunctionInstanceKey::from)
-                .collect::<HashSet<_>>();
-            enqueue_function_refs(
-                refs,
-                &mut pending_functions,
-                &mut queued_functions,
-                &mut pending_instances,
-                &mut queued_instances,
-            );
+            let mut worklist = ReachabilityWorklist {
+                pending_functions: VecDeque::new(),
+                queued_functions: functions
+                    .iter()
+                    .map(|function| function.def_id)
+                    .collect::<HashSet<_>>(),
+                pending_instances: Vec::new(),
+                queued_instances: function_instances
+                    .iter()
+                    .map(FunctionInstanceKey::from)
+                    .collect::<HashSet<_>>(),
+            };
+            worklist.enqueue_refs(refs);
             let before = (
                 functions.len(),
                 function_instances.len(),
@@ -1018,10 +943,7 @@ impl<'a> ModuleLowerer<'a> {
                 functions,
                 function_templates,
                 function_instances,
-                &mut pending_functions,
-                &mut queued_functions,
-                &mut pending_instances,
-                &mut queued_instances,
+                &mut worklist,
                 trait_object_vtables,
             );
             if before
@@ -1041,10 +963,7 @@ impl<'a> ModuleLowerer<'a> {
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
         functions: &[BackendFunction],
         function_instances: &[BackendFunctionInstance],
-        pending_functions: &mut VecDeque<GlobalDefId>,
-        queued_functions: &mut HashSet<GlobalDefId>,
-        pending_instances: &mut Vec<FunctionInstanceRef>,
-        queued_instances: &mut HashSet<FunctionInstanceKey>,
+        worklist: &mut ReachabilityWorklist,
     ) -> bool {
         let mut discovered = Vec::new();
         self.collect_trait_object_vtables(&mut discovered, functions, function_instances);
@@ -1057,13 +976,7 @@ impl<'a> ModuleLowerer<'a> {
             if !seen.insert(vtable.key.clone()) {
                 continue;
             }
-            enqueue_trait_object_vtable_refs(
-                &vtable,
-                pending_functions,
-                queued_functions,
-                pending_instances,
-                queued_instances,
-            );
+            worklist.enqueue_vtable_refs(&vtable);
             trait_object_vtables.push(vtable);
             changed = true;
         }
