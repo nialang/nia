@@ -1,10 +1,23 @@
 using package::fmt::core;
 
+fn has_precision(spec: core::FormatSpec) bool {
+    switch spec.precision() {
+        ?precision => {
+            _ = precision;
+            true
+        },
+        null => false,
+    }
+}
+
 fn format_signed_spec(
     value: i128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!void {
+    if has_precision(spec) {
+        return core::Error::InvalidTemplate!;
+    }
     switch spec.presentation() {
         core::FormatPresentation::Display => formatter.write_signed_radix_spec(value, 10u128, false, spec),
         core::FormatPresentation::LowerHex => formatter.write_signed_radix_spec(value, 16u128, false, spec),
@@ -20,7 +33,7 @@ fn format_unsigned_spec(
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!void {
-    if spec.sign_plus() {
+    if spec.sign_plus() or has_precision(spec) {
         return core::Error::InvalidTemplate!;
     }
     switch spec.presentation() {
@@ -41,9 +54,10 @@ fn format_text_spec(
     if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
         return core::Error::InvalidTemplate!;
     }
-    formatter.write_padding_before(text.len(), spec).?;
-    formatter.write_text(text).?;
-    formatter.write_padding_after(text.len(), spec)
+    let content_width = formatter.precision_width(text.len(), spec);
+    formatter.write_padding_before(content_width, spec).?;
+    formatter.write_text_prefix(text, content_width).?;
+    formatter.write_padding_after(content_width, spec)
 }
 
 extend i8 : core::Format {
@@ -193,9 +207,12 @@ extend char : core::Format {
         if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
-        formatter.write_padding_before(1usize, spec).?;
-        formatter.write_char(self.*).?;
-        formatter.write_padding_after(1usize, spec)
+        let content_width = formatter.precision_width(1usize, spec);
+        formatter.write_padding_before(content_width, spec).?;
+        if content_width != 0usize {
+            formatter.write_char(self.*).?;
+        }
+        formatter.write_padding_after(content_width, spec)
     }
 }
 
@@ -231,7 +248,7 @@ where T: Sized + core::Format
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
-        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.sign_plus() or spec.alternate() {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or has_precision(spec) or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         self.format(formatter)

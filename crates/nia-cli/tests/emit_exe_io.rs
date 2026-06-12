@@ -259,7 +259,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let text = "nia";
     let ch = 'λ';
     let flag = true;
-    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' z='{:05}' plus='{:+}' plusw='{:+5}' plusz='{:+05}' nz='{:05}' hx='{:08x}' alt='{:#x}' altw='{:#08x}' bin='{:#b}' oct='{:#o}' text='{:>5}' ch='{:<3}' bool='{:>6}' hex='{:x}'\n", [
+    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' z='{:05}' plus='{:+}' plusw='{:+5}' plusz='{:+05}' nz='{:05}' hx='{:08x}' alt='{:#x}' altw='{:#08x}' bin='{:#b}' oct='{:#o}' text='{:>5}' trunc='{:.2}' trw='{:>5.2}' ch='{:<3}' ch0='{:.0}' bool='{:>6}' btr='{:>4.2}' hex='{:x}'\n", [
         &value,
         &value,
         &value,
@@ -274,7 +274,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &byte,
         &byte,
         &text[..],
+        &text[..],
+        &text[..],
         &ch,
+        &ch,
+        &flag,
         &flag,
         &byte,
     ]).exit().?;
@@ -303,7 +307,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "r='    7' l='7    ' c='  7  ' z='00007' plus='+7' plusw='   +7' plusz='+0007' nz='-0007' hx='000000ab' alt='0xab' altw='0x0000ab' bin='0b10101011' oct='0253' text='  nia' ch='λ  ' bool='  true' hex='ab'\n"
+        "r='    7' l='7    ' c='  7  ' z='00007' plus='+7' plusw='   +7' plusz='+0007' nz='-0007' hx='000000ab' alt='0xab' altw='0x0000ab' bin='0b10101011' oct='0253' text='  nia' trunc='ni' trw='   ni' ch='λ  ' ch0='' bool='  true' btr='  tr' hex='ab'\n"
     );
 }
 
@@ -390,6 +394,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not expect_error(writer.print("{:#}", [&flag]), fmt::Error::InvalidTemplate) {
         return (17 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:.}", [&flag]), fmt::Error::InvalidTemplate) {
+        return (18 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:.2}", [&value]), fmt::Error::InvalidTemplate) {
+        return (19 as process::ExitCode)!;
     }
     !{}
 }

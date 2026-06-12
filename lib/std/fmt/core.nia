@@ -45,6 +45,7 @@ pub enum FormatAlignment: i32 {
 pub struct FormatSpec {
     presentation: FormatPresentation,
     width: usize,
+    precision: ?usize,
     fill: char,
     alignment: FormatAlignment,
     sign_plus: bool,
@@ -55,6 +56,7 @@ extend FormatSpec {
     pub fn init(
         presentation: FormatPresentation,
         width: usize,
+        precision: ?usize,
         fill: char,
         alignment: FormatAlignment,
         sign_plus: bool,
@@ -63,6 +65,7 @@ extend FormatSpec {
         {
             presentation: presentation,
             width: width,
+            precision: precision,
             fill: fill,
             alignment: alignment,
             sign_plus: sign_plus,
@@ -71,23 +74,23 @@ extend FormatSpec {
     }
 
     pub fn display() FormatSpec {
-        FormatSpec::init(FormatPresentation::Display, 0usize, ' ', FormatAlignment::None, false, false)
+        FormatSpec::init(FormatPresentation::Display, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn lower_hex() FormatSpec {
-        FormatSpec::init(FormatPresentation::LowerHex, 0usize, ' ', FormatAlignment::None, false, false)
+        FormatSpec::init(FormatPresentation::LowerHex, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn upper_hex() FormatSpec {
-        FormatSpec::init(FormatPresentation::UpperHex, 0usize, ' ', FormatAlignment::None, false, false)
+        FormatSpec::init(FormatPresentation::UpperHex, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn binary() FormatSpec {
-        FormatSpec::init(FormatPresentation::Binary, 0usize, ' ', FormatAlignment::None, false, false)
+        FormatSpec::init(FormatPresentation::Binary, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn octal() FormatSpec {
-        FormatSpec::init(FormatPresentation::Octal, 0usize, ' ', FormatAlignment::None, false, false)
+        FormatSpec::init(FormatPresentation::Octal, 0usize, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn presentation(&self) FormatPresentation {
@@ -96,6 +99,10 @@ extend FormatSpec {
 
     pub fn width(&self) usize {
         self.width
+    }
+
+    pub fn precision(&self) ?usize {
+        self.precision
     }
 
     pub fn fill(&self) char {
@@ -145,6 +152,27 @@ extend Formatter {
             index += 1usize;
         }
         !{}
+    }
+
+    pub fn write_text_prefix(&mut self, text: &[char], count: usize) Error!void {
+        var index = 0usize;
+        while index < text.len() and index < count {
+            self.write_char(text[index]).?;
+            index += 1usize;
+        }
+        !{}
+    }
+
+    pub fn precision_width(&mut self, content_width: usize, spec: FormatSpec) usize {
+        _ = self;
+        switch spec.precision() {
+            ?precision => if precision < content_width {
+                precision
+            } else {
+                content_width
+            },
+            null => content_width,
+        }
     }
 
     pub fn write_fill(&mut self, fill: char, count: usize) Error!void {
