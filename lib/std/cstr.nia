@@ -1,0 +1,52 @@
+using package::fmt;
+
+pub struct CStr {
+    ptr: &u8,
+}
+
+extend CStr {
+    pub fn from_ptr(ptr: &u8) CStr {
+        { ptr: ptr }
+    }
+
+    pub fn raw_ptr(&self) &u8 {
+        self.ptr
+    }
+
+    pub fn len(&self) usize {
+        var len = 0usize;
+        while self.ptr[len] != 0u8 {
+            len += 1usize;
+        }
+        len
+    }
+
+    pub fn bytes(&self) &[u8] {
+        & self.ptr[0..self.len()]
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len() == 0usize
+    }
+}
+
+extend CStr : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        formatter.write_bytes(self.bytes())
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        if spec.presentation() != fmt::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+            return fmt::Error::InvalidTemplate!;
+        }
+        let content_width = formatter.precision_width(self.len(), spec);
+        formatter.write_padding_before(content_width, spec).?;
+        let bytes = self.bytes();
+        var index = 0usize;
+        while index < bytes.len() and index < content_width {
+            formatter.write_byte(bytes[index]).?;
+            index += 1usize;
+        }
+        formatter.write_padding_after(content_width, spec)
+    }
+}

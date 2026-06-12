@@ -111,11 +111,19 @@ entry points at `std::ArrayList` and `std::HashMap`.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
+- `std::process` exposes program arguments and environment entries as
+  `Arg`/`EnvVar` values. These values provide `len()`, `bytes()`, `is_empty()`,
+  `cstr()`, and `raw_ptr()`; they also implement `std::fmt::Format`, so they can
+  be printed directly.
 - `std::process` also extends `std::fs.Error` and `std::mem.Error` with
   `as_exit_code` and `exit` for explicitly returning standard library errors as
   process exit codes from executable entries. It also extends `std::fs.Error!T`
   and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.
+- `std::cstr` defines `CStr`, a non-owning view of a NUL-terminated byte
+  sequence. It provides `from_ptr`, `raw_ptr`, `len`, `bytes`, and `is_empty`,
+  and implements `std::fmt::Format` as raw byte output. `CStr` does not imply
+  UTF-8 validity.
 - `std::os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
@@ -363,6 +371,8 @@ c"nia"
 C string literals are byte string literals with one trailing NUL byte appended.
 `c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
 are allowed; the syntax only appends one trailing NUL.
+Use `std::cstr::CStr` when a runtime API wants a NUL-terminated byte-string
+view, for example `cstr::CStr::from_ptr(c"nia".get_ptr_read())`.
 
 Adjacent quoted string literals with the same prefix are concatenated into one
 literal:
