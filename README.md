@@ -41,9 +41,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var point: Point = { x: 3, y: 4 };
     var also_point = Point { x: 5, y: 12 };
     var values: [_]i32 = [point.len2(), also_point.len2(), 7];
-    var borrowed = &([3]i32[1, 2, 3])[..];
+    var slice_view = &([3]i32[1, 2, 3])[..];
 
-    if point.len2() + sum(values) + sum(borrowed) != 232 {
+    if point.len2() + sum(values) + sum(slice_view) != 232 {
         return process::exit(1)!;
     }
 
@@ -54,6 +54,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 Most aggregate literals use the expected type from a binding, argument, or
 return position. Explicit forms such as `Point { ... }` and `[_]i32[...]` are
 available when the literal needs to stand on its own.
+Arrays coerce to slices at argument boundaries, so `sum(values)` is the usual
+style when a function expects `&[T]`; `&values[..]` is the explicit slice form.
 
 ## Design Goals
 
@@ -109,7 +111,9 @@ nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestandi
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
 
-Module aliases can be supplied with `-M name=path`.
+Module aliases can be supplied with `-M name=path` or
+`--module name=path`. Optimization options and `--timings[=summary|detail]`
+are global options and may appear before or after the command.
 
 ## Examples
 
@@ -127,7 +131,7 @@ slices, structs and enums, control flow, standard-library I/O, collections,
 generics, traits, error handling, and multi-file imports. They use the current
 executable entry contract:
 `pub fn main(process::Init) process::ExitCode!void`. They print visible results
-with `std::debug.print`, and `03_stdout.nia` shows explicit stdout output through
+with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output through
 `std::io` and `std::fmt`.
 
 ## Documentation
@@ -165,11 +169,12 @@ See [docs/platform-support.md](docs/platform-support.md).
 
 Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
 means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy to stdout. `nia check --exe <file.nia>` is an alias for
-`nia check <file.nia> --runtime freestanding`, which checks with the same
-startup runtime that `emit --exe` injects. `emit --obj` defaults to the bare
-runtime and can opt into startup injection with `--runtime freestanding`.
-Emit commands write the same report to stderr when `--opt-report` is supplied.
+optimization policy and backend optimization report to stdout. `nia check --exe
+<file.nia>` is an alias for `nia check <file.nia> --runtime freestanding`,
+which checks with the same startup runtime that `emit --exe` injects.
+`emit --obj` defaults to the bare runtime and can opt into startup injection
+with `--runtime freestanding`. Emit commands write the same report to stderr
+when `--opt-report` is supplied.
 
 ## Testing
 
