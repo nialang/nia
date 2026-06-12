@@ -89,6 +89,64 @@ fn parse_integer_radix(text: &[char], radix: u32, allow_sign: bool) ParseError!P
     !{ negative: negative, abs: value }
 }
 
+fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
+    if text.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = text[0];
+    if first == '-' or first == '+' {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = first == '-';
+        index = 1usize;
+        if index == text.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var radix = 10u32;
+    if index + 1usize < text.len() and text[index] == '0' {
+        let marker = text[index + 1usize];
+        if marker == 'x' or marker == 'X' {
+            radix = 16u32;
+            index += 2usize;
+        } else if marker == 'b' or marker == 'B' {
+            radix = 2u32;
+            index += 2usize;
+        } else if marker == 'o' or marker == 'O' {
+            radix = 8u32;
+            index += 2usize;
+        }
+        if index == text.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    let radix_wide = radix as u128;
+    while index < text.len() {
+        let digit = switch digit_value(text[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
+            return ParseError::Overflow!;
+        }
+        value = value * radix_wide + digit_wide;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
 fn parse_unsigned_radix(text: &[char], radix: u32, max: u128) ParseError!u128 {
     let parsed = parse_integer_radix(text, radix, false).?;
     if parsed.negative {
@@ -119,11 +177,32 @@ fn parse_signed_radix(text: &[char], radix: u32, min: i128, max: i128) ParseErro
 }
 
 fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
-    parse_unsigned_radix(text, 10u32, max)
+    let parsed = parse_integer(text, false).?;
+    if parsed.negative {
+        return ParseError::InvalidSign!;
+    }
+    if parsed.abs > max {
+        return ParseError::Overflow!;
+    }
+    !parsed.abs
 }
 
 fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
-    parse_signed_radix(text, 10u32, min, max)
+    let parsed = parse_integer(text, true).?;
+    let negative_limit = ((0i128 - (min + 1i128)) as u128) + 1u128;
+    if parsed.negative {
+        if parsed.abs > negative_limit {
+            return ParseError::Overflow!;
+        }
+        if parsed.abs == negative_limit {
+            return !min;
+        }
+        return !(0i128 - parsed.abs as i128);
+    }
+    if parsed.abs > max as u128 {
+        return ParseError::Overflow!;
+    }
+    !(parsed.abs as i128)
 }
 
 extend i8 : Parse {

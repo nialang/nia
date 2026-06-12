@@ -658,38 +658,62 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_u8(fmt::parse_radix[u8]("ff", 16u32), 255u8) {
         return (15 as process::ExitCode)!;
     }
-    if not expect_u8([u8]::parse_radix("10101010", 2u32), 170u8) {
+    if not expect_u8(fmt::parse[u8]("0xff"), 255u8) {
         return (16 as process::ExitCode)!;
     }
-    if not expect_i32(fmt::parse_radix[i32]("-7B", 16u32), -123) {
+    if not expect_u8([u8]::parse_radix("10101010", 2u32), 170u8) {
         return (17 as process::ExitCode)!;
     }
-    if not expect_error_u8(fmt::parse_radix[u8]("2", 2u32), fmt::ParseError::InvalidDigit) {
+    if not expect_u8(fmt::parse[u8]("0b10101010"), 170u8) {
         return (18 as process::ExitCode)!;
     }
-    if not expect_error_u8(fmt::parse_radix[u8]("10", 1u32), fmt::ParseError::InvalidRadix) {
+    if not expect_u8(fmt::parse[u8]("0o377"), 255u8) {
         return (19 as process::ExitCode)!;
     }
-    if not expect_error_bool(fmt::parse_radix[bool]("true", 10u32), fmt::ParseError::InvalidRadix) {
+    if not expect_i32(fmt::parse_radix[i32]("-7B", 16u32), -123) {
         return (20 as process::ExitCode)!;
+    }
+    if not expect_i32(fmt::parse[i32]("-0x7B"), -123) {
+        return (21 as process::ExitCode)!;
+    }
+    if not expect_i32(fmt::parse[i32]("+0b1111011"), 123) {
+        return (22 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse_radix[u8]("2", 2u32), fmt::ParseError::InvalidDigit) {
+        return (23 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse_radix[u8]("10", 1u32), fmt::ParseError::InvalidRadix) {
+        return (24 as process::ExitCode)!;
+    }
+    if not expect_error_bool(fmt::parse_radix[bool]("true", 10u32), fmt::ParseError::InvalidRadix) {
+        return (25 as process::ExitCode)!;
     }
     switch fmt::parse_radix[u128]("ffffffffffffffffffffffffffffffff", 16u32) {
         !value => if value != u128::MAX {
-            return (21 as process::ExitCode)!;
+            return (26 as process::ExitCode)!;
         },
-        error! => return (22 as process::ExitCode)!,
+        error! => return (27 as process::ExitCode)!,
     }
     switch fmt::parse_radix[u128]("100000000000000000000000000000000", 16u32) {
         !value => {
             _ = value;
-            return (23 as process::ExitCode)!;
+            return (28 as process::ExitCode)!;
         },
         error! => if error != fmt::ParseError::Overflow {
-            return (24 as process::ExitCode)!;
+            return (29 as process::ExitCode)!;
         },
     }
     if not expect_error_u8(fmt::parse[u8]("+1"), fmt::ParseError::InvalidSign) {
-        return (25 as process::ExitCode)!;
+        return (30 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse_radix[u8]("0xff", 16u32), fmt::ParseError::InvalidDigit) {
+        return (31 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse[u8]("0x"), fmt::ParseError::InvalidDigit) {
+        return (32 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse[u8]("0b2"), fmt::ParseError::InvalidDigit) {
+        return (33 as process::ExitCode)!;
     }
     !{}
 }
