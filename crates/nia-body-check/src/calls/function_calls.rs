@@ -6,6 +6,7 @@ use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
+use nia_local_resolve::LocalUse;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
@@ -37,6 +38,46 @@ impl<'a> BodyChecker<'a> {
                 def_id: self.global_def_id(def_id),
                 signature,
             })
+    }
+
+    fn current_extension_method_callee_signature(
+        &mut self,
+        callee: &Expr,
+    ) -> Option<FunctionItemRef> {
+        let base = generic_inst_base(callee);
+        let ExprKind::Ident(name) = &base.kind else {
+            return None;
+        };
+        if matches!(
+            self.value_name(base),
+            Some(
+                ValueNameResolution::Def(_)
+                    | ValueNameResolution::External(_)
+                    | ValueNameResolution::Module
+            )
+        ) {
+            return None;
+        }
+        if !matches!(self.local_use(base), None | Some(LocalUse::Unresolved)) {
+            return None;
+        }
+        let current_def_id = self.current_def_id?;
+        let target_ty = self.extension_methods_by_id.get(&current_def_id)?.target_ty;
+        let candidates = self.method_candidates_for_target(target_ty, name);
+        let method_id = self.single_method_candidate(callee.span, name, &candidates)?;
+        let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
+        let resolved = self.resolved_function_signature(method_id)?;
+        let receiver_ty = resolved
+            .signature
+            .params
+            .first()
+            .and_then(|param| param.receiver)
+            .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
+        Some(FunctionItemRef {
+            resolved,
+            type_args: self.extension_target_instance_args(method_id, &target_substitutions),
+            receiver_ty,
+        })
     }
 
     pub(crate) fn check_function_ref(
@@ -121,7 +162,8 @@ impl<'a> BodyChecker<'a> {
                     resolved,
                     type_args: Vec::new(),
                     receiver_ty: None,
-                }),
+                })
+                .or_else(|| self.current_extension_method_callee_signature(expr)),
         }
     }
 

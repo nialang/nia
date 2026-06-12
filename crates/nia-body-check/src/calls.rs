@@ -10,6 +10,8 @@ mod signature_import;
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind};
 use nia_ids::InternedTyId;
+use nia_local_resolve::LocalUse;
+use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_call(
@@ -52,6 +54,22 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
             return self.check_function_signature_call(expr, &resolved, args, expected);
+        }
+        if let ExprKind::Ident(name) = &callee.kind
+            && matches!(
+                self.value_name(callee),
+                None | Some(ValueNameResolution::LocalDeferred | ValueNameResolution::Error)
+            )
+            && matches!(self.local_use(callee), None | Some(LocalUse::Unresolved))
+            && let Some(current_def_id) = self.current_def_id
+            && let Some(lookup) = self.extension_methods_by_id.get(&current_def_id)
+        {
+            let target_ty = lookup.target_ty;
+            if let Some(return_type) =
+                self.check_associated_call_for_target(expr, target_ty, name, None, args, expected)
+            {
+                return return_type;
+            }
         }
         let callee_ty = self.check_expr(callee);
         self.check_function_pointer_call_with_callee_ty(expr, callee_ty, args)
