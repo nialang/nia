@@ -406,6 +406,25 @@ impl BackendValidator<'_> {
                     ),
                 ));
             }
+            FunctionCallee::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => {
+                self.validate_type(*self_ty, span);
+                for arg in trait_args.iter().chain(args) {
+                    self.validate_type(*arg, span);
+                }
+                self.diagnostics.push(Diagnostic::internal_error_at("I0300",
+                    span,
+                    format!(
+                        "backend IR call contains unresolved trait associated function `{method_name}` {method_id:?} on trait {trait_id:?}"
+                    ),
+                ));
+            }
             FunctionCallee::FunctionPointer(expr) => self.validate_expr(expr),
             // Intrinsic value operators are intentionally selected in LLVM codegen; backend
             // lowering only rewrites them when a source-level extension method wins dispatch.

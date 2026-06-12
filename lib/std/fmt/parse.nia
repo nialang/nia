@@ -1,0 +1,180 @@
+pub enum ParseError: i32 {
+    Empty = 1,
+    InvalidDigit = 2,
+    InvalidSign = 3,
+    Overflow = 4,
+    _,
+}
+
+pub trait Parse {
+    fn parse(text: &[char]) ParseError!Self;
+}
+
+struct ParsedInteger {
+    negative: bool,
+    abs: u128,
+}
+
+pub fn parse[T](text: &[char]) ParseError!T
+where T: Parse
+{
+    [T]::parse(text)
+}
+
+fn digit_value(ch: char) ?u128 {
+    if ch >= '0' and ch <= '9' {
+        ?((ch as u32 - '0' as u32) as u128)
+    } else {
+        null
+    }
+}
+
+fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
+    if text.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = text[0];
+    if first == '-' or first == '+' {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = first == '-';
+        index = 1usize;
+        if index == text.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    while index < text.len() {
+        let digit = switch digit_value(text[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if value > (u128::MAX - digit) / 10u128 {
+            return ParseError::Overflow!;
+        }
+        value = value * 10u128 + digit;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
+    let parsed = parse_integer(text, false).?;
+    if parsed.negative {
+        return ParseError::InvalidSign!;
+    }
+    if parsed.abs > max {
+        return ParseError::Overflow!;
+    }
+    !parsed.abs
+}
+
+fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
+    let parsed = parse_integer(text, true).?;
+    let negative_limit = ((0i128 - (min + 1i128)) as u128) + 1u128;
+    if parsed.negative {
+        if parsed.abs > negative_limit {
+            return ParseError::Overflow!;
+        }
+        if parsed.abs == negative_limit {
+            return !min;
+        }
+        return !(0i128 - parsed.abs as i128);
+    }
+    if parsed.abs > max as u128 {
+        return ParseError::Overflow!;
+    }
+    !(parsed.abs as i128)
+}
+
+extend i8 : Parse {
+    fn parse(text: &[char]) ParseError!i8 {
+        !(parse_signed(text, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+}
+
+extend i16 : Parse {
+    fn parse(text: &[char]) ParseError!i16 {
+        !(parse_signed(text, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
+}
+
+extend i32 : Parse {
+    fn parse(text: &[char]) ParseError!i32 {
+        !(parse_signed(text, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+}
+
+extend i64 : Parse {
+    fn parse(text: &[char]) ParseError!i64 {
+        !(parse_signed(text, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i128 : Parse {
+    fn parse(text: &[char]) ParseError!i128 {
+        parse_signed(text, i128::MIN, i128::MAX)
+    }
+}
+
+extend isize : Parse {
+    fn parse(text: &[char]) ParseError!isize {
+        !(parse_signed(text, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend u8 : Parse {
+    fn parse(text: &[char]) ParseError!u8 {
+        !(parse_unsigned(text, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u16 : Parse {
+    fn parse(text: &[char]) ParseError!u16 {
+        !(parse_unsigned(text, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u32 : Parse {
+    fn parse(text: &[char]) ParseError!u32 {
+        !(parse_unsigned(text, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u64 : Parse {
+    fn parse(text: &[char]) ParseError!u64 {
+        !(parse_unsigned(text, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u128 : Parse {
+    fn parse(text: &[char]) ParseError!u128 {
+        parse_unsigned(text, u128::MAX)
+    }
+}
+
+extend usize : Parse {
+    fn parse(text: &[char]) ParseError!usize {
+        !(parse_unsigned(text, usize::MAX as u128).? as usize)
+    }
+}
+
+extend bool : Parse {
+    fn parse(text: &[char]) ParseError!bool {
+        if text.len() == 4usize and text[0] == 't' and text[1] == 'r' and text[2] == 'u' and text[3] == 'e' {
+            !true
+        } else if text.len() == 5usize and text[0] == 'f' and text[1] == 'a' and text[2] == 'l' and text[3] == 's' and text[4] == 'e' {
+            !false
+        } else if text.len() == 0usize {
+            ParseError::Empty!
+        } else {
+            ParseError::InvalidDigit!
+        }
+    }
+}

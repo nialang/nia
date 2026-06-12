@@ -482,6 +482,14 @@ pub enum TypedCallee {
         receiver_kind: ReceiverKind,
         receiver: Box<TypedExpr>,
     },
+    TraitAssociatedFunction {
+        trait_id: GlobalDefId,
+        method_id: GlobalDefId,
+        method_name: String,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        args: Vec<InternedTyId>,
+    },
     DynamicTraitMethod {
         object_ty: InternedTyId,
         trait_id: TraitId,

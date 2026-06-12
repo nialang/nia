@@ -304,6 +304,117 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_parses_primitives() {
+    let root = temp_dir("emit_exe_std_fmt_parses_primitives");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::process;
+
+fn expect_i32(result: fmt::ParseError!i32, expected: i32) bool {
+    switch result {
+        !value => value == expected,
+        error! => {
+            _ = error;
+            false
+        },
+    }
+}
+
+fn expect_error_i32(result: fmt::ParseError!i32, expected: fmt::ParseError) bool {
+    switch result {
+        !value => {
+            _ = value;
+            false
+        },
+        error! => error == expected,
+    }
+}
+
+fn expect_error_u8(result: fmt::ParseError!u8, expected: fmt::ParseError) bool {
+    switch result {
+        !value => {
+            _ = value;
+            false
+        },
+        error! => error == expected,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    if not expect_i32(fmt::parse[i32]("-2147483648"), i32::MIN) {
+        return (1 as process::ExitCode)!;
+    }
+    if not expect_i32([i32]::parse("+2147483647"), i32::MAX) {
+        return (2 as process::ExitCode)!;
+    }
+    switch fmt::parse[u128]("340282366920938463463374607431768211455") {
+        !value => if value != u128::MAX {
+            return (3 as process::ExitCode)!;
+        },
+        error! => return (4 as process::ExitCode)!,
+    }
+    switch fmt::parse[usize]("12345") {
+        !value => if value != 12345usize {
+            return (5 as process::ExitCode)!;
+        },
+        error! => return (6 as process::ExitCode)!,
+    }
+    switch fmt::parse[bool]("false") {
+        !value => if value {
+            return (7 as process::ExitCode)!;
+        },
+        error! => return (8 as process::ExitCode)!,
+    }
+
+    if not expect_error_i32(fmt::parse[i32](""), fmt::ParseError::Empty) {
+        return (9 as process::ExitCode)!;
+    }
+    if not expect_error_i32(fmt::parse[i32]("-"), fmt::ParseError::InvalidDigit) {
+        return (10 as process::ExitCode)!;
+    }
+    if not expect_error_i32(fmt::parse[i32]("12x"), fmt::ParseError::InvalidDigit) {
+        return (11 as process::ExitCode)!;
+    }
+    if not expect_error_i32(fmt::parse[i32]("2147483648"), fmt::ParseError::Overflow) {
+        return (12 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse[u8]("-1"), fmt::ParseError::InvalidSign) {
+        return (13 as process::ExitCode)!;
+    }
+    if not expect_error_u8(fmt::parse[u8]("256"), fmt::ParseError::Overflow) {
+        return (14 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_discarding_writer_and_limited_reader");
     let main = root.join("main.nia");

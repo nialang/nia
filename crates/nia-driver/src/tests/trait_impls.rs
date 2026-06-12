@@ -69,6 +69,48 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_associated_function_dispatch_uses_bounds_and_impls() {
+    let root = temp_dir("trait_associated_function_dispatch_uses_bounds_and_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parse {
+    fn parse(text: &[char]) Self;
+}
+
+struct Number {
+    value: i32,
+}
+
+extend Number : Parse {
+    fn parse(text: &[char]) Number {
+        if text.len() == 2usize and text[0] == '4' and text[1] == '2' {
+            { value: 42 }
+        } else {
+            { value: 0 }
+        }
+    }
+}
+
+fn parse_generic[T](text: &[char]) T
+where T: Parse
+{
+    [T]::parse(text)
+}
+
+fn main() i32 {
+    var direct = [Number]::parse("42");
+    var generic = parse_generic[Number]("42");
+    direct.value + generic.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn trait_impl_rejects_extra_missing_and_mismatched_methods() {
     let root = temp_dir("trait_impl_rejects_extra_missing_and_mismatched_methods");
     write(

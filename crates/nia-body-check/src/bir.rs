@@ -1403,6 +1403,21 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.lower_expr(callee)),
                 ),
             },
+            ResolvedCall::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => TypedCallee::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            },
             ResolvedCall::DynamicTraitMethod {
                 object_ty,
                 trait_id,

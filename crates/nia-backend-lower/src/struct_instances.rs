@@ -483,6 +483,20 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::TraitAssociatedFunction {
+                self_ty,
+                trait_args,
+                args,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+            }
             FunctionCallee::BuiltinPlaceMethod {
                 self_ty,
                 trait_args,
@@ -1024,6 +1038,20 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
                 self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::TraitAssociatedFunction {
+                self_ty,
+                trait_args,
+                args,
+                ..
+            } => {
+                self.collect_union_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
             }
             FunctionCallee::BuiltinPlaceMethod {
                 self_ty,

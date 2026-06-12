@@ -600,6 +600,59 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
+            FunctionCallee::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => {
+                if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                    if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
+                        trait_id,
+                        &trait_args,
+                        method_id,
+                        &method_name,
+                        self_ty,
+                    ) {
+                        let mut instance_args = target_args;
+                        instance_args.extend(args);
+                        FunctionCallee::FunctionInstance {
+                            def_id,
+                            arg_module_id: self.current_arg_module_id(),
+                            args: instance_args,
+                        }
+                    } else if self.trait_method_has_default(method_id) {
+                        let mut instance_args = vec![self_ty];
+                        instance_args.extend(trait_args.iter().copied());
+                        instance_args.extend(args);
+                        FunctionCallee::FunctionInstance {
+                            def_id: method_id,
+                            arg_module_id: self.current_arg_module_id(),
+                            args: instance_args,
+                        }
+                    } else {
+                        FunctionCallee::TraitAssociatedFunction {
+                            trait_id,
+                            method_id,
+                            method_name,
+                            self_ty,
+                            trait_args,
+                            args,
+                        }
+                    }
+                } else {
+                    FunctionCallee::TraitAssociatedFunction {
+                        trait_id,
+                        method_id,
+                        method_name,
+                        self_ty,
+                        trait_args,
+                        args,
+                    }
+                }
+            }
             FunctionCallee::BuiltinMethod {
                 method,
                 self_ty,

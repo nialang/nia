@@ -1081,6 +1081,7 @@ fn rewrite_local_copies_in_callee(
         }
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
@@ -1434,6 +1435,7 @@ fn rewrite_local_constants_in_callee(
         }
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
@@ -1721,6 +1723,7 @@ fn simplify_constant_logical_exprs_in_callee(callee: &mut FunctionCallee) -> boo
         | FunctionCallee::FunctionPointer(receiver) => simplify_constant_logical_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
@@ -1983,6 +1986,7 @@ fn collect_place_locals_in_callee(callee: &FunctionCallee, locals: &mut HashSet<
         }
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => {}
     }
 }
@@ -2245,6 +2249,7 @@ fn collect_read_locals_in_callee(callee: &FunctionCallee, locals: &mut HashSet<L
         }
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => {}
     }
 }
@@ -2533,6 +2538,7 @@ fn collect_referenced_locals_in_callee(
         }
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => {}
     }
 }
@@ -2814,6 +2820,7 @@ fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) -> bool {
         | FunctionCallee::FunctionPointer(receiver) => simplify_same_type_casts_in_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }
 }

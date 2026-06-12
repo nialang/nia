@@ -1,6 +1,8 @@
 pub(package) module core;
+pub(package) module parse;
 pub(package) module primitive;
 pub(package) module template;
 
 pub using core::{Error, FormatWriter, Format, Formatter};
+pub using parse::{Parse, ParseError, parse};
 pub using template::{print_checked, print_unchecked};

@@ -698,6 +698,69 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
+            FunctionCallee::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => {
+                let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect::<Vec<_>>();
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect::<Vec<_>>();
+                if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
+                    trait_id,
+                    &trait_args,
+                    method_id,
+                    &method_name,
+                    self_ty,
+                ) {
+                    let mut instance_args = target_args;
+                    instance_args.extend(args);
+                    FunctionCallee::FunctionInstance {
+                        def_id,
+                        arg_module_id: self.current_arg_module_id(),
+                        args: instance_args,
+                    }
+                } else if self.trait_method_has_default(method_id)
+                    && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
+                {
+                    let mut instance_args = vec![self_ty];
+                    instance_args.extend(trait_args.iter().copied());
+                    instance_args.extend(args);
+                    FunctionCallee::FunctionInstance {
+                        def_id: method_id,
+                        arg_module_id: self.current_arg_module_id(),
+                        args: instance_args,
+                    }
+                } else {
+                    if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                        self.diagnostics
+                            .push(nia_diagnostic::Diagnostic::user_error(
+                                "E0601",
+                                format!(
+                                    "no visible implementation found for trait associated function call `{method_name}`"
+                                ),
+                            )
+                            .finish());
+                    }
+                    FunctionCallee::TraitAssociatedFunction {
+                        trait_id,
+                        method_id,
+                        method_name,
+                        self_ty,
+                        trait_args,
+                        args,
+                    }
+                }
+            }
             FunctionCallee::BuiltinPlaceMethod {
                 trait_id,
                 method,

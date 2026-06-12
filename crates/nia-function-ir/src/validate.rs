@@ -482,6 +482,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
+            | FunctionCallee::TraitAssociatedFunction { .. }
             | FunctionCallee::BuiltinOperator(_) => Ok(()),
         }
     }

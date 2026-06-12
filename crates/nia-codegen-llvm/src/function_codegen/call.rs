@@ -388,6 +388,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "unresolved trait method call reached LLVM codegen",
             )),
+            FunctionCallee::TraitAssociatedFunction { .. } => Err(self.error(
+                expr.span,
+                "unresolved trait associated function call reached LLVM codegen",
+            )),
             FunctionCallee::DynamicTraitMethod {
                 object_ty,
                 trait_id,
