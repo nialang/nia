@@ -5,10 +5,10 @@ using package::collections::hash_map::types;
 using map::HashMapWithContext;
 using types::HashMapContext;
 
-extend[K, V, C, E] HashMapWithContext[K, V, C] : fmt::Format[E]
-where K: Sized + fmt::Format[E], V: Sized + fmt::Format[E], C: HashMapContext[K]
+extend[K, V, C] HashMapWithContext[K, V, C] : fmt::Format
+where K: Sized + fmt::Format, V: Sized + fmt::Format, C: HashMapContext[K]
 {
-    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         formatter.write_byte(b'{').?;
         var first = true;
         for entry in self.iter() {

@@ -1,4 +1,5 @@
 using package::fs;
+using package::fmt;
 using package::io;
 using package::mem;
 using package::os;
@@ -183,6 +184,27 @@ pub fn exit(code: i32) ExitCode {
 }
 
 extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        switch self {
+            !value => !value,
+            error! => error.as_exit_code()!,
+        }
+    }
+}
+
+extend fmt::Error {
+    pub fn as_exit_code(self) ExitCode {
+        switch self {
+            fmt::Error::Write => exit(5),
+            fmt::Error::InvalidTemplate => exit(22),
+            fmt::Error::MissingArgument => exit(22),
+            fmt::Error::ExtraArgument => exit(22),
+            _ => exit(255),
+        }
+    }
+}
+
+extend[T] fmt::Error!T {
     pub fn exit(self) ExitCode!T {
         switch self {
             !value => !value,

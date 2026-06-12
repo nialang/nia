@@ -3,10 +3,10 @@ using package::collections::array_list::list;
 
 using list::ArrayList;
 
-extend[T, E] ArrayList[T] : fmt::Format[E]
-where T: Sized + fmt::Format[E]
+extend[T] ArrayList[T] : fmt::Format
+where T: Sized + fmt::Format
 {
-    fn format(&self, formatter: &mut fmt::Formatter[E]) E!void {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         formatter.write_byte(b'[').?;
         var index = 0usize;
         while index < self.len() {

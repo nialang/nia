@@ -1,4 +1,6 @@
 pub(package) module core;
 pub(package) module primitive;
+pub(package) module template;
 
-pub using core::{FormatWriter, Format, Formatter, print_unchecked};
+pub using core::{Error, FormatWriter, Format, Formatter};
+pub using template::{print_checked, print_unchecked};

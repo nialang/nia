@@ -227,6 +227,81 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_reports_template_errors() {
+    let root = temp_dir("emit_exe_std_fmt_reports_template_errors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::io;
+using std::process;
+
+fn expect_error(result: fmt::Error!void, expected: fmt::Error) bool {
+    switch result {
+        !ok => {
+            _ = ok;
+            false
+        },
+        error! => error == expected,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var storage: [32]u8 = [0; 32];
+    var writer = io::FixedBufferWriter::init(&mut storage[..]);
+    let value = 7;
+
+    if not expect_error(writer.print("{}", []), fmt::Error::MissingArgument) {
+        return (1 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("", [&value]), fmt::Error::ExtraArgument) {
+        return (2 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{", []), fmt::Error::InvalidTemplate) {
+        return (3 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("}", []), fmt::Error::InvalidTemplate) {
+        return (4 as process::ExitCode)!;
+    }
+    switch writer.print("{{{}}}", [&value]) {
+        !ok => _ = ok,
+        error! => return (5 as process::ExitCode)!,
+    }
+    if writer.len() != 3 {
+        return (6 as process::ExitCode)!;
+    }
+    let written = writer.written();
+    if written[0] != b'{' or written[1] != b'7' or written[2] != b'}' {
+        return (7 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_discarding_writer_and_limited_reader");
     let main = root.join("main.nia");
