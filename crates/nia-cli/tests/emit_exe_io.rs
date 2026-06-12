@@ -193,7 +193,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let byte = 171u8;
     let neg = -171i32;
     let numbers: [3]i32 = [4, 5, 6];
-    stdout.print("list={} slice={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={x} HEX={X} bin={b} oct={o} neg_hex={x}\n", [
+    stdout.print("list={} slice={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={:x} HEX={:X} bin={:b} oct={:o} neg_hex={:x}\n", [
         &values,
         &numbers[..],
         &total,
@@ -259,12 +259,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let text = "nia";
     let ch = 'λ';
     let flag = true;
-    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' z='{:05}' nz='{:05}' hx='{:08x}' text='{:>5}' ch='{:<3}' bool='{:>6}' legacy='{x}'\n", [
+    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' z='{:05}' plus='{:+}' plusw='{:+5}' plusz='{:+05}' nz='{:05}' hx='{:08x}' alt='{:#x}' altw='{:#08x}' bin='{:#b}' oct='{:#o}' text='{:>5}' ch='{:<3}' bool='{:>6}' hex='{:x}'\n", [
+        &value,
+        &value,
+        &value,
         &value,
         &value,
         &value,
         &value,
         &neg,
+        &byte,
+        &byte,
+        &byte,
+        &byte,
         &byte,
         &text[..],
         &ch,
@@ -296,7 +303,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "r='    7' l='7    ' c='  7  ' z='00007' nz='-0007' hx='000000ab' text='  nia' ch='λ  ' bool='  true' legacy='ab'\n"
+        "r='    7' l='7    ' c='  7  ' z='00007' plus='+7' plusw='   +7' plusz='+0007' nz='-0007' hx='000000ab' alt='0xab' altw='0x0000ab' bin='0b10101011' oct='0253' text='  nia' ch='λ  ' bool='  true' hex='ab'\n"
     );
 }
 
@@ -358,15 +365,31 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error(writer.print("{x}", [&flag]), fmt::Error::InvalidTemplate) {
         return (9 as process::ExitCode)!;
     }
-    switch fmt::print_unchecked(&mut writer, "{X}", [&value]) {
+    if not expect_error(writer.print("{x}", [&value]), fmt::Error::InvalidTemplate) {
+        return (10 as process::ExitCode)!;
+    }
+    switch fmt::print_unchecked(&mut writer, "{:X}", [&value]) {
         !ok => _ = ok,
-        error! => return (10 as process::ExitCode)!,
+        error! => return (11 as process::ExitCode)!,
     }
     if not expect_error(writer.print("{:q}", [&value]), fmt::Error::InvalidTemplate) {
-        return (11 as process::ExitCode)!;
+        return (12 as process::ExitCode)!;
     }
     if not expect_error(writer.print("{:08", [&value]), fmt::Error::InvalidTemplate) {
-        return (12 as process::ExitCode)!;
+        return (13 as process::ExitCode)!;
+    }
+    let byte = 7u8;
+    if not expect_error(writer.print("{:+}", [&byte]), fmt::Error::InvalidTemplate) {
+        return (14 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:+}", [&flag]), fmt::Error::InvalidTemplate) {
+        return (15 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:#}", [&value]), fmt::Error::InvalidTemplate) {
+        return (16 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:#}", [&flag]), fmt::Error::InvalidTemplate) {
+        return (17 as process::ExitCode)!;
     }
     !{}
 }

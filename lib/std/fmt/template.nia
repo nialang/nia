@@ -30,13 +30,6 @@ fn parse_presentation(ch: char) ?core::FormatPresentation {
     }
 }
 
-fn parse_legacy_spec(ch: char) ?core::FormatSpec {
-    switch parse_presentation(ch) {
-        ?presentation => ?core::FormatSpec::init(presentation, 0usize, ' ', core::FormatAlignment::None),
-        null => null,
-    }
-}
-
 fn digit_value(ch: char) ?usize {
     if ch >= '0' and ch <= '9' {
         ?((ch as u32 - '0' as u32) as usize)
@@ -52,12 +45,14 @@ fn parse_spec_end(
     width: usize,
     fill: char,
     alignment: core::FormatAlignment,
+    sign_plus: bool,
+    alternate: bool,
 ) core::Error!ParsedSpec {
     if index >= template.len() or template[index] != '}' {
         return core::Error::InvalidTemplate!;
     }
     !{
-        spec: core::FormatSpec::init(presentation, width, fill, alignment),
+        spec: core::FormatSpec::init(presentation, width, fill, alignment, sign_plus, alternate),
         next_index: index + 1usize,
     }
 }
@@ -66,8 +61,11 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     var index = start;
     var fill = ' ';
     var alignment = core::FormatAlignment::None;
+    var sign_plus = false;
+    var alternate = false;
 
-    if index < template.len() {
+    var parsing_flags = true;
+    while parsing_flags and index < template.len() {
         let ch = template[index];
         if ch == '<' {
             alignment = core::FormatAlignment::Left;
@@ -82,6 +80,14 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
             fill = '0';
             alignment = core::FormatAlignment::Right;
             index += 1usize;
+        } else if ch == '+' and not sign_plus {
+            sign_plus = true;
+            index += 1usize;
+        } else if ch == '#' and not alternate {
+            alternate = true;
+            index += 1usize;
+        } else {
+            parsing_flags = false;
         }
     }
 
@@ -106,7 +112,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    parse_spec_end(template, index, presentation, width, fill, alignment)
+    parse_spec_end(template, index, presentation, width, fill, alignment, sign_plus, alternate)
 }
 
 fn print_template[W](
@@ -146,19 +152,7 @@ where W: io::Writer
                 arg_index += 1usize;
                 index = parsed.next_index;
             } else {
-                if index + 2usize >= template.len() or template[index + 2usize] != '}' {
-                    return core::Error::InvalidTemplate!;
-                }
-                let spec = switch parse_legacy_spec(next) {
-                    ?spec => spec,
-                    null => return core::Error::InvalidTemplate!,
-                };
-                if checked_args and arg_index >= args.len() {
-                    return core::Error::MissingArgument!;
-                }
-                args[arg_index].format_spec(&mut formatter, spec).?;
-                arg_index += 1usize;
-                index += 3usize;
+                return core::Error::InvalidTemplate!;
             }
         } else if ch == '}' {
             if index + 1usize < template.len() and template[index + 1usize] == '}' {
