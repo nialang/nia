@@ -124,9 +124,25 @@ entry points at `std::ArrayList` and `std::HashMap`.
 - `std::debug` defines low-friction diagnostic printing to stderr. Its
   `print` helper traps if the stderr write or flush fails; use `std::io` and
   explicit error propagation for application stdout or recoverable I/O.
-- `std::fmt` defines the formatting protocol used by writer `.print(...)`.
-  Primitive integers, `bool`, `char`, character slices, byte slices, and
-  `std::ArrayList[T]` where `T: fmt::Format[E]` implement this protocol.
+- `std::fmt` defines the formatting and parsing protocol used by writer
+  `.print(...)` and `fmt::parse[T](...)`. Format arguments are passed as a
+  slice of trait-object handles, usually written as an array literal such as
+  `[&value, &count]`; arrays coerce to the expected slice. Checked writer
+  printing reports `fmt::Error::MissingArgument`, `ExtraArgument`,
+  `InvalidTemplate`, or `Write`.
+  Primitive integers, `bool`, `char`, character slices, pointers, generic
+  slices `[T]` where `T: fmt::Format`, `std::ArrayList[T]`, and `std::HashMap`
+  implement the formatting protocol where applicable.
+  Format placeholders are positional. `{}` uses display formatting. Extended
+  placeholders begin with `{:...}` and support alignment/fill (`{:>5}`,
+  `{:<5}`, `{:^5}`, `{:_>5}`), text precision by character count (`{:.3}`,
+  `{:>8.3}`), integer signs (`{:+}`), alternate integer prefixes (`{:#x}`,
+  `{:#b}`, `{:#o}`), integer presentations (`{:x}`, `{:X}`, `{:b}`, `{:o}`),
+  zero padding (`{:05}`, `{:#08x}`), pointer formatting (`{:p}`), and escaped
+  braces (`{{` and `}}`). The old shorthand forms such as `{x}` are invalid.
+  `fmt::parse[T](...)` parses primitive integers and `bool`; integer parsing
+  accepts decimal plus `0x`, `0b`, and `0o` prefixes, while
+  `fmt::parse_radix[T](text, radix)` parses bare digits in radix 2 through 36.
 - `std::mem` defines the `Allocator` trait plus `Layout` and `Block`, the
   explicit allocation contract used by standard containers. A block must be
   freed with the allocator that produced it, and with the current layout carried
