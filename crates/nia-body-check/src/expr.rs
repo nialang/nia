@@ -252,7 +252,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_slice_range_bounds(range);
                         self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                             expr.span,
-                            "range index expression must be borrowed as a slice; use `&base[..]` or `&mut base[..]`",
+                            "range index expression must be taken as a slice pointer; use `&base[..]` or `&mut base[..]`",
                         ));
                         self.slice_result_type(lhs_ty, false)
                     }

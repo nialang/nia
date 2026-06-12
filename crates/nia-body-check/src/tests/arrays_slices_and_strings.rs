@@ -168,7 +168,7 @@ fn main(xs: & [i32]) i32 {
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
-                .contains("range index expression must be borrowed")
+                .contains("range index expression must be taken as a slice pointer")
         }),
         "{:?}",
         checked.diagnostics

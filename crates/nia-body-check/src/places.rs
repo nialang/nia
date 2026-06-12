@@ -186,7 +186,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Field { lhs, .. } => self.not_addressable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
-                IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
+                IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
             },
             ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
                 self.not_addressable_reason(callee)
@@ -224,7 +224,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Ident(_) => self.ident_not_assignable_reason(expr),
             ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
-                IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
+                IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
                 IndexArg::Expr(index) => self
                     .not_assignable_reason(lhs)
                     .or_else(|| self.index_write_not_assignable_reason(lhs, index)),
@@ -378,7 +378,7 @@ impl<'a> BodyChecker<'a> {
         is_readonly: bool,
     ) -> InternedTyId {
         // Used after the caller has already emitted the source-level error for
-        // a non-borrowed range index. Pass a default span so trait probing does
+        // a bare range index. Pass a default span so trait probing does
         // not add a second, less helpful diagnostic.
         let range_ty = self.interner.intern(TyKind::Range {
             kind: RangeTyKind::Full,
