@@ -8,9 +8,16 @@ pub fn main(init: Init) ExitCode!void {
     // Application stdout goes through std::io. The writer keeps pointers to
     // the runtime I/O state and caller-provided scratch buffer.
     var stdout = io::FileWriter::stdout(init.io(), buffer);
+    let name = "nia";
+    let answer = 42i32;
+    let byte = 171u8;
+    let ptr = &answer;
 
     // .exit().? maps std I/O errors into process exit errors and propagates.
-    stdout.print("nia stdout example\n", []).exit().?;
+    stdout.print(
+        "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
+        [&name[..], &answer, &byte, &ptr],
+    ).exit().?;
     stdout.flush().exit().?;
 
     !{}

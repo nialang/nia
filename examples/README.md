@@ -19,6 +19,15 @@ flush the writer, and map I/O error unions into process exit codes with
 `io_call().exit().?`. Format arguments are passed as ordinary array literals,
 such as `[&value, &count]`; Nia converts the array to the expected slice.
 
+`std::fmt` placeholders are positional. Use `{}` for display formatting and
+`{:...}` for format options: alignment and fill (`{:>5}`, `{:_>5}`), text
+precision (`{:.3}`), integer bases (`{:x}`, `{:X}`, `{:b}`, `{:o}`), signs
+(`{:+}`), alternate prefixes (`{:#x}`), zero padding (`{:05}`), and pointer
+addresses (`{:p}`). Literal braces are written as `{{` and `}}`. The matching
+parse helpers are `fmt::parse[T](text)` for primitive integers and bools, with
+integer prefixes such as `0x`, `0b`, and `0o`, and
+`fmt::parse_radix[T](text, radix)` for bare digits in an explicit radix.
+
 Run an example from the repository root with:
 
 ```sh
