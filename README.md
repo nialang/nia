@@ -98,6 +98,35 @@ Run the compiler from the workspace with:
 cargo run -p nia-cli -- --help
 ```
 
+For everyday use, build the release binary and create a symlink in
+`~/.local/bin`:
+
+```sh
+cargo build --release -p nia-cli
+mkdir -p "$HOME/.local/bin"
+ln -sf "$PWD/target/release/nia" "$HOME/.local/bin/nia"
+```
+
+Make sure `~/.local/bin` is on `PATH`, then verify the command:
+
+```sh
+nia --version
+nia check --exe examples/00_minimal.nia
+```
+
+This source-tree workflow is the recommended 0.4.0 installation path. The
+compiler's default standard-library path is tied to the checkout used to build
+it, so keep the repository in place after creating the symlink. To update:
+
+```sh
+git pull
+cargo build --release -p nia-cli
+```
+
+`cargo install` is not the recommended workflow yet because it installs only the
+compiler binary and does not install Nia's standard-library source tree.
+Relocatable toolchain installation is planned for a later release.
+
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text

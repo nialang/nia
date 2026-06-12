@@ -1047,7 +1047,7 @@ It should not parse AST or make frontend semantic decisions.
 
 ### 13.1 `nia-cli`
 
-The package is `nia-cli`. The installed binary name is `nia`.
+The package is `nia-cli`. The compiler binary name is `nia`.
 
 The CLI supports:
 
