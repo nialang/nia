@@ -248,11 +248,13 @@ fn closed_integer_pattern(closed: Closed) i32 {
 fn checks_shift_operators() {
     let checked = pipeline(
         r#"
-fn main(flag: bool) i32 {
+fn main(flag: bool, wide: u128, count: u32) i32 {
     var x = 1 << 3;
     var y = x >> 1;
+    var high = wide >> count;
     var z = x << flag;
     var bad = flag << 1;
+    _ = high;
     y + z + bad
 }
 "#,
@@ -260,14 +262,14 @@ fn main(flag: bool) i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("trait bound not satisfied: i32: Shl[bool]")),
+            .contains("shift count must be an integer type, got bool")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("trait bound not satisfied: bool: Shl[i32]")),
+            .contains("trait bound not satisfied: bool: Shl[bool]")),
         "{:?}",
         checked.diagnostics
     );

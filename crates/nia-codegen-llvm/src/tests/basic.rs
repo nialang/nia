@@ -271,6 +271,105 @@ fn scan(mask: usize) usize {
 }
 
 #[test]
+fn emits_wide_integer_shift_with_narrow_count() {
+    let root = temp_dir("emits_wide_integer_shift_with_narrow_count");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn high(value: u128, count: u32) u128 {
+    value >> count
+}
+
+fn low(value: u128, count: u32) u128 {
+    value << count
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("zext i32") && ir.contains("to i128"),
+        "expected shift count extension:\n{ir}"
+    );
+    assert!(
+        ir.contains("lshr i128"),
+        "expected logical right shift:\n{ir}"
+    );
+    assert!(ir.contains("shl i128"), "expected left shift:\n{ir}");
+}
+
+#[test]
+fn emits_compiler_builtins_object_only_when_reachable_ir_needs_it() {
+    let root = temp_dir("emits_compiler_builtins_object_only_when_reachable_ir_needs_it");
+    let plain = root.join("plain.nia");
+    std::fs::write(
+        &plain,
+        r#"
+fn main() i32 {
+    40 + 2
+}
+"#,
+    )
+    .expect("write plain source");
+
+    let checked = nia_driver::check_program(plain.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_native_objects(
+        &checked.backend_lowering.program,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(
+        output.modules.len(),
+        checked.backend_lowering.program.modules.len(),
+        "compiler builtins should not be emitted for programs that do not need lowered libcalls"
+    );
+
+    let wide = root.join("wide.nia");
+    std::fs::write(
+        &wide,
+        r#"
+fn divrem(value: u128, by: u128) u128 {
+    (value / by) + (value % by)
+}
+"#,
+    )
+    .expect("write wide source");
+
+    let checked = nia_driver::check_program(wide.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_native_objects(
+        &checked.backend_lowering.program,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(
+        output.modules.len(),
+        checked.backend_lowering.program.modules.len() + 1,
+        "u128 division should request one compiler builtins object"
+    );
+    assert!(
+        output
+            .modules
+            .iter()
+            .any(|module| module.name == "nia.compiler_builtins"),
+        "expected compiler builtins object in {:?}",
+        output
+            .modules
+            .iter()
+            .map(|module| &module.name)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn emits_unaligned_vector_load_builtin() {
     let root = temp_dir("emits_unaligned_vector_load_builtin");
     let main = root.join("main.nia");
