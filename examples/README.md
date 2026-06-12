@@ -54,6 +54,12 @@ examples, not in the default executable path.
 
 Nia allocation is explicit. Containers receive `&mut mem::Allocator`, and the
 same allocator must later deinitialize or free the allocation.
+The usual pattern is to create a concrete allocator and bind its pointer handle,
+such as `let allocator = &mut gpa;`. You can also take the handle at creation
+time, for example `let gpa = &mut mem::GeneralPurposeAllocator::init(&mut page);`.
+The `let` fixes the handle itself, while operations through the handle can still
+mutate the allocator state. Every container operation that may allocate or free
+should receive that same handle.
 
 - Use `std::mem.FixedBufferAllocator` when storage is caller-provided and bounded.
 - Use `std::mem.ArenaAllocator` for phase-local allocations that can all be

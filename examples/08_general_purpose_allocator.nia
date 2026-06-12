@@ -10,17 +10,20 @@ fn run(init: Init) mem::Error!void {
     var page = mem::PageAllocator::init();
     // The general-purpose allocator is the usual heap-backed allocator for
     // mixed lifetimes. The page allocator is its low-level backing source.
-    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    let gpa = &mut mem::GeneralPurposeAllocator::init(&mut page);
     // .ok() turns a leak report into mem::Error so examples fail on leaks.
     defer gpa.deinit().ok().?;
 
     var values = std::ArrayList[i32]::init();
     // Register container cleanup after allocator cleanup so it runs first.
-    defer values.deinit(&mut gpa).?;
+    defer values.deinit(gpa).?;
 
-    values.push(&mut gpa, 10).?;
-    values.push(&mut gpa, 20).?;
-    values.push(&mut gpa, 30).?;
+    // ArrayList asks for an allocator at each operation. Passing the handle
+    // makes it explicit that the container uses this allocator's storage but
+    // does not own the allocator itself.
+    values.push(gpa, 10).?;
+    values.push(gpa, 20).?;
+    values.push(gpa, 30).?;
 
     var total = 0;
     for &value in values.iter() {

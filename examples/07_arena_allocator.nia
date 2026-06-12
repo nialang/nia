@@ -5,6 +5,7 @@ using std::process;
 using process::{Init, ExitCode};
 
 fn fill_scores(list: &mut std::ArrayList[i32], allocator: &mut mem::Allocator) mem::Error!void {
+    // allocator is already a handle. Pass it on directly.
     list.push(allocator, 8).?;
     list.push(allocator, 13).?;
     list.push(allocator, 21).?;
@@ -27,9 +28,10 @@ fn run(init: Init) mem::Error!void {
     // a group. It is a good fit for phase-local scratch data.
     var arena = mem::ArenaAllocator::init(&mut page);
     defer arena.deinit().?;
+    let allocator = &mut arena;
 
     var scores = std::ArrayList[i32]::init();
-    fill_scores(&mut scores, &mut arena).?;
+    fill_scores(&mut scores, allocator).?;
 
     var first_total = sum(scores.as_slice());
     var first_capacity = arena.query_capacity();
@@ -40,7 +42,9 @@ fn run(init: Init) mem::Error!void {
     arena.reset_retain_capacity().?;
 
     // New allocations after reset may reuse retained arena storage.
-    var labels = arena.alloc_slice[u8](16).?;
+    var labels = allocator.alloc_slice[u8](16).?;
+    // This is mutable byte storage, not a string literal; string and
+    // byte-string literal forms are covered in 02_slices_and_strings.nia.
     labels[0] = b'o';
     labels[1] = b'k';
 
