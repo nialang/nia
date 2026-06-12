@@ -21,11 +21,12 @@ use nia_ids::{
 };
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
+use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeValue {
-    Int(i128),
+    Int(IntConst),
     Float(f64),
     Bool(bool),
     String(String),
@@ -38,8 +39,8 @@ pub enum ComptimeValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeRangeValue {
-    pub start: Option<i128>,
-    pub end: Option<i128>,
+    pub start: Option<IntConst>,
+    pub end: Option<IntConst>,
     pub inclusive: bool,
 }
 
@@ -467,229 +468,227 @@ fn eval_resolved_comptime_expr_flow(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let span = expr.span();
-    let value =
-        match expr.kind() {
-            ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
-            ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
-            ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
-                .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: "unsupported string literal in comptime expression".to_string(),
-                })?,
-            ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: "unsupported byte string literal in comptime expression".to_string(),
-                })?,
-            ResolvedComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
-                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: "unsupported C string literal in comptime expression".to_string(),
-                })?,
-            ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
-                .map(ComptimeValue::Int)
-                .map_err(|message| ComptimeError { span, message })?,
-            ResolvedComptimeExprKind::Float(text) => eval_float_literal(text)
-                .map(ComptimeValue::Float)
-                .map_err(|message| ComptimeError { span, message })?,
-            ResolvedComptimeExprKind::Char(text) => decode_char_literal(text)
-                .map(|value| ComptimeValue::Int(value as i128))
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("invalid char literal `{text}` in comptime expression"),
-                })?,
-            ResolvedComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
-                .map(|value| ComptimeValue::Int(value as i128))
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("invalid byte char literal `{text}` in comptime expression"),
-                })?,
-            ResolvedComptimeExprKind::Name(resolution) => {
-                env.resolve_resolved_name(span, *resolution)?
-            }
-            ResolvedComptimeExprKind::Field { lhs, name } => {
-                match eval_resolved_value_or_return_flow!(lhs, env) {
-                    ComptimeValue::Struct(fields) => {
-                        fields.get(name).cloned().ok_or_else(|| ComptimeError {
-                            span,
-                            message: format!("unknown comptime field `{name}`"),
-                        })?
-                    }
-                    _ => {
-                        return Err(ComptimeError {
-                            span,
-                            message: "comptime field access requires a struct value".to_string(),
-                        });
-                    }
-                }
-            }
-            ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => eval_builtin_method_value(
+    let value = match expr.kind() {
+        ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
+        ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
+        ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
+            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
+            .ok_or_else(|| ComptimeError {
                 span,
-                *method,
-                eval_resolved_value_or_return_flow!(lhs, env),
-            )?,
-            ResolvedComptimeExprKind::Index { lhs, index } => {
-                return eval_resolved_array_index_flow(span, lhs, index, env);
-            }
-            ResolvedComptimeExprKind::Slice { lhs, range } => {
-                return eval_resolved_array_slice_flow(span, lhs, range, env);
-            }
-            ResolvedComptimeExprKind::ArrayLiteral { elems, .. } => {
-                return eval_resolved_array_literal_flow(elems, env);
-            }
-            ResolvedComptimeExprKind::StructLiteral { fields, .. } => {
-                return eval_resolved_struct_literal_flow(fields, env);
-            }
-            ResolvedComptimeExprKind::CompileError { message } => {
-                let value = eval_resolved_value_or_return_flow!(message, env);
-                let Some(message) = comptime_error_message(&value) else {
-                    return Err(ComptimeError {
+                message: "unsupported string literal in comptime expression".to_string(),
+            })?,
+        ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: "unsupported byte string literal in comptime expression".to_string(),
+            })?,
+        ResolvedComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: "unsupported C string literal in comptime expression".to_string(),
+            })?,
+        ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
+            .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
+            .map_err(|message| ComptimeError { span, message })?,
+        ResolvedComptimeExprKind::Float(text) => eval_float_literal(text)
+            .map(ComptimeValue::Float)
+            .map_err(|message| ComptimeError { span, message })?,
+        ResolvedComptimeExprKind::Char(text) => decode_char_literal(text)
+            .map(|value| ComptimeValue::Int(IntConst::unsigned(value as u128)))
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: format!("invalid char literal `{text}` in comptime expression"),
+            })?,
+        ResolvedComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
+            .map(|value| ComptimeValue::Int(IntConst::unsigned(value as u128)))
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: format!("invalid byte char literal `{text}` in comptime expression"),
+            })?,
+        ResolvedComptimeExprKind::Name(resolution) => {
+            env.resolve_resolved_name(span, *resolution)?
+        }
+        ResolvedComptimeExprKind::Field { lhs, name } => {
+            match eval_resolved_value_or_return_flow!(lhs, env) {
+                ComptimeValue::Struct(fields) => {
+                    fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span,
-                        message: "builtin `@error` requires a comptime string message".to_string(),
-                    });
-                };
-                return Err(ComptimeError { span, message });
-            }
-            ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
-                env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
-            }
-            ResolvedComptimeExprKind::BuiltinValue(builtin) => {
-                env.resolve_builtin_value(span, *builtin)?
-            }
-            ResolvedComptimeExprKind::Call {
-                callee,
-                type_args,
-                args,
-            } => {
-                if let ResolvedComptimeExprKind::BuiltinValue(builtin) = callee.kind() {
-                    if !args.is_empty() {
-                        return Err(ComptimeError {
-                            span,
-                            message: format!(
-                                "unsupported builtin call in comptime expression: @{}",
-                                builtin.name()
-                            ),
-                        });
-                    }
-                    env.resolve_builtin_value(span, *builtin)?
-                } else if let ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } =
-                    callee.kind()
-                {
-                    if !args.is_empty() {
-                        return Err(ComptimeError {
-                            span,
-                            message: format!(
-                                "unsupported builtin call in comptime expression: @{}",
-                                builtin.name()
-                            ),
-                        });
-                    }
-                    env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
-                } else {
-                    let mut values = Vec::with_capacity(args.len());
-                    for arg in args {
-                        values.push(eval_resolved_value_or_return_flow!(arg, env));
-                    }
-                    env.call_resolved_function(span, callee, type_args, args, values)?
+                        message: format!("unknown comptime field `{name}`"),
+                    })?
                 }
-            }
-            ResolvedComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::Neg,
-                expr: inner,
-            } => match eval_resolved_value_or_return_flow!(inner, env) {
-                ComptimeValue::Int(value) => value
-                    .checked_neg()
-                    .map(ComptimeValue::Int)
-                    .ok_or_else(|| ComptimeError {
-                        span,
-                        message: "integer overflow in comptime negation".to_string(),
-                    })?,
-                ComptimeValue::Float(value) => ComptimeValue::Float(-value),
                 _ => {
                     return Err(ComptimeError {
                         span,
-                        message: "comptime negation requires a numeric value".to_string(),
+                        message: "comptime field access requires a struct value".to_string(),
                     });
                 }
-            },
-            ResolvedComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::Not,
-                expr: inner,
-            } => match eval_resolved_value_or_return_flow!(inner, env) {
-                ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
-                _ => {
-                    return Err(ComptimeError {
-                        span,
-                        message: "comptime `not` requires a bool".to_string(),
-                    });
-                }
-            },
-            ResolvedComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::BitNot,
-                expr: inner,
-            } => match eval_resolved_value_or_return_flow!(inner, env) {
-                ComptimeValue::Int(value) => ComptimeValue::Int(!value),
-                _ => {
-                    return Err(ComptimeError {
-                        span,
-                        message: "comptime bitwise not requires an integer".to_string(),
-                    });
-                }
-            },
-            ResolvedComptimeExprKind::Unary { op, .. } => {
+            }
+        }
+        ResolvedComptimeExprKind::BuiltinMethod { method, lhs } => {
+            eval_builtin_method_value(span, *method, eval_resolved_value_or_return_flow!(lhs, env))?
+        }
+        ResolvedComptimeExprKind::Index { lhs, index } => {
+            return eval_resolved_array_index_flow(span, lhs, index, env);
+        }
+        ResolvedComptimeExprKind::Slice { lhs, range } => {
+            return eval_resolved_array_slice_flow(span, lhs, range, env);
+        }
+        ResolvedComptimeExprKind::ArrayLiteral { elems, .. } => {
+            return eval_resolved_array_literal_flow(elems, env);
+        }
+        ResolvedComptimeExprKind::StructLiteral { fields, .. } => {
+            return eval_resolved_struct_literal_flow(fields, env);
+        }
+        ResolvedComptimeExprKind::CompileError { message } => {
+            let value = eval_resolved_value_or_return_flow!(message, env);
+            let Some(message) = comptime_error_message(&value) else {
                 return Err(ComptimeError {
                     span,
-                    message: format!("unsupported unary operator in comptime expression: {op:?}"),
+                    message: "builtin `@error` requires a comptime string message".to_string(),
+                });
+            };
+            return Err(ComptimeError { span, message });
+        }
+        ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+            env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
+        }
+        ResolvedComptimeExprKind::BuiltinValue(builtin) => {
+            env.resolve_builtin_value(span, *builtin)?
+        }
+        ResolvedComptimeExprKind::Call {
+            callee,
+            type_args,
+            args,
+        } => {
+            if let ResolvedComptimeExprKind::BuiltinValue(builtin) = callee.kind() {
+                if !args.is_empty() {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!(
+                            "unsupported builtin call in comptime expression: @{}",
+                            builtin.name()
+                        ),
+                    });
+                }
+                env.resolve_builtin_value(span, *builtin)?
+            } else if let ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } =
+                callee.kind()
+            {
+                if !args.is_empty() {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!(
+                            "unsupported builtin call in comptime expression: @{}",
+                            builtin.name()
+                        ),
+                    });
+                }
+                env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
+            } else {
+                let mut values = Vec::with_capacity(args.len());
+                for arg in args {
+                    values.push(eval_resolved_value_or_return_flow!(arg, env));
+                }
+                env.call_resolved_function(span, callee, type_args, args, values)?
+            }
+        }
+        ResolvedComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Neg,
+            expr: inner,
+        } => match eval_resolved_value_or_return_flow!(inner, env) {
+            ComptimeValue::Int(value) => value
+                .as_i128()
+                .and_then(i128::checked_neg)
+                .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: "integer overflow in comptime negation".to_string(),
+                })?,
+            ComptimeValue::Float(value) => ComptimeValue::Float(-value),
+            _ => {
+                return Err(ComptimeError {
+                    span,
+                    message: "comptime negation requires a numeric value".to_string(),
                 });
             }
-            ResolvedComptimeExprKind::OptionalSome { expr: inner } => ComptimeValue::Optional(
-                Some(Box::new(eval_resolved_value_or_return_flow!(inner, env))),
-            ),
-            ResolvedComptimeExprKind::ErrorOk { expr: inner } => ComptimeValue::ErrorUnion(Ok(
-                Box::new(eval_resolved_value_or_return_flow!(inner, env)),
-            )),
-            ResolvedComptimeExprKind::ErrorErr { expr: inner } => ComptimeValue::ErrorUnion(Err(
-                Box::new(eval_resolved_value_or_return_flow!(inner, env)),
-            )),
-            ResolvedComptimeExprKind::Try { expr: inner } => {
-                return eval_resolved_try_expr_flow(span, inner, env);
+        },
+        ResolvedComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Not,
+            expr: inner,
+        } => match eval_resolved_value_or_return_flow!(inner, env) {
+            ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
+            _ => {
+                return Err(ComptimeError {
+                    span,
+                    message: "comptime `not` requires a bool".to_string(),
+                });
             }
-            ResolvedComptimeExprKind::Binary { lhs, op, rhs } => {
-                return eval_resolved_binary_flow(span, lhs, *op, rhs, env);
+        },
+        ResolvedComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::BitNot,
+            expr: inner,
+        } => match eval_resolved_value_or_return_flow!(inner, env) {
+            ComptimeValue::Int(value) => ComptimeValue::Int(comptime_bit_not(value)),
+            _ => {
+                return Err(ComptimeError {
+                    span,
+                    message: "comptime bitwise not requires an integer".to_string(),
+                });
             }
-            ResolvedComptimeExprKind::Assign(assign) => {
-                return eval_resolved_assign_expr_flow(span, assign, env);
-            }
-            ResolvedComptimeExprKind::Range(range) => {
-                return eval_resolved_range_expr_flow(range, env);
-            }
-            ResolvedComptimeExprKind::If {
+        },
+        ResolvedComptimeExprKind::Unary { op, .. } => {
+            return Err(ComptimeError {
+                span,
+                message: format!("unsupported unary operator in comptime expression: {op:?}"),
+            });
+        }
+        ResolvedComptimeExprKind::OptionalSome { expr: inner } => ComptimeValue::Optional(Some(
+            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
+        )),
+        ResolvedComptimeExprKind::ErrorOk { expr: inner } => ComptimeValue::ErrorUnion(Ok(
+            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
+        )),
+        ResolvedComptimeExprKind::ErrorErr { expr: inner } => ComptimeValue::ErrorUnion(Err(
+            Box::new(eval_resolved_value_or_return_flow!(inner, env)),
+        )),
+        ResolvedComptimeExprKind::Try { expr: inner } => {
+            return eval_resolved_try_expr_flow(span, inner, env);
+        }
+        ResolvedComptimeExprKind::Binary { lhs, op, rhs } => {
+            return eval_resolved_binary_flow(span, lhs, *op, rhs, env);
+        }
+        ResolvedComptimeExprKind::Assign(assign) => {
+            return eval_resolved_assign_expr_flow(span, assign, env);
+        }
+        ResolvedComptimeExprKind::Range(range) => {
+            return eval_resolved_range_expr_flow(range, env);
+        }
+        ResolvedComptimeExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            return eval_resolved_comptime_if_expr_flow(
+                span,
                 cond,
                 then_branch,
-                else_branch,
-            } => {
-                return eval_resolved_comptime_if_expr_flow(
-                    span,
-                    cond,
-                    then_branch,
-                    else_branch.as_deref(),
-                    env,
-                );
-            }
-            ResolvedComptimeExprKind::Switch(switch) => {
-                return eval_resolved_comptime_switch_expr_flow(switch, env);
-            }
-            ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
-                let value = eval_resolved_value_or_return_flow!(inner, env);
-                env.cast_value(span, value, *ty)?
-            }
-            ResolvedComptimeExprKind::Block(block) => {
-                return eval_resolved_function_block(block, env);
-            }
-        };
+                else_branch.as_deref(),
+                env,
+            );
+        }
+        ResolvedComptimeExprKind::Switch(switch) => {
+            return eval_resolved_comptime_switch_expr_flow(switch, env);
+        }
+        ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
+            let value = eval_resolved_value_or_return_flow!(inner, env);
+            env.cast_value(span, value, *ty)?
+        }
+        ResolvedComptimeExprKind::Block(block) => {
+            return eval_resolved_function_block(block, env);
+        }
+    };
     Ok(ComptimeEvalFlow::Value(value))
 }
 
@@ -719,7 +718,7 @@ fn eval_comptime_expr_flow(
                 message: "unsupported C string literal in comptime expression".to_string(),
             })?,
         EarlyComptimeExprKind::Integer(text) => eval_int_literal(text)
-            .map(ComptimeValue::Int)
+            .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
             .map_err(|message| ComptimeError {
                 span: expr.span,
                 message,
@@ -731,13 +730,13 @@ fn eval_comptime_expr_flow(
                 message,
             })?,
         EarlyComptimeExprKind::Char(text) => decode_char_literal(text)
-            .map(|value| ComptimeValue::Int(value as i128))
+            .map(|value| ComptimeValue::Int(IntConst::unsigned(value as u128)))
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: format!("invalid char literal `{text}` in comptime expression"),
             })?,
         EarlyComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
-            .map(|value| ComptimeValue::Int(value as i128))
+            .map(|value| ComptimeValue::Int(IntConst::unsigned(value as u128)))
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: format!("invalid byte char literal `{text}` in comptime expression"),
@@ -832,24 +831,23 @@ fn eval_comptime_expr_flow(
         EarlyComptimeExprKind::Unary {
             op: ComptimeUnaryOp::Neg,
             expr: inner,
-        } => {
-            match eval_value_or_return_flow!(inner, env) {
-                ComptimeValue::Int(value) => value
-                    .checked_neg()
-                    .map(ComptimeValue::Int)
-                    .ok_or_else(|| ComptimeError {
-                        span: expr.span,
-                        message: "integer overflow in comptime negation".to_string(),
-                    })?,
-                ComptimeValue::Float(value) => ComptimeValue::Float(-value),
-                _ => {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: "comptime negation requires a numeric value".to_string(),
-                    });
-                }
+        } => match eval_value_or_return_flow!(inner, env) {
+            ComptimeValue::Int(value) => value
+                .as_i128()
+                .and_then(i128::checked_neg)
+                .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
+                .ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: "integer overflow in comptime negation".to_string(),
+                })?,
+            ComptimeValue::Float(value) => ComptimeValue::Float(-value),
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime negation requires a numeric value".to_string(),
+                });
             }
-        }
+        },
         EarlyComptimeExprKind::Unary {
             op: ComptimeUnaryOp::Not,
             expr: inner,
@@ -866,7 +864,7 @@ fn eval_comptime_expr_flow(
             op: ComptimeUnaryOp::BitNot,
             expr: inner,
         } => match eval_value_or_return_flow!(inner, env) {
-            ComptimeValue::Int(value) => ComptimeValue::Int(!value),
+            ComptimeValue::Int(value) => ComptimeValue::Int(comptime_bit_not(value)),
             _ => {
                 return Err(ComptimeError {
                     span: expr.span,
@@ -984,12 +982,12 @@ fn eval_builtin_len_value(
     value: ComptimeValue,
 ) -> Result<ComptimeValue, ComptimeError> {
     match value {
-        ComptimeValue::Array(values) => Ok(ComptimeValue::Int(
-            i128::try_from(values.len()).map_err(|_| ComptimeError {
+        ComptimeValue::Array(values) => Ok(ComptimeValue::Int(IntConst::unsigned(
+            u128::try_from(values.len()).map_err(|_| ComptimeError {
                 span,
                 message: "comptime array length is too large".to_string(),
             })?,
-        )),
+        ))),
         _ => Err(ComptimeError {
             span,
             message: "comptime len requires an array value".to_string(),
@@ -1406,9 +1404,11 @@ fn switch_range_matches(
     let start = eval_comptime_int_expr(start, env)?;
     let end = eval_comptime_int_expr(end, env)?;
     Ok(if inclusive {
-        start <= *target && *target <= end
+        eval_binary_int_compare(start, ComptimeBinaryOp::Le, *target)
+            && eval_binary_int_compare(*target, ComptimeBinaryOp::Le, end)
     } else {
-        start <= *target && *target < end
+        eval_binary_int_compare(start, ComptimeBinaryOp::Le, *target)
+            && eval_binary_int_compare(*target, ComptimeBinaryOp::Lt, end)
     })
 }
 
@@ -1429,9 +1429,11 @@ fn resolved_switch_range_matches(
     let start = eval_resolved_comptime_int_expr_inner(start, env)?;
     let end = eval_resolved_comptime_int_expr_inner(end, env)?;
     Ok(if inclusive {
-        start <= *target && *target <= end
+        eval_binary_int_compare(start, ComptimeBinaryOp::Le, *target)
+            && eval_binary_int_compare(*target, ComptimeBinaryOp::Le, end)
     } else {
-        start <= *target && *target < end
+        eval_binary_int_compare(start, ComptimeBinaryOp::Le, *target)
+            && eval_binary_int_compare(*target, ComptimeBinaryOp::Lt, end)
     })
 }
 
@@ -1874,7 +1876,7 @@ fn eval_resolved_struct_literal_flow(
 fn eval_comptime_int_expr(
     expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
-) -> Result<i128, ComptimeError> {
+) -> Result<IntConst, ComptimeError> {
     match eval_comptime_expr(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
         _ => Err(ComptimeError {
@@ -1887,21 +1889,21 @@ fn eval_comptime_int_expr(
 pub fn eval_early_comptime_int_expr(
     expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
-) -> Result<i128, ComptimeError> {
+) -> Result<IntConst, ComptimeError> {
     eval_comptime_int_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_int_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ResolvedComptimeEnv,
-) -> Result<i128, ComptimeError> {
+) -> Result<IntConst, ComptimeError> {
     eval_resolved_comptime_int_expr_inner(expr, env)
 }
 
 fn eval_resolved_comptime_int_expr_inner(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ResolvedComptimeEnv,
-) -> Result<i128, ComptimeError> {
+) -> Result<IntConst, ComptimeError> {
     match eval_resolved_comptime_expr_value(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
         _ => Err(ComptimeError {
@@ -2863,7 +2865,7 @@ fn eval_resolved_range_expr_flow(
 }
 
 enum ComptimeRangeBoundFlow {
-    Value(Option<i128>),
+    Value(Option<IntConst>),
     Flow(ComptimeEvalFlow),
 }
 
@@ -3218,7 +3220,21 @@ pub fn eval_float_literal(text: &str) -> Result<f64, String> {
         .map_err(|_| "invalid float constant".to_string())
 }
 
-fn int_to_array_len(span: Span, value: i128) -> Result<u64, ComptimeError> {
+fn comptime_bit_not(value: IntConst) -> IntConst {
+    if value.is_signed() {
+        IntConst::from_i128(!value.as_i128().unwrap_or(value.bits() as i128))
+    } else {
+        IntConst::unsigned(!value.bits())
+    }
+}
+
+fn int_to_array_len(span: Span, value: IntConst) -> Result<u64, ComptimeError> {
+    let Some(value) = value.as_i128() else {
+        return Err(ComptimeError {
+            span,
+            message: "array length is too large".to_string(),
+        });
+    };
     if value < 0 {
         return Err(ComptimeError {
             span,
@@ -3231,7 +3247,18 @@ fn int_to_array_len(span: Span, value: i128) -> Result<u64, ComptimeError> {
     })
 }
 
-fn eval_binary_int(lhs: i128, op: ComptimeBinaryOp, rhs: i128) -> Result<i128, String> {
+fn int_to_i128(value: IntConst, context: &str) -> Result<i128, String> {
+    value
+        .as_i128()
+        .ok_or_else(|| format!("integer value is too large for {context}"))
+}
+
+fn eval_binary_int(lhs: IntConst, op: ComptimeBinaryOp, rhs: IntConst) -> Result<IntConst, String> {
+    if !lhs.is_signed() && !rhs.is_signed() {
+        return eval_binary_uint(lhs.bits(), op, rhs.bits()).map(IntConst::unsigned);
+    }
+    let lhs = int_to_i128(lhs, "comptime operation")?;
+    let rhs = int_to_i128(rhs, "comptime operation")?;
     Ok(match op {
         ComptimeBinaryOp::Mul => lhs
             .checked_mul(rhs)
@@ -3258,6 +3285,43 @@ fn eval_binary_int(lhs: i128, op: ComptimeBinaryOp, rhs: i128) -> Result<i128, S
             .ok_or_else(|| "integer overflow in comptime subtraction".to_string())?,
         ComptimeBinaryOp::Shl => checked_shift(lhs, rhs, true)?,
         ComptimeBinaryOp::Shr => checked_shift(lhs, rhs, false)?,
+        ComptimeBinaryOp::BitAnd => lhs & rhs,
+        ComptimeBinaryOp::BitXor => lhs ^ rhs,
+        ComptimeBinaryOp::BitOr => lhs | rhs,
+        _ => {
+            return Err(format!(
+                "unsupported binary operator in comptime expression: {op:?}"
+            ));
+        }
+    }
+    .into())
+}
+
+fn eval_binary_uint(lhs: u128, op: ComptimeBinaryOp, rhs: u128) -> Result<u128, String> {
+    Ok(match op {
+        ComptimeBinaryOp::Mul => lhs
+            .checked_mul(rhs)
+            .ok_or_else(|| "integer overflow in comptime multiplication".to_string())?,
+        ComptimeBinaryOp::Div => {
+            if rhs == 0 {
+                return Err("division by zero in comptime expression".to_string());
+            }
+            lhs / rhs
+        }
+        ComptimeBinaryOp::Rem => {
+            if rhs == 0 {
+                return Err("remainder by zero in comptime expression".to_string());
+            }
+            lhs % rhs
+        }
+        ComptimeBinaryOp::Add => lhs
+            .checked_add(rhs)
+            .ok_or_else(|| "integer overflow in comptime addition".to_string())?,
+        ComptimeBinaryOp::Sub => lhs
+            .checked_sub(rhs)
+            .ok_or_else(|| "integer overflow in comptime subtraction".to_string())?,
+        ComptimeBinaryOp::Shl => checked_shift_u128(lhs, rhs, true)?,
+        ComptimeBinaryOp::Shr => checked_shift_u128(lhs, rhs, false)?,
         ComptimeBinaryOp::BitAnd => lhs & rhs,
         ComptimeBinaryOp::BitXor => lhs ^ rhs,
         ComptimeBinaryOp::BitOr => lhs | rhs,
@@ -3513,7 +3577,18 @@ fn eval_resolved_binary_flow(
     Ok(ComptimeEvalFlow::Value(value))
 }
 
-fn eval_binary_int_compare(lhs: i128, op: ComptimeBinaryOp, rhs: i128) -> bool {
+fn eval_binary_int_compare(lhs: IntConst, op: ComptimeBinaryOp, rhs: IntConst) -> bool {
+    if !lhs.is_signed() && !rhs.is_signed() {
+        return match op {
+            ComptimeBinaryOp::Lt => lhs.bits() < rhs.bits(),
+            ComptimeBinaryOp::Le => lhs.bits() <= rhs.bits(),
+            ComptimeBinaryOp::Gt => lhs.bits() > rhs.bits(),
+            ComptimeBinaryOp::Ge => lhs.bits() >= rhs.bits(),
+            _ => unreachable!("non-comparison binary operator routed to integer comparison"),
+        };
+    }
+    let lhs = lhs.as_i128().unwrap_or(i128::MAX);
+    let rhs = rhs.as_i128().unwrap_or(i128::MAX);
     match op {
         ComptimeBinaryOp::Lt => lhs < rhs,
         ComptimeBinaryOp::Le => lhs <= rhs,
@@ -3579,14 +3654,14 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
 fn string_to_char_array(value: &str) -> Vec<ComptimeValue> {
     value
         .chars()
-        .map(|ch| ComptimeValue::Int(ch as i128))
+        .map(|ch| ComptimeValue::Int(IntConst::unsigned(ch as u128)))
         .collect()
 }
 
 fn bytes_to_array(value: &[u8]) -> Vec<ComptimeValue> {
     value
         .iter()
-        .map(|byte| ComptimeValue::Int(i128::from(*byte)))
+        .map(|byte| ComptimeValue::Int(IntConst::unsigned(u128::from(*byte))))
         .collect()
 }
 
@@ -3596,7 +3671,7 @@ fn char_array_to_string(values: &[ComptimeValue]) -> Option<String> {
         let ComptimeValue::Int(value) = value else {
             return None;
         };
-        let value = u32::try_from(*value).ok()?;
+        let value = u32::try_from(value.bits()).ok()?;
         out.push(char::from_u32(value)?);
     }
     Some(out)
@@ -3814,6 +3889,22 @@ fn checked_shift(lhs: i128, rhs: i128, is_left: bool) -> Result<i128, String> {
         return Err("shift count is out of range in comptime expression".to_string());
     };
     if rhs >= i128::BITS {
+        return Err("shift count is out of range in comptime expression".to_string());
+    }
+    if is_left {
+        lhs.checked_shl(rhs)
+            .ok_or_else(|| "integer overflow in comptime left shift".to_string())
+    } else {
+        lhs.checked_shr(rhs)
+            .ok_or_else(|| "integer overflow in comptime right shift".to_string())
+    }
+}
+
+fn checked_shift_u128(lhs: u128, rhs: u128, is_left: bool) -> Result<u128, String> {
+    let Ok(rhs) = u32::try_from(rhs) else {
+        return Err("shift count is out of range in comptime expression".to_string());
+    };
+    if rhs >= u128::BITS {
         return Err("shift count is out of range in comptime expression".to_string());
     }
     if is_left {

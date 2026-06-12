@@ -2,7 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TraitId};
+use nia_ty::{BuiltinTrait, IntConst, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -382,7 +382,7 @@ pub enum FunctionBuiltinValue {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
-    Int(i128),
+    Int(IntConst),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

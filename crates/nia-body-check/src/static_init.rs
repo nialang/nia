@@ -10,23 +10,22 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::BuiltinValue;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
+use nia_ty::{IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
         match &expr.kind {
-            ExprKind::Integer(text) => {
-                parse_int_literal(text)
-                    .map(StaticInit::Int)
-                    .unwrap_or_else(|| {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
-                            expr.span,
-                            format!("invalid integer literal `{text}` in static initializer"),
-                        ));
-                        StaticInit::Zero
-                    })
-            }
+            ExprKind::Integer(text) => parse_int_literal(text)
+                .map(|value| StaticInit::Int(IntConst::signed(value)))
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        expr.span,
+                        format!("invalid integer literal `{text}` in static initializer"),
+                    ));
+                    StaticInit::Zero
+                }),
             ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
             ExprKind::String(literal) => decode_string_literal(literal)
@@ -81,7 +80,9 @@ impl<'a> BodyChecker<'a> {
                 }),
             ExprKind::Builtin { .. } => match self.builtin_value(expr) {
                 Some(BuiltinValue::Int(value)) => StaticInit::Int(*value),
-                Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
+                Some(BuiltinValue::Usize(value)) => {
+                    StaticInit::Int(IntConst::unsigned(*value as u128))
+                }
                 Some(BuiltinValue::Layout { .. }) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0301",
@@ -104,7 +105,7 @@ impl<'a> BodyChecker<'a> {
                     return StaticInit::Int(*value);
                 }
                 if let Some(BuiltinValue::Usize(value)) = self.builtin_value(expr) {
-                    return StaticInit::Int(*value as i128);
+                    return StaticInit::Int(IntConst::unsigned(*value as u128));
                 }
                 if let Some(value) = self.static_comptime_int(expr) {
                     return StaticInit::Int(value);
@@ -157,7 +158,7 @@ impl<'a> BodyChecker<'a> {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
             } => self.lower_static_address_init(expr),
-            ExprKind::Cast { expr, .. } => self.lower_static_init(expr),
+            ExprKind::Cast { expr: inner, .. } => self.lower_static_cast_init(expr, inner),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
@@ -172,7 +173,7 @@ impl<'a> BodyChecker<'a> {
     fn eval_static_comptime_int_expr(
         &mut self,
         expr: &Expr,
-    ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+    ) -> Result<IntConst, nia_comptime_engine::ComptimeError> {
         let expr = self.eval_static_comptime_expr(expr)?;
         nia_comptime_engine::eval_resolved_comptime_int_expr(&expr, self)
     }
@@ -196,6 +197,23 @@ impl<'a> BodyChecker<'a> {
                     message: err.message,
                 })
         })
+    }
+
+    fn lower_static_cast_init(&mut self, cast: &Expr, inner: &Expr) -> StaticInit {
+        let init = self.lower_static_init(inner);
+        let Some(target_ty) = self.expr_ty(cast) else {
+            return init;
+        };
+        let Some(TyKind::Primitive(primitive)) = self.interner.get(target_ty) else {
+            return init;
+        };
+        let StaticInit::Int(value) = init else {
+            return init;
+        };
+        value
+            .cast_to_primitive_int(*primitive, self.target.pointer_width)
+            .map(StaticInit::Int)
+            .unwrap_or(StaticInit::Int(value))
     }
 
     fn lower_static_address_init(&mut self, expr: &Expr) -> StaticInit {
@@ -318,7 +336,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn static_comptime_int(&self, expr: &Expr) -> Option<i128> {
+    fn static_comptime_int(&self, expr: &Expr) -> Option<IntConst> {
         if let Some(global_id) = self.global_comptime_use(expr) {
             return match self.global_comptime_value(global_id)? {
                 nia_comptime_check::ComptimeValue::Int(value) => Some(value),

@@ -1234,6 +1234,8 @@ fn main() bool {
         and isize::MIN < 0isize
         and i32::MAX == 2147483647i32
         and i32::MIN < 0i32
+        and u128::MAX > 0u128
+        and i128::MIN < 0i128
 }
 "#,
     );
@@ -1266,8 +1268,8 @@ fn main() usize {
 }
 
 #[test]
-fn u128_max_is_not_a_truncated_builtin_associated_value() {
-    let root = temp_dir("u128_max_is_not_a_truncated_builtin_associated_value");
+fn u128_max_is_a_builtin_associated_value() {
+    let root = temp_dir("u128_max_is_a_builtin_associated_value");
     write(
         &root.join("main.nia"),
         r#"
@@ -1278,14 +1280,7 @@ fn main() u128 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("qualified access is not a value expression")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]

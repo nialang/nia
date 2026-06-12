@@ -294,7 +294,7 @@ impl<'a> BodyChecker<'a> {
                 let ty = self.primitive(primitive);
                 let value = kind.value(primitive, self.target.pointer_width)?;
                 let builtin = if primitive == PrimitiveTy::Usize {
-                    BuiltinValue::Usize(u64::try_from(value).ok()?)
+                    BuiltinValue::Usize(u64::try_from(value.bits()).ok()?)
                 } else {
                     BuiltinValue::Int(value)
                 };

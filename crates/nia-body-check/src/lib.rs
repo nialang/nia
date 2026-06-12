@@ -2018,7 +2018,7 @@ impl<'a> BodyChecker<'a> {
                 })
                 .ok()?
             {
-                nia_comptime_engine::ComptimeValue::Int(value) => value,
+                nia_comptime_engine::ComptimeValue::Int(value) => value.as_i128()?,
                 _ => return None,
             }
         };

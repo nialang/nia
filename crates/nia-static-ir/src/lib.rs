@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ty::IntConst;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StaticInit {
     Zero,
-    Int(i128),
+    Int(IntConst),
     Float(String),
     Bool(bool),
     Char(u32),

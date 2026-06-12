@@ -1083,7 +1083,7 @@ impl<'a> BodyChecker<'a> {
             })
             .ok()?
         {
-            nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
+            nia_comptime_engine::ComptimeValue::Int(value) => value.as_i128(),
             _ => None,
         }
     }

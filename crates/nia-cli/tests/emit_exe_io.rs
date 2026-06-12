@@ -187,13 +187,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let signed: i8 = -5i8;
     let wide: u64 = 123456789u64;
+    let max_u128 = u128::MAX;
     let ok = true;
     let ch = 'λ';
-    stdout.print("list={} total={} signed={} wide={} ok={} ch={}\n", [
+    stdout.print("list={} total={} signed={} wide={} max_u128={} ok={} ch={}\n", [
         &values,
         &total,
         &signed,
         &wide,
+        &max_u128,
         &ok,
         &ch,
     ]).exit().?;
@@ -222,7 +224,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 ok=true ch=λ\n"
+        "list=[10, 20, 30] total=60 signed=-5 wide=123456789 max_u128=340282366920938463463374607431768211455 ok=true ch=λ\n"
     );
 }
 

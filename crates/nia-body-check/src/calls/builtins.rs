@@ -1148,7 +1148,7 @@ impl<'a> BodyChecker<'a> {
             })
             .ok();
         match value {
-            Some(nia_comptime_engine::ComptimeValue::Int(value)) => Some(value),
+            Some(nia_comptime_engine::ComptimeValue::Int(value)) => value.as_i128(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
