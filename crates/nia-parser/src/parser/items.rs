@@ -455,7 +455,7 @@ impl Parser {
 
     fn parse_extend(&mut self) -> Option<ExtendItem> {
         self.expect(TokenKind::Extend, "expected `extend`")?;
-        let generics = self.parse_generic_params();
+        let generics = self.parse_extend_generic_params();
         let target =
             self.parse_type_until(&[TokenKind::Colon, TokenKind::Where, TokenKind::LBrace])?;
         let trait_ref = if self.eat(TokenKind::Colon).is_some() {
@@ -511,6 +511,21 @@ impl Parser {
             associated_values,
             methods,
         })
+    }
+
+    fn parse_extend_generic_params(&mut self) -> Vec<String> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let generics = self.parse_generic_params();
+        if generics.is_empty() {
+            return generics;
+        }
+        if self.type_can_start() {
+            return generics;
+        }
+        self.tokens.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        Vec::new()
     }
 
     fn parse_extend_associated_type(&mut self) -> Option<nia_ast::ExtendAssociatedType> {
