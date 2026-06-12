@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod backend_validate;
+mod compiler_builtins;
 mod function_codegen;
 mod literals;
 mod module_codegen;
@@ -97,6 +98,7 @@ fn emit_native_objects_inner(
     }
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
+    let builtin_symbols = compiler_builtins::required_symbols(program);
     for module in &program.modules {
         let context = Context::create();
         let mut codegen = match ModuleCodegen::new(&context, module, &index, options) {
@@ -113,6 +115,15 @@ fn emit_native_objects_inner(
         match codegen.emit_object(&target) {
             Ok(bytes) => outputs.push(LlvmObjectModuleOutput {
                 name: module.name.clone(),
+                bytes,
+            }),
+            Err(diagnostic) => diagnostics.push(diagnostic),
+        }
+    }
+    if builtin_symbols.any() {
+        match compiler_builtins::emit_object(&target, builtin_symbols) {
+            Ok(bytes) => outputs.push(LlvmObjectModuleOutput {
+                name: "nia.compiler_builtins".to_string(),
                 bytes,
             }),
             Err(diagnostic) => diagnostics.push(diagnostic),

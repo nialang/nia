@@ -747,10 +747,66 @@ impl<'a> BodyChecker<'a> {
                 self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
             }
             BinaryOp::Shl | BinaryOp::Shr => {
-                self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
+                self.check_builtin_shift_expr(span, lhs, op, rhs, expected)
             }
             _ => self.check_builtin_operator_expr(span, lhs, op, rhs, expected),
         }
+    }
+
+    fn check_builtin_shift_expr(
+        &mut self,
+        span: Span,
+        lhs: &Expr,
+        op: BinaryOp,
+        rhs: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() else {
+            return self.error();
+        };
+        let lhs_expected = expected
+            .filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op));
+        let lhs_actual = if let Some(expected) = lhs_expected {
+            self.check_expr_with_expected(lhs, Some(expected))
+        } else {
+            self.check_expr(lhs)
+        };
+        if let Some(expected) = lhs_expected {
+            self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
+        }
+        let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(trait_id),
+            vec![lhs_ty],
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(trait_id, &[lhs_ty])
+                ),
+            ));
+        }
+
+        let rhs_actual = self.check_expr(rhs);
+        let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
+        if !self.is_integer(rhs_ty) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                rhs.span,
+                format!(
+                    "shift count must be an integer type, got {}",
+                    self.ty_name(rhs_ty)
+                ),
+            ));
+        }
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, lhs_ty, "binary operator");
+        }
+        lhs_ty
     }
 
     fn check_builtin_operator_expr(

@@ -281,9 +281,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             BinaryOp::BitAnd => self.builder.build_basic_and(lhs, rhs, "andtmp"),
             BinaryOp::BitOr => self.builder.build_basic_or(lhs, rhs, "ortmp"),
             BinaryOp::BitXor => self.builder.build_basic_xor(lhs, rhs, "xortmp"),
-            BinaryOp::Shl => self.builder.build_basic_shl(lhs, rhs, "shltmp"),
-            BinaryOp::Shr if is_signed => self.builder.build_basic_ashr(lhs, rhs, "shrtmp"),
-            BinaryOp::Shr => self.builder.build_basic_lshr(lhs, rhs, "shrtmp"),
+            BinaryOp::Shl => {
+                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
+                self.builder.build_basic_shl(lhs, rhs, "shltmp")
+            }
+            BinaryOp::Shr if is_signed => {
+                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
+                self.builder.build_basic_ashr(lhs, rhs, "shrtmp")
+            }
+            BinaryOp::Shr => {
+                let rhs = self.normalize_shift_rhs(span, lhs, rhs)?;
+                self.builder.build_basic_lshr(lhs, rhs, "shrtmp")
+            }
             BinaryOp::Eq => {
                 self.builder
                     .build_basic_int_compare(IntPredicate::EQ, lhs, rhs, "eqtmp")
@@ -329,6 +338,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         };
         result.map_err(|_| self.error(span, "failed to build binary operation"))
+    }
+
+    fn normalize_shift_rhs(
+        &self,
+        span: Span,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lhs = lhs.into_int_value()?;
+        let rhs = rhs.into_int_value()?;
+        let target = lhs.get_type();
+        let target_bits = target.bit_width();
+        let rhs_bits = rhs.get_type().bit_width();
+        if rhs_bits == target_bits {
+            return Ok(rhs.into());
+        }
+        let result = if rhs_bits > target_bits {
+            self.builder.build_int_truncate(rhs, target, "shiftcount")
+        } else {
+            self.builder.build_int_z_extend(rhs, target, "shiftcount")
+        };
+        result
+            .map(Into::into)
+            .map_err(|_| self.error(span, "failed to cast shift count"))
     }
 
     fn emit_float_binary(

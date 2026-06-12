@@ -1059,7 +1059,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                 is_extern: false,
                 init: Some(StaticInit::Struct(vec![StaticFieldInit {
                     field: Some(missing_field),
-                    value: StaticInit::Int(1),
+                    value: StaticInit::Int(1.into()),
                 }])),
                 span,
             }],
@@ -1433,7 +1433,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
                 ty: i32_ty,
                 is_let: false,
                 is_extern: false,
-                init: Some(StaticInit::Int(0)),
+                init: Some(StaticInit::Int(0.into())),
                 span,
             },
             BackendGlobal {

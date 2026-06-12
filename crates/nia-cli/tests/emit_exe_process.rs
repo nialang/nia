@@ -139,6 +139,129 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_links_freestanding_u128_division_builtins() {
+    let root = temp_dir("emit_exe_links_freestanding_u128_division_builtins");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let argc = init.argc();
+    let value = (1u128 << 100u32) + 12345u128;
+    let by = argc as u128 + 53u128;
+    let q = value / by;
+    let r = value % by;
+    if q * by + r != value {
+        return (1 as process::ExitCode)!;
+    }
+    if r >= by {
+        return (2 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_links_freestanding_i128_division_builtins() {
+    let root = temp_dir("emit_exe_links_freestanding_i128_division_builtins");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let argc = init.argc();
+    let base = (1i128 << 100u32) + 12345i128;
+    let divisor = argc as i128 + 53i128;
+
+    let q0 = base / divisor;
+    let r0 = base % divisor;
+    if q0 * divisor + r0 != base {
+        return (1 as process::ExitCode)!;
+    }
+    if r0 < 0i128 or r0 >= divisor {
+        return (2 as process::ExitCode)!;
+    }
+
+    let neg_base = -base;
+    let q1 = neg_base / divisor;
+    let r1 = neg_base % divisor;
+    if q1 * divisor + r1 != neg_base {
+        return (3 as process::ExitCode)!;
+    }
+    if r1 > 0i128 or r1 <= -divisor {
+        return (4 as process::ExitCode)!;
+    }
+
+    let neg_divisor = -divisor;
+    let q2 = base / neg_divisor;
+    let r2 = base % neg_divisor;
+    if q2 * neg_divisor + r2 != base {
+        return (5 as process::ExitCode)!;
+    }
+    if r2 < 0i128 or r2 >= divisor {
+        return (6 as process::ExitCode)!;
+    }
+
+    let q3 = neg_base / neg_divisor;
+    let r3 = neg_base % neg_divisor;
+    if q3 * neg_divisor + r3 != neg_base {
+        return (7 as process::ExitCode)!;
+    }
+    if r3 > 0i128 or r3 <= -divisor {
+        return (8 as process::ExitCode)!;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exit_code_is_open_enum() {
     let root = temp_dir("emit_exe_exit_code_is_open_enum");
     let main = root.join("main.nia");
