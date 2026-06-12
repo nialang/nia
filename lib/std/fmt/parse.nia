@@ -22,6 +22,10 @@ struct ParsedInteger {
     abs: u128,
 }
 
+trait AsciiParseUnit {
+    fn ascii_code(self) u32;
+}
+
 pub fn parse[T, Input](input: Input) ParseError!T
 where T: ParseFrom[Input]
 {
@@ -34,230 +38,190 @@ where T: ParseFrom[Input]
     [T]::parse_radix_from(input, radix)
 }
 
-fn digit_value_char(ch: char) ?u32 {
-    if ch >= '0' and ch <= '9' {
-        ?(ch as u32 - '0' as u32)
-    } else if ch >= 'a' and ch <= 'z' {
-        ?((ch as u32 - 'a' as u32) + 10u32)
-    } else if ch >= 'A' and ch <= 'Z' {
-        ?((ch as u32 - 'A' as u32) + 10u32)
+extend char : AsciiParseUnit {
+    fn ascii_code(self) u32 {
+        self as u32
+    }
+}
+
+extend u8 : AsciiParseUnit {
+    fn ascii_code(self) u32 {
+        self as u32
+    }
+}
+
+fn ascii_is[U](unit: U, ch: char) bool
+where U: AsciiParseUnit
+{
+    unit.ascii_code() == (ch as u32)
+}
+
+fn ascii_digit_value[U](unit: U) ?u32
+where U: AsciiParseUnit
+{
+    let code = unit.ascii_code();
+    if code >= ('0' as u32) and code <= ('9' as u32) {
+        ?(code - ('0' as u32))
+    } else if code >= ('a' as u32) and code <= ('z' as u32) {
+        ?((code - ('a' as u32)) + 10u32)
+    } else if code >= ('A' as u32) and code <= ('Z' as u32) {
+        ?((code - ('A' as u32)) + 10u32)
     } else {
         null
     }
 }
 
-fn digit_value_byte(byte: u8) ?u32 {
-    if byte >= b'0' and byte <= b'9' {
-        ?(byte as u32 - b'0' as u32)
-    } else if byte >= b'a' and byte <= b'z' {
-        ?((byte as u32 - b'a' as u32) + 10u32)
-    } else if byte >= b'A' and byte <= b'Z' {
-        ?((byte as u32 - b'A' as u32) + 10u32)
+fn ascii_is_hex_prefix[U](unit: U) bool
+where U: AsciiParseUnit
+{
+    ascii_is[U](unit, 'x') or ascii_is[U](unit, 'X')
+}
+
+fn ascii_is_binary_prefix[U](unit: U) bool
+where U: AsciiParseUnit
+{
+    ascii_is[U](unit, 'b') or ascii_is[U](unit, 'B')
+}
+
+fn ascii_is_octal_prefix[U](unit: U) bool
+where U: AsciiParseUnit
+{
+    ascii_is[U](unit, 'o') or ascii_is[U](unit, 'O')
+}
+
+fn ascii_matches[U](input: &[U], text: &[char]) bool
+where U: AsciiParseUnit
+{
+    if input.len() != text.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < input.len() {
+        if not ascii_is[U](input[index], text[index]) {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn parse_integer_radix_units[U](input: &[U], radix: u32, allow_sign: bool) ParseError!ParsedInteger
+where U: AsciiParseUnit
+{
+    if radix < 2u32 or radix > 36u32 {
+        return ParseError::InvalidRadix!;
+    }
+    if input.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = input[0];
+    if ascii_is[U](first, '-') or ascii_is[U](first, '+') {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = ascii_is[U](first, '-');
+        index = 1usize;
+        if index == input.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    let radix_wide = radix as u128;
+    while index < input.len() {
+        let digit = switch ascii_digit_value[U](input[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
+            return ParseError::Overflow!;
+        }
+        value = value * radix_wide + digit_wide;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn parse_integer_units[U](input: &[U], allow_sign: bool) ParseError!ParsedInteger
+where U: AsciiParseUnit
+{
+    if input.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = input[0];
+    if ascii_is[U](first, '-') or ascii_is[U](first, '+') {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = ascii_is[U](first, '-');
+        index = 1usize;
+        if index == input.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var radix = 10u32;
+    if index + 1usize < input.len() and ascii_is[U](input[index], '0') {
+        let marker = input[index + 1usize];
+        if ascii_is_hex_prefix[U](marker) {
+            radix = 16u32;
+            index += 2usize;
+        } else if ascii_is_binary_prefix[U](marker) {
+            radix = 2u32;
+            index += 2usize;
+        } else if ascii_is_octal_prefix[U](marker) {
+            radix = 8u32;
+            index += 2usize;
+        }
+        if index == input.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    let radix_wide = radix as u128;
+    while index < input.len() {
+        let digit = switch ascii_digit_value[U](input[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
+            return ParseError::Overflow!;
+        }
+        value = value * radix_wide + digit_wide;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn parse_bool_units[U](input: &[U]) ParseError!bool
+where U: AsciiParseUnit
+{
+    if ascii_matches[U](input, "true") {
+        !true
+    } else if ascii_matches[U](input, "false") {
+        !false
+    } else if input.len() == 0usize {
+        ParseError::Empty!
     } else {
-        null
+        ParseError::InvalidDigit!
     }
-}
-
-fn parse_integer_radix_chars(text: &[char], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
-    if radix < 2u32 or radix > 36u32 {
-        return ParseError::InvalidRadix!;
-    }
-    if text.len() == 0usize {
-        return ParseError::Empty!;
-    }
-
-    var index = 0usize;
-    var negative = false;
-    let first = text[0];
-    if first == '-' or first == '+' {
-        if not allow_sign {
-            return ParseError::InvalidSign!;
-        }
-        negative = first == '-';
-        index = 1usize;
-        if index == text.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var value = 0u128;
-    let radix_wide = radix as u128;
-    while index < text.len() {
-        let digit = switch digit_value_char(text[index]) {
-            ?value => value,
-            null => return ParseError::InvalidDigit!,
-        };
-        if digit >= radix {
-            return ParseError::InvalidDigit!;
-        }
-        let digit_wide = digit as u128;
-        if value > (u128::MAX - digit_wide) / radix_wide {
-            return ParseError::Overflow!;
-        }
-        value = value * radix_wide + digit_wide;
-        index += 1usize;
-    }
-
-    !{ negative: negative, abs: value }
-}
-
-fn parse_integer_radix_bytes(bytes: &[u8], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
-    if radix < 2u32 or radix > 36u32 {
-        return ParseError::InvalidRadix!;
-    }
-    if bytes.len() == 0usize {
-        return ParseError::Empty!;
-    }
-
-    var index = 0usize;
-    var negative = false;
-    let first = bytes[0];
-    if first == b'-' or first == b'+' {
-        if not allow_sign {
-            return ParseError::InvalidSign!;
-        }
-        negative = first == b'-';
-        index = 1usize;
-        if index == bytes.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var value = 0u128;
-    let radix_wide = radix as u128;
-    while index < bytes.len() {
-        let digit = switch digit_value_byte(bytes[index]) {
-            ?value => value,
-            null => return ParseError::InvalidDigit!,
-        };
-        if digit >= radix {
-            return ParseError::InvalidDigit!;
-        }
-        let digit_wide = digit as u128;
-        if value > (u128::MAX - digit_wide) / radix_wide {
-            return ParseError::Overflow!;
-        }
-        value = value * radix_wide + digit_wide;
-        index += 1usize;
-    }
-
-    !{ negative: negative, abs: value }
-}
-
-fn parse_integer_chars(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
-    if text.len() == 0usize {
-        return ParseError::Empty!;
-    }
-
-    var index = 0usize;
-    var negative = false;
-    let first = text[0];
-    if first == '-' or first == '+' {
-        if not allow_sign {
-            return ParseError::InvalidSign!;
-        }
-        negative = first == '-';
-        index = 1usize;
-        if index == text.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var radix = 10u32;
-    if index + 1usize < text.len() and text[index] == '0' {
-        let marker = text[index + 1usize];
-        if marker == 'x' or marker == 'X' {
-            radix = 16u32;
-            index += 2usize;
-        } else if marker == 'b' or marker == 'B' {
-            radix = 2u32;
-            index += 2usize;
-        } else if marker == 'o' or marker == 'O' {
-            radix = 8u32;
-            index += 2usize;
-        }
-        if index == text.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var value = 0u128;
-    let radix_wide = radix as u128;
-    while index < text.len() {
-        let digit = switch digit_value_char(text[index]) {
-            ?value => value,
-            null => return ParseError::InvalidDigit!,
-        };
-        if digit >= radix {
-            return ParseError::InvalidDigit!;
-        }
-        let digit_wide = digit as u128;
-        if value > (u128::MAX - digit_wide) / radix_wide {
-            return ParseError::Overflow!;
-        }
-        value = value * radix_wide + digit_wide;
-        index += 1usize;
-    }
-
-    !{ negative: negative, abs: value }
-}
-
-fn parse_integer_bytes(bytes: &[u8], allow_sign: bool) ParseError!ParsedInteger {
-    if bytes.len() == 0usize {
-        return ParseError::Empty!;
-    }
-
-    var index = 0usize;
-    var negative = false;
-    let first = bytes[0];
-    if first == b'-' or first == b'+' {
-        if not allow_sign {
-            return ParseError::InvalidSign!;
-        }
-        negative = first == b'-';
-        index = 1usize;
-        if index == bytes.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var radix = 10u32;
-    if index + 1usize < bytes.len() and bytes[index] == b'0' {
-        let marker = bytes[index + 1usize];
-        if marker == b'x' or marker == b'X' {
-            radix = 16u32;
-            index += 2usize;
-        } else if marker == b'b' or marker == b'B' {
-            radix = 2u32;
-            index += 2usize;
-        } else if marker == b'o' or marker == b'O' {
-            radix = 8u32;
-            index += 2usize;
-        }
-        if index == bytes.len() {
-            return ParseError::InvalidDigit!;
-        }
-    }
-
-    var value = 0u128;
-    let radix_wide = radix as u128;
-    while index < bytes.len() {
-        let digit = switch digit_value_byte(bytes[index]) {
-            ?value => value,
-            null => return ParseError::InvalidDigit!,
-        };
-        if digit >= radix {
-            return ParseError::InvalidDigit!;
-        }
-        let digit_wide = digit as u128;
-        if value > (u128::MAX - digit_wide) / radix_wide {
-            return ParseError::Overflow!;
-        }
-        value = value * radix_wide + digit_wide;
-        index += 1usize;
-    }
-
-    !{ negative: negative, abs: value }
 }
 
 fn finish_unsigned(parsed: ParsedInteger, max: u128) ParseError!u128 {
@@ -288,35 +252,35 @@ fn finish_signed(parsed: ParsedInteger, min: i128, max: i128) ParseError!i128 {
 }
 
 fn parse_unsigned_chars(text: &[char], max: u128) ParseError!u128 {
-    finish_unsigned(parse_integer_chars(text, false).?, max)
+    finish_unsigned(parse_integer_units[char](text, false).?, max)
 }
 
 fn parse_unsigned_radix_chars(text: &[char], radix: u32, max: u128) ParseError!u128 {
-    finish_unsigned(parse_integer_radix_chars(text, radix, false).?, max)
+    finish_unsigned(parse_integer_radix_units[char](text, radix, false).?, max)
 }
 
 fn parse_signed_chars(text: &[char], min: i128, max: i128) ParseError!i128 {
-    finish_signed(parse_integer_chars(text, true).?, min, max)
+    finish_signed(parse_integer_units[char](text, true).?, min, max)
 }
 
 fn parse_signed_radix_chars(text: &[char], radix: u32, min: i128, max: i128) ParseError!i128 {
-    finish_signed(parse_integer_radix_chars(text, radix, true).?, min, max)
+    finish_signed(parse_integer_radix_units[char](text, radix, true).?, min, max)
 }
 
 fn parse_unsigned_bytes(bytes: &[u8], max: u128) ParseError!u128 {
-    finish_unsigned(parse_integer_bytes(bytes, false).?, max)
+    finish_unsigned(parse_integer_units[u8](bytes, false).?, max)
 }
 
 fn parse_unsigned_radix_bytes(bytes: &[u8], radix: u32, max: u128) ParseError!u128 {
-    finish_unsigned(parse_integer_radix_bytes(bytes, radix, false).?, max)
+    finish_unsigned(parse_integer_radix_units[u8](bytes, radix, false).?, max)
 }
 
 fn parse_signed_bytes(bytes: &[u8], min: i128, max: i128) ParseError!i128 {
-    finish_signed(parse_integer_bytes(bytes, true).?, min, max)
+    finish_signed(parse_integer_units[u8](bytes, true).?, min, max)
 }
 
 fn parse_signed_radix_bytes(bytes: &[u8], radix: u32, min: i128, max: i128) ParseError!i128 {
-    finish_signed(parse_integer_radix_bytes(bytes, radix, true).?, min, max)
+    finish_signed(parse_integer_radix_units[u8](bytes, radix, true).?, min, max)
 }
 
 extend i8 : ParseFrom[&[char]] {
@@ -561,28 +525,12 @@ extend usize : ParseFrom[&[u8]] {
 
 extend bool : ParseFrom[&[char]] {
     fn parse_from(text: &[char]) ParseError!bool {
-        if text.len() == 4usize and text[0] == 't' and text[1] == 'r' and text[2] == 'u' and text[3] == 'e' {
-            !true
-        } else if text.len() == 5usize and text[0] == 'f' and text[1] == 'a' and text[2] == 'l' and text[3] == 's' and text[4] == 'e' {
-            !false
-        } else if text.len() == 0usize {
-            ParseError::Empty!
-        } else {
-            ParseError::InvalidDigit!
-        }
+        parse_bool_units[char](text)
     }
 }
 
 extend bool : ParseFrom[&[u8]] {
     fn parse_from(bytes: &[u8]) ParseError!bool {
-        if bytes.len() == 4usize and bytes[0] == b't' and bytes[1] == b'r' and bytes[2] == b'u' and bytes[3] == b'e' {
-            !true
-        } else if bytes.len() == 5usize and bytes[0] == b'f' and bytes[1] == b'a' and bytes[2] == b'l' and bytes[3] == b's' and bytes[4] == b'e' {
-            !false
-        } else if bytes.len() == 0usize {
-            ParseError::Empty!
-        } else {
-            ParseError::InvalidDigit!
-        }
+        parse_bool_units[u8](bytes)
     }
 }
