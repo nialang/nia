@@ -6,11 +6,11 @@ fn format_signed_spec(
     spec: core::FormatSpec,
 ) core::Error!void {
     switch spec.presentation() {
-        core::FormatPresentation::Display => formatter.write_signed(value),
-        core::FormatPresentation::LowerHex => formatter.write_signed_radix(value, 16u128, false),
-        core::FormatPresentation::UpperHex => formatter.write_signed_radix(value, 16u128, true),
-        core::FormatPresentation::Binary => formatter.write_signed_radix(value, 2u128, false),
-        core::FormatPresentation::Octal => formatter.write_signed_radix(value, 8u128, false),
+        core::FormatPresentation::Display => formatter.write_signed_radix_spec(value, 10u128, false, spec),
+        core::FormatPresentation::LowerHex => formatter.write_signed_radix_spec(value, 16u128, false, spec),
+        core::FormatPresentation::UpperHex => formatter.write_signed_radix_spec(value, 16u128, true, spec),
+        core::FormatPresentation::Binary => formatter.write_signed_radix_spec(value, 2u128, false, spec),
+        core::FormatPresentation::Octal => formatter.write_signed_radix_spec(value, 8u128, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
 }
@@ -21,13 +21,26 @@ fn format_unsigned_spec(
     spec: core::FormatSpec,
 ) core::Error!void {
     switch spec.presentation() {
-        core::FormatPresentation::Display => formatter.write_unsigned(value),
-        core::FormatPresentation::LowerHex => formatter.write_unsigned_radix(value, 16u128, false),
-        core::FormatPresentation::UpperHex => formatter.write_unsigned_radix(value, 16u128, true),
-        core::FormatPresentation::Binary => formatter.write_unsigned_radix(value, 2u128, false),
-        core::FormatPresentation::Octal => formatter.write_unsigned_radix(value, 8u128, false),
+        core::FormatPresentation::Display => formatter.write_unsigned_radix_spec(value, 10u128, false, spec),
+        core::FormatPresentation::LowerHex => formatter.write_unsigned_radix_spec(value, 16u128, false, spec),
+        core::FormatPresentation::UpperHex => formatter.write_unsigned_radix_spec(value, 16u128, true, spec),
+        core::FormatPresentation::Binary => formatter.write_unsigned_radix_spec(value, 2u128, false, spec),
+        core::FormatPresentation::Octal => formatter.write_unsigned_radix_spec(value, 8u128, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
+}
+
+fn format_text_spec(
+    formatter: &mut core::Formatter,
+    text: &[char],
+    spec: core::FormatSpec,
+) core::Error!void {
+    if spec.presentation() != core::FormatPresentation::Display {
+        return core::Error::InvalidTemplate!;
+    }
+    formatter.write_padding_before(text.len(), spec).?;
+    formatter.write_text(text).?;
+    formatter.write_padding_after(text.len(), spec)
 }
 
 extend i8 : core::Format {
@@ -158,11 +171,28 @@ extend bool : core::Format {
             formatter.write_text("false")
         }
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        if self.* {
+            format_text_spec(formatter, "true", spec)
+        } else {
+            format_text_spec(formatter, "false", spec)
+        }
+    }
 }
 
 extend char : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_char(self.*)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        if spec.presentation() != core::FormatPresentation::Display {
+            return core::Error::InvalidTemplate!;
+        }
+        formatter.write_padding_before(1usize, spec).?;
+        formatter.write_char(self.*).?;
+        formatter.write_padding_after(1usize, spec)
     }
 }
 
@@ -174,6 +204,10 @@ extend [char] : core::Format {
             index += 1usize;
         }
         !{}
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_text_spec(formatter, self, spec)
     }
 }
 
@@ -191,5 +225,12 @@ where T: Sized + core::Format
             index += 1usize;
         }
         formatter.write_byte(b']')
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize {
+            return core::Error::InvalidTemplate!;
+        }
+        self.format(formatter)
     }
 }

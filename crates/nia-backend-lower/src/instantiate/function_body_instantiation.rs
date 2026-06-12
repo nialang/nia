@@ -884,10 +884,12 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .filter_map(|candidate| {
                 self.trait_impl_method_for_candidate(candidate, trait_args, self_ty)
+                    .map(|resolved| (candidate, resolved))
             })
             .collect::<Vec<_>>();
+        let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
         match candidates.as_slice() {
-            [candidate] => Some(candidate.clone()),
+            [(_, candidate)] => Some(candidate.clone()),
             _ => {
                 let pointee = self.pointer_elem_ty(self_ty)?;
                 let candidates = self.program_extension_trait_method_candidates(&key);
@@ -895,14 +897,93 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .filter_map(|candidate| {
                         self.trait_impl_method_for_candidate(candidate, trait_args, pointee)
+                            .map(|resolved| (candidate, resolved))
                     })
                     .collect::<Vec<_>>();
+                let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
                 match candidates.as_slice() {
-                    [candidate] => Some(candidate.clone()),
+                    [(_, candidate)] => Some(candidate.clone()),
                     _ => None,
                 }
             }
         }
+    }
+
+    fn filter_more_specific_trait_impl_method_candidates<'b>(
+        &mut self,
+        candidates: Vec<(
+            &'b crate::ExtensionTraitMethodCandidate,
+            (GlobalDefId, Vec<InternedTyId>),
+        )>,
+    ) -> Vec<(
+        &'b crate::ExtensionTraitMethodCandidate,
+        (GlobalDefId, Vec<InternedTyId>),
+    )> {
+        candidates
+            .iter()
+            .filter(|(candidate, _)| {
+                !candidates.iter().any(|(other, _)| {
+                    other.method_def_id != candidate.method_def_id
+                        && self.extension_trait_method_candidate_more_specific(other, candidate)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn extension_trait_method_candidate_more_specific(
+        &mut self,
+        specific: &crate::ExtensionTraitMethodCandidate,
+        general: &crate::ExtensionTraitMethodCandidate,
+    ) -> bool {
+        let specific_target = nia_ty::import_type_into(
+            &mut self.interner,
+            &specific.source_interner,
+            specific.target_ty,
+        );
+        let general_target = nia_ty::import_type_into(
+            &mut self.interner,
+            &general.source_interner,
+            general.target_ty,
+        );
+        let target_subsumes = self.extension_pattern_subsumes(general_target, specific_target);
+        let mut any_strict =
+            self.extension_pattern_strictly_more_specific(specific_target, general_target);
+        let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
+            |(specific_arg, general_arg)| {
+                let specific_arg = nia_ty::import_type_into(
+                    &mut self.interner,
+                    &specific.source_interner,
+                    *specific_arg,
+                );
+                let general_arg = nia_ty::import_type_into(
+                    &mut self.interner,
+                    &general.source_interner,
+                    *general_arg,
+                );
+                any_strict |=
+                    self.extension_pattern_strictly_more_specific(specific_arg, general_arg);
+                self.extension_pattern_subsumes(general_arg, specific_arg)
+            },
+        );
+        target_subsumes && args_subsume && any_strict
+    }
+
+    fn extension_pattern_strictly_more_specific(
+        &mut self,
+        specific: InternedTyId,
+        general: InternedTyId,
+    ) -> bool {
+        self.extension_pattern_subsumes(general, specific)
+            && !self.extension_pattern_subsumes(specific, general)
+    }
+
+    fn extension_pattern_subsumes(
+        &mut self,
+        general: InternedTyId,
+        specific: InternedTyId,
+    ) -> bool {
+        self.match_extension_type_pattern(general, specific, &mut std::collections::HashMap::new())
     }
 
     pub(super) fn instantiate_place(
