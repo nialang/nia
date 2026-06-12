@@ -642,25 +642,21 @@ impl<'a> BodyChecker<'a> {
             nia_comptime_engine::eval_resolved_comptime_bool_expr(&cond, this)
         }) {
             Ok(true) => {
-                self.node_comptime_if_selections
-                    .insert(expr.node_key.clone(), ComptimeIfSelection::Then);
+                self.record_comptime_if_selection(expr, ComptimeIfSelection::Then);
                 self.check_block_with_expected(&comptime_if.then_branch, expected)
             }
             Ok(false) => {
                 let Some(else_branch) = comptime_if.else_branch.as_deref() else {
-                    self.node_comptime_if_selections
-                        .insert(expr.node_key.clone(), ComptimeIfSelection::None);
+                    self.record_comptime_if_selection(expr, ComptimeIfSelection::None);
                     return self.void();
                 };
-                self.node_comptime_if_selections
-                    .insert(expr.node_key.clone(), ComptimeIfSelection::Else);
+                self.record_comptime_if_selection(expr, ComptimeIfSelection::Else);
                 self.check_expr_with_expected(else_branch, expected)
             }
             Err(err) => {
                 self.diagnostics
                     .push(Diagnostic::user_error_at("E0301", err.span, err.message));
-                self.node_comptime_if_selections
-                    .insert(expr.node_key.clone(), ComptimeIfSelection::None);
+                self.record_comptime_if_selection(expr, ComptimeIfSelection::None);
                 self.error()
             }
         }

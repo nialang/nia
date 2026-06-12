@@ -50,13 +50,17 @@ impl<'a> BodyChecker<'a> {
         args: &[InternedTyId],
         span: Span,
     ) {
-        self.generic_instantiations.push(GenericInstantiation {
+        let instantiation = GenericInstantiation {
             def_id,
             args: args.to_vec(),
             generics: self.effective_generics_for_def(def_id),
             span,
             source_def_id: self.current_def_id,
-        });
+        };
+        self.generic_instantiations.push(instantiation.clone());
+        if let Some(facts) = self.current_function_facts() {
+            facts.generic_instantiations.push(instantiation);
+        }
     }
 
     pub(super) fn effective_generics_for_def(&self, def_id: GlobalDefId) -> Vec<String> {
