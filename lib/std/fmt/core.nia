@@ -47,6 +47,8 @@ pub struct FormatSpec {
     width: usize,
     fill: char,
     alignment: FormatAlignment,
+    sign_plus: bool,
+    alternate: bool,
 }
 
 extend FormatSpec {
@@ -55,33 +57,37 @@ extend FormatSpec {
         width: usize,
         fill: char,
         alignment: FormatAlignment,
+        sign_plus: bool,
+        alternate: bool,
     ) FormatSpec {
         {
             presentation: presentation,
             width: width,
             fill: fill,
             alignment: alignment,
+            sign_plus: sign_plus,
+            alternate: alternate,
         }
     }
 
     pub fn display() FormatSpec {
-        FormatSpec::init(FormatPresentation::Display, 0usize, ' ', FormatAlignment::None)
+        FormatSpec::init(FormatPresentation::Display, 0usize, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn lower_hex() FormatSpec {
-        FormatSpec::init(FormatPresentation::LowerHex, 0usize, ' ', FormatAlignment::None)
+        FormatSpec::init(FormatPresentation::LowerHex, 0usize, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn upper_hex() FormatSpec {
-        FormatSpec::init(FormatPresentation::UpperHex, 0usize, ' ', FormatAlignment::None)
+        FormatSpec::init(FormatPresentation::UpperHex, 0usize, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn binary() FormatSpec {
-        FormatSpec::init(FormatPresentation::Binary, 0usize, ' ', FormatAlignment::None)
+        FormatSpec::init(FormatPresentation::Binary, 0usize, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn octal() FormatSpec {
-        FormatSpec::init(FormatPresentation::Octal, 0usize, ' ', FormatAlignment::None)
+        FormatSpec::init(FormatPresentation::Octal, 0usize, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn presentation(&self) FormatPresentation {
@@ -98,6 +104,14 @@ extend FormatSpec {
 
     pub fn alignment(&self) FormatAlignment {
         self.alignment
+    }
+
+    pub fn sign_plus(&self) bool {
+        self.sign_plus
+    }
+
+    pub fn alternate(&self) bool {
+        self.alternate
     }
 }
 
@@ -209,10 +223,50 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!void {
-        let content_width = self.unsigned_digit_count(value, radix);
-        self.write_padding_before(content_width, spec).?;
-        self.write_unsigned_radix(value, radix, uppercase).?;
-        self.write_padding_after(content_width, spec)
+        var prefix_width = 0usize;
+        if spec.alternate() {
+            if radix == 16u128 or radix == 2u128 {
+                prefix_width = 2usize;
+            } else if radix == 8u128 {
+                prefix_width = 1usize;
+            } else {
+                return Error::InvalidTemplate!;
+            }
+        }
+        let content_width = self.unsigned_digit_count(value, radix) + prefix_width;
+        if spec.alternate() and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
+            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
+            self.write_fill('0', spec.width() - content_width).?;
+            self.write_unsigned_radix(value, radix, uppercase)
+        } else {
+            self.write_padding_before(content_width, spec).?;
+            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
+            self.write_unsigned_radix(value, radix, uppercase).?;
+            self.write_padding_after(content_width, spec)
+        }
+    }
+
+    fn write_unsigned_prefix(
+        &mut self,
+        radix: u128,
+        uppercase: bool,
+        alternate: bool,
+    ) Error!void {
+        if not alternate {
+            !{}
+        } else if radix == 16u128 {
+            if uppercase {
+                self.write_text("0X")
+            } else {
+                self.write_text("0x")
+            }
+        } else if radix == 2u128 {
+            self.write_text("0b")
+        } else if radix == 8u128 {
+            self.write_byte(b'0')
+        } else {
+            Error::InvalidTemplate!
+        }
     }
 
     fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!void {
@@ -311,17 +365,42 @@ extend Formatter {
         spec: FormatSpec,
     ) Error!void {
         let abs = self.signed_abs(value);
-        var content_width = self.unsigned_digit_count(abs, radix);
-        if value < 0i128 {
+        var prefix_width = 0usize;
+        if spec.alternate() {
+            if radix == 16u128 or radix == 2u128 {
+                prefix_width = 2usize;
+            } else if radix == 8u128 {
+                prefix_width = 1usize;
+            } else {
+                return Error::InvalidTemplate!;
+            }
+        }
+        var content_width = self.unsigned_digit_count(abs, radix) + prefix_width;
+        if value < 0i128 or spec.sign_plus() {
             content_width += 1usize;
         }
-        if value < 0i128 and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
-            self.write_byte(b'-').?;
+        if (value < 0i128 or spec.sign_plus()) and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
+            if value < 0i128 {
+                self.write_byte(b'-').?;
+            } else {
+                self.write_byte(b'+').?;
+            }
+            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
             self.write_fill('0', spec.width() - content_width).?;
             self.write_unsigned_radix(abs, radix, uppercase)
         } else {
             self.write_padding_before(content_width, spec).?;
-            self.write_signed_radix(value, radix, uppercase).?;
+            if value < 0i128 {
+                self.write_byte(b'-').?;
+                self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
+                self.write_unsigned_radix(abs, radix, uppercase).?;
+            } else {
+                if spec.sign_plus() {
+                    self.write_byte(b'+').?;
+                }
+                self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
+                self.write_unsigned_radix(abs, radix, uppercase).?;
+            }
             self.write_padding_after(content_width, spec)
         }
     }

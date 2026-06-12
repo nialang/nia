@@ -20,6 +20,9 @@ fn format_unsigned_spec(
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!void {
+    if spec.sign_plus() {
+        return core::Error::InvalidTemplate!;
+    }
     switch spec.presentation() {
         core::FormatPresentation::Display => formatter.write_unsigned_radix_spec(value, 10u128, false, spec),
         core::FormatPresentation::LowerHex => formatter.write_unsigned_radix_spec(value, 16u128, false, spec),
@@ -35,7 +38,7 @@ fn format_text_spec(
     text: &[char],
     spec: core::FormatSpec,
 ) core::Error!void {
-    if spec.presentation() != core::FormatPresentation::Display {
+    if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
         return core::Error::InvalidTemplate!;
     }
     formatter.write_padding_before(text.len(), spec).?;
@@ -187,7 +190,7 @@ extend char : core::Format {
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
-        if spec.presentation() != core::FormatPresentation::Display {
+        if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         formatter.write_padding_before(1usize, spec).?;
@@ -228,7 +231,7 @@ where T: Sized + core::Format
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
-        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         self.format(formatter)
