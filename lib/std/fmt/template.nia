@@ -43,6 +43,7 @@ fn parse_spec_end(
     index: usize,
     presentation: core::FormatPresentation,
     width: usize,
+    precision: ?usize,
     fill: char,
     alignment: core::FormatAlignment,
     sign_plus: bool,
@@ -52,7 +53,7 @@ fn parse_spec_end(
         return core::Error::InvalidTemplate!;
     }
     !{
-        spec: core::FormatSpec::init(presentation, width, fill, alignment, sign_plus, alternate),
+        spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, sign_plus, alternate),
         next_index: index + 1usize,
     }
 }
@@ -101,6 +102,26 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         index += 1usize;
     }
 
+    var precision: ?usize = null;
+    if index < template.len() and template[index] == '.' {
+        index += 1usize;
+        var parsed_precision = 0usize;
+        var has_digit = false;
+        while index < template.len() {
+            let digit = switch digit_value(template[index]) {
+                ?digit => digit,
+                null => break,
+            };
+            parsed_precision = parsed_precision * 10usize + digit;
+            has_digit = true;
+            index += 1usize;
+        }
+        if not has_digit {
+            return core::Error::InvalidTemplate!;
+        }
+        precision = ?parsed_precision;
+    }
+
     var presentation = core::FormatPresentation::Display;
     if index < template.len() {
         switch parse_presentation(template[index]) {
@@ -112,7 +133,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    parse_spec_end(template, index, presentation, width, fill, alignment, sign_plus, alternate)
+    parse_spec_end(template, index, presentation, width, precision, fill, alignment, sign_plus, alternate)
 }
 
 fn print_template[W](
