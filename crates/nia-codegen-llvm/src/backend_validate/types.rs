@@ -16,7 +16,6 @@ impl BackendValidator<'_> {
         if self.layout_of(ty).is_none() {
             let subject = self
                 .current_subject
-                .as_deref()
                 .map(|subject| format!(" {subject}"))
                 .unwrap_or_default();
             self.diagnostics.push(Diagnostic::internal_error_at(
