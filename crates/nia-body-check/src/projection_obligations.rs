@@ -303,6 +303,150 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(crate) fn infer_where_predicate_candidates(
+        &mut self,
+        predicate: &WherePredicateSignature,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Vec<HashMap<String, InternedTyId>> {
+        let self_ty = self.substitute_ty(predicate.ty, substitutions);
+        let bounds = predicate.bounds.clone();
+        let mut candidates = Vec::new();
+        for bound in bounds {
+            let bound_ty = self.substitute_ty(bound.trait_ty, substitutions);
+            let Some((trait_id, trait_args)) = self.trait_id_and_args(bound_ty) else {
+                continue;
+            };
+            self.push_where_predicate_trait_impl_candidates(
+                self_ty,
+                trait_id,
+                &trait_args,
+                substitutions,
+                &mut candidates,
+            );
+        }
+        candidates
+    }
+
+    fn push_where_predicate_trait_impl_candidates(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        substitutions: &HashMap<String, InternedTyId>,
+        candidates: &mut Vec<HashMap<String, InternedTyId>>,
+    ) {
+        for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
+            let impl_signature = self.program_trait_impls[impl_index].clone();
+            let impl_target_ty =
+                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let mut impl_substitutions = HashMap::new();
+            if !self.match_type_pattern(impl_target_ty, self_ty, &mut impl_substitutions) {
+                continue;
+            }
+
+            let mut candidate = substitutions.clone();
+            let mut ok = true;
+            for (required_arg, impl_arg) in trait_args.iter().zip(&impl_signature.trait_args) {
+                let impl_arg = self.import_type_from(&impl_signature.interner, *impl_arg);
+                let impl_arg = self.substitute_generics(impl_arg, &impl_substitutions);
+                if !self.match_where_candidate_type(*required_arg, impl_arg, &mut candidate) {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                self.push_unique_where_candidate(candidates, candidate);
+            }
+        }
+    }
+
+    fn match_where_candidate_type(
+        &mut self,
+        required: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        let required = self.normalization.normalize(required);
+        let actual = self.normalization.normalize(actual);
+        match self.interner.get(required).cloned() {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(&name).copied() {
+                    self.types_match(existing, actual)
+                } else {
+                    substitutions.insert(name, actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer {
+                is_readonly: required_readonly,
+                elem: required_elem,
+            }) => {
+                let Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.interner.get(actual).cloned()
+                else {
+                    return false;
+                };
+                required_readonly == actual_readonly
+                    && self.match_where_candidate_type(required_elem, actual_elem, substitutions)
+            }
+            Some(TyKind::Slice {
+                is_readonly: required_readonly,
+                elem: required_elem,
+            }) => {
+                let Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.interner.get(actual).cloned()
+                else {
+                    return false;
+                };
+                required_readonly == actual_readonly
+                    && self.match_where_candidate_type(required_elem, actual_elem, substitutions)
+            }
+            Some(TyKind::Nominal {
+                def_id: required_def,
+                args: required_args,
+            }) => {
+                let Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                }) = self.interner.get(actual).cloned()
+                else {
+                    return false;
+                };
+                required_def == actual_def
+                    && required_args.len() == actual_args.len()
+                    && required_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(required, actual)| {
+                            self.match_where_candidate_type(*required, actual, substitutions)
+                        })
+            }
+            _ => self.types_match(required, actual),
+        }
+    }
+
+    fn push_unique_where_candidate(
+        &mut self,
+        candidates: &mut Vec<HashMap<String, InternedTyId>>,
+        candidate: HashMap<String, InternedTyId>,
+    ) {
+        if candidates.iter().any(|existing| {
+            existing.len() == candidate.len()
+                && existing.iter().all(|(name, left)| {
+                    candidate
+                        .get(name)
+                        .is_some_and(|right| self.types_match(*left, *right))
+                })
+        }) {
+            return;
+        }
+        candidates.push(candidate);
+    }
+
     fn substitute_ty(
         &mut self,
         ty: InternedTyId,

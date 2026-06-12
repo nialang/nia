@@ -74,16 +74,16 @@ fn trait_associated_function_dispatch_uses_bounds_and_impls() {
     write(
         &root.join("main.nia"),
         r#"
-trait Parse {
-    fn parse(text: &[char]) Self;
+trait ReadText {
+    fn read_text(text: &[char]) Self;
 }
 
 struct Number {
     value: i32,
 }
 
-extend Number : Parse {
-    fn parse(text: &[char]) Number {
+extend Number : ReadText {
+    fn read_text(text: &[char]) Number {
         if text.len() == 2usize and text[0] == '4' and text[1] == '2' {
             { value: 42 }
         } else {
@@ -93,13 +93,13 @@ extend Number : Parse {
 }
 
 fn parse_generic[T](text: &[char]) T
-where T: Parse
+where T: ReadText
 {
-    [T]::parse(text)
+    [T]::read_text(text)
 }
 
 fn main() i32 {
-    var direct = [Number]::parse("42");
+    var direct = [Number]::read_text("42");
     var generic = parse_generic[Number]("42");
     direct.value + generic.value
 }
@@ -344,6 +344,59 @@ pub trait Show {
         "{:?}",
         program.diagnostics
     );
+}
+
+#[test]
+fn cross_module_where_predicate_infers_input_from_impl_candidates() {
+    let root = temp_dir("cross_module_where_predicate_infers_input_from_impl_candidates");
+    write(
+        &root.join("main.nia"),
+        r#"
+module fmt;
+using root::fmt;
+
+fn main() i32 {
+    fmt::parse[i32]("abc")
+}
+"#,
+    );
+    write(
+        &root.join("fmt.nia"),
+        r#"
+pub module parse_impl;
+pub using parse_impl::{ParseFrom, parse};
+"#,
+    );
+    std::fs::create_dir_all(root.join("fmt")).expect("create fmt module dir");
+    write(
+        &root.join("fmt/parse_impl.nia"),
+        r#"
+pub trait ParseFrom[Input] {
+    fn parse_from(input: Input) Self;
+}
+
+pub fn parse[T, Input](input: Input) T
+where T: ParseFrom[Input]
+{
+    [T]::parse_from(input)
+}
+
+extend i32 : ParseFrom[&[char]] {
+    fn parse_from(input: &[char]) i32 {
+        input.len() as i32
+    }
+}
+
+extend i32 : ParseFrom[&[u8]] {
+    fn parse_from(input: &[u8]) i32 {
+        input.len() as i32
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]

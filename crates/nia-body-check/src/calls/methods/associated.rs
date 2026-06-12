@@ -209,6 +209,12 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
         candidates: Vec<TraitMethodCandidate>,
     ) -> Option<InternedTyId> {
+        let candidates = candidates
+            .into_iter()
+            .filter(|candidate| {
+                self.trait_associated_candidate_matches_args(candidate, target_ty, args)
+            })
+            .collect::<Vec<_>>();
         let candidate = match candidates.as_slice() {
             [candidate] => candidate,
             [] => return None,
@@ -323,6 +329,30 @@ impl<'a> BodyChecker<'a> {
         let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
+    }
+
+    fn trait_associated_candidate_matches_args(
+        &mut self,
+        candidate: &TraitMethodCandidate,
+        target_ty: InternedTyId,
+        args: &[Expr],
+    ) -> bool {
+        let mut substitutions =
+            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        substitutions.insert("Self".to_string(), target_ty);
+        for (index, arg) in args.iter().enumerate() {
+            let Some(param) = candidate.signature.params.get(index) else {
+                continue;
+            };
+            let expected = self.substitute_generics(param.ty, &substitutions);
+            if self.type_contains_generic_param(expected) {
+                continue;
+            }
+            if !self.expr_can_match_expected(arg, expected) {
+                return false;
+            }
+        }
+        true
     }
 
     pub(in crate::calls) fn associated_target_ty(

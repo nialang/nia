@@ -24,12 +24,16 @@ such as `[&value, &count]`; Nia converts the array to the expected slice.
 precision (`{:.3}`), integer bases (`{:x}`, `{:X}`, `{:b}`, `{:o}`), signs
 (`{:+}`), alternate prefixes (`{:#x}`), zero padding (`{:05}`), and pointer
 addresses (`{:p}`). Literal braces are written as `{{` and `}}`. The matching
-parse helpers are `fmt::parse[T](text)` for primitive integers and bools, with
-integer prefixes such as `0x`, `0b`, and `0o`, and
-`fmt::parse_radix[T](text, radix)` for bare digits in an explicit radix.
+parse helpers are `fmt::parse[T](input)` and
+`fmt::parse_radix[T](input, radix)` for primitive integers and bools. They use
+the `fmt::ParseFrom[Input]` protocol, so character text, byte text, C-string
+views, and process argument/environment views share the same entry points.
+Integer parsing accepts prefixes such as `0x`, `0b`, and `0o`; radix parsing is
+for bare digits in an explicit radix.
 Process arguments and environment entries are C-string-backed views; use
 `arg.bytes()` for raw argument bytes, `arg.cstr()` for the underlying
-`std::cstr::CStr`, or format the argument value directly with `{}`.
+`std::cstr::CStr`, parse the argument directly with `fmt::parse[T](arg)`, or
+format the argument value directly with `{}`.
 Use `init.args().program()` for argv[0], `init.args().skip_program()` for
 application arguments, and `init.env().iter()` for environment traversal.
 

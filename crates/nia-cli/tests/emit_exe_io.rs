@@ -615,7 +615,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_i32(fmt::parse[i32]("-2147483648"), i32::MIN) {
         return (1 as process::ExitCode)!;
     }
-    if not expect_i32([i32]::parse("+2147483647"), i32::MAX) {
+    if not expect_i32(fmt::parse[i32]("+2147483647"), i32::MAX) {
         return (2 as process::ExitCode)!;
     }
     switch fmt::parse[u128]("340282366920938463463374607431768211455") {
@@ -661,7 +661,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_u8(fmt::parse[u8]("0xff"), 255u8) {
         return (16 as process::ExitCode)!;
     }
-    if not expect_u8([u8]::parse_radix("10101010", 2u32), 170u8) {
+    if not expect_u8(fmt::parse_radix[u8]("10101010", 2u32), 170u8) {
         return (17 as process::ExitCode)!;
     }
     if not expect_u8(fmt::parse[u8]("0b10101010"), 170u8) {
@@ -714,6 +714,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not expect_error_u8(fmt::parse[u8]("0b2"), fmt::ParseError::InvalidDigit) {
         return (33 as process::ExitCode)!;
+    }
+    if not expect_u8(fmt::parse[u8](b"255"), 255u8) {
+        return (34 as process::ExitCode)!;
+    }
+    if not expect_u8(fmt::parse[u8](b"0xff"), 255u8) {
+        return (35 as process::ExitCode)!;
+    }
+    if not expect_u8(fmt::parse_radix[u8](b"ff", 16u32), 255u8) {
+        return (36 as process::ExitCode)!;
+    }
+    switch fmt::parse[bool](b"true") {
+        !value => if not value {
+            return (37 as process::ExitCode)!;
+        },
+        error! => return (38 as process::ExitCode)!,
+    }
+    if not expect_error_u8(fmt::parse_radix[u8](b"0xff", 16u32), fmt::ParseError::InvalidDigit) {
+        return (39 as process::ExitCode)!;
+    }
+    let invalid_bytes: [1]u8 = [255u8];
+    if not expect_error_u8(fmt::parse[u8](&invalid_bytes[..]), fmt::ParseError::InvalidDigit) {
+        return (40 as process::ExitCode)!;
     }
     !{}
 }
