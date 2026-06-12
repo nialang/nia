@@ -34,33 +34,70 @@ pub enum FormatPresentation: i32 {
     _,
 }
 
+pub enum FormatAlignment: i32 {
+    None = 0,
+    Left = 1,
+    Right = 2,
+    Center = 3,
+    _,
+}
+
 pub struct FormatSpec {
     presentation: FormatPresentation,
+    width: usize,
+    fill: char,
+    alignment: FormatAlignment,
 }
 
 extend FormatSpec {
+    pub fn init(
+        presentation: FormatPresentation,
+        width: usize,
+        fill: char,
+        alignment: FormatAlignment,
+    ) FormatSpec {
+        {
+            presentation: presentation,
+            width: width,
+            fill: fill,
+            alignment: alignment,
+        }
+    }
+
     pub fn display() FormatSpec {
-        { presentation: FormatPresentation::Display }
+        FormatSpec::init(FormatPresentation::Display, 0usize, ' ', FormatAlignment::None)
     }
 
     pub fn lower_hex() FormatSpec {
-        { presentation: FormatPresentation::LowerHex }
+        FormatSpec::init(FormatPresentation::LowerHex, 0usize, ' ', FormatAlignment::None)
     }
 
     pub fn upper_hex() FormatSpec {
-        { presentation: FormatPresentation::UpperHex }
+        FormatSpec::init(FormatPresentation::UpperHex, 0usize, ' ', FormatAlignment::None)
     }
 
     pub fn binary() FormatSpec {
-        { presentation: FormatPresentation::Binary }
+        FormatSpec::init(FormatPresentation::Binary, 0usize, ' ', FormatAlignment::None)
     }
 
     pub fn octal() FormatSpec {
-        { presentation: FormatPresentation::Octal }
+        FormatSpec::init(FormatPresentation::Octal, 0usize, ' ', FormatAlignment::None)
     }
 
     pub fn presentation(&self) FormatPresentation {
         self.presentation
+    }
+
+    pub fn width(&self) usize {
+        self.width
+    }
+
+    pub fn fill(&self) char {
+        self.fill
+    }
+
+    pub fn alignment(&self) FormatAlignment {
+        self.alignment
     }
 }
 
@@ -96,6 +133,42 @@ extend Formatter {
         !{}
     }
 
+    pub fn write_fill(&mut self, fill: char, count: usize) Error!void {
+        var index = 0usize;
+        while index < count {
+            self.write_char(fill).?;
+            index += 1usize;
+        }
+        !{}
+    }
+
+    fn padding_width(&mut self, content_width: usize, spec: FormatSpec) usize {
+        _ = self;
+        if spec.width() > content_width {
+            spec.width() - content_width
+        } else {
+            0usize
+        }
+    }
+
+    pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!void {
+        let padding = self.padding_width(content_width, spec);
+        switch spec.alignment() {
+            FormatAlignment::Left => !{},
+            FormatAlignment::Center => self.write_fill(spec.fill(), padding / 2usize),
+            _ => self.write_fill(spec.fill(), padding),
+        }
+    }
+
+    pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!void {
+        let padding = self.padding_width(content_width, spec);
+        switch spec.alignment() {
+            FormatAlignment::Left => self.write_fill(spec.fill(), padding),
+            FormatAlignment::Center => self.write_fill(spec.fill(), padding - (padding / 2usize)),
+            _ => !{},
+        }
+    }
+
     pub fn write_unsigned(&mut self, value: u128) Error!void {
         self.write_unsigned_radix(value, 10u128, false)
     }
@@ -112,6 +185,34 @@ extend Formatter {
         } else {
             Error::InvalidTemplate!
         }
+    }
+
+    fn unsigned_digit_count(&mut self, value: u128, radix: u128) usize {
+        _ = self;
+        if value == 0u128 {
+            1usize
+        } else {
+            var count = 0usize;
+            var n = value;
+            while n != 0u128 {
+                n = n / radix;
+                count += 1usize;
+            }
+            count
+        }
+    }
+
+    pub fn write_unsigned_radix_spec(
+        &mut self,
+        value: u128,
+        radix: u128,
+        uppercase: bool,
+        spec: FormatSpec,
+    ) Error!void {
+        let content_width = self.unsigned_digit_count(value, radix);
+        self.write_padding_before(content_width, spec).?;
+        self.write_unsigned_radix(value, radix, uppercase).?;
+        self.write_padding_after(content_width, spec)
     }
 
     fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!void {
@@ -190,6 +291,38 @@ extend Formatter {
             self.write_unsigned_radix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
         } else {
             self.write_unsigned_radix(value as u128, radix, uppercase)
+        }
+    }
+
+    fn signed_abs(&mut self, value: i128) u128 {
+        _ = self;
+        if value < 0i128 {
+            ((0i128 - (value + 1i128)) as u128) + 1u128
+        } else {
+            value as u128
+        }
+    }
+
+    pub fn write_signed_radix_spec(
+        &mut self,
+        value: i128,
+        radix: u128,
+        uppercase: bool,
+        spec: FormatSpec,
+    ) Error!void {
+        let abs = self.signed_abs(value);
+        var content_width = self.unsigned_digit_count(abs, radix);
+        if value < 0i128 {
+            content_width += 1usize;
+        }
+        if value < 0i128 and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
+            self.write_byte(b'-').?;
+            self.write_fill('0', spec.width() - content_width).?;
+            self.write_unsigned_radix(abs, radix, uppercase)
+        } else {
+            self.write_padding_before(content_width, spec).?;
+            self.write_signed_radix(value, radix, uppercase).?;
+            self.write_padding_after(content_width, spec)
         }
     }
 

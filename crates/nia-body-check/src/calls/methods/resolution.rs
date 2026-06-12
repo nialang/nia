@@ -546,11 +546,15 @@ impl<'a> BodyChecker<'a> {
         selected
     }
 
-    fn strictly_more_specific(&self, specific: InternedTyId, general: InternedTyId) -> bool {
+    pub(crate) fn strictly_more_specific(
+        &self,
+        specific: InternedTyId,
+        general: InternedTyId,
+    ) -> bool {
         self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
     }
 
-    fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
+    pub(crate) fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
         self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
     }
 

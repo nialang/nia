@@ -238,6 +238,69 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_formats_alignment_and_width() {
+    let root = temp_dir("emit_exe_std_fmt_formats_alignment_and_width");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::fmt;
+using std::io;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var raw: [256]u8 = [_]u8[0; 256];
+    var stdout = io::FileWriter::stdout(init.io(), raw);
+    let value: i32 = 7;
+    let neg: i32 = -7;
+    let byte = 171u8;
+    let text = "nia";
+    let ch = 'λ';
+    let flag = true;
+    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' z='{:05}' nz='{:05}' hx='{:08x}' text='{:>5}' ch='{:<3}' bool='{:>6}' legacy='{x}'\n", [
+        &value,
+        &value,
+        &value,
+        &value,
+        &neg,
+        &byte,
+        &text[..],
+        &ch,
+        &flag,
+        &byte,
+    ]).exit().?;
+    stdout.flush().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output_timeout("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "r='    7' l='7    ' c='  7  ' z='00007' nz='-0007' hx='000000ab' text='  nia' ch='λ  ' bool='  true' legacy='ab'\n"
+    );
+}
+
+#[test]
 fn emit_exe_std_fmt_reports_template_errors() {
     let root = temp_dir("emit_exe_std_fmt_reports_template_errors");
     let main = root.join("main.nia");
@@ -298,6 +361,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch fmt::print_unchecked(&mut writer, "{X}", [&value]) {
         !ok => _ = ok,
         error! => return (10 as process::ExitCode)!,
+    }
+    if not expect_error(writer.print("{:q}", [&value]), fmt::Error::InvalidTemplate) {
+        return (11 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:08", [&value]), fmt::Error::InvalidTemplate) {
+        return (12 as process::ExitCode)!;
     }
     !{}
 }

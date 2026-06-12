@@ -8,6 +8,14 @@ use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
 
+#[derive(Clone)]
+struct TraitObjectImplMethodMatch {
+    def_id: GlobalDefId,
+    args: Vec<InternedTyId>,
+    target_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
+}
+
 struct ObjectSafetyCheck<'a> {
     span: Span,
     // A synthetic `Self` marker lets object-safety checks detect uses of
@@ -317,12 +325,53 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .filter_map(|generic| substitutions.get(generic).copied())
                 .collect::<Vec<_>>();
-            matches.push((method.def_id, args));
+            matches.push(TraitObjectImplMethodMatch {
+                def_id: method.def_id,
+                args,
+                target_ty,
+                trait_args: method_trait_args,
+            });
         }
+        let matches = self.filter_more_specific_trait_object_impl_methods(matches);
         match matches.as_slice() {
-            [candidate] => Some(candidate.clone()),
+            [candidate] => Some((candidate.def_id, candidate.args.clone())),
             _ => None,
         }
+    }
+
+    fn filter_more_specific_trait_object_impl_methods(
+        &self,
+        matches: Vec<TraitObjectImplMethodMatch>,
+    ) -> Vec<TraitObjectImplMethodMatch> {
+        matches
+            .iter()
+            .filter(|candidate| {
+                !matches.iter().any(|other| {
+                    other.def_id != candidate.def_id
+                        && self.trait_object_impl_method_more_specific(other, candidate)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn trait_object_impl_method_more_specific(
+        &self,
+        specific: &TraitObjectImplMethodMatch,
+        general: &TraitObjectImplMethodMatch,
+    ) -> bool {
+        if specific.trait_args.len() != general.trait_args.len() {
+            return false;
+        }
+        let target_subsumes = self.pattern_subsumes(general.target_ty, specific.target_ty);
+        let mut any_strict = self.strictly_more_specific(specific.target_ty, general.target_ty);
+        let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
+            |(specific_arg, general_arg)| {
+                any_strict |= self.strictly_more_specific(*specific_arg, *general_arg);
+                self.pattern_subsumes(*general_arg, *specific_arg)
+            },
+        );
+        target_subsumes && args_subsume && any_strict
     }
 
     pub(crate) fn is_object_safe_trait_object(

@@ -1,6 +1,11 @@
 using package::fmt::core;
 using package::io;
 
+struct ParsedSpec {
+    spec: core::FormatSpec,
+    next_index: usize,
+}
+
 pub fn print_unchecked[W](
     writer: &mut W,
     template: &[char],
@@ -11,18 +16,97 @@ where W: io::Writer
     print_template(writer, template, args, false)
 }
 
-fn parse_spec(ch: char) ?core::FormatSpec {
+fn parse_presentation(ch: char) ?core::FormatPresentation {
     if ch == 'x' {
-        ?core::FormatSpec::lower_hex()
+        ?core::FormatPresentation::LowerHex
     } else if ch == 'X' {
-        ?core::FormatSpec::upper_hex()
+        ?core::FormatPresentation::UpperHex
     } else if ch == 'b' {
-        ?core::FormatSpec::binary()
+        ?core::FormatPresentation::Binary
     } else if ch == 'o' {
-        ?core::FormatSpec::octal()
+        ?core::FormatPresentation::Octal
     } else {
         null
     }
+}
+
+fn parse_legacy_spec(ch: char) ?core::FormatSpec {
+    switch parse_presentation(ch) {
+        ?presentation => ?core::FormatSpec::init(presentation, 0usize, ' ', core::FormatAlignment::None),
+        null => null,
+    }
+}
+
+fn digit_value(ch: char) ?usize {
+    if ch >= '0' and ch <= '9' {
+        ?((ch as u32 - '0' as u32) as usize)
+    } else {
+        null
+    }
+}
+
+fn parse_spec_end(
+    template: &[char],
+    index: usize,
+    presentation: core::FormatPresentation,
+    width: usize,
+    fill: char,
+    alignment: core::FormatAlignment,
+) core::Error!ParsedSpec {
+    if index >= template.len() or template[index] != '}' {
+        return core::Error::InvalidTemplate!;
+    }
+    !{
+        spec: core::FormatSpec::init(presentation, width, fill, alignment),
+        next_index: index + 1usize,
+    }
+}
+
+fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
+    var index = start;
+    var fill = ' ';
+    var alignment = core::FormatAlignment::None;
+
+    if index < template.len() {
+        let ch = template[index];
+        if ch == '<' {
+            alignment = core::FormatAlignment::Left;
+            index += 1usize;
+        } else if ch == '>' {
+            alignment = core::FormatAlignment::Right;
+            index += 1usize;
+        } else if ch == '^' {
+            alignment = core::FormatAlignment::Center;
+            index += 1usize;
+        } else if ch == '0' {
+            fill = '0';
+            alignment = core::FormatAlignment::Right;
+            index += 1usize;
+        }
+    }
+
+    var width = 0usize;
+    while index < template.len() {
+        let digit = switch digit_value(template[index]) {
+            ?digit => digit,
+            null => break,
+        };
+        width = width * 10usize + digit;
+        index += 1usize;
+    }
+
+    var presentation = core::FormatPresentation::Display;
+    if index < template.len() {
+        switch parse_presentation(template[index]) {
+            ?parsed => {
+                presentation = parsed;
+                index += 1usize;
+            },
+            null => {},
+        }
+    }
+
+    parse_spec_end(template, index, presentation, width, fill, alignment)
 }
 
 fn print_template[W](
@@ -53,11 +137,19 @@ where W: io::Writer
             } else if next == '{' {
                 formatter.write_char('{').?;
                 index += 2usize;
+            } else if next == ':' {
+                let parsed = parse_extended_spec(template, index + 2usize).?;
+                if checked_args and arg_index >= args.len() {
+                    return core::Error::MissingArgument!;
+                }
+                args[arg_index].format_spec(&mut formatter, parsed.spec).?;
+                arg_index += 1usize;
+                index = parsed.next_index;
             } else {
                 if index + 2usize >= template.len() or template[index + 2usize] != '}' {
                     return core::Error::InvalidTemplate!;
                 }
-                let spec = switch parse_spec(next) {
+                let spec = switch parse_legacy_spec(next) {
                     ?spec => spec,
                     null => return core::Error::InvalidTemplate!,
                 };
