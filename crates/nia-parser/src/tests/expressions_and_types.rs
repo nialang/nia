@@ -330,6 +330,39 @@ extend[T] [T] {
 }
 
 #[test]
+fn parses_concrete_slice_pointee_extend_targets() {
+    let (module, errors) = parse_module(
+        r#"
+trait Format {}
+
+extend [char] : Format {}
+extend [u8] {
+    fn len2(& self) usize {
+        self.len()
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Extend(char_extend) = &module.items[1].kind else {
+        panic!("expected char extend");
+    };
+    assert!(char_extend.generics.is_empty());
+    assert!(matches!(
+        char_extend.target.kind,
+        TypeKind::SlicePointee { .. }
+    ));
+    let ItemKind::Extend(byte_extend) = &module.items[2].kind else {
+        panic!("expected byte extend");
+    };
+    assert!(byte_extend.generics.is_empty());
+    assert!(matches!(
+        byte_extend.target.kind,
+        TypeKind::SlicePointee { .. }
+    ));
+}
+
+#[test]
 fn parses_bit_not_unary_operator() {
     let (module, errors) = parse_module(
         r#"

@@ -369,6 +369,34 @@ fn main(value: &i32) i32 {
 }
 
 #[test]
+fn concrete_slice_extension_is_more_specific_than_generic_slice_extension() {
+    let root = temp_dir("concrete_slice_extension_is_more_specific_than_generic_slice_extension");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend[T] [T] {
+    fn rank(& self) i32 {
+        1
+    }
+}
+
+extend [char] {
+    fn rank(& self) i32 {
+        2
+    }
+}
+
+fn main(text: &[char]) i32 {
+    text.rank()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn reports_ambiguous_extension_method_specialization() {
     let root = temp_dir("reports_ambiguous_extension_method_specialization");
     write(
