@@ -30,6 +30,18 @@ fn parse_presentation(ch: char) ?core::FormatPresentation {
     }
 }
 
+fn parse_alignment(ch: char) ?core::FormatAlignment {
+    if ch == '<' {
+        ?core::FormatAlignment::Left
+    } else if ch == '>' {
+        ?core::FormatAlignment::Right
+    } else if ch == '^' {
+        ?core::FormatAlignment::Center
+    } else {
+        null
+    }
+}
+
 fn digit_value(ch: char) ?usize {
     if ch >= '0' and ch <= '9' {
         ?((ch as u32 - '0' as u32) as usize)
@@ -68,27 +80,35 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     var parsing_flags = true;
     while parsing_flags and index < template.len() {
         let ch = template[index];
-        if ch == '<' {
-            alignment = core::FormatAlignment::Left;
-            index += 1usize;
-        } else if ch == '>' {
-            alignment = core::FormatAlignment::Right;
-            index += 1usize;
-        } else if ch == '^' {
-            alignment = core::FormatAlignment::Center;
-            index += 1usize;
-        } else if ch == '0' {
-            fill = '0';
-            alignment = core::FormatAlignment::Right;
-            index += 1usize;
-        } else if ch == '+' and not sign_plus {
-            sign_plus = true;
-            index += 1usize;
-        } else if ch == '#' and not alternate {
-            alternate = true;
-            index += 1usize;
-        } else {
-            parsing_flags = false;
+        if index + 1usize < template.len() {
+            switch parse_alignment(template[index + 1usize]) {
+                ?parsed_alignment => {
+                    fill = ch;
+                    alignment = parsed_alignment;
+                    index += 2usize;
+                    continue;
+                },
+                null => {},
+            }
+        }
+        switch parse_alignment(ch) {
+            ?parsed_alignment => {
+                alignment = parsed_alignment;
+                index += 1usize;
+            },
+            null => if ch == '0' {
+                fill = '0';
+                alignment = core::FormatAlignment::Right;
+                index += 1usize;
+            } else if ch == '+' and not sign_plus {
+                sign_plus = true;
+                index += 1usize;
+            } else if ch == '#' and not alternate {
+                alternate = true;
+                index += 1usize;
+            } else {
+                parsing_flags = false;
+            },
         }
     }
 
