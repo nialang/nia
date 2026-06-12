@@ -463,7 +463,22 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::Pointer { is_readonly, elem });
+                let instantiated = match self.interner.get(elem).cloned() {
+                    Some(TyKind::SlicePointee { elem }) => {
+                        self.interner.intern(TyKind::Slice { is_readonly, elem })
+                    }
+                    Some(TyKind::TraitObjectPointee {
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings,
+                    }) => self.interner.intern(TyKind::TraitObject {
+                        is_readonly,
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings,
+                    }),
+                    _ => self.interner.intern(TyKind::Pointer { is_readonly, elem }),
+                };
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Slice { is_readonly, elem }) => {

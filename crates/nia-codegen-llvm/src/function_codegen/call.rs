@@ -6,7 +6,7 @@ use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, F
 use nia_ids::InternedTyId;
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TyKind};
+use nia_ty::{BuiltinTrait, TyKind, TypeEquivalence};
 
 use super::FunctionCodegen;
 
@@ -556,7 +556,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return self.emit_expr(receiver);
                 }
                 if self.is_fat_receiver_passing_ty(passing_ty) {
-                    return self.emit_expr(receiver);
+                    let value = self.emit_expr(receiver)?;
+                    if self.receiver_points_to_passing_ty(receiver.ty, passing_ty) {
+                        let ty = self.module.llvm_basic_type(passing_ty, receiver.span)?;
+                        return self
+                            .builder
+                            .build_load(ty, value.into_pointer_value()?, "loadreceiver")
+                            .map_err(|_| {
+                                self.error(receiver.span, "failed to load fat method receiver")
+                            });
+                    }
+                    return Ok(value);
                 }
                 if matches!(
                     self.module.ty_kind(receiver.ty),
@@ -570,6 +580,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self.emit_arg_address(receiver.span, receiver)?.into())
             }
         }
+    }
+
+    fn receiver_points_to_passing_ty(
+        &self,
+        receiver_ty: InternedTyId,
+        passing_ty: InternedTyId,
+    ) -> bool {
+        let Some(TyKind::Pointer { elem, .. }) = self.module.ty_kind(receiver_ty) else {
+            return false;
+        };
+        self.module.same_type_for_equiv(*elem, passing_ty)
     }
 
     fn is_fat_receiver_passing_ty(&self, ty: InternedTyId) -> bool {

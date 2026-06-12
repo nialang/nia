@@ -1016,7 +1016,67 @@ where
                 });
             }
         }
+        self.filter_more_specific_user_impls(matches)
+    }
+
+    fn filter_more_specific_user_impls(&mut self, matches: Vec<UserImpl>) -> Vec<UserImpl> {
         matches
+            .iter()
+            .filter(|candidate| {
+                !matches.iter().any(|other| {
+                    other.impl_index != candidate.impl_index
+                        && self.user_impl_more_specific(other.impl_index, candidate.impl_index)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn user_impl_more_specific(&mut self, specific_index: usize, general_index: usize) -> bool {
+        let specific = &self.trait_impls[specific_index];
+        let general = &self.trait_impls[general_index];
+        if specific.trait_id != general.trait_id
+            || specific.trait_args.len() != general.trait_args.len()
+        {
+            return false;
+        }
+        let specific_target =
+            import_type_into(self.interner, &specific.interner, specific.target_ty);
+        let general_target = import_type_into(self.interner, &general.interner, general.target_ty);
+        let target_subsumes = self.pattern_subsumes(general_target, specific_target);
+        let target_strict = self.strictly_more_specific_pattern(specific_target, general_target);
+        let mut any_strict = target_strict;
+        let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
+            |(specific_arg, general_arg)| {
+                let specific_arg =
+                    import_type_into(self.interner, &specific.interner, *specific_arg);
+                let general_arg = import_type_into(self.interner, &general.interner, *general_arg);
+                any_strict |= self.strictly_more_specific_pattern(specific_arg, general_arg);
+                self.pattern_subsumes(general_arg, specific_arg)
+            },
+        );
+        target_subsumes && args_subsume && any_strict
+    }
+
+    fn strictly_more_specific_pattern(
+        &mut self,
+        specific: InternedTyId,
+        general: InternedTyId,
+    ) -> bool {
+        self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
+    }
+
+    fn pattern_subsumes(&mut self, general: InternedTyId, specific: InternedTyId) -> bool {
+        self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+    }
+
+    fn pattern_subsumes_inner(
+        &mut self,
+        general: InternedTyId,
+        specific: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        self.match_impl_pattern(general, specific, substitutions)
     }
 
     fn impl_where_predicates_hold(
