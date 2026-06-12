@@ -25,6 +25,8 @@ fn parse_presentation(ch: char) ?core::FormatPresentation {
         ?core::FormatPresentation::Binary
     } else if ch == 'o' {
         ?core::FormatPresentation::Octal
+    } else if ch == 'p' {
+        ?core::FormatPresentation::Pointer
     } else {
         null
     }

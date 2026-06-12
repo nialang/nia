@@ -317,6 +317,111 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_formats_pointers() {
+    let root = temp_dir("emit_exe_std_fmt_formats_pointers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::io;
+using std::process;
+
+fn eq_bytes(left: &[u8], right: &[u8]) bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var value = 1234i32;
+    let ptr = &value;
+    let addr = ptr as usize;
+
+    var pointer_storage: [64]u8 = [0; 64];
+    var pointer_writer = io::FixedBufferWriter::init(&mut pointer_storage[..]);
+    pointer_writer.print("{:p}", [&ptr]).exit().?;
+
+    var addr_storage: [64]u8 = [0; 64];
+    var addr_writer = io::FixedBufferWriter::init(&mut addr_storage[..]);
+    addr_writer.print("{:#x}", [&addr]).exit().?;
+
+    if not eq_bytes(pointer_writer.written(), addr_writer.written()) {
+        return (1 as process::ExitCode)!;
+    }
+
+    var display_storage: [64]u8 = [0; 64];
+    var display_writer = io::FixedBufferWriter::init(&mut display_storage[..]);
+    display_writer.print("{}", [&ptr]).exit().?;
+    if not eq_bytes(display_writer.written(), addr_writer.written()) {
+        return (2 as process::ExitCode)!;
+    }
+
+    var mut_ptr = &mut value;
+    var mut_storage: [64]u8 = [0; 64];
+    var mut_writer = io::FixedBufferWriter::init(&mut mut_storage[..]);
+    mut_writer.print("{:p}", [&mut_ptr]).exit().?;
+    if mut_writer.len() < 3usize or mut_writer.written()[0] != b'0' or mut_writer.written()[1] != b'x' {
+        return (3 as process::ExitCode)!;
+    }
+
+    var padded_storage: [80]u8 = [0; 80];
+    var padded_writer = io::FixedBufferWriter::init(&mut padded_storage[..]);
+    padded_writer.print("{:_>20p}", [&ptr]).exit().?;
+    if padded_writer.len() != 20usize {
+        return (4 as process::ExitCode)!;
+    }
+    let written = padded_writer.written();
+    var index = 0usize;
+    while index + pointer_writer.len() < 20usize {
+        if written[index] != b'_' {
+            return (5 as process::ExitCode)!;
+        }
+        index += 1usize;
+    }
+    var pointer_index = 0usize;
+    while pointer_index < pointer_writer.len() {
+        if written[index + pointer_index] != pointer_writer.written()[pointer_index] {
+            return (6 as process::ExitCode)!;
+        }
+        pointer_index += 1usize;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output_timeout("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_fmt_reports_template_errors() {
     let root = temp_dir("emit_exe_std_fmt_reports_template_errors");
     let main = root.join("main.nia");
@@ -408,6 +513,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if not expect_error(writer.print("{:_5}", [&flag]), fmt::Error::InvalidTemplate) {
         return (20 as process::ExitCode)!;
+    }
+    let ptr = &value;
+    if not expect_error(writer.print("{:+p}", [&ptr]), fmt::Error::InvalidTemplate) {
+        return (21 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:#p}", [&ptr]), fmt::Error::InvalidTemplate) {
+        return (22 as process::ExitCode)!;
+    }
+    if not expect_error(writer.print("{:.2p}", [&ptr]), fmt::Error::InvalidTemplate) {
+        return (23 as process::ExitCode)!;
     }
     !{}
 }
