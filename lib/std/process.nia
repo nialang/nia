@@ -15,12 +15,23 @@ pub struct Args {
     ptr: &&u8,
 }
 
+pub struct ArgsIter {
+    args: Args,
+    index: usize,
+}
+
 pub struct Arg {
     text: cstr::CStr,
 }
 
 pub struct Env {
     ptr: &&u8,
+}
+
+pub struct EnvIter {
+    env: Env,
+    len: usize,
+    index: usize,
 }
 
 pub struct EnvVar {
@@ -113,6 +124,10 @@ extend Args {
         self.len == 0
     }
 
+    pub fn program(&self) ?Arg {
+        self.get(0usize)
+    }
+
     pub fn get(&self, index: usize) ?Arg {
         if index >= self.len {
             null
@@ -121,8 +136,39 @@ extend Args {
         }
     }
 
+    pub fn iter(&self) ArgsIter {
+        ArgsIter::init(self.*, 0usize)
+    }
+
+    pub fn skip_program(&self) ArgsIter {
+        ArgsIter::init(self.*, 1usize)
+    }
+
     pub fn raw_argv(&self) &&u8 {
         self.ptr
+    }
+}
+
+extend ArgsIter {
+    pub fn init(args: Args, index: usize) ArgsIter {
+        var start = index;
+        if start > args.len() {
+            start = args.len();
+        }
+        { args: args, index: start }
+    }
+
+    pub fn remaining(&self) usize {
+        self.args.len() - self.index
+    }
+
+    pub fn next(&mut self) ?Arg {
+        let value = switch self.args.get(self.index) {
+            ?value => value,
+            null => return null,
+        };
+        self.index += 1usize;
+        ?value
     }
 }
 
@@ -183,8 +229,40 @@ extend Env {
         }
     }
 
+    pub fn iter(&self) EnvIter {
+        EnvIter::init(self.*, 0usize)
+    }
+
     pub fn raw_envp(&self) &&u8 {
         self.ptr
+    }
+}
+
+extend EnvIter {
+    pub fn init(env: Env, index: usize) EnvIter {
+        let len = env.len();
+        var start = index;
+        if start > len {
+            start = len;
+        }
+        { env: env, len: len, index: start }
+    }
+
+    pub fn remaining(&self) usize {
+        self.len - self.index
+    }
+
+    pub fn next(&mut self) ?EnvVar {
+        if self.index >= self.len {
+            null
+        } else {
+            let value = switch self.env.get(self.index) {
+                ?value => value,
+                null => return null,
+            };
+            self.index += 1usize;
+            ?value
+        }
     }
 }
 
