@@ -151,9 +151,12 @@ entry points at `std::ArrayList` and `std::HashMap`.
   `{:#b}`, `{:#o}`), integer presentations (`{:x}`, `{:X}`, `{:b}`, `{:o}`),
   zero padding (`{:05}`, `{:#08x}`), pointer formatting (`{:p}`), and escaped
   braces (`{{` and `}}`). The old shorthand forms such as `{x}` are invalid.
-  `fmt::parse[T](...)` parses primitive integers and `bool`; integer parsing
-  accepts decimal plus `0x`, `0b`, and `0o` prefixes, while
-  `fmt::parse_radix[T](text, radix)` parses bare digits in radix 2 through 36.
+  `fmt::parse[T](input)` and `fmt::parse_radix[T](input, radix)` use the
+  `fmt::ParseFrom[Input]` protocol. Primitive integers and `bool` parse from
+  character text, byte text, C-string views, and process argument/environment
+  views without separate byte-specific entry points. Integer parsing accepts
+  decimal plus `0x`, `0b`, and `0o` prefixes; radix parsing accepts bare digits
+  in radix 2 through 36.
 - `std::mem` defines the `Allocator` trait plus `Layout` and `Block`, the
   explicit allocation contract used by standard containers. A block must be
   freed with the allocator that produced it, and with the current layout carried

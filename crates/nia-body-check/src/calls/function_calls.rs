@@ -8,7 +8,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 struct FunctionItemRef {
@@ -275,6 +275,7 @@ impl<'a> BodyChecker<'a> {
                 &resolved.signature,
                 type_args,
                 args,
+                expected,
             );
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
@@ -288,6 +289,7 @@ impl<'a> BodyChecker<'a> {
                 &resolved.signature,
                 type_args,
                 args,
+                expected,
             );
         }
         let callee_ty = self.check_bracket_suffix_expr(bracket_expr, callee, type_args, None);
@@ -339,10 +341,11 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         type_args: &[BracketArg],
         args: &[Expr],
+        expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
         let lowered_args = self.lower_bracket_type_args(type_args);
-        if signature.generics.len() != lowered_args.len() {
+        if lowered_args.len() > signature.generics.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
                 span,
@@ -357,24 +360,31 @@ impl<'a> BodyChecker<'a> {
             }
             return self.error();
         }
-        self.record_generic_instantiation(def_id, &lowered_args, span);
+        let mut substitutions =
+            self.generic_substitutions(&signature.generics[..lowered_args.len()], &lowered_args);
+        self.infer_generic_function_call_substitutions(
+            span,
+            signature,
+            args,
+            expected,
+            &mut substitutions,
+        );
+        let Some(instance_args) =
+            self.complete_generic_function_instance_args(span, &signature.generics, &substitutions)
+        else {
+            return self.error();
+        };
+        self.record_generic_instantiation(def_id, &instance_args, span);
         self.record_resolved_node_call(
             span,
             &expr.node_key,
             ResolvedCall::FunctionInstance {
                 def_id,
                 arg_module_id: self.defs.module_id,
-                args: lowered_args.clone(),
+                args: instance_args,
             },
         );
-        let substitutions = self.generic_substitutions(&signature.generics, &lowered_args);
-        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
-        let params: Vec<InternedTyId> = signature
-            .params
-            .iter()
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
-            .collect();
-        self.check_direct_call_args(span, args, &params, signature.is_variadic);
+        self.check_instantiated_generic_function_call_args(span, signature, args, &substitutions);
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         let return_type = self.normalize_projection(return_type);
         self.normalize_aliases_in_type(return_type)
@@ -389,16 +399,53 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let mut substitutions = HashMap::new();
+        self.infer_generic_function_call_substitutions(
+            span,
+            signature,
+            args,
+            expected,
+            &mut substitutions,
+        );
+        let Some(instance_args) =
+            self.complete_generic_function_instance_args(span, &signature.generics, &substitutions)
+        else {
+            return self.error();
+        };
+        self.record_generic_instantiation(def_id, &instance_args, span);
+        self.record_resolved_node_call(
+            span,
+            &expr.node_key,
+            ResolvedCall::FunctionInstance {
+                def_id,
+                arg_module_id: self.defs.module_id,
+                args: instance_args,
+            },
+        );
+
+        self.check_instantiated_generic_function_call_args(span, signature, args, &substitutions);
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.normalize_projection(return_type);
+        self.normalize_aliases_in_type(return_type)
+    }
+
+    fn infer_generic_function_call_substitutions(
+        &mut self,
+        span: Span,
+        signature: &FunctionSignature,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) {
+        let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
-            self.infer_generics_from_type(
-                signature.return_type,
-                expected,
-                &mut substitutions,
-                span,
-            );
+            self.infer_generics_from_type(signature.return_type, expected, substitutions, span);
         }
+        self.infer_generic_function_call_substitutions_from_where_predicates(
+            signature,
+            args,
+            substitutions,
+        );
         self.check_call_arg_count(span, args.len(), params.len(), signature.is_variadic);
         for (index, arg) in args.iter().enumerate() {
             let Some(param) = params.get(index).copied() else {
@@ -412,11 +459,114 @@ impl<'a> BodyChecker<'a> {
             } else {
                 self.check_expr(arg)
             };
-            self.infer_generics_from_type(param, actual, &mut substitutions, arg.span);
+            self.infer_generics_from_type(param, actual, substitutions, arg.span);
+            self.infer_generic_function_call_substitutions_from_where_predicates(
+                signature,
+                args,
+                substitutions,
+            );
         }
+    }
 
+    fn infer_generic_function_call_substitutions_from_where_predicates(
+        &mut self,
+        signature: &FunctionSignature,
+        args: &[Expr],
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for predicate in &signature.where_predicates {
+                let candidates = self
+                    .infer_where_predicate_candidates(predicate, substitutions)
+                    .into_iter()
+                    .filter(|candidate| {
+                        self.where_candidate_matches_call_args(signature, args, candidate)
+                    })
+                    .collect::<Vec<_>>();
+                let Some(candidate) = self.single_where_candidate(&candidates) else {
+                    continue;
+                };
+                for (generic, ty) in candidate {
+                    if !substitutions.contains_key(generic) {
+                        substitutions.insert(generic.clone(), *ty);
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn single_where_candidate<'b>(
+        &mut self,
+        candidates: &'b [HashMap<String, InternedTyId>],
+    ) -> Option<&'b HashMap<String, InternedTyId>> {
+        let first = candidates.first()?;
+        if candidates.iter().skip(1).any(|candidate| {
+            candidate.len() != first.len()
+                || candidate.iter().any(|(name, ty)| {
+                    first
+                        .get(name)
+                        .is_none_or(|first_ty| !self.types_match(*first_ty, *ty))
+                })
+        }) {
+            return None;
+        }
+        Some(first)
+    }
+
+    fn where_candidate_matches_call_args(
+        &mut self,
+        signature: &FunctionSignature,
+        args: &[Expr],
+        candidate: &HashMap<String, InternedTyId>,
+    ) -> bool {
+        for (index, arg) in args.iter().enumerate() {
+            let Some(param) = signature.params.get(index).map(|param| param.ty) else {
+                continue;
+            };
+            let expected = self.substitute_generics(param, candidate);
+            if self.type_contains_generic_param(expected) {
+                continue;
+            }
+            if !self.expr_can_match_expected(arg, expected) {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub(crate) fn expr_can_match_expected(&mut self, expr: &Expr, expected: InternedTyId) -> bool {
+        let expected = self.normalization.normalize(expected);
+        match (&expr.kind, self.interner.get(expected).cloned()) {
+            (
+                ExprKind::String(_),
+                Some(TyKind::Slice {
+                    is_readonly: true,
+                    elem,
+                }),
+            ) => self.types_match(elem, self.primitive(PrimitiveTy::Char)),
+            (
+                ExprKind::ByteString(_),
+                Some(TyKind::Slice {
+                    is_readonly: true,
+                    elem,
+                }),
+            ) => self.types_match(elem, self.primitive(PrimitiveTy::U8)),
+            (ExprKind::String(_), _) | (ExprKind::ByteString(_), _) => false,
+            _ => true,
+        }
+    }
+
+    fn complete_generic_function_instance_args(
+        &mut self,
+        span: Span,
+        generics: &[String],
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Option<Vec<InternedTyId>> {
         let mut complete = true;
-        for generic in &signature.generics {
+        for generic in generics {
             if !substitutions.contains_key(generic) {
                 complete = false;
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -427,24 +577,24 @@ impl<'a> BodyChecker<'a> {
             }
         }
         if !complete {
-            return self.error();
+            return None;
         }
-        let instance_args = signature
-            .generics
-            .iter()
-            .filter_map(|generic| substitutions.get(generic).copied())
-            .collect::<Vec<_>>();
-        self.record_generic_instantiation(def_id, &instance_args, span);
-        self.record_resolved_node_call(
-            span,
-            &expr.node_key,
-            ResolvedCall::FunctionInstance {
-                def_id,
-                arg_module_id: self.defs.module_id,
-                args: instance_args,
-            },
-        );
+        Some(
+            generics
+                .iter()
+                .filter_map(|generic| substitutions.get(generic).copied())
+                .collect::<Vec<_>>(),
+        )
+    }
 
+    fn check_instantiated_generic_function_call_args(
+        &mut self,
+        span: Span,
+        signature: &FunctionSignature,
+        args: &[Expr],
+        substitutions: &HashMap<String, InternedTyId>,
+    ) {
+        let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let instantiated_params: Vec<InternedTyId> = params
             .iter()
             .map(|param| self.substitute_generics(*param, &substitutions))
@@ -456,9 +606,6 @@ impl<'a> BodyChecker<'a> {
                 self.expect_expr_type(arg, expected, actual, "call argument");
             }
         }
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        let return_type = self.normalize_projection(return_type);
-        self.normalize_aliases_in_type(return_type)
     }
 
     fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {

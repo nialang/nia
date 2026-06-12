@@ -87,6 +87,59 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_remaining_generic_function_type_arguments_after_explicit_prefix() {
+    let checked = pipeline(
+        r#"
+fn keep_first[T, U](left: T, right: U) T {
+    _ = right;
+    left
+}
+
+fn main() i32 {
+    var a: i32 = keep_first[i32](7, true);
+    var b: u8 = keep_first[u8](3u8, 123usize);
+    a + b as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_generic_function_input_from_where_predicate_impl_candidates() {
+    let checked = pipeline(
+        r#"
+trait ParseFrom[Input] {
+    fn parse_from(input: Input) Self;
+}
+
+fn parse[T, Input](input: Input) T
+where T: ParseFrom[Input]
+{
+    [T]::parse_from(input)
+}
+
+extend i32 : ParseFrom[&[char]] {
+    fn parse_from(input: &[char]) i32 {
+        input.len() as i32
+    }
+}
+
+extend i32 : ParseFrom[&[u8]] {
+    fn parse_from(input: &[u8]) i32 {
+        input.len() as i32
+    }
+}
+
+fn main() i32 {
+    parse[i32]("abc")
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_fixed_prefix_of_variadic_extern_calls() {
     let checked = pipeline(
         r#"

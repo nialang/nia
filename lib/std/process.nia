@@ -111,6 +111,18 @@ extend Arg : fmt::Format {
     }
 }
 
+extend[T] T : fmt::ParseFrom[Arg]
+where T: fmt::ParseFrom[cstr::CStr]
+{
+    fn parse_from(input: Arg) fmt::ParseError!T {
+        fmt::parse[T](input.cstr())
+    }
+
+    fn parse_radix_from(input: Arg, radix: u32) fmt::ParseError!T {
+        fmt::parse_radix[T](input.cstr(), radix)
+    }
+}
+
 extend Args {
     pub fn init(len: usize, ptr: &&u8) Args {
         { len: len, ptr: ptr }
@@ -205,6 +217,18 @@ extend EnvVar : fmt::Format {
 
     fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
         self.text.format_spec(formatter, spec)
+    }
+}
+
+extend[T] T : fmt::ParseFrom[EnvVar]
+where T: fmt::ParseFrom[cstr::CStr]
+{
+    fn parse_from(input: EnvVar) fmt::ParseError!T {
+        fmt::parse[T](input.cstr())
+    }
+
+    fn parse_radix_from(input: EnvVar, radix: u32) fmt::ParseError!T {
+        fmt::parse_radix[T](input.cstr(), radix)
     }
 }
 

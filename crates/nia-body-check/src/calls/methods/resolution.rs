@@ -217,6 +217,9 @@ impl<'a> BodyChecker<'a> {
                 &trait_signature,
             );
         }
+        if !candidates.is_empty() {
+            return candidates;
+        }
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates
     }
@@ -252,6 +255,9 @@ impl<'a> BodyChecker<'a> {
                 name,
                 &trait_signature,
             );
+        }
+        if !candidates.is_empty() {
+            return candidates;
         }
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates

@@ -443,6 +443,7 @@ fn emit_exe_can_use_direct_std_modules() {
     std::fs::write(
         &main,
         r#"
+using std::fmt;
 using std::io;
 using std::process;
 
@@ -576,6 +577,7 @@ fn emit_exe_exposes_process_args_without_raw_argv() {
     std::fs::write(
         &main,
         r#"
+using std::fmt;
 using std::io;
 using std::process;
 
@@ -619,6 +621,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if second.len() != 4 {
         return (6 as process::ExitCode)!;
     }
+    switch fmt::parse[u16](second_arg) {
+        !value => if value != 1234u16 {
+            return (14 as process::ExitCode)!;
+        },
+        error! => return (15 as process::ExitCode)!,
+    }
+    switch fmt::parse_radix[u16](second_arg, 16u32) {
+        !value => if value != 0x1234u16 {
+            return (16 as process::ExitCode)!;
+        },
+        error! => return (17 as process::ExitCode)!,
+    }
     var storage: [16]u8 = [0; 16];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print("{:_>5.2}", [&first_arg]).exit().?;
@@ -655,7 +669,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let status = Command::new(&exe)
         .arg("nia")
-        .arg("lang")
+        .arg("1234")
         .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }

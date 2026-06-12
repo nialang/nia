@@ -7,11 +7,11 @@ pub enum ParseError: i32 {
     _,
 }
 
-pub trait Parse {
-    fn parse(text: &[char]) ParseError!Self;
+pub trait ParseFrom[Input] {
+    fn parse_from(input: Input) ParseError!Self;
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!Self {
-        _ = text;
+    fn parse_radix_from(input: Input, radix: u32) ParseError!Self {
+        _ = input;
         _ = radix;
         ParseError::InvalidRadix!
     }
@@ -22,19 +22,19 @@ struct ParsedInteger {
     abs: u128,
 }
 
-pub fn parse[T](text: &[char]) ParseError!T
-where T: Parse
+pub fn parse[T, Input](input: Input) ParseError!T
+where T: ParseFrom[Input]
 {
-    [T]::parse(text)
+    [T]::parse_from(input)
 }
 
-pub fn parse_radix[T](text: &[char], radix: u32) ParseError!T
-where T: Parse
+pub fn parse_radix[T, Input](input: Input, radix: u32) ParseError!T
+where T: ParseFrom[Input]
 {
-    [T]::parse_radix(text, radix)
+    [T]::parse_radix_from(input, radix)
 }
 
-fn digit_value(ch: char) ?u32 {
+fn digit_value_char(ch: char) ?u32 {
     if ch >= '0' and ch <= '9' {
         ?(ch as u32 - '0' as u32)
     } else if ch >= 'a' and ch <= 'z' {
@@ -46,7 +46,19 @@ fn digit_value(ch: char) ?u32 {
     }
 }
 
-fn parse_integer_radix(text: &[char], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
+fn digit_value_byte(byte: u8) ?u32 {
+    if byte >= b'0' and byte <= b'9' {
+        ?(byte as u32 - b'0' as u32)
+    } else if byte >= b'a' and byte <= b'z' {
+        ?((byte as u32 - b'a' as u32) + 10u32)
+    } else if byte >= b'A' and byte <= b'Z' {
+        ?((byte as u32 - b'A' as u32) + 10u32)
+    } else {
+        null
+    }
+}
+
+fn parse_integer_radix_chars(text: &[char], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
     if radix < 2u32 or radix > 36u32 {
         return ParseError::InvalidRadix!;
     }
@@ -71,7 +83,7 @@ fn parse_integer_radix(text: &[char], radix: u32, allow_sign: bool) ParseError!P
     var value = 0u128;
     let radix_wide = radix as u128;
     while index < text.len() {
-        let digit = switch digit_value(text[index]) {
+        let digit = switch digit_value_char(text[index]) {
             ?value => value,
             null => return ParseError::InvalidDigit!,
         };
@@ -89,7 +101,50 @@ fn parse_integer_radix(text: &[char], radix: u32, allow_sign: bool) ParseError!P
     !{ negative: negative, abs: value }
 }
 
-fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
+fn parse_integer_radix_bytes(bytes: &[u8], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
+    if radix < 2u32 or radix > 36u32 {
+        return ParseError::InvalidRadix!;
+    }
+    if bytes.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = bytes[0];
+    if first == b'-' or first == b'+' {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = first == b'-';
+        index = 1usize;
+        if index == bytes.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    let radix_wide = radix as u128;
+    while index < bytes.len() {
+        let digit = switch digit_value_byte(bytes[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
+            return ParseError::Overflow!;
+        }
+        value = value * radix_wide + digit_wide;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn parse_integer_chars(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
     if text.len() == 0usize {
         return ParseError::Empty!;
     }
@@ -129,7 +184,7 @@ fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
     var value = 0u128;
     let radix_wide = radix as u128;
     while index < text.len() {
-        let digit = switch digit_value(text[index]) {
+        let digit = switch digit_value_char(text[index]) {
             ?value => value,
             null => return ParseError::InvalidDigit!,
         };
@@ -147,8 +202,65 @@ fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
     !{ negative: negative, abs: value }
 }
 
-fn parse_unsigned_radix(text: &[char], radix: u32, max: u128) ParseError!u128 {
-    let parsed = parse_integer_radix(text, radix, false).?;
+fn parse_integer_bytes(bytes: &[u8], allow_sign: bool) ParseError!ParsedInteger {
+    if bytes.len() == 0usize {
+        return ParseError::Empty!;
+    }
+
+    var index = 0usize;
+    var negative = false;
+    let first = bytes[0];
+    if first == b'-' or first == b'+' {
+        if not allow_sign {
+            return ParseError::InvalidSign!;
+        }
+        negative = first == b'-';
+        index = 1usize;
+        if index == bytes.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var radix = 10u32;
+    if index + 1usize < bytes.len() and bytes[index] == b'0' {
+        let marker = bytes[index + 1usize];
+        if marker == b'x' or marker == b'X' {
+            radix = 16u32;
+            index += 2usize;
+        } else if marker == b'b' or marker == b'B' {
+            radix = 2u32;
+            index += 2usize;
+        } else if marker == b'o' or marker == b'O' {
+            radix = 8u32;
+            index += 2usize;
+        }
+        if index == bytes.len() {
+            return ParseError::InvalidDigit!;
+        }
+    }
+
+    var value = 0u128;
+    let radix_wide = radix as u128;
+    while index < bytes.len() {
+        let digit = switch digit_value_byte(bytes[index]) {
+            ?value => value,
+            null => return ParseError::InvalidDigit!,
+        };
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
+            return ParseError::Overflow!;
+        }
+        value = value * radix_wide + digit_wide;
+        index += 1usize;
+    }
+
+    !{ negative: negative, abs: value }
+}
+
+fn finish_unsigned(parsed: ParsedInteger, max: u128) ParseError!u128 {
     if parsed.negative {
         return ParseError::InvalidSign!;
     }
@@ -158,8 +270,7 @@ fn parse_unsigned_radix(text: &[char], radix: u32, max: u128) ParseError!u128 {
     !parsed.abs
 }
 
-fn parse_signed_radix(text: &[char], radix: u32, min: i128, max: i128) ParseError!i128 {
-    let parsed = parse_integer_radix(text, radix, true).?;
+fn finish_signed(parsed: ParsedInteger, min: i128, max: i128) ParseError!i128 {
     let negative_limit = ((0i128 - (min + 1i128)) as u128) + 1u128;
     if parsed.negative {
         if parsed.abs > negative_limit {
@@ -176,162 +287,299 @@ fn parse_signed_radix(text: &[char], radix: u32, min: i128, max: i128) ParseErro
     !(parsed.abs as i128)
 }
 
-fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
-    let parsed = parse_integer(text, false).?;
-    if parsed.negative {
-        return ParseError::InvalidSign!;
-    }
-    if parsed.abs > max {
-        return ParseError::Overflow!;
-    }
-    !parsed.abs
+fn parse_unsigned_chars(text: &[char], max: u128) ParseError!u128 {
+    finish_unsigned(parse_integer_chars(text, false).?, max)
 }
 
-fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
-    let parsed = parse_integer(text, true).?;
-    let negative_limit = ((0i128 - (min + 1i128)) as u128) + 1u128;
-    if parsed.negative {
-        if parsed.abs > negative_limit {
-            return ParseError::Overflow!;
-        }
-        if parsed.abs == negative_limit {
-            return !min;
-        }
-        return !(0i128 - parsed.abs as i128);
-    }
-    if parsed.abs > max as u128 {
-        return ParseError::Overflow!;
-    }
-    !(parsed.abs as i128)
+fn parse_unsigned_radix_chars(text: &[char], radix: u32, max: u128) ParseError!u128 {
+    finish_unsigned(parse_integer_radix_chars(text, radix, false).?, max)
 }
 
-extend i8 : Parse {
-    fn parse(text: &[char]) ParseError!i8 {
-        !(parse_signed(text, i8::MIN as i128, i8::MAX as i128).? as i8)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!i8 {
-        !(parse_signed_radix(text, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
-    }
+fn parse_signed_chars(text: &[char], min: i128, max: i128) ParseError!i128 {
+    finish_signed(parse_integer_chars(text, true).?, min, max)
 }
 
-extend i16 : Parse {
-    fn parse(text: &[char]) ParseError!i16 {
-        !(parse_signed(text, i16::MIN as i128, i16::MAX as i128).? as i16)
+fn parse_signed_radix_chars(text: &[char], radix: u32, min: i128, max: i128) ParseError!i128 {
+    finish_signed(parse_integer_radix_chars(text, radix, true).?, min, max)
+}
+
+fn parse_unsigned_bytes(bytes: &[u8], max: u128) ParseError!u128 {
+    finish_unsigned(parse_integer_bytes(bytes, false).?, max)
+}
+
+fn parse_unsigned_radix_bytes(bytes: &[u8], radix: u32, max: u128) ParseError!u128 {
+    finish_unsigned(parse_integer_radix_bytes(bytes, radix, false).?, max)
+}
+
+fn parse_signed_bytes(bytes: &[u8], min: i128, max: i128) ParseError!i128 {
+    finish_signed(parse_integer_bytes(bytes, true).?, min, max)
+}
+
+fn parse_signed_radix_bytes(bytes: &[u8], radix: u32, min: i128, max: i128) ParseError!i128 {
+    finish_signed(parse_integer_radix_bytes(bytes, radix, true).?, min, max)
+}
+
+extend i8 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!i8 {
+        !(parse_signed_chars(text, i8::MIN as i128, i8::MAX as i128).? as i8)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!i16 {
-        !(parse_signed_radix(text, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!i8 {
+        !(parse_signed_radix_chars(text, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
     }
 }
 
-extend i32 : Parse {
-    fn parse(text: &[char]) ParseError!i32 {
-        !(parse_signed(text, i32::MIN as i128, i32::MAX as i128).? as i32)
+extend i8 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!i8 {
+        !(parse_signed_bytes(bytes, i8::MIN as i128, i8::MAX as i128).? as i8)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!i32 {
-        !(parse_signed_radix(text, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
-    }
-}
-
-extend i64 : Parse {
-    fn parse(text: &[char]) ParseError!i64 {
-        !(parse_signed(text, i64::MIN as i128, i64::MAX as i128).? as i64)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!i64 {
-        !(parse_signed_radix(text, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!i8 {
+        !(parse_signed_radix_bytes(bytes, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
     }
 }
 
-extend i128 : Parse {
-    fn parse(text: &[char]) ParseError!i128 {
-        parse_signed(text, i128::MIN, i128::MAX)
+extend i16 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!i16 {
+        !(parse_signed_chars(text, i16::MIN as i128, i16::MAX as i128).? as i16)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!i128 {
-        parse_signed_radix(text, radix, i128::MIN, i128::MAX)
-    }
-}
-
-extend isize : Parse {
-    fn parse(text: &[char]) ParseError!isize {
-        !(parse_signed(text, isize::MIN as i128, isize::MAX as i128).? as isize)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!isize {
-        !(parse_signed_radix(text, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!i16 {
+        !(parse_signed_radix_chars(text, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
     }
 }
 
-extend u8 : Parse {
-    fn parse(text: &[char]) ParseError!u8 {
-        !(parse_unsigned(text, u8::MAX as u128).? as u8)
+extend i16 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!i16 {
+        !(parse_signed_bytes(bytes, i16::MIN as i128, i16::MAX as i128).? as i16)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!u8 {
-        !(parse_unsigned_radix(text, radix, u8::MAX as u128).? as u8)
-    }
-}
-
-extend u16 : Parse {
-    fn parse(text: &[char]) ParseError!u16 {
-        !(parse_unsigned(text, u16::MAX as u128).? as u16)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!u16 {
-        !(parse_unsigned_radix(text, radix, u16::MAX as u128).? as u16)
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!i16 {
+        !(parse_signed_radix_bytes(bytes, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
     }
 }
 
-extend u32 : Parse {
-    fn parse(text: &[char]) ParseError!u32 {
-        !(parse_unsigned(text, u32::MAX as u128).? as u32)
+extend i32 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!i32 {
+        !(parse_signed_chars(text, i32::MIN as i128, i32::MAX as i128).? as i32)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!u32 {
-        !(parse_unsigned_radix(text, radix, u32::MAX as u128).? as u32)
-    }
-}
-
-extend u64 : Parse {
-    fn parse(text: &[char]) ParseError!u64 {
-        !(parse_unsigned(text, u64::MAX as u128).? as u64)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!u64 {
-        !(parse_unsigned_radix(text, radix, u64::MAX as u128).? as u64)
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!i32 {
+        !(parse_signed_radix_chars(text, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
     }
 }
 
-extend u128 : Parse {
-    fn parse(text: &[char]) ParseError!u128 {
-        parse_unsigned(text, u128::MAX)
+extend i32 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!i32 {
+        !(parse_signed_bytes(bytes, i32::MIN as i128, i32::MAX as i128).? as i32)
     }
 
-    fn parse_radix(text: &[char], radix: u32) ParseError!u128 {
-        parse_unsigned_radix(text, radix, u128::MAX)
-    }
-}
-
-extend usize : Parse {
-    fn parse(text: &[char]) ParseError!usize {
-        !(parse_unsigned(text, usize::MAX as u128).? as usize)
-    }
-
-    fn parse_radix(text: &[char], radix: u32) ParseError!usize {
-        !(parse_unsigned_radix(text, radix, usize::MAX as u128).? as usize)
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!i32 {
+        !(parse_signed_radix_bytes(bytes, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
     }
 }
 
-extend bool : Parse {
-    fn parse(text: &[char]) ParseError!bool {
+extend i64 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!i64 {
+        !(parse_signed_chars(text, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!i64 {
+        !(parse_signed_radix_chars(text, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i64 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!i64 {
+        !(parse_signed_bytes(bytes, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!i64 {
+        !(parse_signed_radix_bytes(bytes, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
+}
+
+extend i128 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!i128 {
+        parse_signed_chars(text, i128::MIN, i128::MAX)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!i128 {
+        parse_signed_radix_chars(text, radix, i128::MIN, i128::MAX)
+    }
+}
+
+extend i128 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!i128 {
+        parse_signed_bytes(bytes, i128::MIN, i128::MAX)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!i128 {
+        parse_signed_radix_bytes(bytes, radix, i128::MIN, i128::MAX)
+    }
+}
+
+extend isize : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!isize {
+        !(parse_signed_chars(text, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!isize {
+        !(parse_signed_radix_chars(text, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend isize : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!isize {
+        !(parse_signed_bytes(bytes, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!isize {
+        !(parse_signed_radix_bytes(bytes, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
+}
+
+extend u8 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!u8 {
+        !(parse_unsigned_chars(text, u8::MAX as u128).? as u8)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!u8 {
+        !(parse_unsigned_radix_chars(text, radix, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u8 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!u8 {
+        !(parse_unsigned_bytes(bytes, u8::MAX as u128).? as u8)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!u8 {
+        !(parse_unsigned_radix_bytes(bytes, radix, u8::MAX as u128).? as u8)
+    }
+}
+
+extend u16 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!u16 {
+        !(parse_unsigned_chars(text, u16::MAX as u128).? as u16)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!u16 {
+        !(parse_unsigned_radix_chars(text, radix, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u16 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!u16 {
+        !(parse_unsigned_bytes(bytes, u16::MAX as u128).? as u16)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!u16 {
+        !(parse_unsigned_radix_bytes(bytes, radix, u16::MAX as u128).? as u16)
+    }
+}
+
+extend u32 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!u32 {
+        !(parse_unsigned_chars(text, u32::MAX as u128).? as u32)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!u32 {
+        !(parse_unsigned_radix_chars(text, radix, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u32 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!u32 {
+        !(parse_unsigned_bytes(bytes, u32::MAX as u128).? as u32)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!u32 {
+        !(parse_unsigned_radix_bytes(bytes, radix, u32::MAX as u128).? as u32)
+    }
+}
+
+extend u64 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!u64 {
+        !(parse_unsigned_chars(text, u64::MAX as u128).? as u64)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!u64 {
+        !(parse_unsigned_radix_chars(text, radix, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u64 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!u64 {
+        !(parse_unsigned_bytes(bytes, u64::MAX as u128).? as u64)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!u64 {
+        !(parse_unsigned_radix_bytes(bytes, radix, u64::MAX as u128).? as u64)
+    }
+}
+
+extend u128 : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!u128 {
+        parse_unsigned_chars(text, u128::MAX)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!u128 {
+        parse_unsigned_radix_chars(text, radix, u128::MAX)
+    }
+}
+
+extend u128 : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!u128 {
+        parse_unsigned_bytes(bytes, u128::MAX)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!u128 {
+        parse_unsigned_radix_bytes(bytes, radix, u128::MAX)
+    }
+}
+
+extend usize : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!usize {
+        !(parse_unsigned_chars(text, usize::MAX as u128).? as usize)
+    }
+
+    fn parse_radix_from(text: &[char], radix: u32) ParseError!usize {
+        !(parse_unsigned_radix_chars(text, radix, usize::MAX as u128).? as usize)
+    }
+}
+
+extend usize : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!usize {
+        !(parse_unsigned_bytes(bytes, usize::MAX as u128).? as usize)
+    }
+
+    fn parse_radix_from(bytes: &[u8], radix: u32) ParseError!usize {
+        !(parse_unsigned_radix_bytes(bytes, radix, usize::MAX as u128).? as usize)
+    }
+}
+
+extend bool : ParseFrom[&[char]] {
+    fn parse_from(text: &[char]) ParseError!bool {
         if text.len() == 4usize and text[0] == 't' and text[1] == 'r' and text[2] == 'u' and text[3] == 'e' {
             !true
         } else if text.len() == 5usize and text[0] == 'f' and text[1] == 'a' and text[2] == 'l' and text[3] == 's' and text[4] == 'e' {
             !false
         } else if text.len() == 0usize {
+            ParseError::Empty!
+        } else {
+            ParseError::InvalidDigit!
+        }
+    }
+}
+
+extend bool : ParseFrom[&[u8]] {
+    fn parse_from(bytes: &[u8]) ParseError!bool {
+        if bytes.len() == 4usize and bytes[0] == b't' and bytes[1] == b'r' and bytes[2] == b'u' and bytes[3] == b'e' {
+            !true
+        } else if bytes.len() == 5usize and bytes[0] == b'f' and bytes[1] == b'a' and bytes[2] == b'l' and bytes[3] == b's' and bytes[4] == b'e' {
+            !false
+        } else if bytes.len() == 0usize {
             ParseError::Empty!
         } else {
             ParseError::InvalidDigit!

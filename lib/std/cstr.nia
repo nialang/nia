@@ -50,3 +50,15 @@ extend CStr : fmt::Format {
         formatter.write_padding_after(content_width, spec)
     }
 }
+
+extend[T] T : fmt::ParseFrom[CStr]
+where T: fmt::ParseFrom[&[u8]]
+{
+    fn parse_from(input: CStr) fmt::ParseError!T {
+        fmt::parse[T](input.bytes())
+    }
+
+    fn parse_radix_from(input: CStr, radix: u32) fmt::ParseError!T {
+        fmt::parse_radix[T](input.bytes(), radix)
+    }
+}
