@@ -958,6 +958,21 @@ impl FunctionLowerer {
                 receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::TraitAssociatedFunction {
+                trait_id,
+                method_id,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => FunctionCallee::TraitAssociatedFunction {
+                trait_id: *trait_id,
+                method_id: *method_id,
+                method_name: method_name.clone(),
+                self_ty: *self_ty,
+                trait_args: trait_args.clone(),
+                args: args.clone(),
+            },
             TypedCallee::DynamicTraitMethod {
                 object_ty,
                 trait_id,

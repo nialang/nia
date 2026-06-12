@@ -221,6 +221,42 @@ impl<'a> BodyChecker<'a> {
         candidates
     }
 
+    pub(in crate::calls::methods) fn trait_method_candidates_for_target(
+        &mut self,
+        target_ty: InternedTyId,
+        name: &str,
+    ) -> Vec<TraitMethodCandidate> {
+        let self_ty = self.import_type_for_method_resolution(target_ty);
+        let mut candidates = Vec::new();
+        for goal in self.current_trait_goals() {
+            let goal_self_ty = self.import_type_for_method_resolution(goal.self_ty);
+            if !self.types_match(goal_self_ty, self_ty) {
+                continue;
+            }
+            let TraitId::Source(trait_id) = goal.trait_id else {
+                continue;
+            };
+            let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
+                continue;
+            };
+            let trait_args = goal
+                .trait_args
+                .into_iter()
+                .map(|arg| self.import_type_for_method_resolution(arg))
+                .collect();
+            self.push_trait_method_candidates(
+                &mut candidates,
+                trait_id,
+                trait_args,
+                self_ty,
+                name,
+                &trait_signature,
+            );
+        }
+        self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
+        candidates
+    }
+
     fn import_type_for_method_resolution(&mut self, ty: InternedTyId) -> InternedTyId {
         if self.interner.get(ty).is_some() {
             return ty;

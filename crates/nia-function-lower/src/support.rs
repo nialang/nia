@@ -849,6 +849,7 @@ impl FunctionLowerer {
                 }
                 TypedCallee::Function(_)
                 | TypedCallee::FunctionInstance { .. }
+                | TypedCallee::TraitAssociatedFunction { .. }
                 | TypedCallee::BuiltinOperator(_) => {}
             }
         }

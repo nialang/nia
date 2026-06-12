@@ -329,6 +329,14 @@ pub enum ResolvedCall {
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
     },
+    TraitAssociatedFunction {
+        trait_id: GlobalDefId,
+        method_id: GlobalDefId,
+        method_name: String,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        args: Vec<InternedTyId>,
+    },
     DynamicTraitMethod {
         object_ty: InternedTyId,
         trait_id: TraitId,

@@ -602,6 +602,7 @@ fn propagate_cross_function_constants_in_callee(
         ),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
@@ -672,6 +673,7 @@ fn cross_function_constant_for_callee<'a>(
         }),
         FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
         | FunctionCallee::DynamicTraitMethod { .. }
         | FunctionCallee::BuiltinPlaceMethod { .. }
         | FunctionCallee::BuiltinMethod { .. }

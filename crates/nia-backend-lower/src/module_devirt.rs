@@ -286,6 +286,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
+            | FunctionCallee::TraitAssociatedFunction { .. }
             | FunctionCallee::BuiltinOperator(_) => false,
         }
     }

@@ -1303,6 +1303,14 @@ fn collect_typed_callee_refs(callee: &TypedCallee, refs: &mut TypedBodyRefs) {
             refs.traits.insert(TraitId::Source(*trait_id));
             collect_typed_expr_refs(receiver, refs);
         }
+        TypedCallee::TraitAssociatedFunction {
+            trait_id,
+            method_id,
+            ..
+        } => {
+            refs.functions.insert(*method_id);
+            refs.traits.insert(TraitId::Source(*trait_id));
+        }
         TypedCallee::DynamicTraitMethod {
             trait_id,
             method_id,
@@ -1909,6 +1917,25 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::TraitMethod {
+            trait_id,
+            method_id,
+            self_ty,
+            trait_args,
+            args,
+            ..
+        } => {
+            add_reachable_module(method_id.module_id, modules, pending_modules);
+            collect_trait_id_owner_module(
+                TraitId::Source(*trait_id),
+                modules,
+                pending_modules,
+                traits,
+            );
+            type_ids.push(*self_ty);
+            type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(args.iter().copied());
+        }
+        nia_sema_ir::ResolvedCall::TraitAssociatedFunction {
             trait_id,
             method_id,
             self_ty,

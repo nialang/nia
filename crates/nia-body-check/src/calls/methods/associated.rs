@@ -44,7 +44,13 @@ impl<'a> BodyChecker<'a> {
         let span = expr.span;
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
+        let trait_candidates = if candidates.is_empty() {
+            self.trait_method_candidates_for_target(target_ty, name)
+        } else {
+            Vec::new()
+        };
         if candidates.is_empty()
+            && trait_candidates.is_empty()
             && let Some(return_ty) = self.check_builtin_trait_associated_method_call(
                 expr,
                 target_ty,
@@ -55,6 +61,17 @@ impl<'a> BodyChecker<'a> {
             )
         {
             return Some(return_ty);
+        }
+        if candidates.is_empty() && !trait_candidates.is_empty() {
+            return self.check_trait_associated_function_call(
+                expr,
+                target_ty,
+                name,
+                method_type_args,
+                args,
+                expected,
+                trait_candidates,
+            );
         }
         let Some(method_id) = self.single_method_candidate(span, name, &candidates) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -178,6 +195,132 @@ impl<'a> BodyChecker<'a> {
             self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Function(method_id));
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.normalize_projection(return_type);
+        Some(self.normalize_aliases_in_type(return_type))
+    }
+
+    fn check_trait_associated_function_call(
+        &mut self,
+        expr: &Expr,
+        target_ty: InternedTyId,
+        name: &str,
+        method_type_args: Option<&[BracketArg]>,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+        candidates: Vec<TraitMethodCandidate>,
+    ) -> Option<InternedTyId> {
+        let candidate = match candidates.as_slice() {
+            [candidate] => candidate,
+            [] => return None,
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    format!("ambiguous trait associated function `{name}`"),
+                ));
+                return Some(self.error());
+            }
+        };
+        if candidate
+            .signature
+            .params
+            .first()
+            .is_some_and(|param| param.receiver.is_some())
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                expr.span,
+                format!("receiver method `{name}` requires a receiver argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
+        else {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
+        if method_type_args.is_some()
+            && candidate.signature.generics.len() != method_instantiation_args.len()
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                expr.span,
+                format!(
+                    "generic argument count mismatch for trait method: expected {}, got {}",
+                    candidate.signature.generics.len(),
+                    method_instantiation_args.len()
+                ),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let mut substitutions =
+            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        substitutions.insert("Self".to_string(), target_ty);
+        if method_type_args.is_some() {
+            substitutions.extend(
+                self.generic_substitutions(
+                    &candidate.signature.generics,
+                    &method_instantiation_args,
+                ),
+            );
+        } else if let Some(expected) = expected {
+            let return_type =
+                self.substitute_generics(candidate.signature.return_type, &substitutions);
+            let expected = self.normalize_projection(expected);
+            self.infer_generics_from_type(return_type, expected, &mut substitutions, expr.span);
+        }
+        let mut params: Vec<InternedTyId> = candidate
+            .signature
+            .params
+            .iter()
+            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .collect();
+        if method_type_args.is_none() {
+            self.infer_method_generics_from_args(args, &params, &mut substitutions);
+            if !self.method_generics_are_complete(expr.span, &candidate.signature, &substitutions) {
+                self.check_call_arg_count(expr.span, args.len(), params.len(), false);
+                return Some(self.error());
+            }
+            params = candidate
+                .signature
+                .params
+                .iter()
+                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .collect();
+        }
+        self.check_direct_call_args(expr.span, args, &params, false);
+        let trait_args = candidate
+            .trait_args
+            .iter()
+            .map(|arg| self.substitute_generics(*arg, &substitutions))
+            .collect::<Vec<_>>();
+        if candidate.has_default {
+            let mut instance_args = vec![target_ty];
+            instance_args.extend(trait_args.iter().copied());
+            instance_args.extend(method_instantiation_args.iter().copied());
+            self.record_generic_instantiation(candidate.method_id, &instance_args, expr.span);
+        }
+        self.record_resolved_node_call(
+            expr.span,
+            &expr.node_key,
+            ResolvedCall::TraitAssociatedFunction {
+                trait_id: candidate.trait_id,
+                method_id: candidate.method_id,
+                method_name: name.to_string(),
+                self_ty: target_ty,
+                trait_args,
+                args: method_instantiation_args,
+            },
+        );
+        let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
     }

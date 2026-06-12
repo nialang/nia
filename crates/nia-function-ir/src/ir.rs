@@ -505,6 +505,14 @@ pub enum FunctionCallee {
         receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
     },
+    TraitAssociatedFunction {
+        trait_id: nia_ids::GlobalDefId,
+        method_id: nia_ids::GlobalDefId,
+        method_name: String,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        args: Vec<InternedTyId>,
+    },
     DynamicTraitMethod {
         object_ty: InternedTyId,
         trait_id: TraitId,
