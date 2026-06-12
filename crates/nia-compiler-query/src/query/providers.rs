@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::RuntimeModel;
+use nia_body_ir::{
+    PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
+    TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPlace, TypedStmt,
+    TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
+};
 use nia_defs::DefKind;
 use nia_ids::{InternedTyId, TraitId};
-use nia_sema_ir::ResolvedCall;
+use nia_sema_ir::SemanticFacts;
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -907,6 +912,11 @@ fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedM
     let defs_by_id = defs_by_module_id(db);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let extension_methods = db.query(ExtensionMethodsQuery);
+    let checked_modules = db.query(CheckedModulesQuery);
+    let checked_by_id = checked_modules
+        .into_iter()
+        .map(|module| (module.id, module))
+        .collect::<HashMap<_, _>>();
 
     let mut reachable_functions = executable_root_functions(&graph, &defs_by_id);
     let mut reachable_modules = reachable_functions
@@ -916,46 +926,23 @@ fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedM
     add_reachable_module(graph.root(), &mut reachable_modules, &mut VecDeque::new());
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
-    let mut checked_by_id = HashMap::<ModuleId, CheckedModule>::new();
-    let mut checked_functions_by_module = HashMap::<ModuleId, HashSet<GlobalDefId>>::new();
     loop {
         let before = (reachable_functions.len(), reachable_modules.len());
-        let filter = nia_body_check::BodyCheckFilter::ReachableFunctions(&reachable_functions);
-        let module_ids = parse_ok
-            .iter()
-            .copied()
-            .filter(|module_id| reachable_modules.contains(module_id))
-            .collect::<Vec<_>>();
-        for module_id in module_ids {
-            let module_functions = reachable_functions
-                .iter()
-                .copied()
-                .filter(|def_id| def_id.module_id == module_id)
-                .collect::<HashSet<_>>();
-            if checked_by_id.contains_key(&module_id)
-                && checked_functions_by_module.get(&module_id) == Some(&module_functions)
-            {
-                continue;
-            }
-            let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter(db, module_id, filter)
-            });
-            let checked = checked_module_with_body_check(db, module_id, body_check);
-            checked_by_id.insert(module_id, checked);
-            checked_functions_by_module.insert(module_id, module_functions);
-        }
-
         let mut reachable_traits = HashSet::new();
-        for checked in checked_by_id.values() {
+        let current_reachable_modules = reachable_modules.clone();
+        for checked in checked_by_id
+            .values()
+            .filter(|module| current_reachable_modules.contains(&module.id))
+        {
             let mut pending_modules = VecDeque::new();
-            extend_reachable_functions_from_semantic_facts(
+            extend_reachable_functions_from_bodies(
                 checked,
                 &program_signatures,
                 &mut reachable_functions,
                 &mut reachable_modules,
                 &mut pending_modules,
             );
-            collect_semantic_fact_trait_ids(checked, &mut reachable_traits);
+            collect_reachable_body_trait_ids(checked, &reachable_functions, &mut reachable_traits);
             collect_interner_owner_modules(
                 &checked.body_ir.interner,
                 &mut reachable_modules,
@@ -995,10 +982,22 @@ fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedM
             .values()
             .map(|module| module.body_ir.function_bodies.len())
             .sum::<usize>();
+        let reachable_body_count = checked_by_id
+            .values()
+            .map(|module| {
+                module
+                    .body_ir
+                    .function_bodies
+                    .keys()
+                    .filter(|def_id| reachable_functions.contains(def_id))
+                    .count()
+            })
+            .sum::<usize>();
         eprintln!(
-            "query timing executable_checked_modules.reachable: modules={} functions={} bodies={}",
+            "query timing executable_checked_modules.reachable: modules={} functions={} bodies={} full_bodies={}",
             reachable_modules.len(),
             reachable_functions.len(),
+            reachable_body_count,
             checked_body_count
         );
         eprintln!(
@@ -1009,7 +1008,9 @@ fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedM
     parse_ok
         .into_iter()
         .filter(|module_id| reachable_modules.contains(module_id))
-        .filter_map(|module_id| checked_by_id.remove(&module_id))
+        .filter_map(|module_id| checked_by_id.get(&module_id))
+        .cloned()
+        .map(|module| filter_checked_module_for_codegen(module, &reachable_functions))
         .collect()
 }
 
@@ -1057,14 +1058,14 @@ fn named_function(
     })
 }
 
-fn extend_reachable_functions_from_semantic_facts(
+fn extend_reachable_functions_from_bodies(
     module: &CheckedModule,
     program_signatures: &ProgramSignatures,
     reachable_functions: &mut HashSet<GlobalDefId>,
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    for def_id in semantic_fact_callees(module) {
+    for def_id in typed_body_callees(module, reachable_functions) {
         add_reachable_function(
             def_id,
             program_signatures,
@@ -1073,6 +1074,344 @@ fn extend_reachable_functions_from_semantic_facts(
             pending_modules,
         );
     }
+}
+
+fn typed_body_callees(
+    module: &CheckedModule,
+    reachable_functions: &HashSet<GlobalDefId>,
+) -> Vec<GlobalDefId> {
+    let mut refs = TypedBodyRefs::default();
+    for (def_id, body) in &module.body_ir.function_bodies {
+        if reachable_functions.contains(def_id) {
+            collect_typed_body_refs(body, &mut refs);
+        }
+    }
+    refs.functions.into_iter().collect()
+}
+
+fn collect_reachable_body_trait_ids(
+    module: &CheckedModule,
+    reachable_functions: &HashSet<GlobalDefId>,
+    traits: &mut HashSet<TraitId>,
+) {
+    let mut refs = TypedBodyRefs::default();
+    for (def_id, body) in &module.body_ir.function_bodies {
+        if reachable_functions.contains(def_id) {
+            collect_typed_body_refs(body, &mut refs);
+        }
+    }
+    traits.extend(refs.traits);
+}
+
+#[derive(Default)]
+struct TypedBodyRefs {
+    functions: HashSet<GlobalDefId>,
+    traits: HashSet<TraitId>,
+}
+
+fn collect_typed_body_refs(body: &TypedBody, refs: &mut TypedBodyRefs) {
+    for stmt in &body.stmts {
+        collect_typed_stmt_refs(stmt, refs);
+    }
+    if let Some(tail) = body.tail.as_deref() {
+        collect_typed_expr_refs(tail, refs);
+    }
+}
+
+fn collect_typed_stmt_refs(stmt: &TypedStmt, refs: &mut TypedBodyRefs) {
+    match &stmt.kind {
+        TypedStmtKind::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                collect_typed_expr_refs(value, refs);
+            }
+        }
+        TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
+            collect_typed_expr_refs(expr, refs);
+        }
+        TypedStmtKind::Return(value) => {
+            if let Some(value) = value {
+                collect_typed_expr_refs(value, refs);
+            }
+        }
+        TypedStmtKind::ForIn(for_in) => {
+            collect_typed_expr_refs(&for_in.iter, refs);
+            collect_typed_body_refs(&for_in.body, refs);
+        }
+        TypedStmtKind::While(while_loop) => {
+            collect_typed_expr_refs(&while_loop.cond, refs);
+            collect_typed_body_refs(&while_loop.body, refs);
+        }
+        TypedStmtKind::Loop(loop_body) => collect_typed_body_refs(&loop_body.body, refs),
+        TypedStmtKind::Break | TypedStmtKind::Continue => {}
+    }
+}
+
+fn collect_typed_expr_refs(expr: &TypedExpr, refs: &mut TypedBodyRefs) {
+    match &expr.kind {
+        TypedExprKind::Function(def_id)
+        | TypedExprKind::FunctionInstance { def_id, .. }
+        | TypedExprKind::Field { field: def_id, .. } => {
+            refs.functions.insert(*def_id);
+        }
+        TypedExprKind::Range(range) => {
+            if let Some(start) = range.start.as_deref() {
+                collect_typed_expr_refs(start, refs);
+            }
+            if let Some(end) = range.end.as_deref() {
+                collect_typed_expr_refs(end, refs);
+            }
+        }
+        TypedExprKind::InlineAsm(asm) => collect_typed_inline_asm_refs(asm, refs),
+        TypedExprKind::MemoryIntrinsic(memory) => {
+            collect_typed_expr_refs(&memory.dest, refs);
+            match &memory.source {
+                TypedMemoryIntrinsicSource::Slice(source)
+                | TypedMemoryIntrinsicSource::Byte(source) => collect_typed_expr_refs(source, refs),
+            }
+        }
+        TypedExprKind::Atomic(atomic) => collect_typed_atomic_refs(atomic, refs),
+        TypedExprKind::LoadUnaligned { ptr, .. } => collect_typed_expr_refs(ptr, refs),
+        TypedExprKind::Splat { value } | TypedExprKind::Bitmask { vector: value } => {
+            collect_typed_expr_refs(value, refs);
+        }
+        TypedExprKind::ExtractElement { vector, index } => {
+            collect_typed_expr_refs(vector, refs);
+            collect_typed_expr_refs(index, refs);
+        }
+        TypedExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_typed_expr_refs(vector, refs);
+            collect_typed_expr_refs(index, refs);
+            collect_typed_expr_refs(value, refs);
+        }
+        TypedExprKind::BitIntrinsic { value, .. }
+        | TypedExprKind::CStringPointer { array: value, .. }
+        | TypedExprKind::Unary { expr: value, .. }
+        | TypedExprKind::OptionalSome { expr: value }
+        | TypedExprKind::ErrorOk { expr: value }
+        | TypedExprKind::ErrorErr { expr: value }
+        | TypedExprKind::Try { expr: value }
+        | TypedExprKind::Discard(value)
+        | TypedExprKind::Cast { expr: value, .. }
+        | TypedExprKind::TraitObjectUpcast { expr: value, .. }
+        | TypedExprKind::TraitObjectCoercion { expr: value, .. } => {
+            collect_typed_expr_refs(value, refs);
+        }
+        TypedExprKind::ArrayLiteral { elems } => match elems {
+            TypedArrayElements::List(elems) => {
+                for elem in elems {
+                    collect_typed_expr_refs(elem, refs);
+                }
+            }
+            TypedArrayElements::Repeat { value, .. } => collect_typed_expr_refs(value, refs),
+        },
+        TypedExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_typed_expr_refs(&field.value, refs);
+            }
+        }
+        TypedExprKind::UnionLiteral { field, .. } => {
+            collect_typed_expr_refs(&field.value, refs);
+        }
+        TypedExprKind::Binary { lhs, rhs, .. } => {
+            collect_typed_expr_refs(lhs, refs);
+            collect_typed_expr_refs(rhs, refs);
+        }
+        TypedExprKind::Assign { place, rhs, .. } => {
+            collect_typed_place_refs(place, refs);
+            collect_typed_expr_refs(rhs, refs);
+        }
+        TypedExprKind::Call { callee, args } => {
+            collect_typed_callee_refs(callee, refs);
+            for arg in args {
+                collect_typed_expr_refs(arg, refs);
+            }
+        }
+        TypedExprKind::Index { lhs, index } => {
+            collect_typed_expr_refs(lhs, refs);
+            collect_typed_expr_refs(index, refs);
+        }
+        TypedExprKind::Slice { lhs, range, .. } => {
+            collect_typed_expr_refs(lhs, refs);
+            if let Some(start) = range.start.as_deref() {
+                collect_typed_expr_refs(start, refs);
+            }
+            if let Some(end) = range.end.as_deref() {
+                collect_typed_expr_refs(end, refs);
+            }
+        }
+        TypedExprKind::Block(body) => collect_typed_body_refs(body, refs),
+        TypedExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_typed_expr_refs(cond, refs);
+            collect_typed_body_refs(then_branch, refs);
+            if let Some(else_branch) = else_branch.as_deref() {
+                collect_typed_expr_refs(else_branch, refs);
+            }
+        }
+        TypedExprKind::Switch(switch) => {
+            collect_typed_expr_refs(&switch.target, refs);
+            for arm in &switch.arms {
+                for pattern in &arm.patterns {
+                    collect_typed_switch_pattern_refs(pattern, refs);
+                }
+                match &arm.body {
+                    TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(expr, refs),
+                    TypedSwitchArmBody::Stmt(stmt) => collect_typed_stmt_refs(stmt, refs),
+                    TypedSwitchArmBody::Block(body) => collect_typed_body_refs(body, refs),
+                }
+            }
+        }
+        TypedExprKind::Error
+        | TypedExprKind::Integer(_)
+        | TypedExprKind::Float(_)
+        | TypedExprKind::String(_)
+        | TypedExprKind::ByteString(_)
+        | TypedExprKind::Char(_)
+        | TypedExprKind::ByteChar(_)
+        | TypedExprKind::Bool(_)
+        | TypedExprKind::Null
+        | TypedExprKind::Local(_)
+        | TypedExprKind::Global(_)
+        | TypedExprKind::EnumVariant(_)
+        | TypedExprKind::BuiltinValue(_)
+        | TypedExprKind::Trap => {}
+    }
+}
+
+fn collect_typed_callee_refs(callee: &TypedCallee, refs: &mut TypedBodyRefs) {
+    match callee {
+        TypedCallee::Function(def_id) | TypedCallee::FunctionInstance { def_id, .. } => {
+            refs.functions.insert(*def_id);
+        }
+        TypedCallee::Method {
+            def_id, receiver, ..
+        } => {
+            refs.functions.insert(*def_id);
+            collect_typed_expr_refs(receiver, refs);
+        }
+        TypedCallee::TraitMethod {
+            trait_id,
+            method_id,
+            receiver,
+            ..
+        } => {
+            refs.functions.insert(*method_id);
+            refs.traits.insert(TraitId::Source(*trait_id));
+            collect_typed_expr_refs(receiver, refs);
+        }
+        TypedCallee::DynamicTraitMethod {
+            trait_id,
+            method_id,
+            receiver,
+            ..
+        } => {
+            refs.functions.insert(*method_id);
+            refs.traits.insert(*trait_id);
+            collect_typed_expr_refs(receiver, refs);
+        }
+        TypedCallee::BuiltinMethod { receiver, .. } | TypedCallee::FunctionPointer(receiver) => {
+            collect_typed_expr_refs(receiver, refs);
+        }
+        TypedCallee::BuiltinOperator(operator) => {
+            refs.traits.insert(TraitId::Builtin(operator.trait_id));
+        }
+        TypedCallee::BuiltinPlaceMethod(method) => {
+            refs.traits.insert(TraitId::Builtin(method.trait_id));
+            collect_typed_expr_refs(&method.receiver, refs);
+        }
+    }
+}
+
+fn collect_typed_switch_pattern_refs(pattern: &TypedSwitchPattern, refs: &mut TypedBodyRefs) {
+    match pattern {
+        TypedSwitchPattern::Expr(expr) => collect_typed_expr_refs(expr, refs),
+        TypedSwitchPattern::Range { start, end, .. } => {
+            collect_typed_expr_refs(start, refs);
+            collect_typed_expr_refs(end, refs);
+        }
+        TypedSwitchPattern::Default
+        | TypedSwitchPattern::OptionalSome { .. }
+        | TypedSwitchPattern::OptionalNull { .. }
+        | TypedSwitchPattern::ErrorOk { .. }
+        | TypedSwitchPattern::ErrorErr { .. }
+        | TypedSwitchPattern::CheckedInt { .. }
+        | TypedSwitchPattern::CheckedIntRange { .. } => {}
+    }
+}
+
+fn collect_typed_atomic_refs(atomic: &TypedAtomic, refs: &mut TypedBodyRefs) {
+    match atomic {
+        TypedAtomic::Load { ptr, .. } => collect_typed_expr_refs(ptr, refs),
+        TypedAtomic::Store { ptr, value, .. } | TypedAtomic::Rmw { ptr, value, .. } => {
+            collect_typed_expr_refs(ptr, refs);
+            collect_typed_expr_refs(value, refs);
+        }
+        TypedAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_typed_expr_refs(ptr, refs);
+            collect_typed_expr_refs(expected, refs);
+            collect_typed_expr_refs(desired, refs);
+        }
+        TypedAtomic::Fence { .. } => {}
+    }
+}
+
+fn collect_typed_inline_asm_refs(asm: &TypedInlineAsm, refs: &mut TypedBodyRefs) {
+    for input in &asm.inputs {
+        collect_typed_expr_refs(&input.value, refs);
+    }
+    for output in &asm.outputs {
+        collect_typed_place_refs(&output.place, refs);
+    }
+}
+
+fn collect_typed_place_refs(place: &TypedPlace, refs: &mut TypedBodyRefs) {
+    match &place.base {
+        PlaceBase::Deref(expr) => collect_typed_expr_refs(expr, refs),
+        PlaceBase::Local(_) | PlaceBase::Global(_) | PlaceBase::Error => {}
+    }
+    for elem in &place.elems {
+        match elem {
+            PlaceElem::Index(expr) => collect_typed_expr_refs(expr, refs),
+            PlaceElem::Field(_) | PlaceElem::Error => {}
+        }
+    }
+}
+
+fn filter_checked_module_for_codegen(
+    mut module: CheckedModule,
+    reachable_functions: &HashSet<GlobalDefId>,
+) -> CheckedModule {
+    module
+        .body_ir
+        .function_bodies
+        .retain(|def_id, _| reachable_functions.contains(def_id));
+    module.semantic_facts =
+        semantic_facts_for_reachable_functions(module.semantic_facts, reachable_functions);
+    module
+}
+
+fn semantic_facts_for_reachable_functions(
+    mut facts: SemanticFacts,
+    reachable_functions: &HashSet<GlobalDefId>,
+) -> SemanticFacts {
+    facts.generic_instantiations.retain(|instantiation| {
+        instantiation
+            .source_def_id
+            .is_none_or(|source_def_id| reachable_functions.contains(&source_def_id))
+    });
+    facts
 }
 
 fn extend_reachable_functions_from_traits(
@@ -1360,66 +1699,6 @@ fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
             "x86_64".to_string(),
         ],
     })
-}
-
-fn semantic_fact_callees(module: &CheckedModule) -> Vec<GlobalDefId> {
-    let mut callees = Vec::new();
-    callees.extend(
-        module
-            .semantic_facts
-            .node_function_references
-            .values()
-            .map(|reference| reference.def_id),
-    );
-    callees.extend(
-        module
-            .semantic_facts
-            .generic_instantiations
-            .iter()
-            .map(|instantiation| instantiation.def_id),
-    );
-    for call in module.semantic_facts.node_resolved_calls.values() {
-        match call {
-            ResolvedCall::Function(def_id)
-            | ResolvedCall::FunctionInstance { def_id, .. }
-            | ResolvedCall::Method { def_id, .. }
-            | ResolvedCall::TraitMethod {
-                method_id: def_id, ..
-            }
-            | ResolvedCall::DynamicTraitMethod {
-                method_id: def_id, ..
-            } => {
-                callees.push(*def_id);
-            }
-            ResolvedCall::BuiltinTraitMethod { .. }
-            | ResolvedCall::BuiltinMethod { .. }
-            | ResolvedCall::BuiltinPlaceMethod { .. }
-            | ResolvedCall::FunctionPointer => {}
-        }
-    }
-    callees
-}
-
-fn collect_semantic_fact_trait_ids(module: &CheckedModule, traits: &mut HashSet<TraitId>) {
-    for call in module.semantic_facts.node_resolved_calls.values() {
-        match call {
-            ResolvedCall::TraitMethod { trait_id, .. } => {
-                traits.insert(TraitId::Source(*trait_id));
-            }
-            ResolvedCall::DynamicTraitMethod { trait_id, .. } => {
-                traits.insert(*trait_id);
-            }
-            ResolvedCall::BuiltinTraitMethod { trait_id, .. }
-            | ResolvedCall::BuiltinPlaceMethod { trait_id, .. } => {
-                traits.insert(TraitId::Builtin(*trait_id));
-            }
-            ResolvedCall::Function(_)
-            | ResolvedCall::FunctionInstance { .. }
-            | ResolvedCall::Method { .. }
-            | ResolvedCall::BuiltinMethod { .. }
-            | ResolvedCall::FunctionPointer => {}
-        }
-    }
 }
 
 fn collect_interner_owner_modules(
