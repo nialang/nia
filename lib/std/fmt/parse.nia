@@ -3,11 +3,18 @@ pub enum ParseError: i32 {
     InvalidDigit = 2,
     InvalidSign = 3,
     Overflow = 4,
+    InvalidRadix = 5,
     _,
 }
 
 pub trait Parse {
     fn parse(text: &[char]) ParseError!Self;
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!Self {
+        _ = text;
+        _ = radix;
+        ParseError::InvalidRadix!
+    }
 }
 
 struct ParsedInteger {
@@ -21,15 +28,28 @@ where T: Parse
     [T]::parse(text)
 }
 
-fn digit_value(ch: char) ?u128 {
+pub fn parse_radix[T](text: &[char], radix: u32) ParseError!T
+where T: Parse
+{
+    [T]::parse_radix(text, radix)
+}
+
+fn digit_value(ch: char) ?u32 {
     if ch >= '0' and ch <= '9' {
-        ?((ch as u32 - '0' as u32) as u128)
+        ?(ch as u32 - '0' as u32)
+    } else if ch >= 'a' and ch <= 'z' {
+        ?((ch as u32 - 'a' as u32) + 10u32)
+    } else if ch >= 'A' and ch <= 'Z' {
+        ?((ch as u32 - 'A' as u32) + 10u32)
     } else {
         null
     }
 }
 
-fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
+fn parse_integer_radix(text: &[char], radix: u32, allow_sign: bool) ParseError!ParsedInteger {
+    if radix < 2u32 or radix > 36u32 {
+        return ParseError::InvalidRadix!;
+    }
     if text.len() == 0usize {
         return ParseError::Empty!;
     }
@@ -49,23 +69,28 @@ fn parse_integer(text: &[char], allow_sign: bool) ParseError!ParsedInteger {
     }
 
     var value = 0u128;
+    let radix_wide = radix as u128;
     while index < text.len() {
         let digit = switch digit_value(text[index]) {
             ?value => value,
             null => return ParseError::InvalidDigit!,
         };
-        if value > (u128::MAX - digit) / 10u128 {
+        if digit >= radix {
+            return ParseError::InvalidDigit!;
+        }
+        let digit_wide = digit as u128;
+        if value > (u128::MAX - digit_wide) / radix_wide {
             return ParseError::Overflow!;
         }
-        value = value * 10u128 + digit;
+        value = value * radix_wide + digit_wide;
         index += 1usize;
     }
 
     !{ negative: negative, abs: value }
 }
 
-fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
-    let parsed = parse_integer(text, false).?;
+fn parse_unsigned_radix(text: &[char], radix: u32, max: u128) ParseError!u128 {
+    let parsed = parse_integer_radix(text, radix, false).?;
     if parsed.negative {
         return ParseError::InvalidSign!;
     }
@@ -75,8 +100,8 @@ fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
     !parsed.abs
 }
 
-fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
-    let parsed = parse_integer(text, true).?;
+fn parse_signed_radix(text: &[char], radix: u32, min: i128, max: i128) ParseError!i128 {
+    let parsed = parse_integer_radix(text, radix, true).?;
     let negative_limit = ((0i128 - (min + 1i128)) as u128) + 1u128;
     if parsed.negative {
         if parsed.abs > negative_limit {
@@ -93,9 +118,21 @@ fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
     !(parsed.abs as i128)
 }
 
+fn parse_unsigned(text: &[char], max: u128) ParseError!u128 {
+    parse_unsigned_radix(text, 10u32, max)
+}
+
+fn parse_signed(text: &[char], min: i128, max: i128) ParseError!i128 {
+    parse_signed_radix(text, 10u32, min, max)
+}
+
 extend i8 : Parse {
     fn parse(text: &[char]) ParseError!i8 {
         !(parse_signed(text, i8::MIN as i128, i8::MAX as i128).? as i8)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!i8 {
+        !(parse_signed_radix(text, radix, i8::MIN as i128, i8::MAX as i128).? as i8)
     }
 }
 
@@ -103,11 +140,19 @@ extend i16 : Parse {
     fn parse(text: &[char]) ParseError!i16 {
         !(parse_signed(text, i16::MIN as i128, i16::MAX as i128).? as i16)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!i16 {
+        !(parse_signed_radix(text, radix, i16::MIN as i128, i16::MAX as i128).? as i16)
+    }
 }
 
 extend i32 : Parse {
     fn parse(text: &[char]) ParseError!i32 {
         !(parse_signed(text, i32::MIN as i128, i32::MAX as i128).? as i32)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!i32 {
+        !(parse_signed_radix(text, radix, i32::MIN as i128, i32::MAX as i128).? as i32)
     }
 }
 
@@ -115,11 +160,19 @@ extend i64 : Parse {
     fn parse(text: &[char]) ParseError!i64 {
         !(parse_signed(text, i64::MIN as i128, i64::MAX as i128).? as i64)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!i64 {
+        !(parse_signed_radix(text, radix, i64::MIN as i128, i64::MAX as i128).? as i64)
+    }
 }
 
 extend i128 : Parse {
     fn parse(text: &[char]) ParseError!i128 {
         parse_signed(text, i128::MIN, i128::MAX)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!i128 {
+        parse_signed_radix(text, radix, i128::MIN, i128::MAX)
     }
 }
 
@@ -127,11 +180,19 @@ extend isize : Parse {
     fn parse(text: &[char]) ParseError!isize {
         !(parse_signed(text, isize::MIN as i128, isize::MAX as i128).? as isize)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!isize {
+        !(parse_signed_radix(text, radix, isize::MIN as i128, isize::MAX as i128).? as isize)
+    }
 }
 
 extend u8 : Parse {
     fn parse(text: &[char]) ParseError!u8 {
         !(parse_unsigned(text, u8::MAX as u128).? as u8)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!u8 {
+        !(parse_unsigned_radix(text, radix, u8::MAX as u128).? as u8)
     }
 }
 
@@ -139,11 +200,19 @@ extend u16 : Parse {
     fn parse(text: &[char]) ParseError!u16 {
         !(parse_unsigned(text, u16::MAX as u128).? as u16)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!u16 {
+        !(parse_unsigned_radix(text, radix, u16::MAX as u128).? as u16)
+    }
 }
 
 extend u32 : Parse {
     fn parse(text: &[char]) ParseError!u32 {
         !(parse_unsigned(text, u32::MAX as u128).? as u32)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!u32 {
+        !(parse_unsigned_radix(text, radix, u32::MAX as u128).? as u32)
     }
 }
 
@@ -151,17 +220,29 @@ extend u64 : Parse {
     fn parse(text: &[char]) ParseError!u64 {
         !(parse_unsigned(text, u64::MAX as u128).? as u64)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!u64 {
+        !(parse_unsigned_radix(text, radix, u64::MAX as u128).? as u64)
+    }
 }
 
 extend u128 : Parse {
     fn parse(text: &[char]) ParseError!u128 {
         parse_unsigned(text, u128::MAX)
     }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!u128 {
+        parse_unsigned_radix(text, radix, u128::MAX)
+    }
 }
 
 extend usize : Parse {
     fn parse(text: &[char]) ParseError!usize {
         !(parse_unsigned(text, usize::MAX as u128).? as usize)
+    }
+
+    fn parse_radix(text: &[char], radix: u32) ParseError!usize {
+        !(parse_unsigned_radix(text, radix, usize::MAX as u128).? as usize)
     }
 }
 

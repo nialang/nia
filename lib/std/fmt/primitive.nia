@@ -1,8 +1,42 @@
 using package::fmt::core;
 
+fn format_signed_spec(
+    value: i128,
+    formatter: &mut core::Formatter,
+    spec: core::FormatSpec,
+) core::Error!void {
+    switch spec.presentation() {
+        core::FormatPresentation::Display => formatter.write_signed(value),
+        core::FormatPresentation::LowerHex => formatter.write_signed_radix(value, 16u128, false),
+        core::FormatPresentation::UpperHex => formatter.write_signed_radix(value, 16u128, true),
+        core::FormatPresentation::Binary => formatter.write_signed_radix(value, 2u128, false),
+        core::FormatPresentation::Octal => formatter.write_signed_radix(value, 8u128, false),
+        _ => core::Error::InvalidTemplate!,
+    }
+}
+
+fn format_unsigned_spec(
+    value: u128,
+    formatter: &mut core::Formatter,
+    spec: core::FormatSpec,
+) core::Error!void {
+    switch spec.presentation() {
+        core::FormatPresentation::Display => formatter.write_unsigned(value),
+        core::FormatPresentation::LowerHex => formatter.write_unsigned_radix(value, 16u128, false),
+        core::FormatPresentation::UpperHex => formatter.write_unsigned_radix(value, 16u128, true),
+        core::FormatPresentation::Binary => formatter.write_unsigned_radix(value, 2u128, false),
+        core::FormatPresentation::Octal => formatter.write_unsigned_radix(value, 8u128, false),
+        _ => core::Error::InvalidTemplate!,
+    }
+}
+
 extend i8 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.* as i128, formatter, spec)
     }
 }
 
@@ -10,11 +44,19 @@ extend i16 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.* as i128, formatter, spec)
+    }
 }
 
 extend i32 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.* as i128, formatter, spec)
     }
 }
 
@@ -22,11 +64,19 @@ extend i64 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.* as i128, formatter, spec)
+    }
 }
 
 extend i128 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.*)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.*, formatter, spec)
     }
 }
 
@@ -34,11 +84,19 @@ extend isize : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_signed_spec(self.* as i128, formatter, spec)
+    }
 }
 
 extend u8 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.* as u128)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.* as u128, formatter, spec)
     }
 }
 
@@ -46,11 +104,19 @@ extend u16 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.* as u128)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.* as u128, formatter, spec)
+    }
 }
 
 extend u32 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.* as u128)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.* as u128, formatter, spec)
     }
 }
 
@@ -58,17 +124,29 @@ extend u64 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.* as u128)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.* as u128, formatter, spec)
+    }
 }
 
 extend u128 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.*)
     }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.*, formatter, spec)
+    }
 }
 
 extend usize : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_unsigned(self.* as u128)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_unsigned_spec(self.* as u128, formatter, spec)
     }
 }
 
