@@ -7,7 +7,7 @@ use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, Runtime
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ModuleGraph, ModuleMap, ModuleNode, ResolvedModuleDeclaration,
-    resolve_module_declarations_from_active_item_tree,
+    module_declaration_visibility_allows, resolve_module_declarations_from_active_item_tree,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_query::{QueryDb, QueryKey};
@@ -227,12 +227,15 @@ fn add_used_module_path(
     } = path
         && let Some((first, rest)) = segments.split_first()
     {
-        let Some(first_module) = add_declared_module_child_if_present(db, graph, start, first)?
+        let Some(first_module) =
+            add_visible_declared_module_child_if_present(db, graph, current_module, start, first)?
         else {
             activate_package_facade(db, graph, package)?;
             return Ok(());
         };
-        let Some(module_id) = add_declared_module_path(db, graph, first_module, rest)? else {
+        let Some(module_id) =
+            add_visible_declared_module_path(db, graph, current_module, first_module, rest)?
+        else {
             return Ok(());
         };
         if *include_declared_children {
@@ -240,7 +243,9 @@ fn add_used_module_path(
         }
         return Ok(());
     }
-    let Some(module_id) = add_declared_module_path(db, graph, start, path.segments())? else {
+    let Some(module_id) =
+        add_visible_declared_module_path(db, graph, current_module, start, path.segments())?
+    else {
         return Ok(());
     };
     if path.include_declared_children() {
@@ -289,15 +294,23 @@ fn used_path_start(
     }
 }
 
-fn add_declared_module_path(
+fn add_visible_declared_module_path(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
+    accessing_module: nia_imports::ModuleId,
     start: nia_imports::ModuleId,
     segments: &[String],
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
     let mut current = start;
     for segment in segments {
-        let Some(next) = add_declared_module_child_if_present(db, graph, current, segment)? else {
+        let Some(next) = add_visible_declared_module_child_if_present(
+            db,
+            graph,
+            accessing_module,
+            current,
+            segment,
+        )?
+        else {
             return Ok(None);
         };
         current = next;
@@ -320,9 +333,10 @@ fn add_declared_module_children(
     Ok(())
 }
 
-fn add_declared_module_child_if_present(
+fn add_visible_declared_module_child_if_present(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
+    accessing_module: nia_imports::ModuleId,
     module_id: nia_imports::ModuleId,
     name: &str,
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
@@ -336,11 +350,15 @@ fn add_declared_module_child_if_present(
         return Ok(None);
     };
     let declarations = db.query(module_declarations_query(db, node.path));
-    let Some(declaration) = declarations
-        .declarations
-        .into_iter()
-        .find(|declaration| declaration.name == name)
-    else {
+    let Some(declaration) = declarations.declarations.into_iter().find(|declaration| {
+        declaration.name == name
+            && module_declaration_visibility_allows(
+                declaration.visibility,
+                graph,
+                module_id,
+                accessing_module,
+            )
+    }) else {
         return Ok(None);
     };
     add_declared_module_child(db, graph, module_id, declaration).map(Some)
@@ -1325,6 +1343,20 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/cstr.nia");
+        assert_module_not_loaded(&program, "lib/std/process.nia");
+    }
+
+    #[test]
+    fn query_loader_activates_std_facade_for_single_value_reexport_import() {
+        let root = temp_dir("query_loader_activates_std_facade_for_single_value_reexport_import");
+        let main_path = root.join("main.nia");
+        write(&main_path, "using std::range; fn main() void {}");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(program.graph.package_facade_active("std"));
+        assert_module_loaded(&program, "lib/std/range.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
