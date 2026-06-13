@@ -4153,7 +4153,7 @@ fn main() bool {
                         def_id: nia_ids::DefId(1),
                     }))
                 );
-                Ok(ComptimeValue::Int(span.start as i128))
+                Ok(ComptimeValue::Int((span.start as i128).into()))
             }
         }
 
@@ -4170,7 +4170,7 @@ fn main() bool {
             Vec::new(),
         );
         let value = eval_resolved_comptime_int_expr(&expr, &mut ResolvedCallEnv).unwrap();
-        assert_eq!(value, 7);
+        assert_eq!(value, IntConst::signed(7));
     }
 
     #[test]
@@ -4207,7 +4207,7 @@ fn main() bool {
             Span::new(0, 1),
             "payload",
             None,
-            ComptimeValue::Int(1),
+            ComptimeValue::Int(IntConst::signed(1)),
         )
         .expect_err("pattern bindings must carry resolved local ids");
         assert_eq!(
@@ -4236,7 +4236,7 @@ fn main() usize {
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_early_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
-        assert_eq!(value, 8);
+        assert_eq!(value, IntConst::signed(8));
     }
 
     #[test]
@@ -4259,7 +4259,7 @@ fn main() usize {
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value =
             eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
-        assert_eq!(value, 8);
+        assert_eq!(value, IntConst::signed(8));
     }
 
     #[test]
@@ -4282,7 +4282,7 @@ fn main() usize {
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value =
             eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
-        assert_eq!(value, 5);
+        assert_eq!(value, IntConst::signed(5));
     }
 
     #[test]
@@ -4301,7 +4301,7 @@ fn main() usize {
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_early_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
-        assert_eq!(value, 4);
+        assert_eq!(value, IntConst::signed(4));
     }
 
     #[test]
@@ -4343,7 +4343,10 @@ fn main() bool {
             }
             let mut target = BTreeMap::new();
             target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
-            target.insert("pointer_width".to_string(), ComptimeValue::Int(64));
+            target.insert(
+                "pointer_width".to_string(),
+                ComptimeValue::Int(IntConst::signed(64)),
+            );
             let mut builtin = BTreeMap::new();
             builtin.insert("target".to_string(), ComptimeValue::Struct(target));
             Ok(ComptimeValue::Struct(builtin))

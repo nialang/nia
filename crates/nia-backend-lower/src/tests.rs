@@ -1091,7 +1091,7 @@ fn main() i32 {
         Some(StaticInit::Repeat {
             ref value,
             count: 3
-        }) if matches!(**value, StaticInit::Int(7))
+        }) if matches!(**value, StaticInit::Int(value) if value.as_i128() == Some(7))
     ));
     assert!(
         lowering
@@ -1203,7 +1203,7 @@ fn main() i32 {
                 Some(StaticInit::Repeat {
                     ref value,
                     count: 3
-                }) if matches!(**value, StaticInit::Int(7))
+                }) if matches!(**value, StaticInit::Int(value) if value.as_i128() == Some(7))
             ),
             "{level:?}"
         );

@@ -590,7 +590,10 @@ impl<'a> TypeResolver<'a> {
             "super" => graph.get(self.defs.module_id)?.parent,
             ROOT_MODULE_MAP_NAME => Some(graph.root()),
             PACKAGE_MODULE_MAP_NAME => graph.current_package_root(self.defs.module_id),
-            package => graph.package_root(package),
+            package => graph
+                .get(self.defs.module_id)
+                .and_then(|node| node.children.get(package).copied())
+                .or_else(|| graph.package_root(package)),
         }
     }
 
