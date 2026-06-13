@@ -817,6 +817,7 @@ impl<'a> LocalResolver<'a> {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_ids::{DefId, GlobalDefId};
     use nia_item_tree::ModuleItemTree;
     use nia_node_id::{NodePosition, SyntaxKind};
     use nia_parser::{parse_module, parse_module_syntax_with_origins};
@@ -877,6 +878,62 @@ fn id(value: i32) i32 {
                 .node_uses
                 .values()
                 .any(|use_kind| matches!(*use_kind, LocalUse::Local(_)))
+        );
+    }
+
+    #[test]
+    fn switch_payload_locals_shadow_external_values_in_field_lhs() {
+        let source = r#"
+struct S {
+    start: i32,
+}
+
+fn value(input: ?S) ?i32 {
+    switch input {
+        ?range => ?range.start,
+        null => null,
+    }
+}
+"#;
+        let (module, errors) = parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let mut values = resolve_module_values(&module, &defs);
+        for item in &module.items {
+            if let nia_ast::ItemKind::Function(function) = &item.kind
+                && function.name == "value"
+                && let Some(body) = &function.body
+                && let Some(expr) = &body.tail
+                && let ExprKind::Switch(switch) = &expr.kind
+                && let SwitchArmBody::Expr(arm_expr) = &switch.arms[0].body
+                && let ExprKind::OptionalSome { expr: some_expr } = &arm_expr.kind
+                && let ExprKind::Field { lhs, .. } = &some_expr.kind
+                && let ExprKind::Ident(name) = &lhs.kind
+                && name == "range"
+            {
+                values.node_names.insert(
+                    lhs.node_key.clone(),
+                    ValueNameResolution::External(GlobalDefId {
+                        module_id: ModuleId(99),
+                        def_id: DefId(1),
+                    }),
+                );
+            }
+        }
+        let locals = resolve_module_locals(&module, &defs, &values);
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        let range_id = locals
+            .locals
+            .iter()
+            .find_map(|(id, local)| (local.name == "range").then_some(id))
+            .expect("expected switch payload local");
+        assert!(
+            locals
+                .node_uses
+                .values()
+                .any(|use_kind| *use_kind == LocalUse::Local(range_id)),
+            "{:?}",
+            locals.node_uses
         );
     }
 
