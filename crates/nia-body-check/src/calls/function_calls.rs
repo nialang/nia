@@ -494,7 +494,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
-            let substituted_param = self.substitute_generics(param, &substitutions);
+            let substituted_param = self.substitute_generics(param, substitutions);
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
@@ -639,9 +639,9 @@ impl<'a> BodyChecker<'a> {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let instantiated_params: Vec<InternedTyId> = params
             .iter()
-            .map(|param| self.substitute_generics(*param, &substitutions))
+            .map(|param| self.substitute_generics(*param, substitutions))
             .collect();
-        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
+        self.check_where_predicates_hold(&signature.where_predicates, substitutions, span);
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
                 let actual = self.check_expr_with_expected(arg, Some(expected));

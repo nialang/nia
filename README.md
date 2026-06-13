@@ -114,7 +114,7 @@ nia --version
 nia check --exe examples/00_minimal.nia
 ```
 
-This source-tree workflow is the recommended 0.4.0 installation path. The
+This source-tree workflow is the recommended pre-1.0 installation path. The
 compiler's default standard-library path is tied to the checkout used to build
 it, so keep the repository in place after creating the symlink. To update:
 
