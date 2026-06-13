@@ -229,7 +229,7 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
                     local_id: LocalId(0),
                     name: "i".to_string(),
                 }),
-                pattern_kind: nia_ast::ForPatternKind::Value,
+                pattern_kind: nia_ast::BindingPatternKind::Value,
                 item_ty,
                 binding_ty: item_ty,
                 iter: TypedExpr {

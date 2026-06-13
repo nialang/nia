@@ -41,7 +41,7 @@ pub enum StmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingStmt {
     pub name: String,
-    pub pattern_kind: ForPatternKind,
+    pub pattern_kind: BindingPatternKind,
     pub pattern_span: Span,
     pub pattern_node_key: NodeKey,
     pub ty: Option<TypeRef>,
@@ -62,11 +62,11 @@ pub struct ForPattern {
     pub span: Span,
     pub node_key: NodeKey,
     pub name: Option<String>,
-    pub kind: ForPatternKind,
+    pub kind: BindingPatternKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ForPatternKind {
+pub enum BindingPatternKind {
     Value,
     Pointer,
     MutPointer,
@@ -131,9 +131,26 @@ pub struct SwitchStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchArm {
-    pub patterns: Vec<Pattern>,
+    pub patterns: Vec<SwitchPattern>,
     pub body: SwitchArmBody,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchPattern {
+    pub span: Span,
+    pub kind: SwitchPatternKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SwitchPatternKind {
+    Wildcard,
+    Expr(Box<Expr>),
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

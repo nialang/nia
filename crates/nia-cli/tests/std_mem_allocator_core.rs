@@ -19,39 +19,22 @@ using std::process;
 fn check_page_allocator_allocates() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
-    switch mem::Layout::of[u8]() {
-        !value => layout = value,
-        error! => return (5 as process::ExitCode)!,
-    }
-    switch allocator.alloc_bytes(4096, layout.align()) {
-        !block => {
-            var ptr = block.ptr();
+    if let !value = mem::Layout::of[u8]() { layout = value; } else error! { return (5 as process::ExitCode)!; }
+    if let !block = allocator.alloc_bytes(4096, layout.align()) { var ptr = block.ptr();
             ptr.* = 42u8;
             if ptr.* != 42u8 {
                 return (2 as process::ExitCode)!;
             }
-            switch allocator.free(block) {
-                !ok => _ = ok,
-                error! => return (3 as process::ExitCode)!,
-            }
-        },
-        error! => return (1 as process::ExitCode)!,
-    }
+            if let !ok = allocator.free(block) { _ = ok; } else error! { return (3 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
 fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
-    switch mem::Layout::init(64, 8192) {
-        !value => layout = value,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !value = mem::Layout::init(64, 8192) { layout = value; } else error! { return (1 as process::ExitCode)!; }
     var block: mem::Block;
-    switch allocator.alloc(layout) {
-        !value => block = value,
-        error! => return (2 as process::ExitCode)!,
-    }
+    if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
     if block.ptr() as usize % 8192usize != 0usize {
         return (3 as process::ExitCode)!;
     }
@@ -61,48 +44,29 @@ fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
     if bytes[0] != 17u8 or bytes[63] != 23u8 {
         return (4 as process::ExitCode)!;
     }
-    switch allocator.free(block) {
-        !ok => _ = ok,
-        error! => return (5 as process::ExitCode)!,
-    }
+    if let !ok = allocator.free(block) { _ = ok; } else error! { return (5 as process::ExitCode)!; }
     !{}
 }
 
 fn check_layout_rejects_invalid_alignment() process::ExitCode!void {
-    switch mem::Layout::init(16, 3) {
-        !ok => {
-            _ = ok;
-            return (1 as process::ExitCode)!;
-        },
-        err! => {
-            if err as i32 != mem::Error::InvalidAlignment as i32 {
+    if let !ok = mem::Layout::init(16, 3) { _ = ok;
+            return (1 as process::ExitCode)!; } else err! { if err as i32 != mem::Error::InvalidAlignment as i32 {
                 return (2 as process::ExitCode)!;
-            }
-        },
-    }
+            } }
     !{}
 }
 
 fn check_layout_rejects_array_size_overflow() process::ExitCode!void {
-    switch mem::Layout::array[i32](4611686018427387904usize) {
-        !ok => {
-            _ = ok;
-            return (1 as process::ExitCode)!;
-        },
-        err! => {
-            if err as i32 != mem::Error::OutOfMemory as i32 {
+    if let !ok = mem::Layout::array[i32](4611686018427387904usize) { _ = ok;
+            return (1 as process::ExitCode)!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
                 return (2 as process::ExitCode)!;
-            }
-        },
-    }
+            } }
     !{}
 }
 
 fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
-    switch allocator.alloc_slice[i32](4) {
-        !items => {
-            items[0] = 10;
+    if var !items = allocator.alloc_slice[i32](4) { items[0] = 10;
             items[1] = 20;
             items[2] = 30;
             items[3] = 40;
@@ -112,13 +76,7 @@ fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
             if items[0] + items[1] + items[2] + items[3] != 100 {
                 return (3 as process::ExitCode)!;
             }
-            switch allocator.free_slice[i32](items) {
-                !ok => _ = ok,
-                error! => return (4 as process::ExitCode)!,
-            }
-        },
-        error! => return (1 as process::ExitCode)!,
-    }
+            if let !ok = allocator.free_slice[i32](items) { _ = ok; } else error! { return (4 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
@@ -184,33 +142,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    switch allocator.remap(second, mem::Layout::init(24, 1).exit().?) {
-        ?grown => second = grown,
-        null => return (4 as process::ExitCode)!,
-    }
+    if let ?grown = allocator.remap(second, mem::Layout::init(24, 1).exit().?) { second = grown; } else null { return (4 as process::ExitCode)!; }
     if second.size() != 24 {
         return (5 as process::ExitCode)!;
     }
 
     allocator.free(second).exit().?;
-    switch allocator.alloc_bytes(48, 1) {
-        !block => {
-            allocator.free(block).exit().?;
-        },
-        error! => return (6 as process::ExitCode)!,
-    }
+    if let !block = allocator.alloc_bytes(48, 1) { allocator.free(block).exit().?; } else error! { return (6 as process::ExitCode)!; }
 
     allocator.reset();
     if allocator.used() != 0usize or allocator.remaining() != 64usize {
         return (7 as process::ExitCode)!;
     }
 
-    switch allocator.alloc_bytes(64, 1) {
-        !block => {
-            allocator.free(block).exit().?;
-        },
-        error! => return (8 as process::ExitCode)!,
-    }
+    if let !block = allocator.alloc_bytes(64, 1) { allocator.free(block).exit().?; } else error! { return (8 as process::ExitCode)!; }
     !{}
 }
 "#,

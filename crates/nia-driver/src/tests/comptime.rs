@@ -278,15 +278,16 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_switch_optional_payload_drives_array_lengths() {
-    let root = temp_dir("comptime_function_switch_optional_payload_drives_array_lengths");
+fn comptime_function_if_pattern_optional_payload_drives_array_lengths() {
+    let root = temp_dir("comptime_function_if_pattern_optional_payload_drives_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn unwrap(value: ?usize) usize {
-    switch value {
-        ?payload => payload,
-        null => 1,
+    if let ?payload = value {
+        payload
+    } else null {
+        1
     }
 }
 
@@ -305,15 +306,16 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_switch_error_payload_drives_array_lengths() {
-    let root = temp_dir("comptime_function_switch_error_payload_drives_array_lengths");
+fn comptime_function_if_pattern_error_payload_drives_array_lengths() {
+    let root = temp_dir("comptime_function_if_pattern_error_payload_drives_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn unwrap(value: usize!usize) usize {
-    switch value {
-        !payload => payload,
-        err! => err,
+    if let !payload = value {
+        payload
+    } else err! {
+        err
     }
 }
 
@@ -593,13 +595,15 @@ comptime fn add_one(value: ?usize) ?usize {
 
 comptime let some: ?usize = add_one(?7usize);
 comptime let none: ?usize = add_one(null);
-comptime let width: usize = switch some {
-    ?payload => payload,
-    null => 1,
+comptime let width: usize = if let ?payload = some {
+    payload
+} else null {
+    1
 };
-comptime let fallback: usize = switch none {
-    ?payload => payload,
-    null => 2,
+comptime let fallback: usize = if let ?payload = none {
+    payload
+} else null {
+    2
 };
 
 fn main() i32 {
@@ -625,13 +629,15 @@ comptime fn add_one(value: usize!usize) usize!usize {
 
 comptime let ok: usize!usize = add_one(!7usize);
 comptime let err: usize!usize = add_one(3usize!);
-comptime let width: usize = switch ok {
-    !payload => payload,
-    err! => 0,
+comptime let width: usize = if let !payload = ok {
+    payload
+} else err! {
+    0
 };
-comptime let fallback: usize = switch err {
-    !payload => payload,
-    err_payload! => 2,
+comptime let fallback: usize = if let !payload = err {
+    payload
+} else err_payload! {
+    2
 };
 
 fn main() i32 {
@@ -2076,9 +2082,10 @@ comptime fn id[T](value: ?T) ?T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    switch value {
-        ?payload => payload,
-        null => 1usize,
+    if let ?payload = value {
+        payload
+    } else null {
+        1usize
     }
 }
 
@@ -2212,8 +2219,9 @@ comptime let n: usize = id(switch true {
 }
 
 #[test]
-fn generic_comptime_function_infers_type_arg_from_switch_optional_payload() {
-    let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_optional_payload");
+fn generic_comptime_function_infers_type_arg_from_if_pattern_optional_payload() {
+    let root =
+        temp_dir("generic_comptime_function_infers_type_arg_from_if_pattern_optional_payload");
     write(
         &root.join("main.nia"),
         r#"
@@ -2222,9 +2230,10 @@ comptime fn id[T](value: T) T {
 }
 
 comptime let value: ?usize = ?8usize;
-comptime let n: usize = switch value {
-    ?payload => id(payload),
-    null => 1usize,
+comptime let n: usize = if let ?payload = value {
+    id(payload)
+} else null {
+    1usize
 };
 
 fn main() i32 {
@@ -2239,8 +2248,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_comptime_function_infers_type_arg_from_switch_error_payloads() {
-    let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_error_payloads");
+fn generic_comptime_function_infers_type_arg_from_if_pattern_error_payloads() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_if_pattern_error_payloads");
     write(
         &root.join("main.nia"),
         r#"
@@ -2249,9 +2258,10 @@ comptime fn id[T](value: T) T {
 }
 
 comptime let value: usize!usize = !8usize;
-comptime let n: usize = switch value {
-    !payload => id(payload),
-    err! => id(err),
+comptime let n: usize = if let !payload = value {
+    id(payload)
+} else err! {
+    id(err)
 };
 
 fn main() i32 {
@@ -2343,9 +2353,10 @@ fn generic_comptime_function_infers_type_arg_from_contextual_array_literal() {
         &root.join("main.nia"),
         r#"
 comptime fn first_some[T](values: [2]?T) T {
-    switch values[0] {
-        ?payload => payload,
-        null => values[1].?,
+    if let ?payload = values[0] {
+        payload
+    } else null {
+        values[1].?
     }
 }
 
@@ -2402,9 +2413,10 @@ struct Slot[T] {
 }
 
 comptime fn pick[T](slot: Slot[T]) T {
-    switch slot.primary {
-        ?payload => payload,
-        null => slot.fallback.?,
+    if let ?payload = slot.primary {
+        payload
+    } else null {
+        slot.fallback.?
     }
 }
 
@@ -3759,8 +3771,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_switch_optional_payload_preserves_array_type() {
-    let root = temp_dir("comptime_switch_optional_payload_preserves_array_type");
+fn comptime_if_pattern_optional_payload_preserves_array_type() {
+    let root = temp_dir("comptime_if_pattern_optional_payload_preserves_array_type");
     write(
         &root.join("main.nia"),
         r#"
@@ -3768,9 +3780,10 @@ comptime fn target_os() ?[5]char {
     ?@builtin().target.os
 }
 
-comptime let n: usize = switch target_os() {
-    ?os => os.len(),
-    null => 0usize,
+comptime let n: usize = if let ?os = target_os() {
+    os.len()
+} else null {
+    0usize
 };
 
 fn main() i32 {
@@ -3791,9 +3804,10 @@ fn comptime_optional_constructor_projects_target_string_payload() {
         &root.join("main.nia"),
         r#"
 comptime let os: ?[5]char = ?@builtin().target.os;
-comptime let n: usize = switch os {
-    ?payload => payload.len(),
-    null => 0usize,
+comptime let n: usize = if let ?payload = os {
+    payload.len()
+} else null {
+    0usize
 };
 
 fn main() i32 {
@@ -4108,9 +4122,10 @@ comptime fn some[T](value: T) ?T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    switch value {
-        ?payload => payload,
-        null => 0usize,
+    if let ?payload = value {
+        payload
+    } else null {
+        0usize
     }
 }
 
@@ -4170,9 +4185,10 @@ comptime fn use_try(value: usize!usize) usize!usize {
 }
 
 comptime let got: usize!usize = use_try(!7usize);
-comptime let n: usize = switch got {
-    !payload => payload,
-    err! => err,
+comptime let n: usize = if let !payload = got {
+    payload
+} else err! {
+    err
 };
 
 fn main() i32 {
@@ -4246,9 +4262,10 @@ comptime fn id[T](value: T) T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    switch value {
-        ?payload => payload,
-        null => 0usize,
+    if let ?payload = value {
+        payload
+    } else null {
+        0usize
     }
 }
 
@@ -4278,9 +4295,10 @@ comptime fn id[T](value: usize!T) usize!T {
 }
 
 comptime fn unwrap(value: usize!usize) usize {
-    switch value {
-        !payload => payload,
-        err! => err,
+    if let !payload = value {
+        payload
+    } else err! {
+        err
     }
 }
 
@@ -4310,9 +4328,10 @@ comptime fn id[T](value: T!usize) T!usize {
 }
 
 comptime fn unwrap(value: usize!usize) usize {
-    switch value {
-        !payload => payload,
-        err! => err,
+    if let !payload = value {
+        payload
+    } else err! {
+        err
     }
 }
 

@@ -74,12 +74,17 @@ struct RangePatternCheck<'a> {
 #[derive(Debug, Clone, Default)]
 struct PatternCoverage {
     catch_all: Option<Span>,
-    intervals: Vec<SwitchInterval>,
-    enum_variants: HashMap<DefId, Span>,
     optional_null: Option<Span>,
     optional_some: Option<Box<PatternCoverage>>,
     error_ok: Option<Box<PatternCoverage>>,
     error_err: Option<Box<PatternCoverage>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SwitchCoverage {
+    catch_all: Option<Span>,
+    intervals: Vec<SwitchInterval>,
+    enum_variants: HashMap<DefId, Span>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1417,14 +1422,14 @@ impl<'a> BodyChecker<'a> {
 
     fn check_binding_pattern(
         &mut self,
-        kind: nia_ast::ForPatternKind,
+        kind: nia_ast::BindingPatternKind,
         span: Span,
         value_ty: InternedTyId,
     ) -> InternedTyId {
         match kind {
-            nia_ast::ForPatternKind::Value => value_ty,
-            nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => {
-                let expected_readonly = matches!(kind, nia_ast::ForPatternKind::Pointer);
+            nia_ast::BindingPatternKind::Value => value_ty,
+            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => {
+                let expected_readonly = matches!(kind, nia_ast::BindingPatternKind::Pointer);
                 match self
                     .interner
                     .get(self.normalization.normalize(value_ty))
@@ -1468,16 +1473,16 @@ impl<'a> BodyChecker<'a> {
 
     fn binding_pattern_input_ty(
         &mut self,
-        kind: nia_ast::ForPatternKind,
+        kind: nia_ast::BindingPatternKind,
         binding_ty: InternedTyId,
     ) -> InternedTyId {
         match kind {
-            nia_ast::ForPatternKind::Value => binding_ty,
-            nia_ast::ForPatternKind::Pointer => self.interner.intern(TyKind::Pointer {
+            nia_ast::BindingPatternKind::Value => binding_ty,
+            nia_ast::BindingPatternKind::Pointer => self.interner.intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: binding_ty,
             }),
-            nia_ast::ForPatternKind::MutPointer => self.interner.intern(TyKind::Pointer {
+            nia_ast::BindingPatternKind::MutPointer => self.interner.intern(TyKind::Pointer {
                 is_readonly: false,
                 elem: binding_ty,
             }),
@@ -1486,15 +1491,15 @@ impl<'a> BodyChecker<'a> {
 
     fn materialize_explicit_binding_pattern_ty(
         &self,
-        kind: nia_ast::ForPatternKind,
+        kind: nia_ast::BindingPatternKind,
         explicit_binding: InternedTyId,
         value_ty: InternedTyId,
     ) -> InternedTyId {
         match kind {
-            nia_ast::ForPatternKind::Value => self
+            nia_ast::BindingPatternKind::Value => self
                 .materialize_inferred_array_type(explicit_binding, value_ty)
                 .unwrap_or(explicit_binding),
-            nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => self
+            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => self
                 .interner
                 .get(self.normalization.normalize(value_ty))
                 .and_then(|ty| match ty {
@@ -1512,7 +1517,7 @@ impl<'a> BodyChecker<'a> {
         stmt: &'b Stmt,
         binding: &'b BindingStmt,
     ) -> &'b NodeKey {
-        if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+        if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
             &stmt.node_key
         } else {
             &binding.pattern_node_key
@@ -1528,7 +1533,7 @@ impl<'a> BodyChecker<'a> {
                 "comptime binding requires an initializer",
             ));
         }
-        if !matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value)
+        if !matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value)
             && binding.value.is_none()
         {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1567,7 +1572,7 @@ impl<'a> BodyChecker<'a> {
             }
             (Some(ty), None) => {
                 let explicit = self.ty_for_type(ty);
-                if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+                if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
                     explicit
                 } else {
                     self.error()
@@ -1628,7 +1633,8 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let target_ty = self.check_expr(&switch.target);
-        let mut coverage = PatternCoverage::default();
+        self.check_switch_target_is_value_dispatch(switch.target.span, target_ty);
+        let mut coverage = SwitchCoverage::default();
         let mut result_ty = expected;
 
         for arm in &switch.arms {
@@ -1640,7 +1646,7 @@ impl<'a> BodyChecker<'a> {
                 ));
             }
             for pattern in &arm.patterns {
-                if matches!(&pattern.kind, nia_ast::PatternKind::Wildcard)
+                if matches!(&pattern.kind, nia_ast::SwitchPatternKind::Wildcard)
                     && arm.patterns.len() != 1
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -1649,10 +1655,7 @@ impl<'a> BodyChecker<'a> {
                         "`_` default must be the only pattern in a switch arm",
                     ));
                 }
-                if pattern.contains_binding() {
-                    self.check_switch_binding_pattern_is_single(pattern.span, arm);
-                }
-                self.check_pattern(pattern, target_ty, Some(&mut coverage), "switch pattern");
+                self.check_switch_pattern(pattern, target_ty, &mut coverage);
             }
             let arm_ty = self.check_switch_arm_body(&arm.body, result_ty);
             if let Some(expected) = result_ty {
@@ -1666,13 +1669,23 @@ impl<'a> BodyChecker<'a> {
         result_ty.unwrap_or_else(|| self.void())
     }
 
-    fn check_switch_binding_pattern_is_single(&mut self, span: Span, arm: &nia_ast::SwitchArm) {
-        if arm.patterns.len() != 1 {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
-                span,
-                "switch pattern binding must be the only pattern in its arm",
-            ));
+    fn check_switch_target_is_value_dispatch(&mut self, span: Span, target_ty: InternedTyId) {
+        match self.interner.get(self.normalization.normalize(target_ty)) {
+            Some(TyKind::Optional { .. }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "switch does not destructure optional values; use `if let` or `if var`",
+                ));
+            }
+            Some(TyKind::ErrorUnion { .. }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "switch does not destructure error-union values; use `if let` or `if var`",
+                ));
+            }
+            _ => {}
         }
     }
 
@@ -1705,6 +1718,13 @@ impl<'a> BodyChecker<'a> {
             if self.pattern_coverage_covers_type(target_ty, &coverage) {
                 return result_ty.unwrap_or_else(|| self.void());
             }
+            if expected.is_some_and(|expected| !self.is_void(expected)) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    if_pattern.target.span,
+                    "non-exhaustive if pattern requires an `else` branch",
+                ));
+            }
             return self.void();
         };
         let else_ty = self.check_expr_with_expected(else_branch, result_ty);
@@ -1718,6 +1738,52 @@ impl<'a> BodyChecker<'a> {
             expected
         } else {
             else_ty
+        }
+    }
+
+    fn check_switch_pattern(
+        &mut self,
+        pattern: &nia_ast::SwitchPattern,
+        target_ty: InternedTyId,
+        coverage: &mut SwitchCoverage,
+    ) {
+        match &pattern.kind {
+            nia_ast::SwitchPatternKind::Wildcard => {
+                coverage.catch_all = Some(pattern.span);
+            }
+            nia_ast::SwitchPatternKind::Expr(expr) => {
+                if let Some(previous) = coverage.catch_all {
+                    self.report_pattern_overlap(pattern.span, previous);
+                }
+                self.check_switch_expr_pattern(
+                    expr,
+                    target_ty,
+                    self.enum_global_def_id(target_ty),
+                    "switch pattern",
+                    &mut coverage.enum_variants,
+                    &mut coverage.intervals,
+                );
+            }
+            nia_ast::SwitchPatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                if let Some(previous) = coverage.catch_all {
+                    self.report_pattern_overlap(pattern.span, previous);
+                }
+                self.check_switch_range_pattern(
+                    RangePatternCheck {
+                        span: pattern.span,
+                        start,
+                        end,
+                        inclusive: *inclusive,
+                    },
+                    target_ty,
+                    "switch pattern",
+                    &mut coverage.intervals,
+                );
+            }
         }
     }
 
@@ -1842,68 +1908,45 @@ impl<'a> BodyChecker<'a> {
                 self.check_pattern(inner, error_ty, child_coverage, context);
             }
             nia_ast::PatternKind::Expr(expr) => {
-                let enum_id = self.enum_global_def_id(target_ty);
-                if let Some(coverage) = coverage {
-                    if let Some(previous) = coverage.catch_all {
-                        self.report_pattern_overlap(pattern.span, previous);
-                    }
-                    self.check_switch_expr_pattern(
-                        expr,
-                        target_ty,
-                        enum_id,
-                        context,
-                        &mut coverage.enum_variants,
-                        &mut coverage.intervals,
-                    );
-                } else {
-                    let mut enum_variants = HashMap::new();
-                    let mut intervals = Vec::new();
-                    self.check_switch_expr_pattern(
-                        expr,
-                        target_ty,
-                        enum_id,
-                        context,
-                        &mut enum_variants,
-                        &mut intervals,
-                    );
-                }
+                let pattern_ty = self.check_expr_with_expected(expr, Some(target_ty));
+                self.expect_expr_type(expr, target_ty, pattern_ty, context);
             }
             nia_ast::PatternKind::Range {
                 start,
                 end,
                 inclusive,
             } => {
-                if let Some(coverage) = coverage {
-                    if let Some(previous) = coverage.catch_all {
-                        self.report_pattern_overlap(pattern.span, previous);
-                    }
-                    self.check_switch_range_pattern(
-                        RangePatternCheck {
-                            span: pattern.span,
-                            start,
-                            end,
-                            inclusive: *inclusive,
-                        },
-                        target_ty,
-                        context,
-                        &mut coverage.intervals,
-                    );
-                } else {
-                    let mut intervals = Vec::new();
-                    self.check_switch_range_pattern(
-                        RangePatternCheck {
-                            span: pattern.span,
-                            start,
-                            end,
-                            inclusive: *inclusive,
-                        },
-                        target_ty,
-                        context,
-                        &mut intervals,
-                    );
-                }
+                self.check_if_pattern_range(
+                    RangePatternCheck {
+                        span: pattern.span,
+                        start,
+                        end,
+                        inclusive: *inclusive,
+                    },
+                    target_ty,
+                    context,
+                );
             }
         }
+    }
+
+    fn check_if_pattern_range(
+        &mut self,
+        pattern: RangePatternCheck<'_>,
+        target_ty: InternedTyId,
+        context: &str,
+    ) {
+        if !self.is_integer(target_ty) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                pattern.span,
+                format!("{context} range requires an integer target"),
+            ));
+        }
+        let start_ty = self.check_expr_with_expected(pattern.start, Some(target_ty));
+        self.expect_expr_type(pattern.start, target_ty, start_ty, context);
+        let end_ty = self.check_expr_with_expected(pattern.end, Some(target_ty));
+        self.expect_expr_type(pattern.end, target_ty, end_ty, context);
     }
 
     fn report_pattern_overlap(&mut self, span: Span, previous: Span) {
@@ -1918,9 +1961,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         target_ty: InternedTyId,
-        coverage: &PatternCoverage,
+        coverage: &SwitchCoverage,
     ) {
-        if self.pattern_coverage_covers_type(target_ty, coverage) {
+        if self.switch_coverage_covers_type(target_ty, coverage) {
             return;
         }
         match self.interner.get(self.normalization.normalize(target_ty)) {
@@ -1928,14 +1971,14 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
-                    "non-exhaustive optional switch",
+                    "switch over optional values is not supported; use `if let` or `if var`",
                 ));
             }
             Some(TyKind::ErrorUnion { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",
                     span,
-                    "non-exhaustive error union switch",
+                    "switch over error-union values is not supported; use `if let` or `if var`",
                 ));
             }
             _ => {
@@ -1950,6 +1993,37 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+    }
+
+    fn switch_coverage_covers_type(
+        &mut self,
+        target_ty: InternedTyId,
+        coverage: &SwitchCoverage,
+    ) -> bool {
+        if coverage.catch_all.is_some() {
+            return true;
+        }
+        if self.is_bool(target_ty) {
+            return self.pattern_intervals_cover_bool(&coverage.intervals);
+        }
+        self.enum_global_def_id(target_ty)
+            .is_some_and(|enum_id| self.switch_coverage_covers_enum(enum_id, coverage))
+    }
+
+    fn switch_coverage_covers_enum(
+        &mut self,
+        enum_id: GlobalDefId,
+        coverage: &SwitchCoverage,
+    ) -> bool {
+        let Some(resolved) = self.resolved_enum_signature(enum_id) else {
+            return false;
+        };
+        !resolved.signature.is_open
+            && resolved
+                .signature
+                .variants
+                .iter()
+                .all(|variant| coverage.enum_variants.contains_key(&variant.def_id))
     }
 
     fn pattern_coverage_covers_type(
@@ -1983,10 +2057,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 ok_covered && err_covered
             }
-            _ if self.is_bool(target_ty) => self.pattern_intervals_cover_bool(&coverage.intervals),
-            _ => self
-                .enum_global_def_id(target_ty)
-                .is_some_and(|enum_id| self.pattern_coverage_covers_enum(enum_id, coverage)),
+            _ => false,
         }
     }
 
@@ -1997,22 +2068,6 @@ impl<'a> BodyChecker<'a> {
                 .any(|interval| interval.start <= tag && tag <= interval.end)
         };
         covers(0) && covers(1)
-    }
-
-    fn pattern_coverage_covers_enum(
-        &mut self,
-        enum_id: GlobalDefId,
-        coverage: &PatternCoverage,
-    ) -> bool {
-        let Some(resolved) = self.resolved_enum_signature(enum_id) else {
-            return false;
-        };
-        !resolved.signature.is_open
-            && resolved
-                .signature
-                .variants
-                .iter()
-                .all(|variant| coverage.enum_variants.contains_key(&variant.def_id))
     }
 
     fn check_switch_expr_pattern(

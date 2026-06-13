@@ -244,12 +244,11 @@ fn ok() Error!void {
 }
 
 fn main() i32 {
-    switch ok() {
-        !value => {
-            _ = value;
-            0
-        },
-        error! => 1,
+    if let !value = ok() {
+        _ = value;
+        0
+    } else error! {
+        1
     }
 }
 "#,

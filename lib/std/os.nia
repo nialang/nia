@@ -216,9 +216,10 @@ extend platform::Errno {
 
 extend[T] platform::Errno!T {
     fn as_os_error(self) Error!T {
-        switch self {
-            !value => !value,
-            error! => error.as_os_error()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_os_error()!
         }
     }
 }
@@ -269,10 +270,9 @@ extend platform::Timestamp {
 extend platform::FileMetadata {
     fn as_os_metadata(&self) FileMetadata {
         var accessed: ?Timestamp = null;
-        switch self.atime() {
-            ?value => accessed = ?value.as_os_timestamp(),
-            null => {},
-        }
+        if let ?value = self.atime() {
+            accessed = ?value.as_os_timestamp();
+        } else null {}
         FileMetadata::init(
             self.kind().as_os_file_kind(),
             ?self.inode(),
@@ -332,9 +332,10 @@ extend DirectoryReader {
         }
         if self.start >= self.end {
             self.start = 0;
-            switch self.handle.read_dir_entries(self.buffer) {
-                !value => self.end = value,
-                err! => return ?(err!),
+            if let !value = self.handle.read_dir_entries(self.buffer) {
+                self.end = value;
+            } else err! {
+                return ?(err!);
             }
             if self.end == 0 {
                 self.done = true;
@@ -342,13 +343,15 @@ extend DirectoryReader {
             }
         }
 
-        let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
-            ?value => value.as_os_directory_entry(),
-            null => return ?(Error::Invalid!),
+        let entry = if let ?value = platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+            value.as_os_directory_entry()
+        } else null {
+            return ?(Error::Invalid!);
         };
-        self.start = switch platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
-            ?value => value,
-            null => return ?(Error::Invalid!),
+        self.start = if let ?value = platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+            value
+        } else null {
+            return ?(Error::Invalid!);
         };
         ?(!entry)
     }

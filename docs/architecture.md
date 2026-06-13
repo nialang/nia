@@ -739,15 +739,15 @@ typed comptime value shape before the `if` expression can feed generic
 comptime call inference: runtime Nia values agree by `TyId`, while structural
 comptime-only structs agree by their field type surface.
 
-Comptime `switch` expressions follow the same source-shaped typed surface.
+Comptime `switch` expressions follow the same source-shaped typed surface as
+runtime source `switch`: value patterns, integer ranges, and default cases.
 Value-producing arm bodies are typed and unified to one typed comptime value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
-do not invent a switch result type. Pattern payload locals are typed
-recursively from the target type: `?pattern` descends into an optional payload,
-`!pattern` descends into an error-union success value, and `pattern!` descends
-into an error payload. The evaluator still performs actual matching; the
-checker only records the arm and payload types needed for comptime generic
-inference.
+do not invent a switch result type. Recursive optional and error-union payload
+patterns belong to `if let` / `if var`; their payload locals are typed from the
+target type while checking those if-pattern arms. The evaluator still performs
+actual matching; the checker only records the arm and payload types needed for
+comptime generic inference.
 
 Comptime function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into

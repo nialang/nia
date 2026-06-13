@@ -27,24 +27,19 @@ pub trait Allocator {
     }
 
     fn realloc(&mut self, block: Block, new_layout: Layout) Error!Block {
-        switch self.remap(block, new_layout) {
-            ?new_block => return !new_block,
-            null => {},
+        if let ?new_block = self.remap(block, new_layout) {
+            return !new_block;
         }
         let new_block = self.alloc(new_layout).?;
         block.copy_prefix_to(new_block);
-        switch self.free(block) {
-            !ok => {
+        if let !ok = self.free(block) {
+            _ = ok;
+            !new_block
+        } else err! {
+            if let !ok = self.free(new_block) {
                 _ = ok;
-                !new_block
-            },
-            err! => {
-                switch self.free(new_block) {
-                    !ok => _ = ok,
-                    error! => {},
-                }
-                err!
-            },
+            } else error! {}
+            err!
         }
     }
 
@@ -62,9 +57,10 @@ extend Allocator {
         if layout.is_empty() {
             return !dangling_slice[T](len);
         }
-        switch self.alloc(layout) {
-            !block => !block.as_slice[T](),
-            err! => err!,
+        if let !block = self.alloc(layout) {
+            !block.as_slice[T]()
+        } else err! {
+            err!
         }
     }
 

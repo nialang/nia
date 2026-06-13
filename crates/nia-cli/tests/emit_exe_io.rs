@@ -19,10 +19,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.write_all(b"nia\n") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = stdout.write_all(b"nia\n") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     !{}
 }
 "#,
@@ -63,14 +60,8 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.print("A¢€😀, {}\n", &[&'λ']) {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return (2 as process::ExitCode)!,
-    }
+    if let !ok = stdout.print("A¢€😀, {}\n", &[&'λ']) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
+    if let !ok = stdout.flush() { _ = ok; } else error! { return (2 as process::ExitCode)!; }
     !{}
 }
 "#,
@@ -112,20 +103,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
-    switch writer.print("nia {}", &[&7]) {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = writer.print("nia {}", &[&7]) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if writer.len() != 5 {
         return (2 as process::ExitCode)!;
     }
 
     var copied: [5]u8 = [0, 0, 0, 0, 0];
     var reader = io::FixedBufferReader::init(writer.written());
-    switch reader.read_exact(&mut copied[..]) {
-        !ok => _ = ok,
-        error! => return (3 as process::ExitCode)!,
-    }
+    if let !ok = reader.read_exact(&mut copied[..]) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
     var expected = b"nia 7";
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
         return (4 as process::ExitCode)!;
@@ -434,13 +419,8 @@ using std::io;
 using std::process;
 
 fn expect_error(result: fmt::Error!void, expected: fmt::Error) bool {
-    switch result {
-        !ok => {
-            _ = ok;
-            false
-        },
-        error! => error == expected,
-    }
+    if let !ok = result { _ = ok;
+            false } else error! { error == expected }
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -461,10 +441,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error(writer.print("}", &[]), fmt::Error::InvalidTemplate) {
         return (4 as process::ExitCode)!;
     }
-    switch writer.print("{{{}}}", &[&value]) {
-        !ok => _ = ok,
-        error! => return (5 as process::ExitCode)!,
-    }
+    if let !ok = writer.print("{{{}}}", &[&value]) { _ = ok; } else error! { return (5 as process::ExitCode)!; }
     if writer.len() != 3 {
         return (6 as process::ExitCode)!;
     }
@@ -482,10 +459,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error(writer.print("{x}", &[&value]), fmt::Error::InvalidTemplate) {
         return (10 as process::ExitCode)!;
     }
-    switch fmt::print_unchecked(&mut writer, "{:X}", &[&value]) {
-        !ok => _ = ok,
-        error! => return (11 as process::ExitCode)!,
-    }
+    if let !ok = fmt::print_unchecked(&mut writer, "{:X}", &[&value]) { _ = ok; } else error! { return (11 as process::ExitCode)!; }
     if not expect_error(writer.print("{:q}", &[&value]), fmt::Error::InvalidTemplate) {
         return (12 as process::ExitCode)!;
     }
@@ -560,53 +534,28 @@ using std::fmt;
 using std::process;
 
 fn expect_i32(result: fmt::ParseError!i32, expected: i32) bool {
-    switch result {
-        !value => value == expected,
-        error! => {
-            _ = error;
-            false
-        },
-    }
+    if let !value = result { value == expected } else error! { _ = error;
+            false }
 }
 
 fn expect_error_i32(result: fmt::ParseError!i32, expected: fmt::ParseError) bool {
-    switch result {
-        !value => {
-            _ = value;
-            false
-        },
-        error! => error == expected,
-    }
+    if let !value = result { _ = value;
+            false } else error! { error == expected }
 }
 
 fn expect_error_u8(result: fmt::ParseError!u8, expected: fmt::ParseError) bool {
-    switch result {
-        !value => {
-            _ = value;
-            false
-        },
-        error! => error == expected,
-    }
+    if let !value = result { _ = value;
+            false } else error! { error == expected }
 }
 
 fn expect_u8(result: fmt::ParseError!u8, expected: u8) bool {
-    switch result {
-        !value => value == expected,
-        error! => {
-            _ = error;
-            false
-        },
-    }
+    if let !value = result { value == expected } else error! { _ = error;
+            false }
 }
 
 fn expect_error_bool(result: fmt::ParseError!bool, expected: fmt::ParseError) bool {
-    switch result {
-        !value => {
-            _ = value;
-            false
-        },
-        error! => error == expected,
-    }
+    if let !value = result { _ = value;
+            false } else error! { error == expected }
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -618,24 +567,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_i32(fmt::parse[i32]("+2147483647"), i32::MAX) {
         return (2 as process::ExitCode)!;
     }
-    switch fmt::parse[u128]("340282366920938463463374607431768211455") {
-        !value => if value != u128::MAX {
+    if let !value = fmt::parse[u128]("340282366920938463463374607431768211455") { if value != u128::MAX {
             return (3 as process::ExitCode)!;
-        },
-        error! => return (4 as process::ExitCode)!,
-    }
-    switch fmt::parse[usize]("12345") {
-        !value => if value != 12345usize {
+        } } else error! { return (4 as process::ExitCode)!; }
+    if let !value = fmt::parse[usize]("12345") { if value != 12345usize {
             return (5 as process::ExitCode)!;
-        },
-        error! => return (6 as process::ExitCode)!,
-    }
-    switch fmt::parse[bool]("false") {
-        !value => if value {
+        } } else error! { return (6 as process::ExitCode)!; }
+    if let !value = fmt::parse[bool]("false") { if value {
             return (7 as process::ExitCode)!;
-        },
-        error! => return (8 as process::ExitCode)!,
-    }
+        } } else error! { return (8 as process::ExitCode)!; }
 
     if not expect_error_i32(fmt::parse[i32](""), fmt::ParseError::Empty) {
         return (9 as process::ExitCode)!;
@@ -688,21 +628,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_error_bool(fmt::parse_radix[bool]("true", 10u32), fmt::ParseError::InvalidRadix) {
         return (25 as process::ExitCode)!;
     }
-    switch fmt::parse_radix[u128]("ffffffffffffffffffffffffffffffff", 16u32) {
-        !value => if value != u128::MAX {
+    if let !value = fmt::parse_radix[u128]("ffffffffffffffffffffffffffffffff", 16u32) { if value != u128::MAX {
             return (26 as process::ExitCode)!;
-        },
-        error! => return (27 as process::ExitCode)!,
-    }
-    switch fmt::parse_radix[u128]("100000000000000000000000000000000", 16u32) {
-        !value => {
-            _ = value;
-            return (28 as process::ExitCode)!;
-        },
-        error! => if error != fmt::ParseError::Overflow {
+        } } else error! { return (27 as process::ExitCode)!; }
+    if let !value = fmt::parse_radix[u128]("100000000000000000000000000000000", 16u32) { _ = value;
+            return (28 as process::ExitCode)!; } else error! { if error != fmt::ParseError::Overflow {
             return (29 as process::ExitCode)!;
-        },
-    }
+        } }
     if not expect_error_u8(fmt::parse[u8]("+1"), fmt::ParseError::InvalidSign) {
         return (30 as process::ExitCode)!;
     }
@@ -724,12 +656,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not expect_u8(fmt::parse_radix[u8](b"ff", 16u32), 255u8) {
         return (36 as process::ExitCode)!;
     }
-    switch fmt::parse[bool](b"true") {
-        !value => if not value {
+    if let !value = fmt::parse[bool](b"true") { if not value {
             return (37 as process::ExitCode)!;
-        },
-        error! => return (38 as process::ExitCode)!,
-    }
+        } } else error! { return (38 as process::ExitCode)!; }
     if not expect_error_u8(fmt::parse_radix[u8](b"0xff", 16u32), fmt::ParseError::InvalidDigit) {
         return (39 as process::ExitCode)!;
     }
@@ -775,10 +704,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var discard = io::DiscardingWriter::init();
-    switch discard.write_all(b"abcdef") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = discard.write_all(b"abcdef") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if discard.len() != 6 {
         return (2 as process::ExitCode)!;
     }
@@ -790,20 +716,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     var copied: [4]u8 = [0, 0, 0, 0];
     var n: usize;
-    switch limited.read(&mut copied[..]) {
-        !value => n = value,
-        error! => return (3 as process::ExitCode)!,
-    }
+    if let !value = limited.read(&mut copied[..]) { n = value; } else error! { return (3 as process::ExitCode)!; }
     if n != 3 {
         return (4 as process::ExitCode)!;
     }
     if copied[0] != b'a' or copied[1] != b'b' or copied[2] != b'c' {
         return (5 as process::ExitCode)!;
     }
-    switch limited.read(&mut copied[..]) {
-        !value => n = value,
-        error! => return (6 as process::ExitCode)!,
-    }
+    if let !value = limited.read(&mut copied[..]) { n = value; } else error! { return (6 as process::ExitCode)!; }
     if n != 0 {
         return (7 as process::ExitCode)!;
     }
@@ -852,34 +772,22 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &mut buffer_storage[..],
     );
 
-    switch writer.write_all(b"abc") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = writer.write_all(b"abc") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if writer.len() != 3 or backing.len() != 0 {
         return (2 as process::ExitCode)!;
     }
 
-    switch writer.write_byte(b'd') {
-        !ok => _ = ok,
-        error! => return (3 as process::ExitCode)!,
-    }
+    if let !ok = writer.write_byte(b'd') { _ = ok; } else error! { return (3 as process::ExitCode)!; }
     if writer.len() != 4 or backing.len() != 0 {
         return (4 as process::ExitCode)!;
     }
 
-    switch writer.write_all(b"efghij") {
-        !ok => _ = ok,
-        error! => return (5 as process::ExitCode)!,
-    }
+    if let !ok = writer.write_all(b"efghij") { _ = ok; } else error! { return (5 as process::ExitCode)!; }
     if writer.len() != 0 or backing.len() != 10 {
         return (6 as process::ExitCode)!;
     }
 
-    switch writer.flush() {
-        !ok => _ = ok,
-        error! => return (7 as process::ExitCode)!,
-    }
+    if let !ok = writer.flush() { _ = ok; } else error! { return (7 as process::ExitCode)!; }
     if backing.len() != 10 {
         return (8 as process::ExitCode)!;
     }
@@ -972,18 +880,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &mut buffer_storage[..],
     );
 
-    switch writer.write_all(b"abcdef") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = writer.write_all(b"abcdef") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if writer.len() != 6 or backing.len() != 0 {
         return (2 as process::ExitCode)!;
     }
 
-    switch writer.flush() {
-        !ok => _ = ok,
-        error! => return (3 as process::ExitCode)!,
-    }
+    if let !ok = writer.flush() { _ = ok; } else error! { return (3 as process::ExitCode)!; }
     if writer.len() != 0 or backing.len() != 6 {
         return (4 as process::ExitCode)!;
     }
@@ -1005,10 +907,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &mut direct_backing,
         &mut direct_buffer_storage[..],
     );
-    switch direct_writer.write_all(b"ghijkl") {
-        !ok => _ = ok,
-        error! => return (6 as process::ExitCode)!,
-    }
+    if let !ok = direct_writer.write_all(b"ghijkl") { _ = ok; } else error! { return (6 as process::ExitCode)!; }
     if direct_writer.len() != 0 or direct_backing.len() != 6 {
         return (7 as process::ExitCode)!;
     }
@@ -1067,10 +966,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var first: [2]u8 = [0; 2];
     var n: usize;
-    switch reader.read(&mut first[..]) {
-        !value => n = value,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !value = reader.read(&mut first[..]) { n = value; } else error! { return (1 as process::ExitCode)!; }
     if n != 2 or first[0] != b'a' or first[1] != b'b' {
         return (2 as process::ExitCode)!;
     }
@@ -1079,10 +975,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var second: [3]u8 = [0; 3];
-    switch reader.read(&mut second[..]) {
-        !value => n = value,
-        error! => return (4 as process::ExitCode)!,
-    }
+    if let !value = reader.read(&mut second[..]) { n = value; } else error! { return (4 as process::ExitCode)!; }
     if n != 2 or second[0] != b'c' or second[1] != b'd' {
         return (5 as process::ExitCode)!;
     }
@@ -1091,10 +984,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var third: [5]u8 = [0; 5];
-    switch reader.read(&mut third[..]) {
-        !value => n = value,
-        error! => return (7 as process::ExitCode)!,
-    }
+    if let !value = reader.read(&mut third[..]) { n = value; } else error! { return (7 as process::ExitCode)!; }
     if n != 5 {
         return (8 as process::ExitCode)!;
     }
@@ -1103,18 +993,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var fourth: [2]u8 = [0; 2];
-    switch reader.read(&mut fourth[..]) {
-        !value => n = value,
-        error! => return (10 as process::ExitCode)!,
-    }
+    if let !value = reader.read(&mut fourth[..]) { n = value; } else error! { return (10 as process::ExitCode)!; }
     if n != 1 or fourth[0] != b'j' {
         return (11 as process::ExitCode)!;
     }
 
-    switch reader.read(&mut fourth[..]) {
-        !value => n = value,
-        error! => return (12 as process::ExitCode)!,
-    }
+    if let !value = reader.read(&mut fourth[..]) { n = value; } else error! { return (12 as process::ExitCode)!; }
     if n != 0 {
         return (13 as process::ExitCode)!;
     }
@@ -1183,10 +1067,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var source = PartialReader::init(b"abcdef");
     var bytes: [6]u8 = [0; 6];
-    switch source.read_exact(&mut bytes[..]) {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = source.read_exact(&mut bytes[..]) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     let expected = b"abcdef";
     var index = 0usize;
     while index < expected.len() {
@@ -1198,13 +1079,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var short = PartialReader::init(b"xy");
     var too_many: [3]u8 = [0; 3];
-    switch short.read_exact(&mut too_many[..]) {
-        !ok => {
-            _ = ok;
-            return (3 as process::ExitCode)!;
-        },
-        error! => {},
-    }
+    if let !ok = short.read_exact(&mut too_many[..]) { _ = ok;
+            return (3 as process::ExitCode)!; } else error! { }
     !{}
 }
 "#,

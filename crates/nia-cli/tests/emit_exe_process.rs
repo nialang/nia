@@ -34,21 +34,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if value.fetch_xor_seq_cst(2usize) != 6usize {
         return process::exit(4)!;
     }
-    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
-        ?actual => {
-            _ = actual;
-            return process::exit(5)!;
-        },
-        null => {},
-    }
-    switch value.cmpxchg_strong_seq_cst(4usize, 5usize) {
-        ?actual => {
-            if actual != 5usize {
+    if let ?actual = value.cmpxchg_strong_seq_cst(4usize, 5usize) { _ = actual;
+            return process::exit(5)!; } else null { }
+    if let ?actual = value.cmpxchg_strong_seq_cst(4usize, 5usize) { if actual != 5usize {
                 return process::exit(6)!;
-            }
-        },
-        null => return process::exit(7)!,
-    }
+            } } else null { return process::exit(7)!; }
     atomic::fence_seq_cst();
     !{}
 }
@@ -543,10 +533,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var writer = io::DiscardingWriter::init();
-    switch writer.write_all(b"nia") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !ok = writer.write_all(b"nia") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if writer.len() != 3 {
         return (2 as process::ExitCode)!;
     }
@@ -593,51 +580,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not 4096usize.is_power_of_two() {
         return (2 as process::ExitCode)!;
     }
-    switch 10usize.checked_add(5usize) {
-        ?value => {
-            if value != 15usize {
+    if let ?value = 10usize.checked_add(5usize) { if value != 15usize {
                 return (3 as process::ExitCode)!;
-            }
-        },
-        null => return (4 as process::ExitCode)!,
-    }
-    switch 18446744073709551615usize.checked_add(1usize) {
-        ?value => {
-            _ = value;
-            return (5 as process::ExitCode)!;
-        },
-        null => {},
-    }
-    switch 12usize.checked_mul(3usize) {
-        ?value => {
-            if value != 36usize {
+            } } else null { return (4 as process::ExitCode)!; }
+    if let ?value = 18446744073709551615usize.checked_add(1usize) { _ = value;
+            return (5 as process::ExitCode)!; } else null { }
+    if let ?value = 12usize.checked_mul(3usize) { if value != 36usize {
                 return (6 as process::ExitCode)!;
-            }
-        },
-        null => return (7 as process::ExitCode)!,
-    }
-    switch 4611686018427387904usize.checked_mul(4usize) {
-        ?value => {
-            _ = value;
-            return (8 as process::ExitCode)!;
-        },
-        null => {},
-    }
-    switch 17usize.align_forward(8usize) {
-        ?value => {
-            if value != 24usize {
+            } } else null { return (7 as process::ExitCode)!; }
+    if let ?value = 4611686018427387904usize.checked_mul(4usize) { _ = value;
+            return (8 as process::ExitCode)!; } else null { }
+    if let ?value = 17usize.align_forward(8usize) { if value != 24usize {
                 return (9 as process::ExitCode)!;
-            }
-        },
-        null => return (10 as process::ExitCode)!,
-    }
-    switch 17usize.align_forward(3usize) {
-        ?value => {
-            _ = value;
-            return (11 as process::ExitCode)!;
-        },
-        null => {},
-    }
+            } } else null { return (10 as process::ExitCode)!; }
+    if let ?value = 17usize.align_forward(3usize) { _ = value;
+            return (11 as process::ExitCode)!; } else null { }
     !{}
 }
 "#,
@@ -682,103 +639,31 @@ where T: math::CheckedAdd[T, Output = T]
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    switch add_checked_same[u8](250u8, 5u8) {
-        ?value => if value != 255u8 { return process::exit(1)!; },
-        null => return process::exit(2)!,
-    }
-    switch 255u8.checked_add(1u8) {
-        ?value => { _ = value; return process::exit(3)!; },
-        null => {},
-    }
-    switch 10u16.checked_sub(3u16) {
-        ?value => if value != 7u16 { return process::exit(4)!; },
-        null => return process::exit(5)!,
-    }
-    switch 0u16.checked_sub(1u16) {
-        ?value => { _ = value; return process::exit(6)!; },
-        null => {},
-    }
-    switch 70000u32.checked_mul(60000u32) {
-        ?value => if value != 4200000000u32 { return process::exit(7)!; },
-        null => return process::exit(8)!,
-    }
-    switch 0xffffffffu32.checked_mul(2u32) {
-        ?value => { _ = value; return process::exit(9)!; },
-        null => {},
-    }
-    switch 100u64.checked_div(4u64) {
-        ?value => if value != 25u64 { return process::exit(10)!; },
-        null => return process::exit(11)!,
-    }
-    switch 100u64.checked_div(0u64) {
-        ?value => { _ = value; return process::exit(12)!; },
-        null => {},
-    }
-    switch 100u128.checked_rem(7u128) {
-        ?value => if value != 2u128 { return process::exit(13)!; },
-        null => return process::exit(14)!,
-    }
-    switch 100u128.checked_rem(0u128) {
-        ?value => { _ = value; return process::exit(15)!; },
-        null => {},
-    }
-    switch 9usize.checked_sub(4usize) {
-        ?value => if value != 5usize { return process::exit(16)!; },
-        null => return process::exit(17)!,
-    }
+    if let ?value = add_checked_same[u8](250u8, 5u8) { if value != 255u8 { return process::exit(1)!; } } else null { return process::exit(2)!; }
+    if let ?value = 255u8.checked_add(1u8) { _ = value; return process::exit(3)!; } else null { }
+    if let ?value = 10u16.checked_sub(3u16) { if value != 7u16 { return process::exit(4)!; } } else null { return process::exit(5)!; }
+    if let ?value = 0u16.checked_sub(1u16) { _ = value; return process::exit(6)!; } else null { }
+    if let ?value = 70000u32.checked_mul(60000u32) { if value != 4200000000u32 { return process::exit(7)!; } } else null { return process::exit(8)!; }
+    if let ?value = 0xffffffffu32.checked_mul(2u32) { _ = value; return process::exit(9)!; } else null { }
+    if let ?value = 100u64.checked_div(4u64) { if value != 25u64 { return process::exit(10)!; } } else null { return process::exit(11)!; }
+    if let ?value = 100u64.checked_div(0u64) { _ = value; return process::exit(12)!; } else null { }
+    if let ?value = 100u128.checked_rem(7u128) { if value != 2u128 { return process::exit(13)!; } } else null { return process::exit(14)!; }
+    if let ?value = 100u128.checked_rem(0u128) { _ = value; return process::exit(15)!; } else null { }
+    if let ?value = 9usize.checked_sub(4usize) { if value != 5usize { return process::exit(16)!; } } else null { return process::exit(17)!; }
 
-    switch (-5i8).checked_neg() {
-        ?value => if value != 5i8 { return process::exit(18)!; },
-        null => return process::exit(19)!,
-    }
-    switch i8::MIN.checked_neg() {
-        ?value => { _ = value; return process::exit(20)!; },
-        null => {},
-    }
-    switch (-123i16).checked_abs() {
-        ?value => if value != 123i16 { return process::exit(21)!; },
-        null => return process::exit(22)!,
-    }
-    switch i16::MIN.checked_abs() {
-        ?value => { _ = value; return process::exit(23)!; },
-        null => {},
-    }
-    switch i32::MAX.checked_add(1i32) {
-        ?value => { _ = value; return process::exit(24)!; },
-        null => {},
-    }
-    switch (-10i32).checked_add(5i32) {
-        ?value => if value != -5i32 { return process::exit(25)!; },
-        null => return process::exit(26)!,
-    }
-    switch i64::MIN.checked_sub(1i64) {
-        ?value => { _ = value; return process::exit(27)!; },
-        null => {},
-    }
-    switch 10i64.checked_sub(-5i64) {
-        ?value => if value != 15i64 { return process::exit(28)!; },
-        null => return process::exit(29)!,
-    }
-    switch i128::MIN.checked_mul(-1i128) {
-        ?value => { _ = value; return process::exit(30)!; },
-        null => {},
-    }
-    switch 12i128.checked_mul(-3i128) {
-        ?value => if value != -36i128 { return process::exit(31)!; },
-        null => return process::exit(32)!,
-    }
-    switch isize::MIN.checked_div(-1isize) {
-        ?value => { _ = value; return process::exit(33)!; },
-        null => {},
-    }
-    switch (-9isize).checked_div(3isize) {
-        ?value => if value != -3isize { return process::exit(34)!; },
-        null => return process::exit(35)!,
-    }
-    switch (-9isize).checked_rem(0isize) {
-        ?value => { _ = value; return process::exit(36)!; },
-        null => {},
-    }
+    if let ?value = (-5i8).checked_neg() { if value != 5i8 { return process::exit(18)!; } } else null { return process::exit(19)!; }
+    if let ?value = i8::MIN.checked_neg() { _ = value; return process::exit(20)!; } else null { }
+    if let ?value = (-123i16).checked_abs() { if value != 123i16 { return process::exit(21)!; } } else null { return process::exit(22)!; }
+    if let ?value = i16::MIN.checked_abs() { _ = value; return process::exit(23)!; } else null { }
+    if let ?value = i32::MAX.checked_add(1i32) { _ = value; return process::exit(24)!; } else null { }
+    if let ?value = (-10i32).checked_add(5i32) { if value != -5i32 { return process::exit(25)!; } } else null { return process::exit(26)!; }
+    if let ?value = i64::MIN.checked_sub(1i64) { _ = value; return process::exit(27)!; } else null { }
+    if let ?value = 10i64.checked_sub(-5i64) { if value != 15i64 { return process::exit(28)!; } } else null { return process::exit(29)!; }
+    if let ?value = i128::MIN.checked_mul(-1i128) { _ = value; return process::exit(30)!; } else null { }
+    if let ?value = 12i128.checked_mul(-3i128) { if value != -36i128 { return process::exit(31)!; } } else null { return process::exit(32)!; }
+    if let ?value = isize::MIN.checked_div(-1isize) { _ = value; return process::exit(33)!; } else null { }
+    if let ?value = (-9isize).checked_div(3isize) { if value != -3isize { return process::exit(34)!; } } else null { return process::exit(35)!; }
+    if let ?value = (-9isize).checked_rem(0isize) { _ = value; return process::exit(36)!; } else null { }
 
     !{}
 }
@@ -821,27 +706,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if args.len() != 3 {
         return (1 as process::ExitCode)!;
     }
-    switch args.program() {
-        ?program => if program.is_empty() {
+    if let ?program = args.program() { if program.is_empty() {
             return (9 as process::ExitCode)!;
-        },
-        null => return (10 as process::ExitCode)!,
-    }
+        } } else null { return (10 as process::ExitCode)!; }
     var iter = args.skip_program();
     if iter.remaining() != 2usize {
         return (11 as process::ExitCode)!;
     }
-    var first_arg = switch iter.next() {
-        ?value => value,
-        null => return (2 as process::ExitCode)!,
-    };
+    var first_arg = if let ?value = iter.next() { value } else null { return (2 as process::ExitCode)!; };
     if iter.remaining() != 1usize {
         return (12 as process::ExitCode)!;
     }
-    var second_arg = switch iter.next() {
-        ?value => value,
-        null => return (3 as process::ExitCode)!,
-    };
+    var second_arg = if let ?value = iter.next() { value } else null { return (3 as process::ExitCode)!; };
     if iter.remaining() != 0usize {
         return (13 as process::ExitCode)!;
     }
@@ -856,18 +732,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if second.len() != 4 {
         return (6 as process::ExitCode)!;
     }
-    switch fmt::parse[u16](second_arg) {
-        !value => if value != 1234u16 {
+    if let !value = fmt::parse[u16](second_arg) { if value != 1234u16 {
             return (14 as process::ExitCode)!;
-        },
-        error! => return (15 as process::ExitCode)!,
-    }
-    switch fmt::parse_radix[u16](second_arg, 16u32) {
-        !value => if value != 0x1234u16 {
+        } } else error! { return (15 as process::ExitCode)!; }
+    if let !value = fmt::parse_radix[u16](second_arg, 16u32) { if value != 0x1234u16 {
             return (16 as process::ExitCode)!;
-        },
-        error! => return (17 as process::ExitCode)!,
-    }
+        } } else error! { return (17 as process::ExitCode)!; }
     var storage: [16]u8 = [0; 16];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print("{:_>5.2}", &[&first_arg]).exit().?;
@@ -875,13 +745,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return (8 as process::ExitCode)!;
     }
-    switch iter.next() {
-        ?value => {
-            _ = value;
-            return (7 as process::ExitCode)!;
-        },
-        null => {},
-    }
+    if let ?value = iter.next() { _ = value;
+            return (7 as process::ExitCode)!; } else null { }
     !{}
 }
 "#,
@@ -937,10 +802,7 @@ fn starts_with_needle(bytes: &[u8]) bool {
 pub fn main(init: process::Init) process::ExitCode!void {
     var iter = init.env().iter();
     while iter.remaining() != 0usize {
-        var item = switch iter.next() {
-            ?value => value,
-            null => return (1 as process::ExitCode)!,
-        };
+        var item = if let ?value = iter.next() { value } else null { return (1 as process::ExitCode)!; };
         if starts_with_needle(item.bytes()) {
             return !{};
         }
@@ -1002,19 +864,13 @@ fn parse() ParseError!i32 {
 
 extend[T] ParseError!T {
     fn as_app_error(self) AppError!T {
-        switch self {
-            !value => !value,
-            err! => map_parse_error(err)!,
-        }
+        if let !value = self { !value } else err! { map_parse_error(err)! }
     }
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    switch parse().as_app_error() {
-        !value => return (value as process::ExitCode)!,
-        err! => return (err as i32 as process::ExitCode)!,
-    }
+    if let !value = parse().as_app_error() { return (value as process::ExitCode)!; } else err! { return (err as i32 as process::ExitCode)!; }
 }
 "#,
     )

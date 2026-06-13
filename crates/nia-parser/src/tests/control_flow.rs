@@ -41,7 +41,7 @@ fn main() {
         panic!("expected for-in statement");
     };
     assert_eq!(for_stmt.pattern.name(), Some("i"));
-    assert_eq!(for_stmt.pattern.kind, ForPatternKind::Value);
+    assert_eq!(for_stmt.pattern.kind, BindingPatternKind::Value);
     assert!(matches!(for_stmt.iter.kind, ExprKind::Range(_)));
 }
 
@@ -65,17 +65,17 @@ fn main(xs: &[&i32], ys: &[&mut i32]) {
         panic!("expected for-in statement");
     };
     assert_eq!(first.pattern.name(), Some("x"));
-    assert_eq!(first.pattern.kind, ForPatternKind::Pointer);
+    assert_eq!(first.pattern.kind, BindingPatternKind::Pointer);
     let StmtKind::ForIn(second) = &body.stmts[1].kind else {
         panic!("expected for-in statement");
     };
     assert_eq!(second.pattern.name(), Some("y"));
-    assert_eq!(second.pattern.kind, ForPatternKind::MutPointer);
+    assert_eq!(second.pattern.kind, BindingPatternKind::MutPointer);
     let StmtKind::ForIn(third) = &body.stmts[2].kind else {
         panic!("expected for-in statement");
     };
     assert_eq!(third.pattern.name(), None);
-    assert_eq!(third.pattern.kind, ForPatternKind::Value);
+    assert_eq!(third.pattern.kind, BindingPatternKind::Value);
 }
 
 #[test]
@@ -97,12 +97,12 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
         panic!("expected binding");
     };
     assert_eq!(first.name, "x");
-    assert_eq!(first.pattern_kind, ForPatternKind::Pointer);
+    assert_eq!(first.pattern_kind, BindingPatternKind::Pointer);
     let StmtKind::Binding(second) = &body.stmts[1].kind else {
         panic!("expected binding");
     };
     assert_eq!(second.name, "y");
-    assert_eq!(second.pattern_kind, ForPatternKind::MutPointer);
+    assert_eq!(second.pattern_kind, BindingPatternKind::MutPointer);
 }
 
 #[test]
@@ -274,11 +274,14 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     } else {
         0
     };
-    switch nested {
-        ?5! => 5,
-        ?err! => err,
-        ?!ok => ok,
-        null => a + b,
+    if let ?5! = nested {
+        5
+    } else ?err! {
+        err
+    } else ?!ok {
+        ok
+    } else null {
+        a + b
     }
 }
 "#,
@@ -323,11 +326,11 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     ));
     assert!(if_pattern.else_branch.is_some());
 
-    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
-        panic!("expected switch tail");
+    let ExprKind::IfPattern(if_pattern) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected if-pattern tail");
     };
     assert!(matches!(
-        &switch.arms[0].patterns[0].kind,
+        &if_pattern.arms[0].pattern.kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -336,7 +339,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &switch.arms[1].patterns[0].kind,
+        &if_pattern.arms[1].pattern.kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -345,7 +348,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             )
     ));
     assert!(matches!(
-        &switch.arms[2].patterns[0].kind,
+        &if_pattern.arms[2].pattern.kind,
         PatternKind::OptionalSome(inner)
             if matches!(
                 &inner.kind,
@@ -381,29 +384,29 @@ fn main(state: i32) i32 {
     assert_eq!(switch.arms[0].patterns.len(), 2);
     assert!(matches!(
         &switch.arms[0].patterns[0].kind,
-        PatternKind::Expr(_)
+        SwitchPatternKind::Expr(_)
     ));
     assert!(matches!(
         &switch.arms[0].patterns[1].kind,
-        PatternKind::Expr(_)
+        SwitchPatternKind::Expr(_)
     ));
     assert!(matches!(
         &switch.arms[1].patterns[0].kind,
-        PatternKind::Range {
+        SwitchPatternKind::Range {
             inclusive: false,
             ..
         }
     ));
     assert!(matches!(
         &switch.arms[2].patterns[0].kind,
-        PatternKind::Range {
+        SwitchPatternKind::Range {
             inclusive: true,
             ..
         }
     ));
     assert!(matches!(
         &switch.arms[3].patterns[0].kind,
-        PatternKind::Wildcard
+        SwitchPatternKind::Wildcard
     ));
 }
 

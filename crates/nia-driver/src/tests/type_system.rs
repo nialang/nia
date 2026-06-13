@@ -26,9 +26,10 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     fn as_b(self) B!T {
-        switch self {
-            !value => !value,
-            err! => to_b(err)!,
+        if let !value = self {
+            !value
+        } else err! {
+            to_b(err)!
         }
     }
 }
@@ -38,9 +39,10 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    switch fail().as_b() {
-        !value => value,
-        err! => err as i32,
+    if let !value = fail().as_b() {
+        value
+    } else err! {
+        err as i32
     }
 }
 "#,

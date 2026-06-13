@@ -67,9 +67,10 @@ extend PathError {
 
 extend[T] PathError!T {
     pub(package) fn as_fs_error(self) Error!T {
-        switch self {
-            !value => !value,
-            error! => error.as_fs_error()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_fs_error()!
         }
     }
 }

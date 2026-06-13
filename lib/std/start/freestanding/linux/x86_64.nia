@@ -4,9 +4,11 @@ using package::os;
 using package::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
-    switch root::main(init) {
-        !ok => process::ExitCode::Success,
-        error! => error,
+    if let !ok = root::main(init) {
+        _ = ok;
+        process::ExitCode::Success
+    } else error! {
+        error
     }
 }
 

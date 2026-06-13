@@ -83,42 +83,39 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     while parsing_flags and index < template.len() {
         let ch = template[index];
         if index + 1usize < template.len() {
-            switch parse_alignment(template[index + 1usize]) {
-                ?parsed_alignment => {
-                    fill = ch;
-                    alignment = parsed_alignment;
-                    index += 2usize;
-                    continue;
-                },
-                null => {},
+            if let ?parsed_alignment = parse_alignment(template[index + 1usize]) {
+                fill = ch;
+                alignment = parsed_alignment;
+                index += 2usize;
+                continue;
             }
         }
-        switch parse_alignment(ch) {
-            ?parsed_alignment => {
-                alignment = parsed_alignment;
-                index += 1usize;
-            },
-            null => if ch == '0' {
-                fill = '0';
-                alignment = core::FormatAlignment::Right;
-                index += 1usize;
-            } else if ch == '+' and not sign_plus {
-                sign_plus = true;
-                index += 1usize;
-            } else if ch == '#' and not alternate {
-                alternate = true;
-                index += 1usize;
-            } else {
-                parsing_flags = false;
-            },
+        if let ?parsed_alignment = parse_alignment(ch) {
+            alignment = parsed_alignment;
+            index += 1usize;
+        } else null {
+            if ch == '0' {
+                    fill = '0';
+                    alignment = core::FormatAlignment::Right;
+                    index += 1usize;
+                } else if ch == '+' and not sign_plus {
+                    sign_plus = true;
+                    index += 1usize;
+                } else if ch == '#' and not alternate {
+                    alternate = true;
+                    index += 1usize;
+                } else {
+                    parsing_flags = false;
+                }
         }
     }
 
     var width = 0usize;
     while index < template.len() {
-        let digit = switch digit_value(template[index]) {
-            ?digit => digit,
-            null => break,
+        let digit = if let ?digit = digit_value(template[index]) {
+            digit
+        } else null {
+            break;
         };
         width = width * 10usize + digit;
         index += 1usize;
@@ -130,9 +127,10 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         var parsed_precision = 0usize;
         var has_digit = false;
         while index < template.len() {
-            let digit = switch digit_value(template[index]) {
-                ?digit => digit,
-                null => break,
+            let digit = if let ?digit = digit_value(template[index]) {
+                digit
+            } else null {
+                break;
             };
             parsed_precision = parsed_precision * 10usize + digit;
             has_digit = true;
@@ -146,12 +144,9 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
 
     var presentation = core::FormatPresentation::Display;
     if index < template.len() {
-        switch parse_presentation(template[index]) {
-            ?parsed => {
-                presentation = parsed;
-                index += 1usize;
-            },
-            null => {},
+        if let ?parsed = parse_presentation(template[index]) {
+            presentation = parsed;
+            index += 1usize;
         }
     }
 

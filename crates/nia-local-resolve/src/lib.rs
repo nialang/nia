@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use nia_ast::{
     ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern,
-    PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg, TypeKind, TypeRef,
+    PatternKind, Stmt, StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind, TypeArg,
+    TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
@@ -314,7 +315,7 @@ impl<'a> LocalResolver<'a> {
         if let Some(value) = &binding.value {
             self.resolve_expr(value);
         }
-        let node_key = if matches!(binding.pattern_kind, nia_ast::ForPatternKind::Value) {
+        let node_key = if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
             fallback_key
         } else {
             binding.pattern_node_key.clone()
@@ -540,21 +541,26 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Switch(switch) => {
                 self.resolve_expr(&switch.target);
                 for arm in &switch.arms {
-                    self.push_scope();
                     for pattern in &arm.patterns {
-                        self.resolve_pattern(
-                            pattern,
-                            LocalKind::Binding,
-                            "duplicate switch pattern binding",
-                        );
+                        self.resolve_switch_pattern(pattern);
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
                         SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
                         SwitchArmBody::Block(block) => self.resolve_block(block),
                     }
-                    self.pop_scope();
                 }
+            }
+        }
+    }
+
+    fn resolve_switch_pattern(&mut self, pattern: &SwitchPattern) {
+        match &pattern.kind {
+            SwitchPatternKind::Wildcard => {}
+            SwitchPatternKind::Expr(expr) => self.resolve_expr(expr),
+            SwitchPatternKind::Range { start, end, .. } => {
+                self.resolve_expr(start);
+                self.resolve_expr(end);
             }
         }
     }
@@ -906,16 +912,17 @@ fn id(value: i32) i32 {
     }
 
     #[test]
-    fn switch_payload_locals_shadow_external_values_in_field_lhs() {
+    fn if_pattern_payload_locals_shadow_external_values_in_field_lhs() {
         let source = r#"
 struct S {
     start: i32,
 }
 
 fn value(input: ?S) ?i32 {
-    switch input {
-        ?range => ?range.start,
-        null => null,
+    if let ?range = input {
+        ?range.start
+    } else null {
+        null
     }
 }
 "#;
@@ -928,8 +935,9 @@ fn value(input: ?S) ?i32 {
                 && function.name == "value"
                 && let Some(body) = &function.body
                 && let Some(expr) = &body.tail
-                && let ExprKind::Switch(switch) = &expr.kind
-                && let SwitchArmBody::Expr(arm_expr) = &switch.arms[0].body
+                && let ExprKind::IfPattern(if_pattern) = &expr.kind
+                && let Some(arm) = if_pattern.arms.first()
+                && let Some(arm_expr) = arm.body.tail.as_deref()
                 && let ExprKind::OptionalSome { expr: some_expr } = &arm_expr.kind
                 && let ExprKind::Field { lhs, .. } = &some_expr.kind
                 && let ExprKind::Ident(name) = &lhs.kind
@@ -950,7 +958,7 @@ fn value(input: ?S) ?i32 {
             .locals
             .iter()
             .find_map(|(id, local)| (local.name == "range").then_some(id))
-            .expect("expected switch payload local");
+            .expect("expected if pattern payload local");
         assert!(
             locals
                 .node_uses

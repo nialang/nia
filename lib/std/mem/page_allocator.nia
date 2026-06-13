@@ -34,14 +34,16 @@ extend PageAllocator : Allocator {
         }
 
         var old_size: usize;
-        switch os::page_aligned_len(block.size()) {
-            !size => old_size = size,
-            err! => return false,
+        if let !size = os::page_aligned_len(block.size()) {
+            old_size = size;
+        } else err! {
+            return false;
         }
         var new_size: usize;
-        switch os::page_aligned_len(new_layout.size()) {
-            !size => new_size = size,
-            err! => return false,
+        if let !size = os::page_aligned_len(new_layout.size()) {
+            new_size = size;
+        } else err! {
+            return false;
         }
         old_size == new_size
     }
@@ -78,9 +80,10 @@ extend os::Error {
 
 extend[T] os::Error!T {
     fn as_page_allocator_error(self) types::Error!T {
-        switch self {
-            !value => !value,
-            error! => error.as_page_allocator_error()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_page_allocator_error()!
         }
     }
 }

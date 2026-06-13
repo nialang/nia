@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody,
+    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
+    SwitchPatternKind,
 };
 use nia_comptime_ir::{
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeExpr, EarlyComptimeExprKind,
@@ -669,11 +670,11 @@ impl Pruner<'_> {
                 switch.target = self.prune_expr(switch.target);
                 for arm in &mut switch.arms {
                     for pattern in &mut arm.patterns {
-                        *pattern = self.prune_pattern(std::mem::replace(
+                        *pattern = self.prune_switch_pattern(std::mem::replace(
                             pattern,
-                            Pattern {
+                            SwitchPattern {
                                 span: arm.span,
-                                kind: PatternKind::Wildcard,
+                                kind: SwitchPatternKind::Wildcard,
                             },
                         ));
                     }
@@ -715,6 +716,27 @@ impl Pruner<'_> {
                 span,
                 node_key,
                 kind: other,
+            },
+        }
+    }
+
+    fn prune_switch_pattern(&mut self, pattern: SwitchPattern) -> SwitchPattern {
+        SwitchPattern {
+            span: pattern.span,
+            kind: match pattern.kind {
+                SwitchPatternKind::Wildcard => SwitchPatternKind::Wildcard,
+                SwitchPatternKind::Expr(expr) => {
+                    SwitchPatternKind::Expr(Box::new(self.prune_expr(*expr)))
+                }
+                SwitchPatternKind::Range {
+                    start,
+                    end,
+                    inclusive,
+                } => SwitchPatternKind::Range {
+                    start: Box::new(self.prune_expr(*start)),
+                    end: Box::new(self.prune_expr(*end)),
+                    inclusive,
+                },
             },
         }
     }

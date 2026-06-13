@@ -1256,7 +1256,7 @@ fn collect_typed_expr_refs(expr: &TypedExpr, refs: &mut TypedBodyRefs) {
             collect_typed_expr_refs(&switch.target, refs);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
-                    collect_typed_pattern_refs(pattern, refs);
+                    collect_typed_switch_pattern_refs(pattern, refs);
                 }
                 match &arm.body {
                     TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(expr, refs),
@@ -1356,9 +1356,23 @@ fn collect_typed_pattern_refs(pattern: &TypedPattern, refs: &mut TypedBodyRefs) 
         }
         TypedPatternKind::Wildcard
         | TypedPatternKind::Bind { .. }
-        | TypedPatternKind::OptionalNull
-        | TypedPatternKind::CheckedInt { .. }
-        | TypedPatternKind::CheckedIntRange { .. } => {}
+        | TypedPatternKind::OptionalNull => {}
+    }
+}
+
+fn collect_typed_switch_pattern_refs(
+    pattern: &nia_body_ir::TypedSwitchPattern,
+    refs: &mut TypedBodyRefs,
+) {
+    match &pattern.kind {
+        nia_body_ir::TypedSwitchPatternKind::Expr(expr) => collect_typed_expr_refs(expr, refs),
+        nia_body_ir::TypedSwitchPatternKind::Range { start, end, .. } => {
+            collect_typed_expr_refs(start, refs);
+            collect_typed_expr_refs(end, refs);
+        }
+        nia_body_ir::TypedSwitchPatternKind::Wildcard
+        | nia_body_ir::TypedSwitchPatternKind::CheckedInt { .. }
+        | nia_body_ir::TypedSwitchPatternKind::CheckedIntRange { .. } => {}
     }
 }
 

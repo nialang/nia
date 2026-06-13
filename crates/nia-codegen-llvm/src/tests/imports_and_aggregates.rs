@@ -25,9 +25,10 @@ fn add_two(flag: bool) errors::Error!i32 {
 }
 
 fn main() i32 {
-    switch add_two(true) {
-        !value => value,
-        error! => error as i32,
+    if let !value = add_two(true) {
+        value
+    } else error! {
+        error as i32
     }
 }
 "#,

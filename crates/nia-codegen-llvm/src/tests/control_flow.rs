@@ -190,9 +190,10 @@ fn main() i32 {
     var iter = Counter { current: 1, end: 4 };
     var sum = 0;
     for result in iter {
-        let value = switch result {
-            !item => item,
-            error! => return 100,
+        let value = if let !item = result {
+            item
+        } else error! {
+            return 100;
         };
         sum += value;
     }
@@ -394,39 +395,45 @@ fn main() i32 {
 
     var optional_iter = iter::OptionalIter { index: 0 };
     for item in optional_iter {
-        switch item {
-            ?value => total += value.value,
-            null => total += 100,
+        if let ?value = item {
+            total += value.value;
+        } else null {
+            total += 100;
         }
     }
 
     var error_iter = iter::ErrorIter { index: 0 };
     for item in error_iter {
-        switch item {
-            !value => total += value.value,
-            error! => total += 1000,
+        if let !value = item {
+            total += value.value;
+        } else error! {
+            total += 1000;
         }
     }
 
     var optional_error_iter = iter::OptionalErrorIter { index: 0 };
     for item in optional_error_iter {
-        switch item {
-            ?result => switch result {
-                !value => total += value.value,
-                error! => total += 1000,
-            },
-            null => total += 100,
+        if let ?result = item {
+            if let !value = result {
+                total += value.value;
+            } else error! {
+                total += 1000;
+            }
+        } else null {
+            total += 100;
         }
     }
 
     var error_optional_iter = iter::ErrorOptionalIter { index: 0 };
     for item in error_optional_iter {
-        switch item {
-            !maybe => switch maybe {
-                ?value => total += value.value,
-                null => total += 100,
-            },
-            error! => total += 1000,
+        if let !maybe = item {
+            if let ?value = maybe {
+                total += value.value;
+            } else null {
+                total += 100;
+            }
+        } else error! {
+            total += 1000;
         }
     }
 

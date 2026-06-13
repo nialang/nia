@@ -6,12 +6,14 @@ pub fn print(template: &[char], args: &[&fmt::Format]) void {
     var buffer: [512]u8 = [_]u8[0; 512];
     var stderr = io::FileWriter::stderr(&mut runtime_io, &mut buffer);
 
-    switch stderr.print(template, args) {
-        !ok => _ = ok,
-        error! => @trap(),
+    if let !ok = stderr.print(template, args) {
+        _ = ok;
+    } else error! {
+        @trap();
     }
-    switch stderr.flush() {
-        !ok => _ = ok,
-        error! => @trap(),
+    if let !ok = stderr.flush() {
+        _ = ok;
+    } else error! {
+        @trap();
     }
 }

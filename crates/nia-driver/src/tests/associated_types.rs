@@ -116,9 +116,10 @@ where R: Reader
 fn main() i32 {
     var source: Source = {};
     var limit: Limit[Source] = { reader: &source };
-    switch limit.read() {
-        !n => n as i32,
-        error! => 1,
+    if let !n = limit.read() {
+        n as i32
+    } else error! {
+        1
     }
 }
 "#,
@@ -775,9 +776,10 @@ extend Device : Reader {
 
 fn main() i32 {
     var device: Device = {};
-    switch device.read() {
-        !value => value,
-        error! => 0,
+    if let !value = device.read() {
+        value
+    } else error! {
+        0
     }
 }
 "#,

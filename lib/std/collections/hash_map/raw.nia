@@ -111,9 +111,10 @@ pub fn ctrl_allocation_len(capacity: usize) mem::Error!usize {
     if capacity == 0usize {
         return !0usize;
     }
-    switch capacity.checked_add(group_width - 1usize) {
-        ?value => !value,
-        null => mem::Error::OutOfMemory!,
+    if let ?value = capacity.checked_add(group_width - 1usize) {
+        !value
+    } else null {
+        mem::Error::OutOfMemory!
     }
 }
 
@@ -157,13 +158,15 @@ pub fn capacity_to_buckets(capacity: usize) mem::Error!usize {
         return !16usize;
     }
 
-    let multiplied = switch capacity.checked_mul(8usize) {
-        ?value => value,
-        null => return mem::Error::OutOfMemory!,
+    let multiplied = if let ?value = capacity.checked_mul(8usize) {
+        value
+    } else null {
+        return mem::Error::OutOfMemory!;
     };
-    let biased = switch multiplied.checked_add(6usize) {
-        ?value => value,
-        null => return mem::Error::OutOfMemory!,
+    let biased = if let ?value = multiplied.checked_add(6usize) {
+        value
+    } else null {
+        return mem::Error::OutOfMemory!;
     };
     let adjusted = biased / 7usize;
     next_power_of_two(adjusted)
@@ -180,9 +183,10 @@ pub fn max_usize(left: usize, right: usize) usize {
 pub fn next_power_of_two(value: usize) mem::Error!usize {
     var n = 1usize;
     while n < value {
-        n = switch n.checked_mul(2usize) {
-            ?next => next,
-            null => return mem::Error::OutOfMemory!,
+        n = if let ?next = n.checked_mul(2usize) {
+            next
+        } else null {
+            return mem::Error::OutOfMemory!;
         };
     }
     !n

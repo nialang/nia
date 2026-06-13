@@ -578,20 +578,22 @@ fn nested_optional_of_error() ??(Error!i32) {}
 }
 
 #[test]
-fn parses_optional_and_error_union_switch_patterns() {
+fn parses_optional_and_error_union_if_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn optional(value: ?i32) i32 {
-    switch value {
-        ?x => x,
-        null => 0,
+    if let ?x = value {
+        x
+    } else null {
+        0
     }
 }
 
 fn error_union(value: i32!i32) i32 {
-    switch value {
-        !x => x,
-        e! => e,
+    if let !x = value {
+        x
+    } else e! {
+        e
     }
 }
 "#,
@@ -604,19 +606,16 @@ fn error_union(value: i32!i32) i32 {
     let Some(tail) = &body.tail else {
         panic!("expected tail");
     };
-    let ExprKind::Switch(switch) = &tail.kind else {
-        panic!("expected switch");
+    let ExprKind::IfPattern(if_pattern) = &tail.kind else {
+        panic!("expected if pattern");
     };
     assert!(matches!(
-        switch.arms[0].patterns.as_slice(),
-        [pattern] if matches!(
-            &pattern.kind,
-            PatternKind::OptionalSome(inner)
-                if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "x")
-        )
+        &if_pattern.arms[0].pattern.kind,
+        PatternKind::OptionalSome(inner)
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "x")
     ));
     assert!(matches!(
-        switch.arms[1].patterns.as_slice(),
-        [pattern] if matches!(&pattern.kind, PatternKind::OptionalNull)
+        &if_pattern.arms[1].pattern.kind,
+        PatternKind::OptionalNull
     ));
 }
