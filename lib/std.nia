@@ -22,4 +22,5 @@ pub module unicode;
 
 pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap};
+pub using cstr::CStr;
 pub using range::{from, inclusive, range};
