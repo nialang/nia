@@ -655,6 +655,14 @@ fn collect_used_modules(
 ) -> (Vec<String>, Vec<UsedModulePath>) {
     let mut packages = Vec::new();
     let mut paths = Vec::new();
+    let local_module_names = item_tree
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
@@ -663,6 +671,7 @@ fn collect_used_modules(
             &using.host,
             &using.selector,
             module_map,
+            &local_module_names,
             &mut packages,
             &mut paths,
         );
@@ -670,6 +679,7 @@ fn collect_used_modules(
     let module = item_tree.to_module();
     let mut collector = QualifiedPathModuleCollector {
         module_map,
+        local_module_names: &local_module_names,
         packages: &mut packages,
         paths: &mut paths,
     };
@@ -683,6 +693,7 @@ fn collect_used_modules(
 
 struct QualifiedPathModuleCollector<'a> {
     module_map: &'a ModuleMap,
+    local_module_names: &'a [String],
     packages: &'a mut Vec<String>,
     paths: &'a mut Vec<UsedModulePath>,
 }
@@ -693,6 +704,7 @@ impl QualifiedPathModuleCollector<'_> {
             &using.host,
             &using.selector,
             self.module_map,
+            self.local_module_names,
             self.packages,
             self.paths,
         );
@@ -712,7 +724,7 @@ impl QualifiedPathModuleCollector<'_> {
         if first == nia_imports::ROOT_MODULE_MAP_NAME {
             return;
         }
-        if self.module_map.get(first).is_some() {
+        if !self.local_module_names.contains(first) && self.module_map.get(first).is_some() {
             self.packages.push(first.clone());
             self.paths.push(UsedModulePath::Package {
                 package: first.clone(),
@@ -776,14 +788,16 @@ fn collect_using_modules(
     host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
     module_map: &ModuleMap,
+    local_module_names: &[String],
     packages: &mut Vec<String>,
     paths: &mut Vec<UsedModulePath>,
 ) {
     if host.is_empty() {
-        collect_root_group_modules(selector, module_map, packages, paths);
+        collect_root_group_modules(selector, module_map, local_module_names, packages, paths);
         return;
     }
-    let Some(root) = UsedModuleRoot::from_host(host, module_map, packages) else {
+    let Some(root) = UsedModuleRoot::from_host(host, module_map, local_module_names, packages)
+    else {
         return;
     };
     collect_selector_modules(root, selector, paths);
@@ -792,6 +806,7 @@ fn collect_using_modules(
 fn collect_root_group_modules(
     selector: &UsingSelector,
     module_map: &ModuleMap,
+    local_module_names: &[String],
     packages: &mut Vec<String>,
     paths: &mut Vec<UsedModulePath>,
 ) {
@@ -803,6 +818,7 @@ fn collect_root_group_modules(
             UsingGroupItem::Name(name) => {
                 if name.name != nia_imports::ROOT_MODULE_MAP_NAME
                     && name.name != nia_imports::PACKAGE_MODULE_MAP_NAME
+                    && !local_module_names.contains(&name.name)
                     && module_map.get(&name.name).is_some()
                 {
                     packages.push(name.name.clone());
@@ -814,7 +830,14 @@ fn collect_root_group_modules(
                 }
             }
             UsingGroupItem::Nested { host, selector } => {
-                collect_using_modules(host, selector, module_map, packages, paths);
+                collect_using_modules(
+                    host,
+                    selector,
+                    module_map,
+                    local_module_names,
+                    packages,
+                    paths,
+                );
             }
         }
     }
@@ -894,6 +917,7 @@ impl UsedModuleRoot {
     fn from_host(
         host: &[nia_ast::UsingHostSegment],
         module_map: &ModuleMap,
+        local_module_names: &[String],
         packages: &mut Vec<String>,
     ) -> Option<Self> {
         let first = host.first()?;
@@ -903,6 +927,11 @@ impl UsedModuleRoot {
         if first.name == nia_imports::PACKAGE_MODULE_MAP_NAME {
             return Some(Self::PackageRelative {
                 base: host_segments(&host[1..]),
+            });
+        }
+        if local_module_names.contains(&first.name) {
+            return Some(Self::Local {
+                base: host_segments(host),
             });
         }
         if module_map.get(&first.name).is_some() {
@@ -1314,6 +1343,33 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         assert!(program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/cstr.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
+    }
+
+    #[test]
+    fn query_loader_keeps_local_modules_from_activating_same_named_package() {
+        let root = temp_dir("query_loader_keeps_local_modules_from_activating_same_named_package");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+module std;
+
+fn main(value: std::fmt::Value) void {
+    _ = value;
+}
+"#,
+        );
+        write(&root.join("std.nia"), "pub module fmt;");
+        fs::create_dir_all(root.join("std")).expect("create std dir");
+        write(&root.join("std/fmt.nia"), "pub struct Value {}");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(!program.graph.package_facade_active("std"));
+        assert!(program.graph.package_root("std").is_none());
+        assert_eq!(program.modules.len(), 3);
+        assert_module_not_loaded(&program, "lib/std/fmt.nia");
     }
 
     #[test]
