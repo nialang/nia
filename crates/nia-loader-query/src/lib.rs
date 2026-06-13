@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{UsingGroupItem, UsingSelector};
+use nia_ast::{
+    Expr, ExprKind, Stmt, StmtKind, TypeKind, TypeRef, UsingGroupItem, UsingItem, UsingSelector,
+};
+use nia_ast_walk::{Visitor, walk_expr, walk_module, walk_stmt, walk_type};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -11,7 +14,7 @@ use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::{TargetConfig, prune_module_for_target};
-use std::{collections::HashSet, path::Path};
+use std::path::Path;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(root_path, ModuleMap::default())
@@ -156,7 +159,6 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let mut graph = ModuleGraph::new(db.context().root_path.clone());
         inject_entry_runtime(db, &mut graph);
-        let mut active_package_facades = HashSet::new();
         let mut index = 0;
         while index < graph.modules().count() {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -175,11 +177,8 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             {
                 graph.push_diagnostic(node.path.clone(), diagnostic);
             }
-            if should_process_used_module_paths(&node, &active_package_facades) {
+            if should_process_used_module_paths(&graph, &node) {
                 for path in declarations.used_module_paths {
-                    if let Some(package) = path.activates_package_facade() {
-                        active_package_facades.insert(package.to_string());
-                    }
                     if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, &path) {
                         graph.push_diagnostic(node.path.clone(), diagnostic);
                     }
@@ -202,13 +201,10 @@ fn should_eager_add_declarations(node: &ModuleNode) -> bool {
                 .is_some_and(|segment| segment == "start"))
 }
 
-fn should_process_used_module_paths(
-    node: &ModuleNode,
-    active_package_facades: &HashSet<String>,
-) -> bool {
+fn should_process_used_module_paths(graph: &ModuleGraph, node: &ModuleNode) -> bool {
     node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
         || !node.module_path.is_package_root()
-        || active_package_facades.contains(nia_imports::STD_MODULE_MAP_NAME)
+        || graph.package_facade_active(nia_imports::STD_MODULE_MAP_NAME)
 }
 
 fn add_used_module_path(
@@ -220,11 +216,63 @@ fn add_used_module_path(
     let Some(start) = used_path_start(graph, current_module, path) else {
         return Ok(());
     };
+    if let Some(package) = path.activates_package_facade() {
+        activate_package_facade(db, graph, package)?;
+    }
+    if let UsedModulePath::Package {
+        package,
+        segments,
+        include_declared_children,
+        ..
+    } = path
+        && let Some((first, rest)) = segments.split_first()
+    {
+        let Some(first_module) = add_declared_module_child_if_present(db, graph, start, first)?
+        else {
+            activate_package_facade(db, graph, package)?;
+            return Ok(());
+        };
+        let Some(module_id) = add_declared_module_path(db, graph, first_module, rest)? else {
+            return Ok(());
+        };
+        if *include_declared_children {
+            add_declared_module_children(db, graph, module_id)?;
+        }
+        return Ok(());
+    }
     let Some(module_id) = add_declared_module_path(db, graph, start, path.segments())? else {
         return Ok(());
     };
     if path.include_declared_children() {
         add_declared_module_children(db, graph, module_id)?;
+    }
+    Ok(())
+}
+
+fn activate_package_facade(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    package: &str,
+) -> Result<(), Diagnostic> {
+    if graph.package_facade_active(package) {
+        return Ok(());
+    }
+    let Some(root) = graph.mark_package_facade_active(package) else {
+        return Ok(());
+    };
+    let Some(node) = graph.get(root).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.query(module_declarations_query(db, node.path));
+    for package in declarations.package_roots {
+        if graph.package_root(&package).is_none()
+            && let Some(path) = db.context().module_map.get(&package)
+        {
+            graph.intern_package_root(&package, path.clone());
+        }
+    }
+    for path in declarations.used_module_paths {
+        add_used_module_path(db, graph, root, &path)?;
     }
     Ok(())
 }
@@ -619,11 +667,109 @@ fn collect_used_modules(
             &mut paths,
         );
     }
+    let module = item_tree.to_module();
+    let mut collector = QualifiedPathModuleCollector {
+        module_map,
+        packages: &mut packages,
+        paths: &mut paths,
+    };
+    walk_module(&mut collector, &module);
     packages.sort();
     packages.dedup();
     paths.sort();
     paths.dedup();
     (packages, paths)
+}
+
+struct QualifiedPathModuleCollector<'a> {
+    module_map: &'a ModuleMap,
+    packages: &'a mut Vec<String>,
+    paths: &'a mut Vec<UsedModulePath>,
+}
+
+impl QualifiedPathModuleCollector<'_> {
+    fn collect_using(&mut self, using: &UsingItem) {
+        collect_using_modules(
+            &using.host,
+            &using.selector,
+            self.module_map,
+            self.packages,
+            self.paths,
+        );
+    }
+
+    fn collect_path_segments(&mut self, segments: Vec<String>) {
+        let Some((first, rest)) = segments.split_first() else {
+            return;
+        };
+        if first == nia_imports::PACKAGE_MODULE_MAP_NAME {
+            self.paths.push(UsedModulePath::PackageRelative {
+                segments: rest.to_vec(),
+                include_declared_children: false,
+            });
+            return;
+        }
+        if first == nia_imports::ROOT_MODULE_MAP_NAME {
+            return;
+        }
+        if self.module_map.get(first).is_some() {
+            self.packages.push(first.clone());
+            self.paths.push(UsedModulePath::Package {
+                package: first.clone(),
+                segments: rest.to_vec(),
+                include_declared_children: false,
+            });
+        }
+    }
+}
+
+impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if let StmtKind::Using(using) = &stmt.kind {
+            self.collect_using(using);
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if let Some(segments) = expr_qualified_segments(expr) {
+            self.collect_path_segments(segments);
+        }
+        walk_expr(self, expr);
+    }
+
+    fn visit_type(&mut self, ty: &'ast TypeRef) {
+        if let TypeKind::Path { segments } = &ty.kind {
+            self.collect_path_segments(
+                segments
+                    .iter()
+                    .map(|segment| segment.name.clone())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        walk_type(self, ty);
+    }
+}
+
+fn expr_qualified_segments(expr: &Expr) -> Option<Vec<String>> {
+    fn collect(expr: &Expr, segments: &mut Vec<String>) -> Option<()> {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                segments.push(name.clone());
+                Some(())
+            }
+            ExprKind::Qualified { lhs, name } => {
+                collect(lhs, segments)?;
+                segments.push(name.clone());
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
+    let mut segments = Vec::new();
+    collect(expr, &mut segments)?;
+    Some(segments)
 }
 
 fn collect_using_modules(
@@ -1131,11 +1277,43 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         );
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(!program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/process.nia");
         assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
         assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
         assert_module_not_loaded(&program, "lib/std/collections/array_list/list.nia");
         assert_module_not_loaded(&program, "lib/std/debug.nia");
+    }
+
+    #[test]
+    fn query_loader_activates_std_facade_for_root_reexport_import() {
+        let root = temp_dir("query_loader_activates_std_facade_for_root_reexport_import");
+        let main_path = root.join("main.nia");
+        write(&main_path, "using std::CStr; fn main() void {}");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(program.graph.package_facade_active("std"));
+        assert_module_loaded(&program, "lib/std/cstr.nia");
+        assert_module_not_loaded(&program, "lib/std/process.nia");
+    }
+
+    #[test]
+    fn query_loader_activates_std_facade_for_qualified_root_reexport() {
+        let root = temp_dir("query_loader_activates_std_facade_for_qualified_root_reexport");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"fn main() void { _ = std::CStr::from_ptr(c"nia"); }"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(program.graph.package_facade_active("std"));
+        assert_module_loaded(&program, "lib/std/cstr.nia");
+        assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
     #[test]

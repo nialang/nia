@@ -94,6 +94,7 @@ pub struct ModuleGraph {
     by_path: HashMap<String, ModuleId>,
     by_module_path: HashMap<ModulePath, ModuleId>,
     package_roots: HashMap<String, ModuleId>,
+    active_package_facades: HashMap<String, ModuleId>,
     diagnostics: Vec<(SourcePath, Diagnostic)>,
 }
 
@@ -120,6 +121,7 @@ impl ModuleGraph {
             by_path,
             by_module_path,
             package_roots,
+            active_package_facades: HashMap::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -142,6 +144,18 @@ impl ModuleGraph {
 
     pub fn package_root(&self, package: &str) -> Option<ModuleId> {
         self.package_roots.get(package).copied()
+    }
+
+    pub fn mark_package_facade_active(&mut self, package: &str) -> Option<ModuleId> {
+        let module_id = self.package_root(package)?;
+        self.active_package_facades
+            .entry(package.to_string())
+            .or_insert(module_id);
+        Some(module_id)
+    }
+
+    pub fn package_facade_active(&self, package: &str) -> bool {
+        self.active_package_facades.contains_key(package)
     }
 
     pub fn current_package_root(&self, module_id: ModuleId) -> Option<ModuleId> {

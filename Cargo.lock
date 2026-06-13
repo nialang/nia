@@ -485,6 +485,7 @@ name = "nia-loader-query"
 version = "0.4.0"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-imports",

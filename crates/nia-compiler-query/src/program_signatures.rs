@@ -2077,6 +2077,7 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
             .map(|entry| entry.target_module),
     );
     queue.extend(public_inherent_extension_providers_for_using_scope(context));
+    queue.extend(public_inherent_extension_providers_for_active_package_facades(context));
 
     while let Some(visible) = queue.pop_front() {
         if visible == context.module_id || !seen.insert(visible) {
@@ -2105,6 +2106,53 @@ struct VisibilityClosureContext<'a> {
     program_signatures: ProgramSignatureMaps<'a>,
     extensions: &'a ExtensionMethods,
     associated_values: &'a ExtensionAssociatedValues,
+}
+
+fn public_inherent_extension_providers_for_active_package_facades(
+    context: &VisibilityClosureContext<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    let mut providers = Vec::new();
+    for module in context.graph.modules() {
+        if !module.module_path.is_package_root()
+            || !context
+                .graph
+                .package_facade_active(&module.module_path.package)
+        {
+            continue;
+        }
+        let Some(surface) = context.public_surfaces.get(module.id) else {
+            continue;
+        };
+        for type_def_id in surface.types.values().filter_map(|item| {
+            nominal_def_id_for_public_type(
+                GlobalDefId {
+                    module_id: item.target_module,
+                    def_id: item.target_def_id,
+                },
+                context.defs_by_module,
+                context.normalizations,
+                context.program_signatures,
+            )
+        }) {
+            providers.extend(public_inherent_method_providers_for_nominal(
+                context.module_id,
+                context.graph,
+                type_def_id,
+                context.normalizations,
+                context.extensions,
+            ));
+            providers.extend(public_associated_value_providers_for_nominal(
+                context.module_id,
+                context.graph,
+                type_def_id,
+                context.normalizations,
+                context.associated_values,
+            ));
+        }
+    }
+    providers.sort();
+    providers.dedup();
+    providers
 }
 
 fn public_inherent_extension_providers_for_using_scope(
