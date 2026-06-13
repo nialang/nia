@@ -39,7 +39,8 @@ use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     ComptimeIfSelection, FunctionReference, FunctionSemanticFacts, GenericInstantiation,
-    ResolvedCall, SemanticFacts, SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast,
+    ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
+    TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -811,10 +812,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn qualified_value(&self, expr: &Expr) -> Option<GlobalDefId> {
-        self.values
+        let global_id = self
+            .values
             .node_qualified_values
             .get(&expr.node_key)
-            .copied()
+            .copied()?;
+        match self.semantic_uses.node_value_use(&expr.node_key) {
+            Some(SemanticValueUse::Global(value_use)) if value_use == global_id => Some(global_id),
+            _ => None,
+        }
     }
 
     fn variant_enum(&self, expr: &Expr) -> Option<GlobalDefId> {

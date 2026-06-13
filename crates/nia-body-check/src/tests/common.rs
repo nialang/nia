@@ -17,6 +17,17 @@ pub(super) use nia_type_resolve::resolve_module_types;
 pub(super) use std::collections::HashMap;
 
 pub(super) fn pipeline(source: &str) -> BodyCheck {
+    pipeline_with_values(source, |_, _, _| {})
+}
+
+pub(super) fn pipeline_with_values(
+    source: &str,
+    adjust_values: impl FnOnce(
+        &nia_ast::Module,
+        &nia_defs::DefCollection,
+        &mut nia_value_resolve::ValueResolution,
+    ),
+) -> BodyCheck {
     let (module, parse_errors) = parse_module(source);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
@@ -29,7 +40,8 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
     );
     let lowered = lower_module_types(&module, &type_resolved);
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-    let values = nia_value_resolve::resolve_module_values(&module, &defs);
+    let mut values = nia_value_resolve::resolve_module_values(&module, &defs);
+    adjust_values(&module, &defs, &mut values);
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);

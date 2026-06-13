@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
+use nia_ast::{ExprKind, ItemKind, SwitchArmBody};
+use nia_body_ir::{TypedExprKind, TypedSwitchArmBody};
+use nia_ids::GlobalDefId;
+use nia_node_id::NodeKey;
+use nia_span::Span;
 
 #[test]
 fn checks_enum_variants_and_switch_exhaustiveness() {
@@ -69,6 +74,106 @@ fn bad(c: Color) i32 {
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("unknown enum variant"))
     );
+}
+
+#[test]
+fn switch_payload_field_lhs_shadows_imported_value_fact() {
+    let source = r#"
+struct S {
+    start: i32,
+}
+
+fn imported_range() i32 {
+    0
+}
+
+fn value(input: ?S) ?i32 {
+    switch input {
+        ?range => ?range.start,
+        null => null,
+    }
+}
+"#;
+    let field_span = {
+        let start = source.find("?range.start").expect("range field use") + 1;
+        Span::new(start, start + "range.start".len())
+    };
+    let checked = pipeline_with_values(source, |module, defs, values| {
+        let imported_range = module
+            .items
+            .iter()
+            .find_map(|item| match &item.kind {
+                ItemKind::Function(function) if function.name == "imported_range" => {
+                    defs.def_nodes.get(&function.node_key)
+                }
+                _ => None,
+            })
+            .expect("imported_range def");
+        values.node_qualified_values.insert(
+            switch_payload_field_lhs_key(module),
+            GlobalDefId {
+                module_id: ModuleId(0),
+                def_id: imported_range,
+            },
+        );
+    });
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        switch_payload_field_lhs_is_local(&checked.ir, field_span),
+        "{:#?}",
+        checked.ir.function_bodies
+    );
+}
+
+fn switch_payload_field_lhs_key(module: &nia_ast::Module) -> NodeKey {
+    module
+        .items
+        .iter()
+        .find_map(|item| match &item.kind {
+            ItemKind::Function(function) if function.name == "value" => {
+                let body = function.body.as_ref()?;
+                let tail = body.tail.as_ref()?;
+                let ExprKind::Switch(switch) = &tail.kind else {
+                    return None;
+                };
+                let SwitchArmBody::Expr(expr) = &switch.arms.first()?.body else {
+                    return None;
+                };
+                let ExprKind::OptionalSome { expr } = &expr.kind else {
+                    return None;
+                };
+                let ExprKind::Field { lhs, .. } = &expr.kind else {
+                    return None;
+                };
+                Some(lhs.node_key.clone())
+            }
+            _ => None,
+        })
+        .expect("switch payload field lhs")
+}
+
+fn switch_payload_field_lhs_is_local(ir: &nia_body_ir::BodyIr, field_span: Span) -> bool {
+    ir.function_bodies.values().any(|body| {
+        let Some(tail) = &body.tail else {
+            return false;
+        };
+        let TypedExprKind::Switch(switch) = &tail.kind else {
+            return false;
+        };
+        switch.arms.iter().any(|arm| {
+            let TypedSwitchArmBody::Expr(expr) = &arm.body else {
+                return false;
+            };
+            let TypedExprKind::OptionalSome { expr } = &expr.kind else {
+                return false;
+            };
+            let TypedExprKind::Field { lhs, .. } = &expr.kind else {
+                return false;
+            };
+            expr.span == field_span && matches!(lhs.kind, TypedExprKind::Local(_))
+        })
+    })
 }
 
 #[test]
