@@ -110,53 +110,57 @@ pub struct TypedSwitch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSwitchArm {
-    pub patterns: Vec<TypedSwitchPattern>,
+    pub patterns: Vec<TypedPattern>,
     pub body: TypedSwitchArmBody,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypedSwitchPattern {
-    Default,
-    OptionalSome {
+pub struct TypedIfPattern {
+    pub target: TypedExpr,
+    pub bool_ty: InternedTyId,
+    pub arms: Vec<TypedIfPatternArm>,
+    pub else_branch: Option<Box<TypedExpr>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedIfPatternArm {
+    pub pattern: TypedPattern,
+    pub body: TypedBody,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedPattern {
+    pub ty: InternedTyId,
+    pub span: Span,
+    pub kind: TypedPatternKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedPatternKind {
+    Wildcard,
+    Bind {
         local_id: LocalId,
         name: String,
-        ty: InternedTyId,
-        span: Span,
     },
-    OptionalNull {
-        span: Span,
-    },
-    ErrorOk {
-        local_id: LocalId,
-        name: String,
-        ty: InternedTyId,
-        span: Span,
-    },
-    ErrorErr {
-        local_id: LocalId,
-        name: String,
-        ty: InternedTyId,
-        span: Span,
-    },
+    OptionalSome(Box<TypedPattern>),
+    OptionalNull,
+    ErrorOk(Box<TypedPattern>),
+    ErrorErr(Box<TypedPattern>),
     Expr(TypedExpr),
     CheckedInt {
         value: i128,
-        ty: InternedTyId,
-        span: Span,
     },
     Range {
         start: Box<TypedExpr>,
         end: Box<TypedExpr>,
         inclusive: bool,
-        span: Span,
     },
     CheckedIntRange {
         start: i128,
         end: i128,
         inclusive: bool,
-        ty: InternedTyId,
-        span: Span,
     },
 }
 
@@ -302,6 +306,7 @@ pub enum TypedExprKind {
         then_branch: TypedBody,
         else_branch: Option<Box<TypedExpr>>,
     },
+    IfPattern(Box<TypedIfPattern>),
     Switch(Box<TypedSwitch>),
 }
 

@@ -261,6 +261,7 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
+            ExprKind::IfPattern(if_pattern) => self.check_if_pattern_expr(if_pattern, expected),
             ExprKind::ComptimeIf(comptime_if) => {
                 self.check_comptime_if_expr(expr, comptime_if, expected)
             }
@@ -748,7 +749,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn expect_expr_or_block_tail_type(
+    pub(crate) fn expect_expr_or_block_tail_type(
         &mut self,
         expr: &Expr,
         expected: InternedTyId,

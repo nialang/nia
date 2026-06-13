@@ -10,9 +10,9 @@ use nia_comptime_ir::{
     ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
     ResolvedComptimeExprKind, ResolvedComptimeFieldInit, ResolvedComptimeFunction,
     ResolvedComptimeLocalInitializer, ResolvedComptimeModule, ResolvedComptimeParam,
-    ResolvedComptimeStmtKind, ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody,
-    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPattern,
-    ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
+    ResolvedComptimePattern, ResolvedComptimePatternKind, ResolvedComptimeStmtKind,
+    ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
+    ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -105,15 +105,18 @@ impl ComptimeValueType {
     }
 }
 
-fn resolved_switch_pattern_local_id(pattern: &ResolvedComptimeSwitchPattern) -> Option<LocalId> {
+fn resolved_pattern_local_id(pattern: &ResolvedComptimePattern) -> Option<LocalId> {
     match pattern.kind() {
-        ResolvedComptimeSwitchPatternKind::OptionalSome { local_id, .. }
-        | ResolvedComptimeSwitchPatternKind::ErrorOk { local_id, .. }
-        | ResolvedComptimeSwitchPatternKind::ErrorErr { local_id, .. } => Some(*local_id),
-        ResolvedComptimeSwitchPatternKind::Default
-        | ResolvedComptimeSwitchPatternKind::OptionalNull { .. }
-        | ResolvedComptimeSwitchPatternKind::Expr(_)
-        | ResolvedComptimeSwitchPatternKind::Range { .. } => None,
+        ResolvedComptimePatternKind::Bind { local_id, .. } => Some(*local_id),
+        ResolvedComptimePatternKind::OptionalSome { pattern, .. }
+        | ResolvedComptimePatternKind::ErrorOk { pattern, .. }
+        | ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
+            resolved_pattern_local_id(pattern)
+        }
+        ResolvedComptimePatternKind::Wildcard { .. }
+        | ResolvedComptimePatternKind::OptionalNull { .. }
+        | ResolvedComptimePatternKind::Expr(_)
+        | ResolvedComptimePatternKind::Range { .. } => None,
     }
 }
 
@@ -653,6 +656,16 @@ impl ComptimeModuleLowerer<'_> {
                     self.collect_expr_locals(else_branch, out);
                 }
             }
+            nia_ast::ExprKind::IfPattern(if_pattern) => {
+                self.collect_expr_locals(&if_pattern.target, out);
+                for arm in &if_pattern.arms {
+                    self.collect_pattern_locals(&arm.pattern, out);
+                    self.collect_block_locals(&arm.body, out);
+                }
+                if let Some(else_branch) = if_pattern.else_branch.as_deref() {
+                    self.collect_expr_locals(else_branch, out);
+                }
+            }
             nia_ast::ExprKind::ComptimeIf(comptime_if) => {
                 self.collect_expr_locals(&comptime_if.cond, out);
                 self.collect_block_locals(&comptime_if.then_branch, out);
@@ -664,7 +677,7 @@ impl ComptimeModuleLowerer<'_> {
                 self.collect_expr_locals(&switch.target, out);
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        self.collect_switch_pattern_locals(pattern, out);
+                        self.collect_pattern_locals(pattern, out);
                     }
                     match &arm.body {
                         nia_ast::SwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, out),
@@ -701,25 +714,22 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn collect_switch_pattern_locals(
-        &self,
-        pattern: &nia_ast::SwitchPattern,
-        out: &mut HashSet<LocalId>,
-    ) {
-        match pattern {
-            nia_ast::SwitchPattern::OptionalSome { node_key, .. }
-            | nia_ast::SwitchPattern::ErrorOk { node_key, .. }
-            | nia_ast::SwitchPattern::ErrorErr { node_key, .. } => {
+    fn collect_pattern_locals(&self, pattern: &nia_ast::Pattern, out: &mut HashSet<LocalId>) {
+        match &pattern.kind {
+            nia_ast::PatternKind::Bind { node_key, .. } => {
                 if let Some(local_id) = self.input.semantic_uses.node_local_def(node_key) {
                     out.insert(local_id);
                 }
             }
-            nia_ast::SwitchPattern::Expr(expr) => self.collect_expr_locals(expr, out),
-            nia_ast::SwitchPattern::Range { start, end, .. } => {
+            nia_ast::PatternKind::OptionalSome(pattern)
+            | nia_ast::PatternKind::ErrorOk(pattern)
+            | nia_ast::PatternKind::ErrorErr(pattern) => self.collect_pattern_locals(pattern, out),
+            nia_ast::PatternKind::Expr(expr) => self.collect_expr_locals(expr, out),
+            nia_ast::PatternKind::Range { start, end, .. } => {
                 self.collect_expr_locals(start, out);
                 self.collect_expr_locals(end, out);
             }
-            nia_ast::SwitchPattern::Default | nia_ast::SwitchPattern::OptionalNull { .. } => {}
+            nia_ast::PatternKind::Wildcard | nia_ast::PatternKind::OptionalNull => {}
         }
     }
 
@@ -1646,7 +1656,7 @@ impl Analyzer<'_> {
                     })
                 }),
             ResolvedComptimeExprKind::Switch(switch) => {
-                if let Some(ty) = self.find_resolved_switch_pattern_local_type(switch, local_id) {
+                if let Some(ty) = self.find_resolved_pattern_local_type(switch, local_id) {
                     return Some(ty);
                 }
                 switch
@@ -2468,7 +2478,7 @@ impl Analyzer<'_> {
         }
     }
 
-    fn find_resolved_switch_pattern_local_type(
+    fn find_resolved_pattern_local_type(
         &mut self,
         switch: &ResolvedComptimeSwitch,
         local_id: LocalId,
@@ -2476,38 +2486,43 @@ impl Analyzer<'_> {
         let target_ty = self.resolved_comptime_arg_runtime_type(switch.target(), None)?;
         for arm in switch.arms() {
             for pattern in arm.patterns() {
-                if resolved_switch_pattern_local_id(pattern) == Some(local_id) {
-                    return self.resolved_switch_pattern_binding_type(pattern, target_ty);
+                if resolved_pattern_local_id(pattern) == Some(local_id) {
+                    return self.resolved_pattern_binding_type(pattern, target_ty);
                 }
             }
         }
         None
     }
 
-    fn resolved_switch_pattern_binding_type(
+    fn resolved_pattern_binding_type(
         &self,
-        pattern: &ResolvedComptimeSwitchPattern,
+        pattern: &ResolvedComptimePattern,
         target_ty: InternedTyId,
     ) -> Option<InternedTyId> {
         match pattern.kind() {
-            ResolvedComptimeSwitchPatternKind::OptionalSome { .. } => {
-                match self.ty_kind(target_ty)? {
-                    TyKind::Optional { elem } => Some(elem),
-                    _ => None,
-                }
+            ResolvedComptimePatternKind::Bind { .. } => Some(target_ty),
+            ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
+                let TyKind::Optional { elem } = self.ty_kind(target_ty)? else {
+                    return None;
+                };
+                self.resolved_pattern_binding_type(pattern, elem)
             }
-            ResolvedComptimeSwitchPatternKind::ErrorOk { .. } => match self.ty_kind(target_ty)? {
-                TyKind::ErrorUnion { value, .. } => Some(value),
-                _ => None,
-            },
-            ResolvedComptimeSwitchPatternKind::ErrorErr { .. } => match self.ty_kind(target_ty)? {
-                TyKind::ErrorUnion { error, .. } => Some(error),
-                _ => None,
-            },
-            ResolvedComptimeSwitchPatternKind::Default
-            | ResolvedComptimeSwitchPatternKind::OptionalNull { .. }
-            | ResolvedComptimeSwitchPatternKind::Expr(_)
-            | ResolvedComptimeSwitchPatternKind::Range { .. } => None,
+            ResolvedComptimePatternKind::ErrorOk { pattern, .. } => {
+                let TyKind::ErrorUnion { value, .. } = self.ty_kind(target_ty)? else {
+                    return None;
+                };
+                self.resolved_pattern_binding_type(pattern, value)
+            }
+            ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
+                let TyKind::ErrorUnion { error, .. } = self.ty_kind(target_ty)? else {
+                    return None;
+                };
+                self.resolved_pattern_binding_type(pattern, error)
+            }
+            ResolvedComptimePatternKind::Wildcard { .. }
+            | ResolvedComptimePatternKind::OptionalNull { .. }
+            | ResolvedComptimePatternKind::Expr(_)
+            | ResolvedComptimePatternKind::Range { .. } => None,
         }
     }
 
@@ -3204,13 +3219,13 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
         let target_ty = target_ty?;
-        self.check_resolved_comptime_switch_patterns(arm.patterns(), target_ty)?;
+        self.check_resolved_comptime_patterns(arm.patterns(), target_ty)?;
         if !self.resolved_comptime_switch_arm_binds_pattern_locals(arm) {
             return self.resolved_comptime_switch_arm_body_type(arm.body(), expected);
         }
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_typed_resolved_comptime_switch_patterns(arm.patterns(), target_ty)?;
+            self.bind_typed_resolved_comptime_patterns(arm.patterns(), target_ty)?;
             self.resolved_comptime_switch_arm_body_type(arm.body(), expected)
         })();
         self.pop_typed_comptime_scope();
@@ -3221,25 +3236,21 @@ impl Analyzer<'_> {
         &self,
         arm: &nia_comptime_ir::ResolvedComptimeSwitchArm,
     ) -> bool {
-        arm.patterns().iter().any(|pattern| {
-            matches!(
-                pattern.kind(),
-                ResolvedComptimeSwitchPatternKind::OptionalSome { .. }
-                    | ResolvedComptimeSwitchPatternKind::ErrorOk { .. }
-                    | ResolvedComptimeSwitchPatternKind::ErrorErr { .. }
-            )
-        })
+        arm.patterns()
+            .iter()
+            .any(|pattern| resolved_pattern_local_id(pattern).is_some())
     }
 
-    fn check_resolved_comptime_switch_patterns(
+    fn check_resolved_comptime_patterns(
         &mut self,
-        patterns: &[ResolvedComptimeSwitchPattern],
+        patterns: &[ResolvedComptimePattern],
         target_ty: InternedTyId,
     ) -> Option<()> {
         for pattern in patterns {
             match pattern.kind() {
-                ResolvedComptimeSwitchPatternKind::Default => {}
-                ResolvedComptimeSwitchPatternKind::Expr(expr) => {
+                ResolvedComptimePatternKind::Wildcard { .. }
+                | ResolvedComptimePatternKind::Bind { .. } => {}
+                ResolvedComptimePatternKind::Expr(expr) => {
                     let target_ty = ComptimeValueType::Runtime(target_ty);
                     let pattern_ty = self
                         .resolved_comptime_expr_type(expr, Some(target_ty.runtime()?))
@@ -3250,7 +3261,7 @@ impl Analyzer<'_> {
                         return None;
                     }
                 }
-                ResolvedComptimeSwitchPatternKind::Range { start, end, .. } => {
+                ResolvedComptimePatternKind::Range { start, end, .. } => {
                     if !self.is_integer_runtime_type(target_ty) {
                         return None;
                     }
@@ -3261,54 +3272,76 @@ impl Analyzer<'_> {
                         return None;
                     }
                 }
-                ResolvedComptimeSwitchPatternKind::OptionalSome { .. }
-                | ResolvedComptimeSwitchPatternKind::OptionalNull { .. } => {
+                ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
+                    let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    self.check_resolved_comptime_patterns(std::slice::from_ref(pattern), elem)?;
+                }
+                ResolvedComptimePatternKind::OptionalNull { .. } => {
                     if !matches!(self.ty_kind(target_ty), Some(TyKind::Optional { .. })) {
                         return None;
                     }
                 }
-                ResolvedComptimeSwitchPatternKind::ErrorOk { .. }
-                | ResolvedComptimeSwitchPatternKind::ErrorErr { .. } => {
-                    if !matches!(self.ty_kind(target_ty), Some(TyKind::ErrorUnion { .. })) {
+                ResolvedComptimePatternKind::ErrorOk { pattern, .. } => {
+                    let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
                         return None;
-                    }
+                    };
+                    self.check_resolved_comptime_patterns(std::slice::from_ref(pattern), value)?;
+                }
+                ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
+                    let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    self.check_resolved_comptime_patterns(std::slice::from_ref(pattern), error)?;
                 }
             }
         }
         Some(())
     }
 
-    fn bind_typed_resolved_comptime_switch_patterns(
+    fn bind_typed_resolved_comptime_patterns(
         &mut self,
-        patterns: &[ResolvedComptimeSwitchPattern],
+        patterns: &[ResolvedComptimePattern],
         target_ty: InternedTyId,
     ) -> Option<()> {
         for pattern in patterns {
-            let (local_id, ty) = match pattern.kind() {
-                ResolvedComptimeSwitchPatternKind::OptionalSome { local_id, .. } => {
-                    let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (*local_id, elem)
-                }
-                ResolvedComptimeSwitchPatternKind::ErrorOk { local_id, .. } => {
-                    let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (*local_id, value)
-                }
-                ResolvedComptimeSwitchPatternKind::ErrorErr { local_id, .. } => {
-                    let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (*local_id, error)
-                }
-                ResolvedComptimeSwitchPatternKind::Default
-                | ResolvedComptimeSwitchPatternKind::OptionalNull { .. }
-                | ResolvedComptimeSwitchPatternKind::Expr(_)
-                | ResolvedComptimeSwitchPatternKind::Range { .. } => continue,
-            };
-            self.bind_comptime_local_type(local_id, ComptimeValueType::Runtime(ty));
+            self.bind_typed_resolved_comptime_pattern(pattern, target_ty)?;
+        }
+        Some(())
+    }
+
+    fn bind_typed_resolved_comptime_pattern(
+        &mut self,
+        pattern: &ResolvedComptimePattern,
+        target_ty: InternedTyId,
+    ) -> Option<()> {
+        match pattern.kind() {
+            ResolvedComptimePatternKind::Bind { local_id, .. } => {
+                self.bind_comptime_local_type(*local_id, ComptimeValueType::Runtime(target_ty));
+            }
+            ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
+                let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
+                    return None;
+                };
+                self.bind_typed_resolved_comptime_pattern(pattern, elem)?;
+            }
+            ResolvedComptimePatternKind::ErrorOk { pattern, .. } => {
+                let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
+                    return None;
+                };
+                self.bind_typed_resolved_comptime_pattern(pattern, value)?;
+            }
+            ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
+                let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
+                    return None;
+                };
+                self.bind_typed_resolved_comptime_pattern(pattern, error)?;
+            }
+            ResolvedComptimePatternKind::Wildcard { .. }
+            | ResolvedComptimePatternKind::OptionalNull { .. }
+            | ResolvedComptimePatternKind::Expr(_)
+            | ResolvedComptimePatternKind::Range { .. } => {}
         }
         Some(())
     }

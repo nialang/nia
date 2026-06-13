@@ -394,7 +394,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("switch range pattern is empty")),
+            .any(|diagnostic| diagnostic.summary.contains("switch pattern range is empty")),
         "{:?}",
         checked.diagnostics
     );
@@ -402,7 +402,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("integer switch target")),
+            .any(|diagnostic| diagnostic.summary.contains("integer target")),
         "{:?}",
         checked.diagnostics
     );
@@ -463,30 +463,111 @@ fn main() i32 {
 
     assert!(
         patterns.iter().any(|pattern| matches!(
-            pattern,
-            nia_body_ir::TypedSwitchPattern::CheckedInt { value: 1, .. }
+            &pattern.kind,
+            nia_body_ir::TypedPatternKind::CheckedInt { value: 1 }
         )),
         "{patterns:?}"
     );
     assert!(
         patterns.iter().any(|pattern| matches!(
-            pattern,
-            nia_body_ir::TypedSwitchPattern::CheckedIntRange {
+            &pattern.kind,
+            nia_body_ir::TypedPatternKind::CheckedIntRange {
                 start: 2,
                 end: 5,
                 inclusive: false,
-                ..
             }
         )),
         "{patterns:?}"
     );
     assert!(
         !patterns.iter().any(|pattern| matches!(
-            pattern,
-            nia_body_ir::TypedSwitchPattern::Expr(_)
-                | nia_body_ir::TypedSwitchPattern::Range { .. }
+            &pattern.kind,
+            nia_body_ir::TypedPatternKind::Expr(_) | nia_body_ir::TypedPatternKind::Range { .. }
         )),
         "{patterns:?}"
+    );
+}
+
+#[test]
+fn checks_recursive_optional_error_union_patterns_and_if_patterns() {
+    let checked = pipeline(
+        r#"
+fn unwrap_result(result: i32!i32) i32 {
+    if let !value = result {
+        value
+    } else err! {
+        err
+    }
+}
+
+fn unwrap_nested(value: ?(i32!i32)) i32 {
+    switch value {
+        ?!ok => ok,
+        ?err! => err,
+        null => 0,
+    }
+}
+
+fn match_error_literal(value: ?(i32!i32)) i32 {
+    switch value {
+        ?5! => 5,
+        ?!ok => ok,
+        null => 0,
+        _ => 9,
+    }
+}
+
+fn bind_plain(value: i32) i32 {
+    if var current = value {
+        current += 1;
+        current
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_if_pattern_let_and_var_binding_mutability() {
+    let checked = pipeline(
+        r#"
+fn mutable(value: ?i32) i32 {
+    if var ?current = value {
+        current += 1;
+        current
+    } else null {
+        0
+    }
+}
+
+fn immutable(value: ?i32) i32 {
+    if let ?current = value {
+        current += 1;
+        current
+    } else null {
+        0
+    }
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("local is let")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("local is let"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
     );
 }
 

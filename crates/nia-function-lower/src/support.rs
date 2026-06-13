@@ -8,7 +8,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
 }
 
-pub(super) struct SwitchPatternConditionContext<'a> {
+pub(super) struct PatternConditionContext<'a> {
     pub(super) scope: FunctionScopeId,
     pub(super) current: &'a mut FunctionBlockId,
     pub(super) ops: &'a mut Vec<FunctionOp>,
@@ -23,7 +23,7 @@ pub(super) struct SwitchValueArmContext<'a> {
     pub(super) result_local: LocalId,
     pub(super) merge_target: FunctionBlockId,
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
-    pub(super) patterns: &'a [TypedSwitchPattern],
+    pub(super) patterns: &'a [TypedPattern],
     pub(super) target: &'a FunctionExpr,
 }
 
@@ -33,7 +33,7 @@ pub(super) struct SwitchStmtArmContext<'a> {
     pub(super) entry: FunctionBlockId,
     pub(super) merge_target: FunctionBlockId,
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
-    pub(super) patterns: &'a [TypedSwitchPattern],
+    pub(super) patterns: &'a [TypedPattern],
     pub(super) target: &'a FunctionExpr,
 }
 
@@ -218,70 +218,61 @@ impl FunctionLowerer {
         id
     }
 
-    pub(super) fn switch_has_range_patterns(&self, switch: &TypedSwitch) -> bool {
+    pub(super) fn switch_requires_pattern_chain(&self, switch: &TypedSwitch) -> bool {
         switch.arms.iter().any(|arm| {
             arm.patterns.iter().any(|pattern| {
                 !matches!(
-                    pattern,
-                    TypedSwitchPattern::Expr(_)
-                        | TypedSwitchPattern::CheckedInt { .. }
-                        | TypedSwitchPattern::Default
+                    &pattern.kind,
+                    TypedPatternKind::Expr(_)
+                        | TypedPatternKind::CheckedInt { .. }
+                        | TypedPatternKind::Wildcard
                 )
             })
         })
     }
 
-    pub(super) fn switch_pattern_binding(
-        &self,
-        pattern: &TypedSwitchPattern,
-    ) -> Option<(LocalId, InternedTyId, Span)> {
-        match pattern {
-            TypedSwitchPattern::OptionalSome {
-                local_id, ty, span, ..
-            }
-            | TypedSwitchPattern::ErrorOk {
-                local_id, ty, span, ..
-            }
-            | TypedSwitchPattern::ErrorErr {
-                local_id, ty, span, ..
-            } => Some((*local_id, *ty, *span)),
-            _ => None,
-        }
-    }
-
-    pub(super) fn switch_pattern_condition(
+    pub(super) fn pattern_condition(
         &mut self,
         target: &FunctionExpr,
-        pattern: &TypedSwitchPattern,
-        context: &mut SwitchPatternConditionContext<'_>,
+        pattern: &TypedPattern,
+        context: &mut PatternConditionContext<'_>,
     ) -> Option<FunctionExpr> {
-        match pattern {
-            TypedSwitchPattern::Default => None,
-            TypedSwitchPattern::OptionalSome { span, .. } => Some(self.tagged_union_tag_condition(
+        match &pattern.kind {
+            TypedPatternKind::Wildcard | TypedPatternKind::Bind { .. } => None,
+            TypedPatternKind::OptionalSome(inner) => {
+                let tag = self.tagged_union_tag_condition(
+                    target,
+                    pattern.span,
+                    context.bool_ty,
+                    FunctionOptionalTag::Some.discriminant(),
+                );
+                self.pattern_payload_condition(target, inner, tag, context)
+            }
+            TypedPatternKind::OptionalNull => Some(self.tagged_union_tag_condition(
                 target,
-                *span,
-                context.bool_ty,
-                FunctionOptionalTag::Some.discriminant(),
-            )),
-            TypedSwitchPattern::OptionalNull { span } => Some(self.tagged_union_tag_condition(
-                target,
-                *span,
+                pattern.span,
                 context.bool_ty,
                 FunctionOptionalTag::Null.discriminant(),
             )),
-            TypedSwitchPattern::ErrorOk { span, .. } => Some(self.tagged_union_tag_condition(
-                target,
-                *span,
-                context.bool_ty,
-                FunctionErrorUnionTag::Ok.discriminant(),
-            )),
-            TypedSwitchPattern::ErrorErr { span, .. } => Some(self.tagged_union_tag_condition(
-                target,
-                *span,
-                context.bool_ty,
-                FunctionErrorUnionTag::Err.discriminant(),
-            )),
-            TypedSwitchPattern::Expr(pattern) => {
+            TypedPatternKind::ErrorOk(inner) => {
+                let tag = self.tagged_union_tag_condition(
+                    target,
+                    pattern.span,
+                    context.bool_ty,
+                    FunctionErrorUnionTag::Ok.discriminant(),
+                );
+                self.pattern_payload_condition(target, inner, tag, context)
+            }
+            TypedPatternKind::ErrorErr(inner) => {
+                let tag = self.tagged_union_tag_condition(
+                    target,
+                    pattern.span,
+                    context.bool_ty,
+                    FunctionErrorUnionTag::Err.discriminant(),
+                );
+                self.pattern_payload_condition(target, inner, tag, context)
+            }
+            TypedPatternKind::Expr(pattern) => {
                 let pattern = self.lower_value_expr(
                     pattern,
                     context.scope,
@@ -291,15 +282,14 @@ impl FunctionLowerer {
                 );
                 Some(self.switch_eq_condition(target, pattern, context.bool_ty))
             }
-            TypedSwitchPattern::CheckedInt { value, ty, span } => {
-                let pattern = self.checked_int_pattern_expr(*value, *ty, *span);
+            TypedPatternKind::CheckedInt { value } => {
+                let pattern = self.checked_int_pattern_expr(*value, pattern.ty, pattern.span);
                 Some(self.switch_eq_condition(target, pattern, context.bool_ty))
             }
-            TypedSwitchPattern::Range {
+            TypedPatternKind::Range {
                 start,
                 end,
                 inclusive,
-                span,
             } => {
                 let start = self.lower_value_expr(
                     start,
@@ -320,28 +310,49 @@ impl FunctionLowerer {
                     start,
                     end,
                     *inclusive,
-                    *span,
+                    pattern.span,
                     context.bool_ty,
                 ))
             }
-            TypedSwitchPattern::CheckedIntRange {
+            TypedPatternKind::CheckedIntRange {
                 start,
                 end,
                 inclusive,
-                ty,
-                span,
             } => {
-                let start = self.checked_int_pattern_expr(*start, *ty, *span);
-                let end = self.checked_int_pattern_expr(*end, *ty, *span);
+                let start = self.checked_int_pattern_expr(*start, pattern.ty, pattern.span);
+                let end = self.checked_int_pattern_expr(*end, pattern.ty, pattern.span);
                 Some(self.switch_range_condition(
                     target,
                     start,
                     end,
                     *inclusive,
-                    *span,
+                    pattern.span,
                     context.bool_ty,
                 ))
             }
+        }
+    }
+
+    fn pattern_payload_condition(
+        &mut self,
+        target: &FunctionExpr,
+        inner: &TypedPattern,
+        tag: FunctionExpr,
+        context: &mut PatternConditionContext<'_>,
+    ) -> Option<FunctionExpr> {
+        let payload = self.tagged_union_payload_expr(target, inner.ty, inner.span);
+        if let Some(payload_condition) = self.pattern_condition(&payload, inner, context) {
+            Some(FunctionExpr {
+                span: inner.span,
+                ty: context.bool_ty,
+                kind: FunctionExprKind::Binary {
+                    lhs: Box::new(tag),
+                    op: BinaryOp::And,
+                    rhs: Box::new(payload_condition),
+                },
+            })
+        } else {
+            Some(tag)
         }
     }
 
@@ -417,27 +428,58 @@ impl FunctionLowerer {
         }
     }
 
-    pub(super) fn lower_switch_pattern_bindings(
+    pub(super) fn lower_pattern_bindings(
         &self,
-        patterns: &[TypedSwitchPattern],
+        patterns: &[TypedPattern],
         target: &FunctionExpr,
         ops: &mut Vec<FunctionOp>,
     ) {
         for pattern in patterns {
-            let Some((local_id, ty, span)) = self.switch_pattern_binding(pattern) else {
-                continue;
-            };
-            ops.push(FunctionOp::StoreLocal {
-                local_id,
-                value: FunctionExpr {
-                    span,
-                    ty,
-                    kind: FunctionExprKind::TaggedUnionPayload {
-                        expr: Box::new(target.clone()),
-                    },
-                },
-                span,
-            });
+            self.lower_pattern_binding(pattern, target, ops);
+        }
+    }
+
+    pub(super) fn lower_pattern_binding(
+        &self,
+        pattern: &TypedPattern,
+        target: &FunctionExpr,
+        ops: &mut Vec<FunctionOp>,
+    ) {
+        match &pattern.kind {
+            TypedPatternKind::Bind { local_id, .. } => {
+                ops.push(FunctionOp::StoreLocal {
+                    local_id: *local_id,
+                    value: target.clone(),
+                    span: pattern.span,
+                });
+            }
+            TypedPatternKind::OptionalSome(inner)
+            | TypedPatternKind::ErrorOk(inner)
+            | TypedPatternKind::ErrorErr(inner) => {
+                let payload = self.tagged_union_payload_expr(target, inner.ty, inner.span);
+                self.lower_pattern_binding(inner, &payload, ops);
+            }
+            TypedPatternKind::Wildcard
+            | TypedPatternKind::OptionalNull
+            | TypedPatternKind::Expr(_)
+            | TypedPatternKind::CheckedInt { .. }
+            | TypedPatternKind::Range { .. }
+            | TypedPatternKind::CheckedIntRange { .. } => {}
+        }
+    }
+
+    pub(super) fn tagged_union_payload_expr(
+        &self,
+        target: &FunctionExpr,
+        ty: InternedTyId,
+        span: Span,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::TaggedUnionPayload {
+                expr: Box::new(target.clone()),
+            },
         }
     }
 
@@ -527,6 +569,14 @@ impl FunctionLowerer {
             } => {
                 self.collect_body_locals(then_branch, locals);
                 if let Some(else_branch) = else_branch {
+                    self.collect_expr_locals(else_branch, locals);
+                }
+            }
+            TypedExprKind::IfPattern(if_pattern) => {
+                for arm in &if_pattern.arms {
+                    self.collect_body_locals(&arm.body, locals);
+                }
+                if let Some(else_branch) = &if_pattern.else_branch {
                     self.collect_expr_locals(else_branch, locals);
                 }
             }
@@ -733,20 +783,7 @@ impl FunctionLowerer {
                     visit_expr(&switch.target, max_id);
                     for arm in &switch.arms {
                         for pattern in &arm.patterns {
-                            match pattern {
-                                TypedSwitchPattern::Default => {}
-                                TypedSwitchPattern::OptionalSome { .. }
-                                | TypedSwitchPattern::OptionalNull { .. }
-                                | TypedSwitchPattern::ErrorOk { .. }
-                                | TypedSwitchPattern::ErrorErr { .. }
-                                | TypedSwitchPattern::CheckedInt { .. }
-                                | TypedSwitchPattern::CheckedIntRange { .. } => {}
-                                TypedSwitchPattern::Expr(pattern) => visit_expr(pattern, max_id),
-                                TypedSwitchPattern::Range { start, end, .. } => {
-                                    visit_expr(start, max_id);
-                                    visit_expr(end, max_id);
-                                }
-                            }
+                            visit_pattern(pattern, max_id);
                         }
                         match &arm.body {
                             TypedSwitchArmBody::Expr(expr) => visit_expr(expr, max_id),
@@ -781,6 +818,16 @@ impl FunctionLowerer {
                             },
                             TypedSwitchArmBody::Block(body) => visit_body(body, max_id),
                         }
+                    }
+                }
+                TypedExprKind::IfPattern(if_pattern) => {
+                    visit_expr(&if_pattern.target, max_id);
+                    for arm in &if_pattern.arms {
+                        visit_pattern(&arm.pattern, max_id);
+                        visit_body(&arm.body, max_id);
+                    }
+                    if let Some(else_branch) = &if_pattern.else_branch {
+                        visit_expr(else_branch, max_id);
                     }
                 }
                 TypedExprKind::InlineAsm(asm) => {
@@ -834,6 +881,24 @@ impl FunctionLowerer {
                 | TypedExprKind::EnumVariant(_)
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::Trap => {}
+            }
+        }
+
+        pub(super) fn visit_pattern(pattern: &TypedPattern, max_id: &mut u32) {
+            match &pattern.kind {
+                TypedPatternKind::OptionalSome(pattern)
+                | TypedPatternKind::ErrorOk(pattern)
+                | TypedPatternKind::ErrorErr(pattern) => visit_pattern(pattern, max_id),
+                TypedPatternKind::Expr(pattern) => visit_expr(pattern, max_id),
+                TypedPatternKind::Range { start, end, .. } => {
+                    visit_expr(start, max_id);
+                    visit_expr(end, max_id);
+                }
+                TypedPatternKind::Wildcard
+                | TypedPatternKind::Bind { .. }
+                | TypedPatternKind::OptionalNull
+                | TypedPatternKind::CheckedInt { .. }
+                | TypedPatternKind::CheckedIntRange { .. } => {}
             }
         }
 

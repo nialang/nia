@@ -240,6 +240,9 @@ impl Parser {
     fn parse_postfix_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         let mut expr = self.parse_primary_until(stops)?;
         loop {
+            if stops.iter().any(|kind| self.at(kind.clone())) {
+                break;
+            }
             if expr_can_terminate_statement_without_semicolon(&expr)
                 && self.has_line_break_between(expr.span.end, self.peek().span.start)
             {
@@ -629,6 +632,9 @@ impl Parser {
 
     fn parse_if_expr(&mut self) -> Option<Expr> {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
+        if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
+            return self.parse_if_pattern_expr(start);
+        }
         let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
         let then_branch = self.parse_block()?;
         let else_branch = if self.eat(TokenKind::Else).is_some() {
@@ -651,6 +657,56 @@ impl Parser {
                 then_branch,
                 else_branch,
             },
+        ))
+    }
+
+    fn parse_if_pattern_expr(&mut self, start: usize) -> Option<Expr> {
+        let binding_mode = if self.eat(TokenKind::Let).is_some() {
+            PatternBindingMode::Let
+        } else {
+            self.expect(TokenKind::Var, "expected `let` or `var` after `if`")?;
+            PatternBindingMode::Var
+        };
+        let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::Eq])?;
+        self.expect(TokenKind::Eq, "expected `=` after if pattern")?;
+        let target = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
+        let body = self.parse_block()?;
+        let mut arms = vec![IfPatternArm {
+            span: Span::new(pattern.span.start, body.span.end),
+            pattern,
+            body,
+        }];
+        let mut else_branch = None;
+        while self.eat(TokenKind::Else).is_some() {
+            if self.at(TokenKind::If) {
+                else_branch = Some(Box::new(self.parse_if_expr()?));
+                break;
+            }
+            if self.at(TokenKind::LBrace) {
+                let block = self.parse_block()?;
+                else_branch = Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))));
+                break;
+            }
+            let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::LBrace])?;
+            let body = self.parse_block()?;
+            arms.push(IfPatternArm {
+                span: Span::new(pattern.span.start, body.span.end),
+                pattern,
+                body,
+            });
+        }
+        let end = else_branch.as_ref().map_or_else(
+            || arms.last().map_or(target.span.end, |arm| arm.body.span.end),
+            |expr| expr.span.end,
+        );
+        Some(self.make_expr(
+            Span::new(start, end),
+            ExprKind::IfPattern(Box::new(IfPatternExpr {
+                binding_mode,
+                target,
+                arms,
+                else_branch,
+            })),
         ))
     }
 
@@ -916,6 +972,6 @@ impl Parser {
 pub(super) fn expr_can_terminate_statement_without_semicolon(expr: &Expr) -> bool {
     matches!(
         expr.kind,
-        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Switch(_)
+        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::IfPattern(_) | ExprKind::Switch(_)
     )
 }

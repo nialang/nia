@@ -2,15 +2,16 @@
 use crate::BodyChecker;
 use nia_ast::{
     ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, SliceRange, Stmt,
-    StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
+    StmtKind, SwitchArmBody, UnaryOp,
 };
 use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp,
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedFieldInit, TypedForBinding, TypedForIn, TypedLocal,
-    TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace,
-    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
-    TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    TypedExpr, TypedExprKind, TypedFieldInit, TypedForBinding, TypedForIn, TypedIfPattern,
+    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -232,80 +233,7 @@ impl<'a> BodyChecker<'a> {
                     patterns: arm
                         .patterns
                         .iter()
-                        .map(|pattern| match pattern {
-                            SwitchPattern::Default => TypedSwitchPattern::Default,
-                            SwitchPattern::OptionalSome {
-                                name,
-                                span,
-                                node_key,
-                            } => {
-                                let local_id = self
-                                    .local_def(node_key)
-                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
-                                TypedSwitchPattern::OptionalSome {
-                                    local_id,
-                                    name: name.clone(),
-                                    ty: self
-                                        .local_types
-                                        .get(&local_id)
-                                        .copied()
-                                        .unwrap_or_else(|| self.error()),
-                                    span: *span,
-                                }
-                            }
-                            SwitchPattern::OptionalNull { span } => {
-                                TypedSwitchPattern::OptionalNull { span: *span }
-                            }
-                            SwitchPattern::ErrorOk {
-                                name,
-                                span,
-                                node_key,
-                            } => {
-                                let local_id = self
-                                    .local_def(node_key)
-                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
-                                TypedSwitchPattern::ErrorOk {
-                                    local_id,
-                                    name: name.clone(),
-                                    ty: self
-                                        .local_types
-                                        .get(&local_id)
-                                        .copied()
-                                        .unwrap_or_else(|| self.error()),
-                                    span: *span,
-                                }
-                            }
-                            SwitchPattern::ErrorErr {
-                                name,
-                                span,
-                                node_key,
-                            } => {
-                                let local_id = self
-                                    .local_def(node_key)
-                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
-                                TypedSwitchPattern::ErrorErr {
-                                    local_id,
-                                    name: name.clone(),
-                                    ty: self
-                                        .local_types
-                                        .get(&local_id)
-                                        .copied()
-                                        .unwrap_or_else(|| self.error()),
-                                    span: *span,
-                                }
-                            }
-                            SwitchPattern::Expr(expr) => {
-                                self.lower_switch_expr_pattern(expr, target_ty)
-                            }
-                            SwitchPattern::Range {
-                                start,
-                                end,
-                                inclusive,
-                                span,
-                            } => self.lower_switch_range_pattern(
-                                start, end, *inclusive, *span, target_ty,
-                            ),
-                        })
+                        .map(|pattern| self.lower_pattern(pattern, target_ty))
                         .collect(),
                     body: match &arm.body {
                         SwitchArmBody::Expr(expr) => {
@@ -324,37 +252,79 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_switch_expr_pattern(
+    fn lower_pattern(
+        &mut self,
+        pattern: &nia_ast::Pattern,
+        target_ty: nia_ids::InternedTyId,
+    ) -> TypedPattern {
+        let kind = match &pattern.kind {
+            nia_ast::PatternKind::Wildcard => TypedPatternKind::Wildcard,
+            nia_ast::PatternKind::Bind { name, node_key } => {
+                let local_id = self
+                    .local_def(node_key)
+                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                TypedPatternKind::Bind {
+                    local_id,
+                    name: name.clone(),
+                }
+            }
+            nia_ast::PatternKind::OptionalSome(inner) => {
+                let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::Optional { elem }) => *elem,
+                    _ => self.error(),
+                };
+                TypedPatternKind::OptionalSome(Box::new(self.lower_pattern(inner, elem_ty)))
+            }
+            nia_ast::PatternKind::OptionalNull => TypedPatternKind::OptionalNull,
+            nia_ast::PatternKind::ErrorOk(inner) => {
+                let value_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::ErrorUnion { value, .. }) => *value,
+                    _ => self.error(),
+                };
+                TypedPatternKind::ErrorOk(Box::new(self.lower_pattern(inner, value_ty)))
+            }
+            nia_ast::PatternKind::ErrorErr(inner) => {
+                let error_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::ErrorUnion { error, .. }) => *error,
+                    _ => self.error(),
+                };
+                TypedPatternKind::ErrorErr(Box::new(self.lower_pattern(inner, error_ty)))
+            }
+            nia_ast::PatternKind::Expr(expr) => self.lower_pattern_expr(expr, target_ty),
+            nia_ast::PatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => self.lower_pattern_range(start, end, *inclusive, pattern.span, target_ty),
+        };
+        TypedPattern {
+            ty: target_ty,
+            span: pattern.span,
+            kind,
+        }
+    }
+
+    fn lower_pattern_expr(
         &mut self,
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
-    ) -> TypedSwitchPattern {
-        if self.is_integer(target_ty) || self.is_bool(target_ty) {
-            if let Some(value) = self.node_switch_pattern_values.get(&expr.node_key).copied() {
-                return TypedSwitchPattern::CheckedInt {
-                    value,
-                    ty: target_ty,
-                    span: expr.span,
-                };
-            }
-            self.diagnostics
-                .push(nia_diagnostic::Diagnostic::user_error_at(
-                    "E0301",
-                    expr.span,
-                    "missing checked switch pattern value during body IR lowering",
-                ));
+    ) -> TypedPatternKind {
+        if (self.is_integer(target_ty) || self.is_bool(target_ty))
+            && let Some(value) = self.node_switch_pattern_values.get(&expr.node_key).copied()
+        {
+            return TypedPatternKind::CheckedInt { value };
         }
-        TypedSwitchPattern::Expr(self.lower_expr(expr))
+        TypedPatternKind::Expr(self.lower_expr(expr))
     }
 
-    fn lower_switch_range_pattern(
+    fn lower_pattern_range(
         &mut self,
         start: &Expr,
         end: &Expr,
         inclusive: bool,
-        span: Span,
+        _span: Span,
         target_ty: nia_ids::InternedTyId,
-    ) -> TypedSwitchPattern {
+    ) -> TypedPatternKind {
         if self.is_integer(target_ty) {
             let start_value = self
                 .node_switch_pattern_values
@@ -362,26 +332,17 @@ impl<'a> BodyChecker<'a> {
                 .copied();
             let end_value = self.node_switch_pattern_values.get(&end.node_key).copied();
             if let (Some(start), Some(end)) = (start_value, end_value) {
-                return TypedSwitchPattern::CheckedIntRange {
+                return TypedPatternKind::CheckedIntRange {
                     start,
                     end,
                     inclusive,
-                    ty: target_ty,
-                    span,
                 };
             }
-            self.diagnostics
-                .push(nia_diagnostic::Diagnostic::user_error_at(
-                    "E0301",
-                    span,
-                    "missing checked switch range pattern values during body IR lowering",
-                ));
         }
-        TypedSwitchPattern::Range {
+        TypedPatternKind::Range {
             start: Box::new(self.lower_expr(start)),
             end: Box::new(self.lower_expr(end)),
             inclusive,
-            span,
         }
     }
 
@@ -1003,6 +964,32 @@ impl<'a> BodyChecker<'a> {
                     ))
                 }),
             },
+            ExprKind::IfPattern(if_pattern) => {
+                let target = self.lower_expr(&if_pattern.target);
+                let target_ty = target.ty;
+                TypedExprKind::IfPattern(Box::new(TypedIfPattern {
+                    target,
+                    bool_ty: self.bool(),
+                    arms: if_pattern
+                        .arms
+                        .iter()
+                        .map(|arm| TypedIfPatternArm {
+                            pattern: self.lower_pattern(&arm.pattern, target_ty),
+                            body: self.lower_body_with_expected_tail(
+                                &arm.body,
+                                if self.is_never(ty) { None } else { Some(ty) },
+                            ),
+                            span: arm.span,
+                        })
+                        .collect(),
+                    else_branch: if_pattern.else_branch.as_ref().map(|else_branch| {
+                        Box::new(self.lower_expr_with_ty(
+                            else_branch,
+                            if self.is_never(ty) { None } else { Some(ty) },
+                        ))
+                    }),
+                }))
+            }
             ExprKind::ComptimeIf(comptime_if) => {
                 match self
                     .node_comptime_if_selections

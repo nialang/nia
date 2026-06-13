@@ -609,10 +609,14 @@ fn error_union(value: i32!i32) i32 {
     };
     assert!(matches!(
         switch.arms[0].patterns.as_slice(),
-        [SwitchPattern::OptionalSome { name, .. }] if name == "x"
+        [pattern] if matches!(
+            &pattern.kind,
+            PatternKind::OptionalSome(inner)
+                if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "x")
+        )
     ));
     assert!(matches!(
         switch.arms[1].patterns.as_slice(),
-        [SwitchPattern::OptionalNull { .. }]
+        [pattern] if matches!(&pattern.kind, PatternKind::OptionalNull)
     ));
 }

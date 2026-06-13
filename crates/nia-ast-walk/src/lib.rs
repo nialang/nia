@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, ArrayLen, Block, ComptimeIfItemElse, Expr, ExprKind, FunctionItem, IndexArg,
-    Item, ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind,
+    Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg, TypeKind,
     TypeRef, WhereClause,
 };
 
@@ -389,6 +389,16 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(else_branch);
             }
         }
+        ExprKind::IfPattern(if_pattern) => {
+            visitor.visit_expr(&if_pattern.target);
+            for arm in &if_pattern.arms {
+                visit_pattern(visitor, &arm.pattern);
+                visitor.visit_block(&arm.body);
+            }
+            if let Some(else_branch) = &if_pattern.else_branch {
+                visitor.visit_expr(else_branch);
+            }
+        }
         ExprKind::ComptimeIf(comptime_if) => {
             visitor.visit_expr(&comptime_if.cond);
             visitor.visit_block(&comptime_if.then_branch);
@@ -400,18 +410,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_expr(&switch.target);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
-                    match pattern {
-                        SwitchPattern::Default => {}
-                        SwitchPattern::OptionalSome { .. }
-                        | SwitchPattern::OptionalNull { .. }
-                        | SwitchPattern::ErrorOk { .. }
-                        | SwitchPattern::ErrorErr { .. } => {}
-                        SwitchPattern::Expr(pattern) => visitor.visit_expr(pattern),
-                        SwitchPattern::Range { start, end, .. } => {
-                            visitor.visit_expr(start);
-                            visitor.visit_expr(end);
-                        }
-                    }
+                    visit_pattern(visitor, pattern);
                 }
                 match &arm.body {
                     SwitchArmBody::Expr(expr) => visitor.visit_expr(expr),
@@ -419,6 +418,20 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                     SwitchArmBody::Block(block) => visitor.visit_block(block),
                 }
             }
+        }
+    }
+}
+
+fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'ast Pattern) {
+    match &pattern.kind {
+        PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
+        PatternKind::OptionalSome(pattern)
+        | PatternKind::ErrorOk(pattern)
+        | PatternKind::ErrorErr(pattern) => visit_pattern(visitor, pattern),
+        PatternKind::Expr(pattern) => visitor.visit_expr(pattern),
+        PatternKind::Range { start, end, .. } => {
+            visitor.visit_expr(start);
+            visitor.visit_expr(end);
         }
     }
 }

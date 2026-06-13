@@ -1088,6 +1088,85 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_if_pattern_matches_nested_error_optional_once() {
+    let root = temp_dir("emit_exe_if_pattern_matches_nested_error_optional_once");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+var calls: i32 = 0;
+
+fn next(flag: bool) ?(i32!i32) {
+    calls += 1;
+    if flag {
+        let ok: i32!i32 = !7;
+        ?ok
+    } else {
+        let err: i32!i32 = 5!;
+        ?err
+    }
+}
+
+fn classify(value: ?(i32!i32)) i32 {
+    if let ?!ok = value {
+        ok
+    } else ?err! {
+        err
+    } else null {
+        0
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var total = 0;
+    if let ?!value = next(true) {
+        total = value;
+    } else ?err! {
+        total = err + 10;
+    } else null {
+        total = 20;
+    }
+    if calls != 1 {
+        return (1 as process::ExitCode)!;
+    }
+    if total != 7 {
+        return (2 as process::ExitCode)!;
+    }
+    if classify(next(false)) != 5 {
+        return (3 as process::ExitCode)!;
+    }
+    if calls != 2 {
+        return (4 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_mut_ref_receiver_updates_original_aggregate() {
     let root = temp_dir("emit_exe_mut_ref_receiver_updates_original_aggregate");
     let main = root.join("main.nia");

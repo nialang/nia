@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::support::{LoweringContext, SwitchPatternConditionContext, SwitchValueArmContext};
+use super::support::{LoweringContext, PatternConditionContext, SwitchValueArmContext};
 use super::*;
 
 impl FunctionLowerer {
@@ -33,6 +33,15 @@ impl FunctionLowerer {
                     else_branch.as_deref(),
                     &mut context,
                 );
+            }
+            TypedExprKind::IfPattern(if_pattern) => {
+                let mut context = LoweringContext {
+                    scope,
+                    current,
+                    ops,
+                    blocks,
+                };
+                return self.lower_value_if_pattern_expr(expr, if_pattern, &mut context);
             }
             TypedExprKind::Switch(switch) => {
                 return self.lower_value_switch_expr(expr, switch, scope, current, ops, blocks);
@@ -345,6 +354,9 @@ impl FunctionLowerer {
                 ops,
                 blocks,
             ),
+            TypedExprKind::IfPattern(if_pattern) => {
+                self.lower_if_pattern_expr_stmt(expr.span, if_pattern, scope, current, ops, blocks);
+            }
             TypedExprKind::Switch(switch) => {
                 self.lower_switch_expr_stmt(expr.span, switch, scope, current, ops, blocks);
             }
@@ -588,6 +600,176 @@ impl FunctionLowerer {
         }
     }
 
+    pub(super) fn lower_value_if_pattern_expr(
+        &mut self,
+        expr: &TypedExpr,
+        if_pattern: &TypedIfPattern,
+        context: &mut LoweringContext<'_>,
+    ) -> FunctionExpr {
+        let target_value = self.lower_value_expr(
+            &if_pattern.target,
+            context.scope,
+            context.current,
+            context.ops,
+            context.blocks,
+        );
+        let target_local = self.alloc_temp_local(if_pattern.target.span, if_pattern.target.ty);
+        context.ops.push(FunctionOp::StoreLocal {
+            local_id: target_local,
+            value: target_value,
+            span: if_pattern.target.span,
+        });
+        let target = FunctionExpr {
+            span: if_pattern.target.span,
+            ty: if_pattern.target.ty,
+            kind: FunctionExprKind::Local(target_local),
+        };
+        let result_local = self.alloc_temp_local(expr.span, expr.ty);
+        let merge_target = self.alloc_block();
+        let else_target = if if_pattern.else_branch.is_some() {
+            self.alloc_block()
+        } else {
+            merge_target
+        };
+        let arm_targets = if_pattern
+            .arms
+            .iter()
+            .map(|_| self.alloc_block())
+            .collect::<Vec<_>>();
+        let check_blocks = if_pattern
+            .arms
+            .iter()
+            .map(|_| self.alloc_block())
+            .collect::<Vec<_>>();
+        let first_target = check_blocks.first().copied().unwrap_or(else_target);
+        self.finish_block(
+            context.blocks,
+            *context.current,
+            context.scope,
+            expr.span,
+            std::mem::take(context.ops),
+            FunctionTerminator::Branch {
+                target: first_target,
+                span: expr.span,
+            },
+        );
+
+        for (index, ((arm, arm_target), check_block)) in if_pattern
+            .arms
+            .iter()
+            .zip(arm_targets.iter())
+            .zip(check_blocks.iter())
+            .enumerate()
+        {
+            let mut check_ops = Vec::new();
+            let mut check_current = *check_block;
+            let mut condition_context = PatternConditionContext {
+                scope: context.scope,
+                current: &mut check_current,
+                ops: &mut check_ops,
+                blocks: context.blocks,
+                bool_ty: if_pattern.bool_ty,
+            };
+            let cond = self
+                .pattern_condition(&target, &arm.pattern, &mut condition_context)
+                .unwrap_or(FunctionExpr {
+                    span: arm.pattern.span,
+                    ty: if_pattern.bool_ty,
+                    kind: FunctionExprKind::Bool(true),
+                });
+            let next_target = check_blocks.get(index + 1).copied().unwrap_or(else_target);
+            self.finish_block(
+                context.blocks,
+                check_current,
+                context.scope,
+                arm.pattern.span,
+                check_ops,
+                FunctionTerminator::If {
+                    cond,
+                    then_target: *arm_target,
+                    else_target: next_target,
+                    span: arm.pattern.span,
+                },
+            );
+        }
+
+        for (arm, arm_target) in if_pattern.arms.iter().zip(arm_targets) {
+            let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
+            let mut ops = Vec::new();
+            self.lower_pattern_binding(&arm.pattern, &target, &mut ops);
+            if ops.is_empty() {
+                self.lower_body_into(
+                    &arm.body,
+                    arm_target,
+                    arm_scope,
+                    context.blocks,
+                    Fallthrough::StoreThenBranch {
+                        local_id: result_local,
+                        target: merge_target,
+                    },
+                );
+            } else {
+                let body_entry = self.alloc_block();
+                self.finish_block(
+                    context.blocks,
+                    arm_target,
+                    arm_scope,
+                    arm.span,
+                    ops,
+                    FunctionTerminator::Branch {
+                        target: body_entry,
+                        span: arm.span,
+                    },
+                );
+                self.lower_body_into(
+                    &arm.body,
+                    body_entry,
+                    arm_scope,
+                    context.blocks,
+                    Fallthrough::StoreThenBranch {
+                        local_id: result_local,
+                        target: merge_target,
+                    },
+                );
+            }
+        }
+
+        if let Some(else_branch) = &if_pattern.else_branch {
+            let mut else_current = else_target;
+            let mut else_ops = Vec::new();
+            let value = self.lower_value_expr(
+                else_branch,
+                context.scope,
+                &mut else_current,
+                &mut else_ops,
+                context.blocks,
+            );
+            else_ops.push(FunctionOp::StoreLocal {
+                local_id: result_local,
+                value,
+                span: else_branch.span,
+            });
+            self.finish_block(
+                context.blocks,
+                else_current,
+                context.scope,
+                else_branch.span,
+                else_ops,
+                FunctionTerminator::Branch {
+                    target: merge_target,
+                    span: else_branch.span,
+                },
+            );
+        }
+
+        *context.current = merge_target;
+        FunctionExpr {
+            span: expr.span,
+            ty: expr.ty,
+            kind: FunctionExprKind::Local(result_local),
+        }
+    }
+
     pub(super) fn lower_value_switch_expr(
         &mut self,
         expr: &TypedExpr,
@@ -597,7 +779,7 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionExpr {
-        if self.switch_has_range_patterns(switch) {
+        if self.switch_requires_pattern_chain(switch) {
             let mut context = LoweringContext {
                 scope,
                 current,
@@ -616,24 +798,23 @@ impl FunctionLowerer {
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
-                match pattern {
-                    TypedSwitchPattern::Expr(pattern) => arms.push(FunctionSwitchArm {
+                match &pattern.kind {
+                    TypedPatternKind::Expr(pattern) => arms.push(FunctionSwitchArm {
                         pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
                         target: arm_target,
                     }),
-                    TypedSwitchPattern::CheckedInt { value, ty, span } => {
-                        arms.push(FunctionSwitchArm {
-                            pattern: self.checked_int_pattern_expr(*value, *ty, *span),
-                            target: arm_target,
-                        })
-                    }
-                    TypedSwitchPattern::Default => default = Some(arm_target),
-                    TypedSwitchPattern::OptionalSome { .. }
-                    | TypedSwitchPattern::OptionalNull { .. }
-                    | TypedSwitchPattern::ErrorOk { .. }
-                    | TypedSwitchPattern::ErrorErr { .. }
-                    | TypedSwitchPattern::Range { .. }
-                    | TypedSwitchPattern::CheckedIntRange { .. } => {}
+                    TypedPatternKind::CheckedInt { value } => arms.push(FunctionSwitchArm {
+                        pattern: self.checked_int_pattern_expr(*value, pattern.ty, pattern.span),
+                        target: arm_target,
+                    }),
+                    TypedPatternKind::Wildcard => default = Some(arm_target),
+                    TypedPatternKind::Bind { .. }
+                    | TypedPatternKind::OptionalSome(_)
+                    | TypedPatternKind::OptionalNull
+                    | TypedPatternKind::ErrorOk(_)
+                    | TypedPatternKind::ErrorErr(_)
+                    | TypedPatternKind::Range { .. }
+                    | TypedPatternKind::CheckedIntRange { .. } => {}
                 }
             }
             lowered_arms.push((arm_target, arm));
@@ -709,7 +890,7 @@ impl FunctionLowerer {
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
             for pattern in &arm.patterns {
-                if matches!(pattern, TypedSwitchPattern::Default) {
+                if matches!(&pattern.kind, TypedPatternKind::Wildcard) {
                     default = arm_target;
                 } else {
                     tests.push((pattern, arm_target));
@@ -735,7 +916,7 @@ impl FunctionLowerer {
         {
             let mut check_ops = Vec::new();
             let mut check_current = *check_block;
-            let mut condition_context = SwitchPatternConditionContext {
+            let mut condition_context = PatternConditionContext {
                 scope: context.scope,
                 current: &mut check_current,
                 ops: &mut check_ops,
@@ -743,7 +924,7 @@ impl FunctionLowerer {
                 bool_ty: switch.bool_ty,
             };
             let cond = self
-                .switch_pattern_condition(&target, pattern, &mut condition_context)
+                .pattern_condition(&target, pattern, &mut condition_context)
                 .unwrap_or(FunctionExpr {
                     span: expr.span,
                     ty: switch.bool_ty,
@@ -795,7 +976,7 @@ impl FunctionLowerer {
             TypedSwitchArmBody::Expr(expr) => {
                 let mut current = context.entry;
                 let mut ops = Vec::new();
-                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                self.lower_pattern_bindings(context.patterns, context.target, &mut ops);
                 let value = self.lower_value_expr(
                     expr,
                     context.scope,
@@ -823,7 +1004,7 @@ impl FunctionLowerer {
             TypedSwitchArmBody::Stmt(stmt) => {
                 let mut current = context.entry;
                 let mut ops = Vec::new();
-                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                self.lower_pattern_bindings(context.patterns, context.target, &mut ops);
                 if !self.lower_stmt_into(
                     stmt,
                     context.scope,
@@ -846,7 +1027,7 @@ impl FunctionLowerer {
             }
             TypedSwitchArmBody::Block(body) => {
                 let mut ops = Vec::new();
-                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                self.lower_pattern_bindings(context.patterns, context.target, &mut ops);
                 if ops.is_empty() {
                     self.lower_body_into(
                         body,

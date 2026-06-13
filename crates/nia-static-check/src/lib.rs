@@ -193,6 +193,7 @@ impl StaticChecker<'_> {
             ExprKind::Try { .. } => Some("`.?` propagation requires runtime control flow"),
             ExprKind::Block(_) => Some("block expressions require comptime execution"),
             ExprKind::If { .. } => Some("if expressions require comptime execution"),
+            ExprKind::IfPattern(_) => Some("if pattern expressions require comptime execution"),
             ExprKind::ComptimeIf(_) => Some("comptime if expressions require target pruning"),
             ExprKind::Switch(_) => Some("switch expressions require comptime execution"),
             ExprKind::Call { .. } => Some("function calls require comptime execution"),

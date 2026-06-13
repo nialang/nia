@@ -630,14 +630,14 @@ impl ResolvedComptimeSwitch {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeSwitchArm {
     span: Span,
-    patterns: Vec<ResolvedComptimeSwitchPattern>,
+    patterns: Vec<ResolvedComptimePattern>,
     body: ResolvedComptimeSwitchArmBody,
 }
 
 impl ResolvedComptimeSwitchArm {
     pub fn new(
         span: Span,
-        patterns: Vec<ResolvedComptimeSwitchPattern>,
+        patterns: Vec<ResolvedComptimePattern>,
         body: ResolvedComptimeSwitchArmBody,
     ) -> Self {
         Self {
@@ -651,7 +651,7 @@ impl ResolvedComptimeSwitchArm {
         self.span
     }
 
-    pub fn patterns(&self) -> &[ResolvedComptimeSwitchPattern] {
+    pub fn patterns(&self) -> &[ResolvedComptimePattern] {
         &self.patterns
     }
 
@@ -661,16 +661,31 @@ impl ResolvedComptimeSwitchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedComptimeSwitchPattern {
-    kind: ResolvedComptimeSwitchPatternKind,
+pub struct ResolvedComptimePattern {
+    kind: ResolvedComptimePatternKind,
 }
 
-impl ResolvedComptimeSwitchPattern {
-    pub fn optional_some(name: String, local_id: LocalId, span: Span) -> Self {
+impl ResolvedComptimePattern {
+    pub fn wildcard(span: Span) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::OptionalSome {
+            kind: ResolvedComptimePatternKind::Wildcard { span },
+        }
+    }
+
+    pub fn bind(name: String, local_id: LocalId, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimePatternKind::Bind {
                 name,
                 local_id,
+                span,
+            },
+        }
+    }
+
+    pub fn optional_some(pattern: ResolvedComptimePattern, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimePatternKind::OptionalSome {
+                pattern: Box::new(pattern),
                 span,
             },
         }
@@ -678,25 +693,23 @@ impl ResolvedComptimeSwitchPattern {
 
     pub fn optional_null(span: Span) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::OptionalNull { span },
+            kind: ResolvedComptimePatternKind::OptionalNull { span },
         }
     }
 
-    pub fn error_ok(name: String, local_id: LocalId, span: Span) -> Self {
+    pub fn error_ok(pattern: ResolvedComptimePattern, span: Span) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::ErrorOk {
-                name,
-                local_id,
+            kind: ResolvedComptimePatternKind::ErrorOk {
+                pattern: Box::new(pattern),
                 span,
             },
         }
     }
 
-    pub fn error_err(name: String, local_id: LocalId, span: Span) -> Self {
+    pub fn error_err(pattern: ResolvedComptimePattern, span: Span) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::ErrorErr {
-                name,
-                local_id,
+            kind: ResolvedComptimePatternKind::ErrorErr {
+                pattern: Box::new(pattern),
                 span,
             },
         }
@@ -704,7 +717,7 @@ impl ResolvedComptimeSwitchPattern {
 
     pub fn expr(expr: ResolvedComptimeExpr) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::Expr(expr),
+            kind: ResolvedComptimePatternKind::Expr(expr),
         }
     }
 
@@ -715,7 +728,7 @@ impl ResolvedComptimeSwitchPattern {
         span: Span,
     ) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::Range {
+            kind: ResolvedComptimePatternKind::Range {
                 start,
                 end,
                 inclusive,
@@ -724,38 +737,44 @@ impl ResolvedComptimeSwitchPattern {
         }
     }
 
-    pub fn kind(&self) -> &ResolvedComptimeSwitchPatternKind {
+    pub fn kind(&self) -> &ResolvedComptimePatternKind {
         &self.kind
     }
 }
 
-impl Default for ResolvedComptimeSwitchPattern {
+impl Default for ResolvedComptimePattern {
     fn default() -> Self {
         Self {
-            kind: ResolvedComptimeSwitchPatternKind::Default,
+            kind: ResolvedComptimePatternKind::Wildcard {
+                span: Span::new(0, 0),
+            },
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeSwitchPatternKind {
-    Default,
-    OptionalSome {
+pub enum ResolvedComptimePatternKind {
+    Wildcard {
+        span: Span,
+    },
+    Bind {
         name: String,
         local_id: LocalId,
+        span: Span,
+    },
+    OptionalSome {
+        pattern: Box<ResolvedComptimePattern>,
         span: Span,
     },
     OptionalNull {
         span: Span,
     },
     ErrorOk {
-        name: String,
-        local_id: LocalId,
+        pattern: Box<ResolvedComptimePattern>,
         span: Span,
     },
     ErrorErr {
-        name: String,
-        local_id: LocalId,
+        pattern: Box<ResolvedComptimePattern>,
         span: Span,
     },
     Expr(ResolvedComptimeExpr),
@@ -1153,29 +1172,33 @@ pub struct EarlyComptimeSwitch {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeSwitchArm {
     pub span: Span,
-    pub patterns: Vec<EarlyComptimeSwitchPattern>,
+    pub patterns: Vec<EarlyComptimePattern>,
     pub body: EarlyComptimeSwitchArmBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EarlyComptimeSwitchPattern {
-    Default,
-    OptionalSome {
+pub enum EarlyComptimePattern {
+    Wildcard {
+        span: Span,
+    },
+    Bind {
         name: String,
         local_id: Option<LocalId>,
+        span: Span,
+    },
+    OptionalSome {
+        pattern: Box<EarlyComptimePattern>,
         span: Span,
     },
     OptionalNull {
         span: Span,
     },
     ErrorOk {
-        name: String,
-        local_id: Option<LocalId>,
+        pattern: Box<EarlyComptimePattern>,
         span: Span,
     },
     ErrorErr {
-        name: String,
-        local_id: Option<LocalId>,
+        pattern: Box<EarlyComptimePattern>,
         span: Span,
     },
     Expr(EarlyComptimeExpr),
@@ -1786,6 +1809,9 @@ fn lower_expr_internal(
                 .transpose()?
                 .map(Box::new),
         },
+        nia_ast::ExprKind::IfPattern(if_pattern) => EarlyComptimeExprKind::Switch(Box::new(
+            lower_if_pattern_as_switch(expr.span, if_pattern, context)?,
+        )),
         nia_ast::ExprKind::ComptimeIf(comptime_if) => {
             lower_comptime_if_with_context(comptime_if, context)?
         }
@@ -2462,56 +2488,47 @@ fn resolve_comptime_switch_arm(
         arm.span,
         arm.patterns
             .into_iter()
-            .map(resolve_comptime_switch_pattern)
+            .map(resolve_comptime_pattern)
             .collect::<Result<Vec<_>, _>>()?,
         resolve_comptime_switch_arm_body(arm.body)?,
     ))
 }
 
-fn resolve_comptime_switch_pattern(
-    pattern: EarlyComptimeSwitchPattern,
-) -> Result<ResolvedComptimeSwitchPattern, ComptimeLowerError> {
+fn resolve_comptime_pattern(
+    pattern: EarlyComptimePattern,
+) -> Result<ResolvedComptimePattern, ComptimeLowerError> {
     match pattern {
-        EarlyComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::default()),
-        EarlyComptimeSwitchPattern::OptionalSome {
+        EarlyComptimePattern::Wildcard { span } => Ok(ResolvedComptimePattern::wildcard(span)),
+        EarlyComptimePattern::Bind {
             name,
             local_id,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::optional_some(
+        } => Ok(ResolvedComptimePattern::bind(
             name,
             local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
         )),
-        EarlyComptimeSwitchPattern::OptionalNull { span } => {
-            Ok(ResolvedComptimeSwitchPattern::optional_null(span))
+        EarlyComptimePattern::OptionalSome { pattern, span } => Ok(
+            ResolvedComptimePattern::optional_some(resolve_comptime_pattern(*pattern)?, span),
+        ),
+        EarlyComptimePattern::OptionalNull { span } => {
+            Ok(ResolvedComptimePattern::optional_null(span))
         }
-        EarlyComptimeSwitchPattern::ErrorOk {
-            name,
-            local_id,
-            span,
-        } => Ok(ResolvedComptimeSwitchPattern::error_ok(
-            name,
-            local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+        EarlyComptimePattern::ErrorOk { pattern, span } => Ok(ResolvedComptimePattern::error_ok(
+            resolve_comptime_pattern(*pattern)?,
             span,
         )),
-        EarlyComptimeSwitchPattern::ErrorErr {
-            name,
-            local_id,
-            span,
-        } => Ok(ResolvedComptimeSwitchPattern::error_err(
-            name,
-            local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+        EarlyComptimePattern::ErrorErr { pattern, span } => Ok(ResolvedComptimePattern::error_err(
+            resolve_comptime_pattern(*pattern)?,
             span,
         )),
-        EarlyComptimeSwitchPattern::Expr(expr) => {
-            resolve_expr(expr).map(ResolvedComptimeSwitchPattern::expr)
-        }
-        EarlyComptimeSwitchPattern::Range {
+        EarlyComptimePattern::Expr(expr) => resolve_expr(expr).map(ResolvedComptimePattern::expr),
+        EarlyComptimePattern::Range {
             start,
             end,
             inclusive,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::range(
+        } => Ok(ResolvedComptimePattern::range(
             resolve_expr(start)?,
             resolve_expr(end)?,
             inclusive,
@@ -2829,6 +2846,40 @@ fn lower_switch_with_context(
     })
 }
 
+fn lower_if_pattern_as_switch(
+    span: Span,
+    if_pattern: &nia_ast::IfPatternExpr,
+    context: &dyn ComptimeLowerContext,
+) -> Result<EarlyComptimeSwitch, ComptimeLowerError> {
+    let mut arms = if_pattern
+        .arms
+        .iter()
+        .map(|arm| {
+            Ok(EarlyComptimeSwitchArm {
+                span: arm.span,
+                patterns: vec![lower_pattern_with_context(&arm.pattern, context)?],
+                body: EarlyComptimeSwitchArmBody::Block(lower_block_with_context(
+                    &arm.body, context,
+                )?),
+            })
+        })
+        .collect::<Result<Vec<_>, ComptimeLowerError>>()?;
+    if let Some(else_branch) = &if_pattern.else_branch {
+        arms.push(EarlyComptimeSwitchArm {
+            span: else_branch.span,
+            patterns: vec![EarlyComptimePattern::Wildcard {
+                span: else_branch.span,
+            }],
+            body: EarlyComptimeSwitchArmBody::Expr(lower_expr_internal(else_branch, context)?),
+        });
+    }
+    Ok(EarlyComptimeSwitch {
+        span,
+        target: lower_expr_internal(&if_pattern.target, context)?,
+        arms,
+    })
+}
+
 fn lower_switch_arm_with_context(
     arm: &nia_ast::SwitchArm,
     context: &dyn ComptimeLowerContext,
@@ -2838,61 +2889,50 @@ fn lower_switch_arm_with_context(
         patterns: arm
             .patterns
             .iter()
-            .map(|pattern| lower_switch_pattern_with_context(pattern, context))
+            .map(|pattern| lower_pattern_with_context(pattern, context))
             .collect::<Result<Vec<_>, _>>()?,
         body: lower_switch_arm_body_with_context(&arm.body, context)?,
     })
 }
 
-fn lower_switch_pattern_with_context(
-    pattern: &nia_ast::SwitchPattern,
+fn lower_pattern_with_context(
+    pattern: &nia_ast::Pattern,
     context: &dyn ComptimeLowerContext,
-) -> Result<EarlyComptimeSwitchPattern, ComptimeLowerError> {
-    match pattern {
-        nia_ast::SwitchPattern::Default => Ok(EarlyComptimeSwitchPattern::Default),
-        nia_ast::SwitchPattern::OptionalSome {
-            name,
-            span,
-            node_key,
-        } => Ok(EarlyComptimeSwitchPattern::OptionalSome {
+) -> Result<EarlyComptimePattern, ComptimeLowerError> {
+    match &pattern.kind {
+        nia_ast::PatternKind::Wildcard => Ok(EarlyComptimePattern::Wildcard { span: pattern.span }),
+        nia_ast::PatternKind::Bind { name, node_key } => Ok(EarlyComptimePattern::Bind {
             name: name.clone(),
-            local_id: lower_local_id(context, node_key, *span)?,
-            span: *span,
+            local_id: lower_local_id(context, node_key, pattern.span)?,
+            span: pattern.span,
         }),
-        nia_ast::SwitchPattern::OptionalNull { span } => {
-            Ok(EarlyComptimeSwitchPattern::OptionalNull { span: *span })
+        nia_ast::PatternKind::OptionalSome(inner) => Ok(EarlyComptimePattern::OptionalSome {
+            pattern: Box::new(lower_pattern_with_context(inner, context)?),
+            span: pattern.span,
+        }),
+        nia_ast::PatternKind::OptionalNull => {
+            Ok(EarlyComptimePattern::OptionalNull { span: pattern.span })
         }
-        nia_ast::SwitchPattern::ErrorOk {
-            name,
-            span,
-            node_key,
-        } => Ok(EarlyComptimeSwitchPattern::ErrorOk {
-            name: name.clone(),
-            local_id: lower_local_id(context, node_key, *span)?,
-            span: *span,
+        nia_ast::PatternKind::ErrorOk(inner) => Ok(EarlyComptimePattern::ErrorOk {
+            pattern: Box::new(lower_pattern_with_context(inner, context)?),
+            span: pattern.span,
         }),
-        nia_ast::SwitchPattern::ErrorErr {
-            name,
-            span,
-            node_key,
-        } => Ok(EarlyComptimeSwitchPattern::ErrorErr {
-            name: name.clone(),
-            local_id: lower_local_id(context, node_key, *span)?,
-            span: *span,
+        nia_ast::PatternKind::ErrorErr(inner) => Ok(EarlyComptimePattern::ErrorErr {
+            pattern: Box::new(lower_pattern_with_context(inner, context)?),
+            span: pattern.span,
         }),
-        nia_ast::SwitchPattern::Expr(expr) => {
-            lower_expr_internal(expr, context).map(EarlyComptimeSwitchPattern::Expr)
+        nia_ast::PatternKind::Expr(expr) => {
+            lower_expr_internal(expr, context).map(EarlyComptimePattern::Expr)
         }
-        nia_ast::SwitchPattern::Range {
+        nia_ast::PatternKind::Range {
             start,
             end,
             inclusive,
-            span,
-        } => Ok(EarlyComptimeSwitchPattern::Range {
+        } => Ok(EarlyComptimePattern::Range {
             start: lower_expr_internal(start, context)?,
             end: lower_expr_internal(end, context)?,
             inclusive: *inclusive,
-            span: *span,
+            span: pattern.span,
         }),
     }
 }

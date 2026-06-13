@@ -3,9 +3,9 @@ use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
     TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedForIn, TypedInlineAsm, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedMemoryIntrinsicSource, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
-    TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    TypedExprKind, TypedForIn, TypedIfPattern, TypedInlineAsm, TypedLocal, TypedLocalKind,
+    TypedLoop, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedWhile,
 };
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LocalId, ModuleId};
 use nia_span::Span;

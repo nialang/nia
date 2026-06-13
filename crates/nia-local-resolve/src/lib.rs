@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Stmt, StmtKind,
-    SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
+    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern,
+    PatternKind, Stmt, StmtKind, SwitchArmBody, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
@@ -509,6 +509,27 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(else_branch);
                 }
             }
+            ExprKind::IfPattern(if_pattern) => {
+                self.resolve_expr(&if_pattern.target);
+                let binding_kind = if if_pattern.binding_mode.is_let() {
+                    LocalKind::ConstBinding
+                } else {
+                    LocalKind::Binding
+                };
+                for arm in &if_pattern.arms {
+                    self.push_scope();
+                    self.resolve_pattern(
+                        &arm.pattern,
+                        binding_kind,
+                        "duplicate if pattern binding",
+                    );
+                    self.resolve_block(&arm.body);
+                    self.pop_scope();
+                }
+                if let Some(else_branch) = &if_pattern.else_branch {
+                    self.resolve_expr(else_branch);
+                }
+            }
             ExprKind::ComptimeIf(comptime_if) => {
                 self.resolve_expr(&comptime_if.cond);
                 self.resolve_block(&comptime_if.then_branch);
@@ -521,38 +542,11 @@ impl<'a> LocalResolver<'a> {
                 for arm in &switch.arms {
                     self.push_scope();
                     for pattern in &arm.patterns {
-                        match pattern {
-                            SwitchPattern::Default => {}
-                            SwitchPattern::OptionalSome {
-                                name,
-                                span,
-                                node_key,
-                            }
-                            | SwitchPattern::ErrorOk {
-                                name,
-                                span,
-                                node_key,
-                            }
-                            | SwitchPattern::ErrorErr {
-                                name,
-                                span,
-                                node_key,
-                            } => {
-                                self.define(
-                                    name,
-                                    LocalKind::Binding,
-                                    *span,
-                                    node_key.clone(),
-                                    "duplicate switch pattern binding",
-                                );
-                            }
-                            SwitchPattern::OptionalNull { .. } => {}
-                            SwitchPattern::Expr(pattern) => self.resolve_expr(pattern),
-                            SwitchPattern::Range { start, end, .. } => {
-                                self.resolve_expr(start);
-                                self.resolve_expr(end);
-                            }
-                        }
+                        self.resolve_pattern(
+                            pattern,
+                            LocalKind::Binding,
+                            "duplicate switch pattern binding",
+                        );
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
@@ -561,6 +555,36 @@ impl<'a> LocalResolver<'a> {
                     }
                     self.pop_scope();
                 }
+            }
+        }
+    }
+
+    fn resolve_pattern(
+        &mut self,
+        pattern: &Pattern,
+        binding_kind: LocalKind,
+        duplicate: &'static str,
+    ) {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::OptionalNull => {}
+            PatternKind::Bind { name, node_key } => {
+                self.define(
+                    name,
+                    binding_kind,
+                    pattern.span,
+                    node_key.clone(),
+                    duplicate,
+                );
+            }
+            PatternKind::OptionalSome(pattern)
+            | PatternKind::ErrorOk(pattern)
+            | PatternKind::ErrorErr(pattern) => {
+                self.resolve_pattern(pattern, binding_kind, duplicate);
+            }
+            PatternKind::Expr(pattern) => self.resolve_expr(pattern),
+            PatternKind::Range { start, end, .. } => {
+                self.resolve_expr(start);
+                self.resolve_expr(end);
             }
         }
     }
