@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+struct TraitAssociatedFunctionCall<'b> {
+    expr: &'b Expr,
+    target_ty: InternedTyId,
+    name: &'b str,
+    method_type_args: Option<&'b [BracketArg]>,
+    args: &'b [Expr],
+    expected: Option<InternedTyId>,
+    candidates: Vec<TraitMethodCandidate>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls) fn check_associated_call(
         &mut self,
@@ -82,15 +92,15 @@ impl<'a> BodyChecker<'a> {
             return Some(return_ty);
         }
         if candidates.is_empty() && !trait_candidates.is_empty() {
-            return self.check_trait_associated_function_call(
+            return self.check_trait_associated_function_call(TraitAssociatedFunctionCall {
                 expr,
                 target_ty,
                 name,
                 method_type_args,
                 args,
                 expected,
-                trait_candidates,
-            );
+                candidates: trait_candidates,
+            });
         }
         let Some(method_id) = self.single_method_candidate(span, name, &candidates) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -220,14 +230,17 @@ impl<'a> BodyChecker<'a> {
 
     fn check_trait_associated_function_call(
         &mut self,
-        expr: &Expr,
-        target_ty: InternedTyId,
-        name: &str,
-        method_type_args: Option<&[BracketArg]>,
-        args: &[Expr],
-        expected: Option<InternedTyId>,
-        candidates: Vec<TraitMethodCandidate>,
+        call: TraitAssociatedFunctionCall<'_>,
     ) -> Option<InternedTyId> {
+        let TraitAssociatedFunctionCall {
+            expr,
+            target_ty,
+            name,
+            method_type_args,
+            args,
+            expected,
+            candidates,
+        } = call;
         let candidates = candidates
             .into_iter()
             .filter(|candidate| {
