@@ -138,8 +138,9 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   explicit error propagation for application stdout or recoverable I/O.
 - `std::fmt` defines the formatting and parsing protocol used by writer
   `.print(...)` and `fmt::parse[T](...)`. Format arguments are passed as a
-  slice of trait-object handles, usually written as an array literal such as
-  `[&value, &count]`; arrays coerce to the expected slice. Checked writer
+  slice of trait-object handles, usually written as an addressed array literal
+  such as `&[&value, &count]`; array pointers coerce to the expected slice.
+  Checked writer
   printing reports `fmt::Error::MissingArgument`, `ExtraArgument`,
   `InvalidTemplate`, or `Write`.
   Primitive integers, `bool`, `char`, character slices, pointers, generic
@@ -409,6 +410,18 @@ a pointer to its first byte. This creates a block-scoped array temporary; it doe
 not promote the literal to static storage. The coercion is specific to C string
 literals and does not apply to byte string literals or arbitrary `[N]u8` arrays.
 
+In an expected slice context, string-family literals may also be created
+directly as slices:
+
+```nia
+let text: &[char] = "nia";
+let bytes: &[u8] = b"nia";
+let cbytes: &[u8] = c"nia";
+```
+
+This is a literal-specific creation rule. It does not create static storage and
+does not make ordinary array values decay into slices.
+
 Multiline string literals use consecutive lines beginning with `\\`. Byte and C
 multiline string literals use `b\\` or `c\\` on the first line; continuation
 lines still use `\\`:
@@ -660,8 +673,9 @@ var x = arr[0];
 arr[1] = 42;
 ```
 
-Array length is part of the type. Arrays do not decay implicitly except through
-the array-to-slice conversion rule.
+Array length is part of the type. Ordinary array values do not decay
+implicitly; slice views come from array pointers or from the string-family
+literal rules described below.
 
 ### 4.4 Slices
 
@@ -704,9 +718,10 @@ Bare range indexing is not a value expression:
 xs[..]; // error; use &xs[..] or &mut xs[..]
 ```
 
-An array value may be implicitly converted to a full-range slice when the
-expected type is exactly `&[T]` or `&mut [T]`. This is the only array decay
-rule:
+An array pointer may be implicitly converted to a full-range slice when the
+expected type is exactly `&[T]` or `&mut [T]`. `&[N]T` converts to `&[T]`;
+`&mut [N]T` converts to `&mut [T]`, and may also be used where read-only
+`&[T]` is expected.
 
 ```nia
 fn read(xs: &[i32]) i32 {
@@ -717,17 +732,29 @@ fn write(xs: &mut [i32]) {
     xs[0] = 10;
 }
 
-var ro: &[i32] = [1, 2, 3];
-var rw: &mut [i32] = [1, 2, 3];
-read([1, 2, 3]);
-write([1, 2, 3]);
+var arr: [3]i32 = [1, 2, 3];
+var ro: &[i32] = &arr;
+var rw: &mut [i32] = &mut arr;
+read(&arr);
+write(&mut arr);
+read(&[1, 2, 3]);
+write(&mut [1, 2, 3]);
 ```
 
-If the source expression is an array place, conversion to `&[T]` requires an
-addressable place; conversion to `&mut [T]` requires a writable place. Array and
-string literals used by this conversion create block-scoped array temporaries.
-The same rvalue materialization rule used by address-of also permits explicit
-temporary slice construction from typed array values.
+Array literals can still be used by taking their address. The usual rvalue
+materialization rule used by address-of creates a block-scoped temporary array.
+Ordinary array values do not convert directly:
+
+```nia
+var arr: [3]i32 = [1, 2, 3];
+read(arr);      // error
+read([1, 2, 3]); // error
+```
+
+String, byte string, and C string literal expressions have a separate
+literal-creation-site convenience. When a slice is expected, `"..."` may create
+`&[char]`, while `b"..."` and `c"..."` may create `&[u8]`. This rule is
+specific to those literals; it does not apply to arbitrary `[N]T` values.
 
 Range forms:
 
@@ -2795,11 +2822,11 @@ When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
 foreign_log(c"hello\n");
 ```
 
-String, byte string, and C string literals are array values, not places. They
-may be passed through array-to-slice conversion when a slice is expected. C
-string literals may also be passed directly when `&u8` is
-expected; this produces a pointer to a block-scoped temporary. If a stable C
-string address is required, bind the C string to top-level `let` storage.
+String, byte string, and C string literals are array values, not places. At the
+literal creation site they may create a slice when a slice is expected. C string
+literals may also be passed directly when `&u8` is expected; this produces a
+pointer to a block-scoped temporary. If a stable C string address is required,
+bind the C string to top-level `let` storage.
 
 ### 13.1 Internal Symbol Names
 
@@ -3021,7 +3048,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var v: Vec2 = { x: 3, y: 4 };
     var values = [_]i32[add(40, 2), v.len2(), 7];
-    var pair: Pair[i32, i32] = { first: values[0], second: sum(values) };
+    var pair: Pair[i32, i32] = { first: values[0], second: sum(&values) };
 
     if score(pair) != 116 {
         return process::exit(1)!;

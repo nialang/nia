@@ -648,7 +648,7 @@ extend CountingAllocator : mem::Allocator {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var storage: [64]u8 = [_]u8[0; 64];
-    var allocator = CountingAllocator::init(storage);
+    var allocator = CountingAllocator::init(&mut storage);
     let old_layout = mem::Layout::init(4, 1).exit().?;
     let new_layout = mem::Layout::init(8, 1).exit().?;
     var block = allocator.alloc(old_layout).exit().?;

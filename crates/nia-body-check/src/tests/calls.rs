@@ -54,7 +54,7 @@ fn take(items: & [Item]) i32 {
 }
 
 fn main() i32 {
-    take([
+    take(&[
         { value: 1 },
         { value: 2 },
     ])

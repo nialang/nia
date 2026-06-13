@@ -125,16 +125,18 @@ struct Pair {
 fn id(value: i32) i32 { value }
 fn call_ptr(f: &fn(i32) i32, value: i32) i32 { f(value) }
 fn take(xs: & [i32]) usize { xs.len() }
+fn text(xs: & [char]) usize { xs.len() }
 fn cstr(value: & u8) usize { 1 }
 
 fn main() i32 {
     var x = 1;
     var y = id(x);
     var n = @size[Pair]();
-    var s = take([1, 2, 3]);
+    var s = take(&[1, 2, 3]);
+    var t = text("ok");
     var p = cstr(c"ok");
     var q = call_ptr(& id, y);
-    q + n as i32 + s as i32 + p as i32
+    q + n as i32 + s as i32 + t as i32 + p as i32
 }
 "#,
         Some(version),
@@ -254,6 +256,17 @@ fn main() i32 {
         checked
             .facts
             .node_array_to_slice_coercions
+            .keys()
+            .any(|key| {
+                key.source_version() == version
+                    && key.kind == SyntaxKind::Expr
+                    && matches!(key.position, NodePosition::ChildPathRange { .. })
+            })
+    );
+    assert!(
+        checked
+            .facts
+            .node_pointer_array_to_slice_coercions
             .keys()
             .any(|key| {
                 key.source_version() == version

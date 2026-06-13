@@ -6,7 +6,7 @@ extend[H] u8 : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
-        hasher.write([self.*])
+        hasher.write(&[self.*])
     }
 }
 
@@ -22,7 +22,7 @@ extend[H] u16 : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
-        hasher.write([
+        hasher.write(&[
             self.* as u8,
             (self.* >> 8u16) as u8,
         ])
@@ -41,7 +41,7 @@ extend[H] u32 : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
-        hasher.write([
+        hasher.write(&[
             self.* as u8,
             (self.* >> 8u32) as u8,
             (self.* >> 16u32) as u8,
@@ -62,7 +62,7 @@ extend[H] u64 : Hash[H]
 where H: Hasher
 {
     pub fn hash(&self, hasher: &mut H) void {
-        hasher.write([
+        hasher.write(&[
             self.* as u8,
             (self.* >> 8u64) as u8,
             (self.* >> 16u64) as u8,

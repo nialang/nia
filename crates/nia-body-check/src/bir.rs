@@ -409,11 +409,45 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
-        if forced_ty.is_none()
-            && let Some(coercion) = self
-                .node_array_to_slice_coercions
-                .get(&expr.node_key)
-                .copied()
+        if let Some(upcast) = forced_ty
+            .is_none()
+            .then(|| self.node_trait_object_upcasts.get(&expr.node_key).copied())
+            .flatten()
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: upcast.target_ty,
+                kind: TypedExprKind::TraitObjectUpcast {
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(upcast.source_ty))),
+                    source_ty: upcast.source_ty,
+                    target_ty: upcast.target_ty,
+                },
+            };
+        }
+        if let Some(coercion) = forced_ty
+            .is_none()
+            .then(|| {
+                self.node_trait_object_coercions
+                    .get(&expr.node_key)
+                    .copied()
+            })
+            .flatten()
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.target_ty,
+                kind: TypedExprKind::TraitObjectCoercion {
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
+                    target_ty: coercion.target_ty,
+                    self_ty: self.trait_object_coercion_self_ty(coercion.source_ty),
+                },
+            };
+        }
+        if let Some(coercion) = self
+            .node_array_to_slice_coercions
+            .get(&expr.node_key)
+            .copied()
+            && forced_ty.is_none_or(|forced_ty| forced_ty == coercion.slice_ty)
         {
             return TypedExpr {
                 span: expr.span,
@@ -429,32 +463,23 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
-        if forced_ty.is_none()
-            && let Some(upcast) = self.node_trait_object_upcasts.get(&expr.node_key).copied()
+        if let Some(coercion) = self
+            .node_pointer_array_to_slice_coercions
+            .get(&expr.node_key)
+            .copied()
+            && forced_ty.is_none_or(|forced_ty| forced_ty == coercion.slice_ty)
         {
             return TypedExpr {
                 span: expr.span,
-                ty: upcast.target_ty,
-                kind: TypedExprKind::TraitObjectUpcast {
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(upcast.source_ty))),
-                    source_ty: upcast.source_ty,
-                    target_ty: upcast.target_ty,
-                },
-            };
-        }
-        if forced_ty.is_none()
-            && let Some(coercion) = self
-                .node_trait_object_coercions
-                .get(&expr.node_key)
-                .copied()
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.target_ty,
-                kind: TypedExprKind::TraitObjectCoercion {
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
-                    target_ty: coercion.target_ty,
-                    self_ty: self.trait_object_coercion_self_ty(coercion.source_ty),
+                ty: coercion.slice_ty,
+                kind: TypedExprKind::Slice {
+                    lhs: Box::new(self.lower_expr_with_ty(expr, Some(coercion.pointer_ty))),
+                    range: TypedSliceRange {
+                        start: None,
+                        end: None,
+                        inclusive: false,
+                    },
+                    is_readonly: coercion.is_readonly,
                 },
             };
         }

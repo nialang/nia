@@ -43,7 +43,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var values: [_]i32 = [point.len2(), also_point.len2(), 7];
     var slice_view = &([3]i32[1, 2, 3])[..];
 
-    if point.len2() + sum(values) + sum(slice_view) != 232 {
+    if point.len2() + sum(&values) + sum(slice_view) != 232 {
         return process::exit(1)!;
     }
 
@@ -54,8 +54,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
 Most aggregate literals use the expected type from a binding, argument, or
 return position. Explicit forms such as `Point { ... }` and `[_]i32[...]` are
 available when the literal needs to stand on its own.
-Arrays coerce to slices at argument boundaries, so `sum(values)` is the usual
-style when a function expects `&[T]`; `&values[..]` is the explicit slice form.
+Array pointers coerce to slices at argument boundaries, so `sum(&values)` is
+the usual style when a function expects `&[T]`; `&values[..]` is the explicit
+range-slice form.
 
 ## Design Goals
 

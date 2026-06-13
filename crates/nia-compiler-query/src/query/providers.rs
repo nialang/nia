@@ -1432,6 +1432,9 @@ fn semantic_facts_for_reachable_functions(
             .node_array_to_slice_coercions
             .extend(function_facts.node_array_to_slice_coercions.clone());
         reachable_facts
+            .node_pointer_array_to_slice_coercions
+            .extend(function_facts.node_pointer_array_to_slice_coercions.clone());
+        reachable_facts
             .node_c_string_pointer_coercions
             .extend(function_facts.node_c_string_pointer_coercions.clone());
         reachable_facts
@@ -1867,6 +1870,9 @@ fn collect_function_fact_owner_modules(
     }
     for coercion in facts.node_array_to_slice_coercions.values() {
         type_ids.extend([coercion.array_ty, coercion.slice_ty]);
+    }
+    for coercion in facts.node_pointer_array_to_slice_coercions.values() {
+        type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);
     }
     for coercion in facts.node_c_string_pointer_coercions.values() {
         type_ids.extend([coercion.array_ty, coercion.pointer_ty]);

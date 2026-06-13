@@ -814,7 +814,7 @@ Type-checks function bodies and expression semantics. It owns:
 - local binding type checks;
 - assignment target validation;
 - pointer mutability and addressability checks;
-- array-to-slice coercions;
+- literal and pointer array-to-slice coercions;
 - indexing, slicing, field access, and method calls;
 - function calls and generic argument inference;
 - enum casts, switch exhaustiveness, and switch range-pattern validation;

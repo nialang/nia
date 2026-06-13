@@ -21,7 +21,8 @@ pub fn main(init: Init) ExitCode!void {
     var writable = &mut zeros[..];
     write_first(writable, first(window));
 
-    // Text literals are arrays. They coerce to slices when a slice is expected.
+    // Text literals are arrays; string literal expressions can still create slices
+    // directly when a slice is expected.
     let name = "nia";
     // Adjacent byte-string literals concatenate.
     let bytes = b"ni" b"a";
@@ -48,7 +49,7 @@ pub fn main(init: Init) ExitCode!void {
 
     debug::print(
         "slice window={} first={} text={} bytes={} cstring={}\n",
-        [&window_len, &first_written, &name_len, &bytes_len, &c_name_len],
+        &[&window_len, &first_written, &name_len, &bytes_len, &c_name_len],
     );
 
     !{}

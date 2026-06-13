@@ -58,7 +58,7 @@ fn run(init: Init) mem::Error!void {
     var len = scores.len();
     var has_seven = scores.contains_key(&7);
 
-    debug::print("hash_map len={} answer={} removed_key={} removed_value={} total={} has_seven={}\n", [
+    debug::print("hash_map len={} answer={} removed_key={} removed_value={} total={} has_seven={}\n", &[
         &len,
         &answer,
         &removed_key,
@@ -66,7 +66,7 @@ fn run(init: Init) mem::Error!void {
         &total,
         &has_seven,
     ]);
-    debug::print("hash_map entries={}\n", [&scores]);
+    debug::print("hash_map entries={}\n", &[&scores]);
     !{}
 }
 

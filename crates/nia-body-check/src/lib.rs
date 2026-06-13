@@ -39,8 +39,8 @@ use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     ComptimeIfSelection, FunctionReference, FunctionSemanticFacts, GenericInstantiation,
-    ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
-    TraitObjectUpcast,
+    PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse,
+    TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -411,6 +411,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
+        node_pointer_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
@@ -459,6 +460,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
+            node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
@@ -542,6 +544,7 @@ struct BodyChecker<'a> {
     node_expr_types: HashMap<NodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
+    node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
@@ -672,6 +675,20 @@ impl<'a> BodyChecker<'a> {
         if let Some(facts) = self.current_function_facts() {
             facts
                 .node_array_to_slice_coercions
+                .insert(expr.node_key.clone(), coercion);
+        }
+    }
+
+    fn record_pointer_array_to_slice_node_coercion(
+        &mut self,
+        expr: &Expr,
+        coercion: PointerArrayToSliceCoercion,
+    ) {
+        self.node_pointer_array_to_slice_coercions
+            .insert(expr.node_key.clone(), coercion);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_pointer_array_to_slice_coercions
                 .insert(expr.node_key.clone(), coercion);
         }
     }

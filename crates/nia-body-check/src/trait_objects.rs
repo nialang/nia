@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::Expr;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_sema_ir::{TraitObjectCoercion, TraitObjectUpcast};
+use nia_sema_ir::{PointerArrayToSliceCoercion, TraitObjectCoercion, TraitObjectUpcast};
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
@@ -166,6 +166,28 @@ impl<'a> BodyChecker<'a> {
             },
         );
         self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
+        Some(expected)
+    }
+
+    pub(crate) fn coerce_pointer_array_to_slice_trait_object(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let actual = self.normalization.normalize(actual);
+        let (array_ty, slice_ty, slice_is_readonly) =
+            self.pointer_array_slice_type_for_trait_object_source(actual)?;
+        self.coerce_pointer_to_trait_object(expr, expected, slice_ty)?;
+        self.record_pointer_array_to_slice_node_coercion(
+            expr,
+            PointerArrayToSliceCoercion {
+                pointer_ty: actual,
+                array_ty,
+                slice_ty,
+                is_readonly: slice_is_readonly,
+            },
+        );
         Some(expected)
     }
 
