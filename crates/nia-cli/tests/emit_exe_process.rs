@@ -620,6 +620,148 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_math_checked_integer_helpers() {
+    let root = temp_dir("emit_exe_can_use_std_math_checked_integer_helpers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::math;
+using std::process;
+
+fn add_checked_same[T](lhs: T, rhs: T) ?T
+where T: math::CheckedAdd[T, Output = T]
+{
+    lhs.checked_add(rhs)
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    switch add_checked_same[u8](250u8, 5u8) {
+        ?value => if value != 255u8 { return process::exit(1)!; },
+        null => return process::exit(2)!,
+    }
+    switch 255u8.checked_add(1u8) {
+        ?value => { _ = value; return process::exit(3)!; },
+        null => {},
+    }
+    switch 10u16.checked_sub(3u16) {
+        ?value => if value != 7u16 { return process::exit(4)!; },
+        null => return process::exit(5)!,
+    }
+    switch 0u16.checked_sub(1u16) {
+        ?value => { _ = value; return process::exit(6)!; },
+        null => {},
+    }
+    switch 70000u32.checked_mul(60000u32) {
+        ?value => if value != 4200000000u32 { return process::exit(7)!; },
+        null => return process::exit(8)!,
+    }
+    switch 0xffffffffu32.checked_mul(2u32) {
+        ?value => { _ = value; return process::exit(9)!; },
+        null => {},
+    }
+    switch 100u64.checked_div(4u64) {
+        ?value => if value != 25u64 { return process::exit(10)!; },
+        null => return process::exit(11)!,
+    }
+    switch 100u64.checked_div(0u64) {
+        ?value => { _ = value; return process::exit(12)!; },
+        null => {},
+    }
+    switch 100u128.checked_rem(7u128) {
+        ?value => if value != 2u128 { return process::exit(13)!; },
+        null => return process::exit(14)!,
+    }
+    switch 100u128.checked_rem(0u128) {
+        ?value => { _ = value; return process::exit(15)!; },
+        null => {},
+    }
+    switch 9usize.checked_sub(4usize) {
+        ?value => if value != 5usize { return process::exit(16)!; },
+        null => return process::exit(17)!,
+    }
+
+    switch (-5i8).checked_neg() {
+        ?value => if value != 5i8 { return process::exit(18)!; },
+        null => return process::exit(19)!,
+    }
+    switch i8::MIN.checked_neg() {
+        ?value => { _ = value; return process::exit(20)!; },
+        null => {},
+    }
+    switch (-123i16).checked_abs() {
+        ?value => if value != 123i16 { return process::exit(21)!; },
+        null => return process::exit(22)!,
+    }
+    switch i16::MIN.checked_abs() {
+        ?value => { _ = value; return process::exit(23)!; },
+        null => {},
+    }
+    switch i32::MAX.checked_add(1i32) {
+        ?value => { _ = value; return process::exit(24)!; },
+        null => {},
+    }
+    switch (-10i32).checked_add(5i32) {
+        ?value => if value != -5i32 { return process::exit(25)!; },
+        null => return process::exit(26)!,
+    }
+    switch i64::MIN.checked_sub(1i64) {
+        ?value => { _ = value; return process::exit(27)!; },
+        null => {},
+    }
+    switch 10i64.checked_sub(-5i64) {
+        ?value => if value != 15i64 { return process::exit(28)!; },
+        null => return process::exit(29)!,
+    }
+    switch i128::MIN.checked_mul(-1i128) {
+        ?value => { _ = value; return process::exit(30)!; },
+        null => {},
+    }
+    switch 12i128.checked_mul(-3i128) {
+        ?value => if value != -36i128 { return process::exit(31)!; },
+        null => return process::exit(32)!,
+    }
+    switch isize::MIN.checked_div(-1isize) {
+        ?value => { _ = value; return process::exit(33)!; },
+        null => {},
+    }
+    switch (-9isize).checked_div(3isize) {
+        ?value => if value != -3isize { return process::exit(34)!; },
+        null => return process::exit(35)!,
+    }
+    switch (-9isize).checked_rem(0isize) {
+        ?value => { _ = value; return process::exit(36)!; },
+        null => {},
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exposes_process_args_without_raw_argv() {
     let root = temp_dir("emit_exe_exposes_process_args_without_raw_argv");
     let main = root.join("main.nia");
