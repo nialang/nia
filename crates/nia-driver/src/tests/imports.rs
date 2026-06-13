@@ -856,8 +856,9 @@ fn std_facade_exposes_range_constructors() {
 using std;
 
 fn main() usize {
+    var iter: std::Range[usize] = std::range(1usize..3usize);
     var total = 0usize;
-    for i in std::range(1usize..3usize) {
+    for i in iter {
         total += i;
     }
     total
@@ -867,6 +868,32 @@ fn main() usize {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_does_not_reexport_range_module_namespace() {
+    let root = temp_dir("std_facade_does_not_reexport_range_module_namespace");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+
+fn main() void {
+    var iter: std::range::Range[usize] = std::range(1usize..3usize);
+    _ = iter;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("module namespace `range` is private")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -1088,6 +1115,7 @@ fn main() void {}
         &["hash", "traits"],
         &["hash", "impls"],
         &["fmt", "core"],
+        &["range"],
     ] {
         assert_eq!(
             std_module_declaration_visibility(&program.graph, path),

@@ -10,7 +10,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
     ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
-    visibility_allows,
+    module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
 
@@ -533,25 +533,13 @@ fn visible_child_module(
         .declarations
         .iter()
         .find(|declaration| declaration.name == name && declaration.target == target)?;
-    module_declaration_visible(
+    module_declaration_visibility_allows(
         declaration.visibility,
         graph,
         parent_module,
         accessing_module,
     )
     .then_some(target)
-}
-
-fn module_declaration_visible(
-    visibility: Visibility,
-    graph: &ModuleGraph,
-    declaring_module: ModuleId,
-    accessing_module: ModuleId,
-) -> bool {
-    if visibility == Visibility::Private {
-        return is_descendant_or_self(graph, accessing_module, declaring_module);
-    }
-    visibility_allows(visibility, graph, declaring_module, accessing_module)
 }
 
 fn module_declaration_visible_for_wildcard(
@@ -563,21 +551,13 @@ fn module_declaration_visible_for_wildcard(
 ) -> bool {
     match mode {
         UsingLookupMode::PublicOnly => visibility == Visibility::Public,
-        UsingLookupMode::Visible => {
-            module_declaration_visible(visibility, graph, declaring_module, accessing_module)
-        }
+        UsingLookupMode::Visible => module_declaration_visibility_allows(
+            visibility,
+            graph,
+            declaring_module,
+            accessing_module,
+        ),
     }
-}
-
-fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: ModuleId) -> bool {
-    let mut current = Some(module);
-    while let Some(module_id) = current {
-        if module_id == ancestor {
-            return true;
-        }
-        current = graph.get(module_id).and_then(|node| node.parent);
-    }
-    false
 }
 
 fn item_visibility_allows(

@@ -10,7 +10,10 @@ use nia_defs::{
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, visibility_allows};
+use nia_imports::{
+    ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
+    module_declaration_visibility_allows, visibility_allows,
+};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
@@ -267,14 +270,81 @@ struct ValueResolver<'a> {
 }
 
 impl ValueResolver<'_> {
+    fn graph(&self) -> Option<&ModuleGraph> {
+        self.graph.or(self.program_defs.graph)
+    }
+
     fn visibility_allows(&self, module_id: ModuleId, visibility: Visibility) -> bool {
         if module_id == self.defs.module_id {
             return true;
         }
-        let Some(graph) = self.graph.or(self.program_defs.graph) else {
+        let Some(graph) = self.graph() else {
             return visibility == Visibility::Public;
         };
         visibility_allows(visibility, graph, module_id, self.defs.module_id)
+    }
+
+    fn module_declaration_visible(
+        &self,
+        declaring_module: ModuleId,
+        visibility: Visibility,
+    ) -> bool {
+        let Some(graph) = self.graph() else {
+            return visibility == Visibility::Public;
+        };
+        module_declaration_visibility_allows(
+            visibility,
+            graph,
+            declaring_module,
+            self.defs.module_id,
+        )
+    }
+
+    fn child_module_declaration(
+        &self,
+        parent_module: ModuleId,
+        name: &str,
+    ) -> Option<(ModuleId, Visibility)> {
+        let graph = self.graph()?;
+        let parent = graph.get(parent_module)?;
+        let target = parent.children.get(name).copied()?;
+        let declaration = parent
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
+
+    fn direct_type_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+        let Some(target_defs) = self.defs_for_module(module_id) else {
+            return DirectMember::Unloaded;
+        };
+        let Some(def_id) = target_defs.module_scope.types.get(name) else {
+            return DirectMember::Missing;
+        };
+        let Some(def) = target_defs.defs.get(def_id) else {
+            return DirectMember::Missing;
+        };
+        if !self.visibility_allows(module_id, def.visibility) {
+            return DirectMember::Private;
+        }
+        DirectMember::Visible(def_id)
+    }
+
+    fn direct_value_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+        let Some(target_defs) = self.defs_for_module(module_id) else {
+            return DirectMember::Unloaded;
+        };
+        let Some(def_id) = target_defs.module_scope.values.get(name) else {
+            return DirectMember::Missing;
+        };
+        let Some(def) = target_defs.defs.get(def_id) else {
+            return DirectMember::Missing;
+        };
+        if !self.visibility_allows(module_id, def.visibility) {
+            return DirectMember::Private;
+        }
+        DirectMember::Visible(def_id)
     }
 }
 
@@ -283,6 +353,14 @@ enum ResolvedNamespace {
     Module(ModuleId),
     Type(GlobalDefId),
     Primitive(PrimitiveTy),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectMember<T> {
+    Visible(T),
+    Private,
+    Missing,
+    Unloaded,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -510,7 +588,7 @@ impl<'a> ValueResolver<'a> {
     }
 
     fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
-        let graph = self.graph.or(self.program_defs.graph)?;
+        let graph = self.graph()?;
         match name {
             "self" => Some(self.defs.module_id),
             "super" => graph.get(self.defs.module_id)?.parent,
@@ -543,28 +621,48 @@ impl<'a> ValueResolver<'a> {
                         }));
                     }
                 }
-                let target_defs = match self.defs_for_module(module_id) {
-                    Some(defs) => defs,
-                    None => {
+                if let Some((child_module, visibility)) =
+                    self.child_module_declaration(module_id, segment.name)
+                {
+                    if self.module_declaration_visible(module_id, visibility) {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0201",
+                        segment.span,
+                        format!("module namespace `{}` is private", segment.name),
+                    ));
+                    return None;
+                }
+                match self.direct_type_member(module_id, segment.name) {
+                    DirectMember::Visible(def_id) => {
+                        Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+                    }
+                    DirectMember::Private => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
+                            segment.span,
+                            format!("type `{}` is private", segment.name),
+                        ));
+                        None
+                    }
+                    DirectMember::Missing => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
+                            segment.span,
+                            format!("unknown namespace `{}`", segment.name),
+                        ));
+                        None
+                    }
+                    DirectMember::Unloaded => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0201",
                             segment.span,
                             "module namespace refers to an unloaded module",
                         ));
-                        return None;
+                        None
                     }
-                };
-                let def_id = target_defs.module_scope.types.get(segment.name)?;
-                let def = target_defs.defs.get(def_id)?;
-                if !self.visibility_allows(module_id, def.visibility) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
-                        segment.span,
-                        format!("type `{}` is private", segment.name),
-                    ));
-                    return None;
                 }
-                Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
             }
             ResolvedNamespace::Type(_) | ResolvedNamespace::Primitive(_) => None,
         }
@@ -608,19 +706,25 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
         }
-        let Some(target_defs) = self.defs_for_module(module_id) else {
+        if let Some((_child_module, visibility)) =
+            self.child_module_declaration(module_id, name.name)
+        {
+            if self.module_declaration_visible(module_id, visibility) {
+                return;
+            }
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0201",
                 span,
-                "module namespace refers to an unloaded module",
+                format!("module namespace `{}` is private", name.name),
             ));
             return;
-        };
-        if let Some(def_id) = target_defs.module_scope.types.get(name.name) {
-            let Some(def) = target_defs.defs.get(def_id) else {
+        }
+        match self.direct_type_member(module_id, name.name) {
+            DirectMember::Visible(def_id) => {
+                self.insert_qualified_type_prefix(node_key, GlobalDefId { module_id, def_id });
                 return;
-            };
-            if !self.visibility_allows(module_id, def.visibility) {
+            }
+            DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
                     span,
@@ -628,28 +732,49 @@ impl<'a> ValueResolver<'a> {
                 ));
                 return;
             }
-            self.insert_qualified_type_prefix(node_key, GlobalDefId { module_id, def_id });
-            return;
+            DirectMember::Missing => {}
+            DirectMember::Unloaded => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    "module namespace refers to an unloaded module",
+                ));
+                return;
+            }
         }
-        let Some(def_id) = target_defs.module_scope.values.get(name.name) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
-                span,
-                format!("unknown value `{}`", name.name),
-            ));
+        let def_id = match self.direct_value_member(module_id, name.name) {
+            DirectMember::Visible(def_id) => def_id,
+            DirectMember::Private => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    format!("value `{path_text}` is private"),
+                ));
+                return;
+            }
+            DirectMember::Missing => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    format!("unknown value `{}`", name.name),
+                ));
+                return;
+            }
+            DirectMember::Unloaded => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    "module namespace refers to an unloaded module",
+                ));
+                return;
+            }
+        };
+        let Some(target_defs) = self.defs_for_module(module_id) else {
             return;
         };
         let Some(def) = target_defs.defs.get(def_id) else {
             return;
         };
-        if !self.visibility_allows(module_id, def.visibility) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
-                span,
-                format!("value `{path_text}` is private"),
-            ));
-            return;
-        }
         if matches!(
             def.kind,
             DefKind::Function | DefKind::Global | DefKind::Comptime
