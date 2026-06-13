@@ -4,17 +4,18 @@ use nia_comptime_ir::{
     ComptimeUnaryOp, EarlyComptimeArrayElements, EarlyComptimeAssign, EarlyComptimeAssignPathElem,
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeBlock, EarlyComptimeExpr,
     EarlyComptimeExprKind, EarlyComptimeForIn, EarlyComptimeFunction, EarlyComptimeName,
-    EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
-    EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
-    EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
+    EarlyComptimeParam, EarlyComptimePattern, EarlyComptimeRange, EarlyComptimeSliceRange,
+    EarlyComptimeStmt, EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm,
+    EarlyComptimeSwitchArmBody, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
     ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign, ResolvedComptimeAssignPathElem,
     ResolvedComptimeAssignPathElemKind, ResolvedComptimeAssignTarget,
     ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding, ResolvedComptimeBlock,
     ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeFieldInit,
-    ResolvedComptimeForIn, ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
-    ResolvedComptimeSliceRange, ResolvedComptimeStmt, ResolvedComptimeStmtKind,
-    ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
-    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
+    ResolvedComptimeForIn, ResolvedComptimeFunction, ResolvedComptimeParam,
+    ResolvedComptimePatternKind, ResolvedComptimeRange, ResolvedComptimeSliceRange,
+    ResolvedComptimeStmt, ResolvedComptimeStmtKind, ResolvedComptimeSwitch,
+    ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
+    ResolvedComptimeTypeArg,
 };
 use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin,
@@ -77,7 +78,7 @@ macro_rules! eval_value_or_return_flow {
 
 struct ComptimeSwitchMatch<'a> {
     arm: &'a EarlyComptimeSwitchArm,
-    binding: Option<ComptimeSwitchBinding>,
+    bindings: Vec<ComptimeSwitchBinding>,
 }
 
 struct ComptimeSwitchBinding {
@@ -1059,7 +1060,7 @@ fn eval_resolved_comptime_if_expr_flow(
 
 struct ResolvedComptimeSwitchMatch<'a> {
     arm: &'a ResolvedComptimeSwitchArm,
-    binding: Option<ComptimeSwitchBinding>,
+    bindings: Vec<ComptimeSwitchBinding>,
 }
 
 fn eval_resolved_comptime_switch_expr_flow(
@@ -1150,118 +1151,20 @@ fn matching_switch_arm<'a>(
     let mut default = None;
     for arm in &switch.arms {
         for pattern in &arm.patterns {
-            match pattern {
-                EarlyComptimeSwitchPattern::Default => {
-                    default = Some(arm);
-                }
-                EarlyComptimeSwitchPattern::Expr(pattern) => {
-                    let pattern = eval_comptime_expr(pattern, env)?;
-                    if values_equal(target, &pattern).unwrap_or(false) {
-                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
-                    }
-                }
-                EarlyComptimeSwitchPattern::Range {
-                    start,
-                    end,
-                    inclusive,
-                    span,
-                } => {
-                    if switch_range_matches(target, start, end, *inclusive, *span, env)? {
-                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
-                    }
-                }
-                EarlyComptimeSwitchPattern::OptionalSome {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::Optional(Some(value)) => {
-                        return Ok(Some(ComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: *local_id,
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::Optional(None) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime optional switch pattern requires an optional target"
-                                .to_string(),
-                        });
-                    }
-                },
-                EarlyComptimeSwitchPattern::OptionalNull { span } => match target {
-                    ComptimeValue::Optional(None) => {
-                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
-                    }
-                    ComptimeValue::Optional(Some(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime optional switch pattern requires an optional target"
-                                .to_string(),
-                        });
-                    }
-                },
-                EarlyComptimeSwitchPattern::ErrorOk {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::ErrorUnion(Ok(value)) => {
-                        return Ok(Some(ComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: *local_id,
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::ErrorUnion(Err(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime error switch pattern requires an error-union target"
-                                .to_string(),
-                        });
-                    }
-                },
-                EarlyComptimeSwitchPattern::ErrorErr {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::ErrorUnion(Err(value)) => {
-                        return Ok(Some(ComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: *local_id,
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::ErrorUnion(Ok(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime error switch pattern requires an error-union target"
-                                .to_string(),
-                        });
-                    }
-                },
+            if matches!(pattern, EarlyComptimePattern::Wildcard { .. }) {
+                default = Some(arm);
+                continue;
+            }
+            let mut bindings = Vec::new();
+            if early_pattern_matches(target, pattern, env, &mut bindings)? {
+                return Ok(Some(ComptimeSwitchMatch { arm, bindings }));
             }
         }
     }
-    Ok(default.map(|arm| ComptimeSwitchMatch { arm, binding: None }))
+    Ok(default.map(|arm| ComptimeSwitchMatch {
+        arm,
+        bindings: Vec::new(),
+    }))
 }
 
 fn matching_resolved_switch_arm<'a>(
@@ -1272,119 +1175,166 @@ fn matching_resolved_switch_arm<'a>(
     let mut default = None;
     for arm in switch.arms() {
         for pattern in arm.patterns() {
-            match pattern.kind() {
-                ResolvedComptimeSwitchPatternKind::Default => {
-                    default = Some(arm);
-                }
-                ResolvedComptimeSwitchPatternKind::Expr(pattern) => {
-                    let pattern = eval_resolved_comptime_expr_value(pattern, env)?;
-                    if values_equal(target, &pattern).unwrap_or(false) {
-                        return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
-                    }
-                }
-                ResolvedComptimeSwitchPatternKind::Range {
-                    start,
-                    end,
-                    inclusive,
-                    span,
-                } => {
-                    if resolved_switch_range_matches(target, start, end, *inclusive, *span, env)? {
-                        return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
-                    }
-                }
-                ResolvedComptimeSwitchPatternKind::OptionalSome {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::Optional(Some(value)) => {
-                        return Ok(Some(ResolvedComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: Some(*local_id),
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::Optional(None) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime optional switch pattern requires an optional target"
-                                .to_string(),
-                        });
-                    }
-                },
-                ResolvedComptimeSwitchPatternKind::OptionalNull { span } => match target {
-                    ComptimeValue::Optional(None) => {
-                        return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
-                    }
-                    ComptimeValue::Optional(Some(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime null switch pattern requires an optional target"
-                                .to_string(),
-                        });
-                    }
-                },
-                ResolvedComptimeSwitchPatternKind::ErrorOk {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::ErrorUnion(Ok(value)) => {
-                        return Ok(Some(ResolvedComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: Some(*local_id),
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::ErrorUnion(Err(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message:
-                                "comptime error-ok switch pattern requires an error union target"
-                                    .to_string(),
-                        });
-                    }
-                },
-                ResolvedComptimeSwitchPatternKind::ErrorErr {
-                    name,
-                    local_id,
-                    span,
-                } => match target {
-                    ComptimeValue::ErrorUnion(Err(value)) => {
-                        return Ok(Some(ResolvedComptimeSwitchMatch {
-                            arm,
-                            binding: Some(ComptimeSwitchBinding {
-                                span: *span,
-                                name: name.clone(),
-                                local_id: Some(*local_id),
-                                value: (**value).clone(),
-                            }),
-                        }));
-                    }
-                    ComptimeValue::ErrorUnion(Ok(_)) => {}
-                    _ => {
-                        return Err(ComptimeError {
-                            span: *span,
-                            message: "comptime error switch pattern requires an error union target"
-                                .to_string(),
-                        });
-                    }
-                },
+            if matches!(pattern.kind(), ResolvedComptimePatternKind::Wildcard { .. }) {
+                default = Some(arm);
+                continue;
+            }
+            let mut bindings = Vec::new();
+            if resolved_pattern_matches(target, pattern, env, &mut bindings)? {
+                return Ok(Some(ResolvedComptimeSwitchMatch { arm, bindings }));
             }
         }
     }
-    Ok(default.map(|arm| ResolvedComptimeSwitchMatch { arm, binding: None }))
+    Ok(default.map(|arm| ResolvedComptimeSwitchMatch {
+        arm,
+        bindings: Vec::new(),
+    }))
+}
+
+fn early_pattern_matches(
+    target: &ComptimeValue,
+    pattern: &EarlyComptimePattern,
+    env: &mut impl EarlyComptimeEnv,
+    bindings: &mut Vec<ComptimeSwitchBinding>,
+) -> Result<bool, ComptimeError> {
+    match pattern {
+        EarlyComptimePattern::Wildcard { .. } => Ok(true),
+        EarlyComptimePattern::Bind {
+            name,
+            local_id,
+            span,
+        } => {
+            bindings.push(ComptimeSwitchBinding {
+                span: *span,
+                name: name.clone(),
+                local_id: *local_id,
+                value: target.clone(),
+            });
+            Ok(true)
+        }
+        EarlyComptimePattern::OptionalSome { pattern, span } => match target {
+            ComptimeValue::Optional(Some(value)) => {
+                early_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::Optional(None) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime optional switch pattern requires an optional target".to_string(),
+            }),
+        },
+        EarlyComptimePattern::OptionalNull { span } => match target {
+            ComptimeValue::Optional(None) => Ok(true),
+            ComptimeValue::Optional(Some(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime null switch pattern requires an optional target".to_string(),
+            }),
+        },
+        EarlyComptimePattern::ErrorOk { pattern, span } => match target {
+            ComptimeValue::ErrorUnion(Ok(value)) => {
+                early_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::ErrorUnion(Err(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime error-ok switch pattern requires an error union target"
+                    .to_string(),
+            }),
+        },
+        EarlyComptimePattern::ErrorErr { pattern, span } => match target {
+            ComptimeValue::ErrorUnion(Err(value)) => {
+                early_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::ErrorUnion(Ok(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime error switch pattern requires an error union target".to_string(),
+            }),
+        },
+        EarlyComptimePattern::Expr(pattern) => {
+            let pattern = eval_comptime_expr(pattern, env)?;
+            Ok(values_equal(target, &pattern).unwrap_or(false))
+        }
+        EarlyComptimePattern::Range {
+            start,
+            end,
+            inclusive,
+            span,
+        } => switch_range_matches(target, start, end, *inclusive, *span, env),
+    }
+}
+
+fn resolved_pattern_matches(
+    target: &ComptimeValue,
+    pattern: &nia_comptime_ir::ResolvedComptimePattern,
+    env: &mut impl ResolvedComptimeEnv,
+    bindings: &mut Vec<ComptimeSwitchBinding>,
+) -> Result<bool, ComptimeError> {
+    match pattern.kind() {
+        ResolvedComptimePatternKind::Wildcard { .. } => Ok(true),
+        ResolvedComptimePatternKind::Bind {
+            name,
+            local_id,
+            span,
+        } => {
+            bindings.push(ComptimeSwitchBinding {
+                span: *span,
+                name: name.clone(),
+                local_id: Some(*local_id),
+                value: target.clone(),
+            });
+            Ok(true)
+        }
+        ResolvedComptimePatternKind::OptionalSome { pattern, span } => match target {
+            ComptimeValue::Optional(Some(value)) => {
+                resolved_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::Optional(None) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime optional switch pattern requires an optional target".to_string(),
+            }),
+        },
+        ResolvedComptimePatternKind::OptionalNull { span } => match target {
+            ComptimeValue::Optional(None) => Ok(true),
+            ComptimeValue::Optional(Some(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime null switch pattern requires an optional target".to_string(),
+            }),
+        },
+        ResolvedComptimePatternKind::ErrorOk { pattern, span } => match target {
+            ComptimeValue::ErrorUnion(Ok(value)) => {
+                resolved_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::ErrorUnion(Err(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime error-ok switch pattern requires an error union target"
+                    .to_string(),
+            }),
+        },
+        ResolvedComptimePatternKind::ErrorErr { pattern, span } => match target {
+            ComptimeValue::ErrorUnion(Err(value)) => {
+                resolved_pattern_matches(value, pattern, env, bindings)
+            }
+            ComptimeValue::ErrorUnion(Ok(_)) => Ok(false),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime error switch pattern requires an error union target".to_string(),
+            }),
+        },
+        ResolvedComptimePatternKind::Expr(pattern) => {
+            let pattern = eval_resolved_comptime_expr_value(pattern, env)?;
+            Ok(values_equal(target, &pattern).unwrap_or(false))
+        }
+        ResolvedComptimePatternKind::Range {
+            start,
+            end,
+            inclusive,
+            span,
+        } => resolved_switch_range_matches(target, start, end, *inclusive, *span, env),
+    }
 }
 
 fn switch_range_matches(
@@ -1452,11 +1402,14 @@ fn eval_comptime_switch_match_body(
     matched: ComptimeSwitchMatch<'_>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let Some(binding) = matched.binding else {
+    if matched.bindings.is_empty() {
         return eval_comptime_switch_arm_body(&matched.arm.body, env);
-    };
+    }
     env.push_comptime_scope(matched.arm.span)?;
-    let bind_result = bind_switch_pattern_value(&binding, env);
+    let bind_result = matched
+        .bindings
+        .iter()
+        .try_for_each(|binding| bind_pattern_value(binding, env));
     let result = bind_result.and_then(|()| eval_comptime_switch_arm_body(&matched.arm.body, env));
     env.pop_comptime_scope();
     result
@@ -1479,18 +1432,21 @@ fn eval_resolved_comptime_switch_match_body(
     matched: ResolvedComptimeSwitchMatch<'_>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let Some(binding) = matched.binding else {
+    if matched.bindings.is_empty() {
         return eval_resolved_comptime_switch_arm_body(matched.arm.body(), env);
-    };
+    }
     env.push_comptime_scope(matched.arm.span())?;
-    let bind_result = bind_resolved_switch_pattern_value(&binding, env);
+    let bind_result = matched
+        .bindings
+        .iter()
+        .try_for_each(|binding| bind_resolved_pattern_value(binding, env));
     let result =
         bind_result.and_then(|()| eval_resolved_comptime_switch_arm_body(matched.arm.body(), env));
     env.pop_comptime_scope();
     result
 }
 
-fn bind_switch_pattern_value(
+fn bind_pattern_value(
     binding: &ComptimeSwitchBinding,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<(), ComptimeError> {
@@ -1502,7 +1458,7 @@ fn bind_switch_pattern_value(
     )
 }
 
-fn bind_resolved_switch_pattern_value(
+fn bind_resolved_pattern_value(
     binding: &ComptimeSwitchBinding,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<(), ComptimeError> {
@@ -4257,8 +4213,7 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value =
-            eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        let value = eval_early_comptime_int_expr(&lowered, &mut PatternEnv::default()).unwrap();
         assert_eq!(value, IntConst::signed(8));
     }
 
@@ -4280,8 +4235,7 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value =
-            eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        let value = eval_early_comptime_int_expr(&lowered, &mut PatternEnv::default()).unwrap();
         assert_eq!(value, IntConst::signed(5));
     }
 
@@ -4387,11 +4341,11 @@ fn main() bool {
     }
 
     #[derive(Default)]
-    struct SwitchPatternEnv {
+    struct PatternEnv {
         scopes: Vec<BTreeMap<String, ComptimeValue>>,
     }
 
-    impl ComptimeCommonEnv for SwitchPatternEnv {
+    impl ComptimeCommonEnv for PatternEnv {
         fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
             self.scopes.push(BTreeMap::new());
             Ok(())
@@ -4402,7 +4356,7 @@ fn main() bool {
         }
     }
 
-    impl EarlyComptimeEnv for SwitchPatternEnv {
+    impl EarlyComptimeEnv for PatternEnv {
         fn resolve_name(
             &mut self,
             span: Span,

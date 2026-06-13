@@ -742,11 +742,12 @@ comptime-only structs agree by their field type surface.
 Comptime `switch` expressions follow the same source-shaped typed surface.
 Value-producing arm bodies are typed and unified to one typed comptime value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
-do not invent a switch result type. Pattern payload locals are typed from the
-target type: `?payload` binds the optional payload, `!payload` binds the
-error-union success value, and `err!` binds the error payload. The evaluator
-still performs actual matching; the checker only records the arm and payload
-types needed for comptime generic inference.
+do not invent a switch result type. Pattern payload locals are typed
+recursively from the target type: `?pattern` descends into an optional payload,
+`!pattern` descends into an error-union success value, and `pattern!` descends
+into an error payload. The evaluator still performs actual matching; the
+checker only records the arm and payload types needed for comptime generic
+inference.
 
 Comptime function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into
@@ -867,9 +868,10 @@ monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
 Facts derived from comptime execution during body checking, such as array repeat
 counts and switch pattern values, are recorded here so later lowering can
 consume checked facts instead of re-running expression evaluation from source
-shape. If body IR lowering needs one of these facts and it is absent, that is a
-missing checked-fact boundary error and should be reported as recovery rather
-than repaired by evaluating another comptime expression.
+shape. If body IR lowering does not have a checked integer-pattern fact because
+the checker already rejected the pattern or the pattern is not an integer fact,
+it keeps the original expression-shaped pattern instead of re-running comptime
+evaluation or producing a second diagnostic.
 Integer and boolean switch patterns therefore enter `BodyIr` as checked pattern
 values or checked ranges; expression-shaped switch patterns remain only for
 patterns whose semantics are not represented by the integer-pattern fact, such

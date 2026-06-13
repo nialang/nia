@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
-
 use nia_ast::{
-    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt, StmtKind, SwitchArmBody,
-    SwitchPattern,
+    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Pattern, PatternKind, Stmt,
+    StmtKind, SwitchArmBody,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlowCheck {
@@ -17,6 +16,36 @@ pub struct FlowCheck {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Flow {
     falls_through: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum PatternFingerprint {
+    Bind,
+    OptionalSome(Box<PatternFingerprint>),
+    OptionalNull,
+    ErrorOk(Box<PatternFingerprint>),
+    ErrorErr(Box<PatternFingerprint>),
+    Expr(ExprFingerprint),
+    Range {
+        start: ExprFingerprint,
+        end: ExprFingerprint,
+        inclusive: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ExprFingerprint {
+    Integer(String),
+    Float(String),
+    String(Vec<String>),
+    ByteString(Vec<String>),
+    CString(Vec<String>),
+    Char(String),
+    ByteChar(String),
+    Bool(bool),
+    Null,
+    Ident(String),
+    Qualified(Box<ExprFingerprint>, String),
 }
 
 pub fn check_module_flow(
@@ -253,6 +282,18 @@ impl FlowChecker<'_> {
                     falls_through: then_flow.falls_through || else_flow.falls_through,
                 }
             }
+            ExprKind::IfPattern(if_pattern) => {
+                self.check_expr_flow(&if_pattern.target);
+                let mut falls_through = if_pattern.else_branch.is_none();
+                for arm in &if_pattern.arms {
+                    self.check_pattern_flow(&arm.pattern);
+                    falls_through |= self.check_block(&arm.body).falls_through;
+                }
+                if let Some(else_branch) = &if_pattern.else_branch {
+                    falls_through |= self.check_expr_flow(else_branch).falls_through;
+                }
+                Flow { falls_through }
+            }
             ExprKind::ComptimeIf(comptime_if) => {
                 self.check_expr_flow(&comptime_if.cond);
                 let then_flow = self.check_block(&comptime_if.then_branch);
@@ -273,20 +314,10 @@ impl FlowChecker<'_> {
                 let mut all_arms_terminate = !switch.arms.is_empty();
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        match pattern {
-                            SwitchPattern::Default => has_default = true,
-                            SwitchPattern::OptionalSome { .. }
-                            | SwitchPattern::OptionalNull { .. }
-                            | SwitchPattern::ErrorOk { .. }
-                            | SwitchPattern::ErrorErr { .. } => {}
-                            SwitchPattern::Expr(pattern) => {
-                                self.check_expr_flow(pattern);
-                            }
-                            SwitchPattern::Range { start, end, .. } => {
-                                self.check_expr_flow(start);
-                                self.check_expr_flow(end);
-                            }
+                        if matches!(&pattern.kind, PatternKind::Wildcard) {
+                            has_default = true;
                         }
+                        self.check_pattern_flow(pattern);
                     }
                     all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
                 }
@@ -425,85 +456,97 @@ impl FlowChecker<'_> {
         self.check_expr_flow(expr);
     }
 
+    fn check_pattern_flow(&mut self, pattern: &Pattern) {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
+            PatternKind::OptionalSome(pattern)
+            | PatternKind::ErrorOk(pattern)
+            | PatternKind::ErrorErr(pattern) => self.check_pattern_flow(pattern),
+            PatternKind::Expr(expr) => {
+                self.check_expr_flow(expr);
+            }
+            PatternKind::Range { start, end, .. } => {
+                self.check_expr_flow(start);
+                self.check_expr_flow(end);
+            }
+        }
+    }
+
     fn check_switch_patterns(&mut self, switch: &nia_ast::SwitchStmt) {
         let mut has_default = false;
-        let mut seen_patterns = HashSet::new();
+        let mut seen = HashSet::new();
         for arm in &switch.arms {
             for pattern in &arm.patterns {
-                match pattern {
-                    SwitchPattern::Default => {
-                        if has_default {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch default",
-                            ));
-                        }
-                        has_default = true;
+                if matches!(&pattern.kind, PatternKind::Wildcard) {
+                    if has_default {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0501",
+                            arm.span,
+                            "duplicate switch default",
+                        ));
                     }
-                    SwitchPattern::OptionalSome { .. } => {
-                        if !seen_patterns.insert("optional:some".to_string()) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
-                    SwitchPattern::OptionalNull { .. } => {
-                        if !seen_patterns.insert("optional:null".to_string()) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
-                    SwitchPattern::ErrorOk { .. } => {
-                        if !seen_patterns.insert("error:ok".to_string()) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
-                    SwitchPattern::ErrorErr { .. } => {
-                        if !seen_patterns.insert("error:err".to_string()) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
-                    SwitchPattern::Expr(expr) => {
-                        let key = format!("{:?}", expr.kind);
-                        if !seen_patterns.insert(key) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
-                    SwitchPattern::Range {
-                        start,
-                        end,
-                        inclusive,
-                        ..
-                    } => {
-                        let key = format!("range:{:?}:{:?}:{}", start.kind, end.kind, inclusive);
-                        if !seen_patterns.insert(key) {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0501",
-                                arm.span,
-                                "duplicate switch pattern",
-                            ));
-                        }
-                    }
+                    has_default = true;
+                    continue;
+                }
+                if let Some(fingerprint) = Self::pattern_fingerprint(pattern)
+                    && !seen.insert(fingerprint)
+                {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0501",
+                        pattern.span,
+                        "duplicate switch pattern",
+                    ));
                 }
             }
+        }
+    }
+
+    fn pattern_fingerprint(pattern: &Pattern) -> Option<PatternFingerprint> {
+        match &pattern.kind {
+            PatternKind::Wildcard => None,
+            PatternKind::Bind { .. } => Some(PatternFingerprint::Bind),
+            PatternKind::OptionalSome(pattern) => Some(PatternFingerprint::OptionalSome(Box::new(
+                Self::pattern_fingerprint(pattern)?,
+            ))),
+            PatternKind::OptionalNull => Some(PatternFingerprint::OptionalNull),
+            PatternKind::ErrorOk(pattern) => Some(PatternFingerprint::ErrorOk(Box::new(
+                Self::pattern_fingerprint(pattern)?,
+            ))),
+            PatternKind::ErrorErr(pattern) => Some(PatternFingerprint::ErrorErr(Box::new(
+                Self::pattern_fingerprint(pattern)?,
+            ))),
+            PatternKind::Expr(expr) => {
+                Some(PatternFingerprint::Expr(Self::expr_fingerprint(expr)?))
+            }
+            PatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => Some(PatternFingerprint::Range {
+                start: Self::expr_fingerprint(start)?,
+                end: Self::expr_fingerprint(end)?,
+                inclusive: *inclusive,
+            }),
+        }
+    }
+
+    fn expr_fingerprint(expr: &Expr) -> Option<ExprFingerprint> {
+        match &expr.kind {
+            ExprKind::Integer(value) => Some(ExprFingerprint::Integer(value.clone())),
+            ExprKind::Float(value) => Some(ExprFingerprint::Float(value.clone())),
+            ExprKind::String(value) => Some(ExprFingerprint::String(value.parts.clone())),
+            ExprKind::ByteString(value) => Some(ExprFingerprint::ByteString(value.parts.clone())),
+            ExprKind::CString(value) => Some(ExprFingerprint::CString(value.parts.clone())),
+            ExprKind::Char(value) => Some(ExprFingerprint::Char(value.clone())),
+            ExprKind::ByteChar(value) => Some(ExprFingerprint::ByteChar(value.clone())),
+            ExprKind::Bool(value) => Some(ExprFingerprint::Bool(*value)),
+            ExprKind::Null => Some(ExprFingerprint::Null),
+            ExprKind::Ident(name) => Some(ExprFingerprint::Ident(name.clone())),
+            ExprKind::Qualified { lhs, name } => Some(ExprFingerprint::Qualified(
+                Box::new(Self::expr_fingerprint(lhs)?),
+                name.clone(),
+            )),
+            _ => None,
         }
     }
 }

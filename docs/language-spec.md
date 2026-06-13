@@ -859,7 +859,7 @@ fn read(value: i32!i32) i32!i32 {
 }
 ```
 
-Switch can destructure optional and error-union values:
+Patterns can destructure optional and error-union values:
 
 ```nia
 switch maybe {
@@ -871,12 +871,21 @@ switch result {
     !x => x,
     err! => err,
 }
+
+switch nested {
+    ?!value => value,
+    ?err! => err,
+    null => 0,
+}
 ```
 
-`?name` binds the present optional payload. `null` matches the empty optional
-case. `!name` binds the error-union success payload. `name!` binds the
-error-union error payload. A binding pattern must be the only pattern in its arm,
-because the binding is only initialized on that case.
+`?pattern` matches the present optional case and matches `pattern` against the
+payload. `null` matches the empty optional case. `!pattern` matches the
+error-union success case. `pattern!` matches the error-union error case.
+Patterns may be nested, so `?!value` matches an optional present value whose
+payload is an error-union success value, while `?err!` matches the nested error
+case. A binding pattern must be the only pattern in its arm, because the binding
+is only initialized on that case.
 
 ### 4.6 Structs
 
@@ -1267,7 +1276,7 @@ Open-ended switch range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
 ranges and overlapping integer patterns are rejected.
 
-Optional and error-union switches use dedicated case patterns:
+Optional and error-union switches use recursive case patterns:
 
 ```nia
 switch value {
@@ -1279,11 +1288,22 @@ switch result {
     !x => return x;
     err! => return err;
 }
+
+switch nested {
+    ?!value => return value;
+    ?err! => return err;
+    null => return 0;
+}
 ```
 
-Optional switches must cover `?name` and `null`, or provide `_`. Error-union
-switches must cover `!name` and `name!`, or provide `_`. Binding patterns may
-not be combined with other patterns in the same arm.
+`?pattern` matches the payload of a present optional. `!pattern` matches the
+success payload of an error union. `pattern!` matches the error payload of an
+error union. `null` and `_` match the empty optional case and the fallback case.
+Patterns may nest across optional and error-union layers.
+
+Optional switches must cover `?pattern` and `null`, or provide `_`. Error-union
+switches must cover `!pattern` and `pattern!`, or provide `_`. A binding pattern
+may not be combined with other patterns in the same arm.
 
 Switch expression arms must produce compatible value types unless an arm exits
 through `return`, `break`, or `continue`. Switches over closed enums must cover
@@ -1558,7 +1578,8 @@ Block-shaped control flow used as a standalone statement does not need a trailin
 semicolon. The recommended rule is:
 
 - ordinary expression statements need `;`;
-- `if` and `for` used as standalone statements do not need `;`;
+- `if`, `if let`, `if var`, `for`, and `switch` used as standalone statements
+  do not need `;`;
 - a block tail expression does not use `;`.
 
 ## 8. Expressions
@@ -1592,6 +1613,28 @@ var result = if score >= 60 {
 When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
+
+`if let` and `if var` match a value with the same pattern language used by
+`switch`:
+
+```nia
+if let !value = result {
+    use(value);
+} else err! {
+    return map_error(err)!;
+}
+```
+
+The first arm writes `if let pattern = expr` or `if var pattern = expr`.
+Additional pattern arms write `else pattern { ... }`; they do not repeat `let`
+or `var`. A final `else { ... }` block may be used as a fallback. `if let`
+creates immutable pattern bindings, while `if var` creates mutable pattern
+bindings. The matched expression is evaluated once and then tested against each
+pattern arm in order.
+
+When all pattern arms cover the matched type, an `if let` or `if var` expression
+may produce a value without a final `else` block. Otherwise, omitting the final
+`else` makes the expression type `void`, like an ordinary `if` without `else`.
 
 ### 8.3 Loops
 
@@ -2990,7 +3033,8 @@ this document:
 
 - associated type families and full trait obligation solving;
 - payload-carrying algebraic data types beyond current enums;
-- pattern matching beyond current switch expressions;
+- aggregate destructuring patterns beyond current optional and error-union
+  patterns;
 - closures;
 - package management semantics;
 - LSP semantics;

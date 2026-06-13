@@ -96,6 +96,33 @@ pub struct ComptimeIfExpr {
     pub else_branch: Option<Box<Expr>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternBindingMode {
+    Let,
+    Var,
+}
+
+impl PatternBindingMode {
+    pub fn is_let(self) -> bool {
+        matches!(self, Self::Let)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfPatternExpr {
+    pub binding_mode: PatternBindingMode,
+    pub target: Expr,
+    pub arms: Vec<IfPatternArm>,
+    pub else_branch: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfPatternArm {
+    pub pattern: Pattern,
+    pub body: Block,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchStmt {
     pub target: Expr,
@@ -104,38 +131,48 @@ pub struct SwitchStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchArm {
-    pub patterns: Vec<SwitchPattern>,
+    pub patterns: Vec<Pattern>,
     pub body: SwitchArmBody,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SwitchPattern {
-    Default,
-    OptionalSome {
+pub struct Pattern {
+    pub span: Span,
+    pub kind: PatternKind,
+}
+
+impl Pattern {
+    pub fn contains_binding(&self) -> bool {
+        match &self.kind {
+            PatternKind::Bind { .. } => true,
+            PatternKind::OptionalSome(pattern)
+            | PatternKind::ErrorOk(pattern)
+            | PatternKind::ErrorErr(pattern) => pattern.contains_binding(),
+            PatternKind::Wildcard
+            | PatternKind::OptionalNull
+            | PatternKind::Expr(_)
+            | PatternKind::Range { .. } => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
+    Wildcard,
+    Bind {
         name: String,
-        span: Span,
         node_key: NodeKey,
     },
-    OptionalNull {
-        span: Span,
-    },
-    ErrorOk {
-        name: String,
-        span: Span,
-        node_key: NodeKey,
-    },
-    ErrorErr {
-        name: String,
-        span: Span,
-        node_key: NodeKey,
-    },
+    OptionalSome(Box<Pattern>),
+    OptionalNull,
+    ErrorOk(Box<Pattern>),
+    ErrorErr(Box<Pattern>),
     Expr(Box<Expr>),
     Range {
         start: Box<Expr>,
         end: Box<Expr>,
         inclusive: bool,
-        span: Span,
     },
 }
 
@@ -261,6 +298,7 @@ pub enum ExprKind {
         then_branch: Block,
         else_branch: Option<Box<Expr>>,
     },
+    IfPattern(Box<IfPatternExpr>),
     ComptimeIf(Box<ComptimeIfExpr>),
     Switch(Box<SwitchStmt>),
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
+    Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody,
 };
 use nia_comptime_ir::{
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeExpr, EarlyComptimeExprKind,
@@ -522,6 +522,34 @@ impl Pruner<'_> {
                         .map(|else_branch| Box::new(self.prune_expr(*else_branch))),
                 },
             },
+            ExprKind::IfPattern(mut if_pattern) => {
+                if_pattern.target = self.prune_expr(if_pattern.target);
+                for arm in &mut if_pattern.arms {
+                    arm.pattern = self.prune_pattern(std::mem::replace(
+                        &mut arm.pattern,
+                        Pattern {
+                            span: arm.span,
+                            kind: PatternKind::Wildcard,
+                        },
+                    ));
+                    arm.body = self.prune_block(std::mem::replace(
+                        &mut arm.body,
+                        Block {
+                            span: arm.span,
+                            stmts: Vec::new(),
+                            tail: None,
+                        },
+                    ));
+                }
+                if_pattern.else_branch = if_pattern
+                    .else_branch
+                    .map(|else_branch| Box::new(self.prune_expr(*else_branch)));
+                Expr {
+                    span,
+                    node_key,
+                    kind: ExprKind::IfPattern(if_pattern),
+                }
+            }
             ExprKind::Unary { op, expr: inner } => Expr {
                 span,
                 node_key,
@@ -641,53 +669,13 @@ impl Pruner<'_> {
                 switch.target = self.prune_expr(switch.target);
                 for arm in &mut switch.arms {
                     for pattern in &mut arm.patterns {
-                        *pattern = match std::mem::replace(pattern, SwitchPattern::Default) {
-                            SwitchPattern::Default => SwitchPattern::Default,
-                            SwitchPattern::OptionalSome {
-                                name,
-                                span,
-                                node_key,
-                            } => SwitchPattern::OptionalSome {
-                                name,
-                                span,
-                                node_key,
+                        *pattern = self.prune_pattern(std::mem::replace(
+                            pattern,
+                            Pattern {
+                                span: arm.span,
+                                kind: PatternKind::Wildcard,
                             },
-                            SwitchPattern::OptionalNull { span } => {
-                                SwitchPattern::OptionalNull { span }
-                            }
-                            SwitchPattern::ErrorOk {
-                                name,
-                                span,
-                                node_key,
-                            } => SwitchPattern::ErrorOk {
-                                name,
-                                span,
-                                node_key,
-                            },
-                            SwitchPattern::ErrorErr {
-                                name,
-                                span,
-                                node_key,
-                            } => SwitchPattern::ErrorErr {
-                                name,
-                                span,
-                                node_key,
-                            },
-                            SwitchPattern::Expr(expr) => {
-                                SwitchPattern::Expr(Box::new(self.prune_expr(*expr)))
-                            }
-                            SwitchPattern::Range {
-                                start,
-                                end,
-                                inclusive,
-                                span,
-                            } => SwitchPattern::Range {
-                                start: Box::new(self.prune_expr(*start)),
-                                end: Box::new(self.prune_expr(*end)),
-                                inclusive,
-                                span,
-                            },
-                        };
+                        ));
                     }
                     arm.body = match std::mem::replace(
                         &mut arm.body,
@@ -760,6 +748,36 @@ impl Pruner<'_> {
         match index {
             IndexArg::Expr(expr) => IndexArg::Expr(Box::new(self.prune_expr(*expr))),
             IndexArg::Range(range) => IndexArg::Range(self.prune_range(range)),
+        }
+    }
+
+    fn prune_pattern(&mut self, pattern: Pattern) -> Pattern {
+        Pattern {
+            span: pattern.span,
+            kind: match pattern.kind {
+                kind @ (PatternKind::Wildcard
+                | PatternKind::Bind { .. }
+                | PatternKind::OptionalNull) => kind,
+                PatternKind::OptionalSome(pattern) => {
+                    PatternKind::OptionalSome(Box::new(self.prune_pattern(*pattern)))
+                }
+                PatternKind::ErrorOk(pattern) => {
+                    PatternKind::ErrorOk(Box::new(self.prune_pattern(*pattern)))
+                }
+                PatternKind::ErrorErr(pattern) => {
+                    PatternKind::ErrorErr(Box::new(self.prune_pattern(*pattern)))
+                }
+                PatternKind::Expr(expr) => PatternKind::Expr(Box::new(self.prune_expr(*expr))),
+                PatternKind::Range {
+                    start,
+                    end,
+                    inclusive,
+                } => PatternKind::Range {
+                    start: Box::new(self.prune_expr(*start)),
+                    end: Box::new(self.prune_expr(*end)),
+                    inclusive,
+                },
+            },
         }
     }
 

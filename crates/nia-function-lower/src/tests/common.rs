@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    TypedBody, TypedExpr, TypedExprKind, TypedForBinding, TypedForIn, TypedLocal, TypedLocalKind,
-    TypedLoop, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedBody, TypedExpr, TypedExprKind, TypedForBinding, TypedForIn, TypedIfPattern,
+    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedPattern, TypedPatternKind,
+    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
 };
 pub(super) use nia_function_ir::*;
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
@@ -108,10 +109,12 @@ pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedB
 
 pub(super) fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![TypedSwitchPattern::CheckedInt {
-            value: value.into(),
+        patterns: vec![TypedPattern {
             ty: test_ty(),
             span: Span::default(),
+            kind: TypedPatternKind::CheckedInt {
+                value: value.into(),
+            },
         }],
         body,
         span: Span::default(),
@@ -125,12 +128,14 @@ pub(super) fn switch_range_arm(
     body: TypedSwitchArmBody,
 ) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![TypedSwitchPattern::CheckedIntRange {
-            start: start.into(),
-            end: end.into(),
-            inclusive,
+        patterns: vec![TypedPattern {
             ty: test_ty(),
             span: Span::default(),
+            kind: TypedPatternKind::CheckedIntRange {
+                start: start.into(),
+                end: end.into(),
+                inclusive,
+            },
         }],
         body,
         span: Span::default(),
@@ -139,7 +144,11 @@ pub(super) fn switch_range_arm(
 
 pub(super) fn switch_default_arm(body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![TypedSwitchPattern::Default],
+        patterns: vec![TypedPattern {
+            ty: test_ty(),
+            span: Span::default(),
+            kind: TypedPatternKind::Wildcard,
+        }],
         body,
         span: Span::default(),
     }

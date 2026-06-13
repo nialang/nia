@@ -260,6 +260,102 @@ fn main(state: i32) i32 {
 }
 
 #[test]
+fn parses_if_pattern_arms_and_recursive_payload_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
+    let a = if let !ok = result {
+        ok
+    } else err! {
+        err
+    };
+    let b = if var x = value {
+        x
+    } else {
+        0
+    };
+    switch nested {
+        ?5! => 5,
+        ?err! => err,
+        ?!ok => ok,
+        null => a + b,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+
+    let StmtKind::Binding(first) = &body.stmts[0].kind else {
+        panic!("expected first binding");
+    };
+    let ExprKind::IfPattern(if_pattern) = &first.value.as_ref().expect("expected value").kind
+    else {
+        panic!("expected if-pattern expression");
+    };
+    assert_eq!(if_pattern.binding_mode, PatternBindingMode::Let);
+    assert_eq!(if_pattern.arms.len(), 2);
+    assert!(matches!(
+        &if_pattern.arms[0].pattern.kind,
+        PatternKind::ErrorOk(inner)
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "ok")
+    ));
+    assert!(matches!(
+        &if_pattern.arms[1].pattern.kind,
+        PatternKind::ErrorErr(inner)
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "err")
+    ));
+
+    let StmtKind::Binding(second) = &body.stmts[1].kind else {
+        panic!("expected second binding");
+    };
+    let ExprKind::IfPattern(if_pattern) = &second.value.as_ref().expect("expected value").kind
+    else {
+        panic!("expected if-pattern expression");
+    };
+    assert_eq!(if_pattern.binding_mode, PatternBindingMode::Var);
+    assert!(matches!(
+        &if_pattern.arms[0].pattern.kind,
+        PatternKind::Bind { name, .. } if name == "x"
+    ));
+    assert!(if_pattern.else_branch.is_some());
+
+    let ExprKind::Switch(switch) = &body.tail.as_ref().expect("expected tail").kind else {
+        panic!("expected switch tail");
+    };
+    assert!(matches!(
+        &switch.arms[0].patterns[0].kind,
+        PatternKind::OptionalSome(inner)
+            if matches!(
+                &inner.kind,
+                PatternKind::ErrorErr(payload)
+                    if matches!(&payload.kind, PatternKind::Expr(_))
+            )
+    ));
+    assert!(matches!(
+        &switch.arms[1].patterns[0].kind,
+        PatternKind::OptionalSome(inner)
+            if matches!(
+                &inner.kind,
+                PatternKind::ErrorErr(payload)
+                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if name == "err")
+            )
+    ));
+    assert!(matches!(
+        &switch.arms[2].patterns[0].kind,
+        PatternKind::OptionalSome(inner)
+            if matches!(
+                &inner.kind,
+                PatternKind::ErrorOk(payload)
+                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if name == "ok")
+            )
+    ));
+}
+
+#[test]
 fn parses_switch_arm_pattern_lists_and_ranges() {
     let (module, errors) = parse_module(
         r#"
@@ -283,23 +379,32 @@ fn main(state: i32) i32 {
         panic!("expected switch expression");
     };
     assert_eq!(switch.arms[0].patterns.len(), 2);
-    assert!(matches!(switch.arms[0].patterns[0], SwitchPattern::Expr(_)));
-    assert!(matches!(switch.arms[0].patterns[1], SwitchPattern::Expr(_)));
     assert!(matches!(
-        switch.arms[1].patterns[0],
-        SwitchPattern::Range {
+        &switch.arms[0].patterns[0].kind,
+        PatternKind::Expr(_)
+    ));
+    assert!(matches!(
+        &switch.arms[0].patterns[1].kind,
+        PatternKind::Expr(_)
+    ));
+    assert!(matches!(
+        &switch.arms[1].patterns[0].kind,
+        PatternKind::Range {
             inclusive: false,
             ..
         }
     ));
     assert!(matches!(
-        switch.arms[2].patterns[0],
-        SwitchPattern::Range {
+        &switch.arms[2].patterns[0].kind,
+        PatternKind::Range {
             inclusive: true,
             ..
         }
     ));
-    assert!(matches!(switch.arms[3].patterns[0], SwitchPattern::Default));
+    assert!(matches!(
+        &switch.arms[3].patterns[0].kind,
+        PatternKind::Wildcard
+    ));
 }
 
 #[test]

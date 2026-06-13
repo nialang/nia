@@ -2,6 +2,12 @@
 use super::expr::expr_can_terminate_statement_without_semicolon;
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PatternIdentMode {
+    Expr,
+    Bind,
+}
+
 impl Parser {
     pub(super) fn parse_stmt(&mut self) -> Option<Stmt> {
         let start = self.peek().span.start;
@@ -236,10 +242,11 @@ impl Parser {
         Some(SwitchStmt { target, arms })
     }
 
-    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<SwitchPattern>> {
+    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
         let mut patterns = Vec::new();
         loop {
-            patterns.push(self.parse_switch_arm_pattern()?);
+            patterns
+                .push(self.parse_pattern_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?);
             if self.at(TokenKind::FatArrow) {
                 break;
             }
@@ -255,80 +262,134 @@ impl Parser {
         Some(patterns)
     }
 
-    fn parse_switch_arm_pattern(&mut self) -> Option<SwitchPattern> {
-        if self.eat(TokenKind::Underscore).is_some() {
-            return Some(SwitchPattern::Default);
-        }
-        if self.at(TokenKind::Question) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident))
-        {
-            let start = self
-                .expect(
-                    TokenKind::Question,
-                    "expected `?` in optional switch pattern",
-                )?
-                .start;
-            let name = self.expect_text(TokenKind::Ident, "expected optional payload name")?;
-            let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::OptionalSome {
-                name,
+    pub(super) fn parse_pattern_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        self.parse_pattern_until(stops, PatternIdentMode::Expr)
+    }
+
+    pub(super) fn parse_binding_pattern_until_tokens(
+        &mut self,
+        stops: &[TokenKind],
+    ) -> Option<Pattern> {
+        self.parse_pattern_until(stops, PatternIdentMode::Bind)
+    }
+
+    fn parse_payload_pattern_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        self.parse_pattern_until(stops, PatternIdentMode::Bind)
+    }
+
+    fn parse_pattern_until(
+        &mut self,
+        stops: &[TokenKind],
+        mode: PatternIdentMode,
+    ) -> Option<Pattern> {
+        let mut pattern = self.parse_pattern_atom_until(stops, mode)?;
+        while self.eat(TokenKind::Bang).is_some() {
+            let span = Span::new(pattern.span.start, self.previous_end());
+            pattern = Pattern {
                 span,
-                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+                kind: PatternKind::ErrorErr(Box::new(pattern)),
+            };
+        }
+        Some(pattern)
+    }
+
+    fn parse_pattern_atom_until(
+        &mut self,
+        stops: &[TokenKind],
+        mode: PatternIdentMode,
+    ) -> Option<Pattern> {
+        if self.at(TokenKind::Underscore) {
+            let span = self.expect(TokenKind::Underscore, "expected `_` in pattern")?;
+            return Some(Pattern {
+                span,
+                kind: PatternKind::Wildcard,
+            });
+        }
+        if self.at(TokenKind::Question) {
+            let start = self
+                .expect(TokenKind::Question, "expected `?` in optional pattern")?
+                .start;
+            let pattern = self.parse_payload_pattern_until(stops)?;
+            return Some(Pattern {
+                span: Span::new(start, pattern.span.end),
+                kind: PatternKind::OptionalSome(Box::new(pattern)),
             });
         }
         if self.at(TokenKind::Null) {
-            let span = self.expect(
-                TokenKind::Null,
-                "expected `null` in optional switch pattern",
-            )?;
-            return Some(SwitchPattern::OptionalNull { span });
+            let span = self.expect(TokenKind::Null, "expected `null` in optional pattern")?;
+            return Some(Pattern {
+                span,
+                kind: PatternKind::OptionalNull,
+            });
         }
-        if self.at(TokenKind::Bang) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident)) {
+        if self.at(TokenKind::Bang) {
             let start = self
                 .expect(
                     TokenKind::Bang,
-                    "expected `!` in error success switch pattern",
+                    "expected `!` in error-union success pattern",
                 )?
                 .start;
-            let name = self.expect_text(TokenKind::Ident, "expected error-union success name")?;
-            let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::ErrorOk {
-                name,
-                span,
-                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+            let pattern = self.parse_payload_pattern_until(stops)?;
+            return Some(Pattern {
+                span: Span::new(start, pattern.span.end),
+                kind: PatternKind::ErrorOk(Box::new(pattern)),
             });
         }
-        if self.at(TokenKind::Ident) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Bang)) {
-            let start = self.peek().span.start;
-            let name = self.expect_text(TokenKind::Ident, "expected error name")?;
-            self.expect(TokenKind::Bang, "expected `!` after error name")?;
-            let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::ErrorErr {
-                name,
+        if (mode == PatternIdentMode::Bind
+            || matches!(self.tokens.nth_kind(1), Some(TokenKind::Bang)))
+            && self.at_bare_pattern_binding(stops)
+        {
+            let span = self.peek().span;
+            let name = self.expect_text(TokenKind::Ident, "expected pattern binding")?;
+            return Some(Pattern {
                 span,
-                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+                kind: PatternKind::Bind {
+                    name,
+                    node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+                },
             });
         }
-        let expr = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?;
+        let mut expr_stops = stops.to_vec();
+        if !expr_stops.contains(&TokenKind::Bang) {
+            expr_stops.push(TokenKind::Bang);
+        }
+        let expr = self.parse_expr_until_tokens(&expr_stops)?;
         let ExprKind::Range(range) = expr.kind else {
-            return Some(SwitchPattern::Expr(Box::new(expr)));
+            return Some(Pattern {
+                span: expr.span,
+                kind: PatternKind::Expr(Box::new(expr)),
+            });
         };
         match (&range.start, &range.end) {
-            (Some(start), Some(end)) => Some(SwitchPattern::Range {
-                start: Box::new((**start).clone()),
-                end: Box::new((**end).clone()),
-                inclusive: range.inclusive,
+            (Some(start), Some(end)) => Some(Pattern {
                 span: expr.span,
+                kind: PatternKind::Range {
+                    start: Box::new((**start).clone()),
+                    end: Box::new((**end).clone()),
+                    inclusive: range.inclusive,
+                },
             }),
             _ => {
                 self.error_at(
                     expr.span,
                     "open-ended switch range patterns are not supported; use `_` for the default arm",
                 );
-                Some(SwitchPattern::Expr(Box::new(
-                    self.make_expr(expr.span, ExprKind::Range(range)),
-                )))
+                Some(Pattern {
+                    span: expr.span,
+                    kind: PatternKind::Expr(Box::new(
+                        self.make_expr(expr.span, ExprKind::Range(range)),
+                    )),
+                })
             }
         }
+    }
+
+    fn at_bare_pattern_binding(&self, stops: &[TokenKind]) -> bool {
+        self.at(TokenKind::Ident)
+            && self
+                .tokens
+                .nth_kind(1)
+                .is_some_and(|kind| *kind == TokenKind::Bang || stops.contains(kind))
     }
 
     fn parse_switch_arm_body(&mut self) -> Option<SwitchArmBody> {

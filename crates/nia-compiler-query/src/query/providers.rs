@@ -3,8 +3,8 @@ use super::*;
 use crate::RuntimeModel;
 use nia_body_ir::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPlace, TypedStmt,
-    TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
+    TypedPlace, TypedStmt, TypedStmtKind, TypedSwitchArmBody,
 };
 use nia_defs::DefKind;
 use nia_ids::{InternedTyId, TraitId};
@@ -1256,13 +1256,23 @@ fn collect_typed_expr_refs(expr: &TypedExpr, refs: &mut TypedBodyRefs) {
             collect_typed_expr_refs(&switch.target, refs);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
-                    collect_typed_switch_pattern_refs(pattern, refs);
+                    collect_typed_pattern_refs(pattern, refs);
                 }
                 match &arm.body {
                     TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(expr, refs),
                     TypedSwitchArmBody::Stmt(stmt) => collect_typed_stmt_refs(stmt, refs),
                     TypedSwitchArmBody::Block(body) => collect_typed_body_refs(body, refs),
                 }
+            }
+        }
+        TypedExprKind::IfPattern(if_pattern) => {
+            collect_typed_expr_refs(&if_pattern.target, refs);
+            for arm in &if_pattern.arms {
+                collect_typed_pattern_refs(&arm.pattern, refs);
+                collect_typed_body_refs(&arm.body, refs);
+            }
+            if let Some(else_branch) = if_pattern.else_branch.as_deref() {
+                collect_typed_expr_refs(else_branch, refs);
             }
         }
         TypedExprKind::Error
@@ -1334,20 +1344,21 @@ fn collect_typed_callee_refs(callee: &TypedCallee, refs: &mut TypedBodyRefs) {
     }
 }
 
-fn collect_typed_switch_pattern_refs(pattern: &TypedSwitchPattern, refs: &mut TypedBodyRefs) {
-    match pattern {
-        TypedSwitchPattern::Expr(expr) => collect_typed_expr_refs(expr, refs),
-        TypedSwitchPattern::Range { start, end, .. } => {
+fn collect_typed_pattern_refs(pattern: &TypedPattern, refs: &mut TypedBodyRefs) {
+    match &pattern.kind {
+        TypedPatternKind::OptionalSome(pattern)
+        | TypedPatternKind::ErrorOk(pattern)
+        | TypedPatternKind::ErrorErr(pattern) => collect_typed_pattern_refs(pattern, refs),
+        TypedPatternKind::Expr(expr) => collect_typed_expr_refs(expr, refs),
+        TypedPatternKind::Range { start, end, .. } => {
             collect_typed_expr_refs(start, refs);
             collect_typed_expr_refs(end, refs);
         }
-        TypedSwitchPattern::Default
-        | TypedSwitchPattern::OptionalSome { .. }
-        | TypedSwitchPattern::OptionalNull { .. }
-        | TypedSwitchPattern::ErrorOk { .. }
-        | TypedSwitchPattern::ErrorErr { .. }
-        | TypedSwitchPattern::CheckedInt { .. }
-        | TypedSwitchPattern::CheckedIntRange { .. } => {}
+        TypedPatternKind::Wildcard
+        | TypedPatternKind::Bind { .. }
+        | TypedPatternKind::OptionalNull
+        | TypedPatternKind::CheckedInt { .. }
+        | TypedPatternKind::CheckedIntRange { .. } => {}
     }
 }
 
