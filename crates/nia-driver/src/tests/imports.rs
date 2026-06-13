@@ -773,6 +773,28 @@ fn main() usize {
 }
 
 #[test]
+fn std_facade_range_function_can_be_imported_directly() {
+    let root = temp_dir("std_facade_range_function_can_be_imported_directly");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::range;
+
+fn main() usize {
+    var total = 0usize;
+    for i in range(0usize..4usize) {
+        total += i;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
     let root = temp_dir("std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type");
     write(
