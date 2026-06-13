@@ -889,6 +889,42 @@ fn main() usize {
 }
 
 #[test]
+fn std_facade_type_can_be_imported_directly() {
+    let root = temp_dir("std_facade_type_can_be_imported_directly");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::CStr;
+
+fn main() void {
+    let text = CStr::from_ptr(c"nia");
+    _ = text;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_type_can_be_named_by_package_root_path() {
+    let root = temp_dir("std_facade_type_can_be_named_by_package_root_path");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() void {
+    let text = std::CStr::from_ptr(c"nia");
+    _ = text;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_type_alias_can_be_used_as_associated_call_prefix() {
     let root = temp_dir("imported_type_alias_can_be_used_as_associated_call_prefix");
     write(
