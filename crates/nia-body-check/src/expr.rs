@@ -472,20 +472,21 @@ impl<'a> BodyChecker<'a> {
         let expected = expected.and_then(|expected| self.expected_range_parts(expected));
         let start_expected = expected.and_then(|expected| expected.bound);
         let end_expected = expected.and_then(|expected| expected.bound);
-        let start_ty = range.start.as_ref().map(|start| {
-            let actual = self.check_expr_with_expected(start, start_expected);
-            if let Some(expected) = start_expected {
-                self.expect_expr_type(start, expected, actual, "range start");
-            }
-            self.expr_ty(start).unwrap_or(actual)
-        });
-        let end_ty = range.end.as_ref().map(|end| {
-            let actual = self.check_expr_with_expected(end, end_expected);
-            if let Some(expected) = end_expected {
-                self.expect_expr_type(end, expected, actual, "range end");
-            }
-            self.expr_ty(end).unwrap_or(actual)
-        });
+        let (start_ty, end_ty) = if start_expected.is_none()
+            && end_expected.is_none()
+            && let (Some(start), Some(end)) = (&range.start, &range.end)
+        {
+            self.check_range_bounds_with_peer_expected(start, end)
+        } else {
+            (
+                range.start.as_ref().map(|start| {
+                    self.check_range_bound_with_expected(start, start_expected, "range start")
+                }),
+                range.end.as_ref().map(|end| {
+                    self.check_range_bound_with_expected(end, end_expected, "range end")
+                }),
+            )
+        };
         for (ty, context) in [(start_ty, "range start"), (end_ty, "range end")] {
             if let Some(ty) = ty {
                 self.expect_integer(span, ty, context);
@@ -530,6 +531,42 @@ impl<'a> BodyChecker<'a> {
             (None, None) => None,
         };
         self.interner.intern(TyKind::Range { kind, bound })
+    }
+
+    fn check_range_bounds_with_peer_expected(
+        &mut self,
+        start: &Expr,
+        end: &Expr,
+    ) -> (Option<InternedTyId>, Option<InternedTyId>) {
+        let start_is_untyped_literal = self.is_untyped_numeric_literal_expr(start);
+        let end_is_untyped_literal = self.is_untyped_numeric_literal_expr(end);
+        if start_is_untyped_literal && !end_is_untyped_literal {
+            let end_ty = self.check_range_bound_with_expected(end, None, "range end");
+            let start_ty = self.check_range_bound_with_expected(start, Some(end_ty), "range start");
+            return (Some(start_ty), Some(end_ty));
+        }
+        if end_is_untyped_literal && !start_is_untyped_literal {
+            let start_ty = self.check_range_bound_with_expected(start, None, "range start");
+            let end_ty = self.check_range_bound_with_expected(end, Some(start_ty), "range end");
+            return (Some(start_ty), Some(end_ty));
+        }
+        (
+            Some(self.check_range_bound_with_expected(start, None, "range start")),
+            Some(self.check_range_bound_with_expected(end, None, "range end")),
+        )
+    }
+
+    fn check_range_bound_with_expected(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+        context: &str,
+    ) -> InternedTyId {
+        let actual = self.check_expr_with_expected(expr, expected);
+        if let Some(expected) = expected {
+            self.expect_expr_type(expr, expected, actual, context);
+        }
+        self.expr_ty(expr).unwrap_or(actual)
     }
 
     fn expected_range_parts(&self, expected: InternedTyId) -> Option<ExpectedRangeParts> {
@@ -979,6 +1016,10 @@ impl<'a> BodyChecker<'a> {
                     expr,
                 } if matches!(expr.kind, ExprKind::Integer(_) | ExprKind::Float(_))
             )
+    }
+
+    fn is_untyped_numeric_literal_expr(&self, expr: &Expr) -> bool {
+        self.is_numeric_literal_expr(expr) && !self.numeric_literal_has_suffix(expr)
     }
 
     fn check_cast(&mut self, span: Span, source: InternedTyId, target: InternedTyId) {

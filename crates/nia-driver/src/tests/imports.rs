@@ -780,12 +780,20 @@ fn std_facade_range_function_can_be_imported_directly() {
         r#"
 using std::range;
 
-fn main() usize {
+fn sum_to(count: usize) usize {
     var total = 0usize;
-    for i in range(0usize..4usize) {
+    for i in range(0..count) {
         total += i;
     }
     total
+}
+
+fn main() usize {
+    var total = 0usize;
+    for i in range(0..4usize) {
+        total += i;
+    }
+    total + sum_to(4usize)
 }
 "#,
     );
