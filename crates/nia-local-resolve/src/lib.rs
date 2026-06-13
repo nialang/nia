@@ -747,7 +747,7 @@ impl<'a> LocalResolver<'a> {
                 self.record_use(node_key, LocalUse::Unresolved);
             }
             Some(ValueNameResolution::Error) => {
-                self.record_use(node_key, LocalUse::Unresolved);
+                self.record_use(node_key, LocalUse::ModuleValue);
             }
         }
     }

@@ -1964,6 +1964,198 @@ pub(super) fn value() i32 {
 }
 
 #[test]
+fn using_can_import_pub_super_items_visible_from_parent_subtree() {
+    let root = temp_dir("using_can_import_pub_super_items_visible_from_parent_subtree");
+    write(
+        &root.join("main.nia"),
+        r#"
+module command;
+using root::command;
+
+fn main() i32 {
+    command::score()
+}
+"#,
+    );
+    write(
+        &root.join("command.nia"),
+        r#"
+module types;
+pub module cli;
+using self::cli;
+
+pub fn score() i32 {
+    cli::score()
+}
+"#,
+    );
+    std::fs::create_dir_all(root.join("command")).expect("create command dir");
+    write(
+        &root.join("command/types.nia"),
+        r#"
+pub(super) struct ElfHeader {
+    value: i32,
+}
+
+pub(super) fn make_header() ElfHeader {
+    { value: 42 }
+}
+
+pub(super) fn header_score(header: ElfHeader) i32 {
+    header.value
+}
+"#,
+    );
+    write(
+        &root.join("command/cli.nia"),
+        r#"
+using super::types::{ElfHeader, make_header, header_score};
+
+pub(super) fn score() i32 {
+    let header: ElfHeader = make_header();
+    header_score(header)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_can_import_pub_package_items_inside_package() {
+    let root = temp_dir("using_can_import_pub_package_items_inside_package");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+fn main() i32 {
+    api::inside()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub module types;");
+    std::fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/types.nia"),
+        r#"
+pub(package) struct Token {
+    value: i32,
+}
+
+pub(package) fn make_token() Token {
+    { value: 31 }
+}
+
+pub(package) fn token_value(token: Token) i32 {
+    token.value
+}
+"#,
+    );
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using package::types::{Token, make_token, token_value};
+
+pub fn inside() i32 {
+    let token: Token = make_token();
+    token_value(token)
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_super_after_first_segment_reports_specific_diagnostic() {
+    let root = temp_dir("using_super_after_first_segment_reports_specific_diagnostic");
+    write(
+        &root.join("main.nia"),
+        r#"
+module command;
+module output;
+using root::command::cli;
+
+fn main() void {}
+"#,
+    );
+    write(&root.join("output.nia"), "pub fn write() void {}");
+    write(&root.join("command.nia"), "pub module cli;");
+    std::fs::create_dir_all(root.join("command")).expect("create command dir");
+    write(
+        &root.join("command/cli.nia"),
+        r#"
+using super::super::output;
+
+pub fn run() void {}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("`super` can only be used as the first path segment")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn failed_explicit_using_suppresses_dependent_name_cascades() {
+    let root = temp_dir("failed_explicit_using_suppresses_dependent_name_cascades");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api::{MissingType, missing_value};
+
+fn main() void {
+    let value: MissingType = missing_value();
+    _ = value;
+}
+"#,
+    );
+    write(&root.join("api.nia"), "");
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("could not be resolved")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown type `MissingType`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        !program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary == "name is unresolved"),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn pub_package_extension_methods_are_visible_only_inside_package() {
     let root = temp_dir("pub_package_extension_methods_are_visible_only_inside_package");
     let dep_root = root.join("dep.nia");
