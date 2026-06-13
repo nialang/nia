@@ -106,6 +106,24 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_range_bound_literals_from_peer_bound_type() {
+    let checked = pipeline(
+        r#"
+fn take_range[T](bounds: T..T) T {
+    bounds.end()
+}
+
+fn main(count: usize) usize {
+    var from_suffix = take_range(0..4usize);
+    var from_variable = take_range(0..count);
+    from_suffix + from_variable
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn infers_generic_function_input_from_where_predicate_impl_candidates() {
     let checked = pipeline(
         r#"
