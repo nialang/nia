@@ -378,7 +378,7 @@ C string literals are byte string literals with one trailing NUL byte appended.
 `c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
 are allowed; the syntax only appends one trailing NUL.
 Use `std::CStr` when a runtime API wants a NUL-terminated byte-string
-view, for example `let raw = c"nia"; std::CStr::from_ptr(&raw[0])`.
+view, for example `std::CStr::from_ptr(c"nia")`.
 
 Adjacent quoted string literals with the same prefix are concatenated into one
 literal:
