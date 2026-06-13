@@ -16,8 +16,9 @@ flush fails, it traps instead of silently ignoring the failure.
 `03_stdout.nia` shows the explicit application-output path with
 `std::io.FileWriter` and `std::fmt`: create a stdout buffer, write formatted text,
 flush the writer, and map I/O error unions into process exit codes with
-`io_call().exit().?`. Format arguments are passed as ordinary array literals,
-such as `[&value, &count]`; Nia converts the array to the expected slice.
+`io_call().exit().?`. Format arguments are passed as a slice of trait-object
+handles, usually written as `&[&value, &count]`; Nia converts the array pointer
+to the expected slice.
 
 `std::fmt` placeholders are positional. Use `{}` for display formatting and
 `{:...}` for format options: alignment and fill (`{:>5}`, `{:_>5}`), text

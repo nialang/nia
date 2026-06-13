@@ -870,7 +870,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     var storage: [16]u8 = [0; 16];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.print("{:_>5.2}", [&first_arg]).exit().?;
+    writer.print("{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return (8 as process::ExitCode)!;

@@ -4,7 +4,7 @@ using package::io;
 pub fn print(template: &[char], args: &[&fmt::Format]) void {
     var runtime_io = io::BlockingIo::init();
     var buffer: [512]u8 = [_]u8[0; 512];
-    var stderr = io::FileWriter::stderr(&mut runtime_io, buffer);
+    var stderr = io::FileWriter::stderr(&mut runtime_io, &mut buffer);
 
     switch stderr.print(template, args) {
         !ok => _ = ok,

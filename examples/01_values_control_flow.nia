@@ -49,9 +49,8 @@ pub fn main(init: Init) ExitCode!void {
     var score = grade(87);
     // [_] lets the compiler infer the array length from the elements.
     var values = [_]i32[point_len2, other_len2, score];
-    // Arrays coerce to slices when a slice is expected. The explicit underlying
-    // form is sum(&values[..]), but the direct call is the usual Nia style.
-    var total = sum(values);
+    // Array pointers coerce to slices when a slice is expected.
+    var total = sum(&values);
 
     // defer runs at scope exit, including returns after this point.
     defer point.x = point.x + 1;
@@ -62,7 +61,7 @@ pub fn main(init: Init) ExitCode!void {
 
     debug::print(
         "point={} other={} grade={} total={}\n",
-        [&point_len2, &other_len2, &score, &total],
+        &[&point_len2, &other_len2, &score, &total],
     );
 
     !{}

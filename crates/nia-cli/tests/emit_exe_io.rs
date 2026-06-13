@@ -63,7 +63,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [128]u8 = [0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.print("A¢€😀, {}\n", [&'λ']) {
+    switch stdout.print("A¢€😀, {}\n", &[&'λ']) {
         !ok => _ = ok,
         error! => return (1 as process::ExitCode)!,
     }
@@ -112,7 +112,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
-    switch writer.print("nia {}", [&7]) {
+    switch writer.print("nia {}", &[&7]) {
         !ok => _ = ok,
         error! => return (1 as process::ExitCode)!,
     }
@@ -170,7 +170,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var raw: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), raw);
+    var stdout = io::FileWriter::stdout(init.io(), &mut raw);
 
     var allocator = mem::PageAllocator::init();
     var values = std::ArrayList[i32]::init();
@@ -193,7 +193,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let byte = 171u8;
     let neg = -171i32;
     let numbers: [3]i32 = [4, 5, 6];
-    stdout.print("list={} slice={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={:x} HEX={:X} bin={:b} oct={:o} neg_hex={:x}\n", [
+    stdout.print("list={} slice={} total={} signed={} wide={} max_u128={} ok={} ch={} hex={:x} HEX={:X} bin={:b} oct={:o} neg_hex={:x}\n", &[
         &values,
         &numbers[..],
         &total,
@@ -252,14 +252,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var raw: [256]u8 = [_]u8[0; 256];
-    var stdout = io::FileWriter::stdout(init.io(), raw);
+    var stdout = io::FileWriter::stdout(init.io(), &mut raw);
     let value: i32 = 7;
     let neg: i32 = -7;
     let byte = 171u8;
     let text = "nia";
     let ch = 'λ';
     let flag = true;
-    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' fr='{:_>5}' fl='{:_<5}' fc='{:*^5}' z='{:05}' ez='{:0>5}' plus='{:+}' plusw='{:+5}' plusz='{:+05}' nz='{:05}' hx='{:08x}' alt='{:#x}' altw='{:#08x}' bin='{:#b}' oct='{:#o}' text='{:>5}' trunc='{:.2}' trw='{:>5.2}' tf='{:_>5.2}' ch='{:<3}' ch0='{:.0}' bool='{:>6}' btr='{:>4.2}' hex='{:x}'\n", [
+    stdout.print("r='{:>5}' l='{:<5}' c='{:^5}' fr='{:_>5}' fl='{:_<5}' fc='{:*^5}' z='{:05}' ez='{:0>5}' plus='{:+}' plusw='{:+5}' plusz='{:+05}' nz='{:05}' hx='{:08x}' alt='{:#x}' altw='{:#08x}' bin='{:#b}' oct='{:#o}' text='{:>5}' trunc='{:.2}' trw='{:>5.2}' tf='{:_>5.2}' ch='{:<3}' ch0='{:.0}' bool='{:>6}' btr='{:>4.2}' hex='{:x}'\n", &[
         &value,
         &value,
         &value,
@@ -350,11 +350,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var pointer_storage: [64]u8 = [0; 64];
     var pointer_writer = io::FixedBufferWriter::init(&mut pointer_storage[..]);
-    pointer_writer.print("{:p}", [&ptr]).exit().?;
+    pointer_writer.print("{:p}", &[&ptr]).exit().?;
 
     var addr_storage: [64]u8 = [0; 64];
     var addr_writer = io::FixedBufferWriter::init(&mut addr_storage[..]);
-    addr_writer.print("{:#x}", [&addr]).exit().?;
+    addr_writer.print("{:#x}", &[&addr]).exit().?;
 
     if not eq_bytes(pointer_writer.written(), addr_writer.written()) {
         return (1 as process::ExitCode)!;
@@ -362,7 +362,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var display_storage: [64]u8 = [0; 64];
     var display_writer = io::FixedBufferWriter::init(&mut display_storage[..]);
-    display_writer.print("{}", [&ptr]).exit().?;
+    display_writer.print("{}", &[&ptr]).exit().?;
     if not eq_bytes(display_writer.written(), addr_writer.written()) {
         return (2 as process::ExitCode)!;
     }
@@ -370,14 +370,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var mut_ptr = &mut value;
     var mut_storage: [64]u8 = [0; 64];
     var mut_writer = io::FixedBufferWriter::init(&mut mut_storage[..]);
-    mut_writer.print("{:p}", [&mut_ptr]).exit().?;
+    mut_writer.print("{:p}", &[&mut_ptr]).exit().?;
     if mut_writer.len() < 3usize or mut_writer.written()[0] != b'0' or mut_writer.written()[1] != b'x' {
         return (3 as process::ExitCode)!;
     }
 
     var padded_storage: [80]u8 = [0; 80];
     var padded_writer = io::FixedBufferWriter::init(&mut padded_storage[..]);
-    padded_writer.print("{:_>20p}", [&ptr]).exit().?;
+    padded_writer.print("{:_>20p}", &[&ptr]).exit().?;
     if padded_writer.len() != 20usize {
         return (4 as process::ExitCode)!;
     }
@@ -449,19 +449,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
     let value = 7;
 
-    if not expect_error(writer.print("{}", []), fmt::Error::MissingArgument) {
+    if not expect_error(writer.print("{}", &[]), fmt::Error::MissingArgument) {
         return (1 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("", [&value]), fmt::Error::ExtraArgument) {
+    if not expect_error(writer.print("", &[&value]), fmt::Error::ExtraArgument) {
         return (2 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{", []), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{", &[]), fmt::Error::InvalidTemplate) {
         return (3 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("}", []), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("}", &[]), fmt::Error::InvalidTemplate) {
         return (4 as process::ExitCode)!;
     }
-    switch writer.print("{{{}}}", [&value]) {
+    switch writer.print("{{{}}}", &[&value]) {
         !ok => _ = ok,
         error! => return (5 as process::ExitCode)!,
     }
@@ -472,56 +472,56 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if written[0] != b'{' or written[1] != b'7' or written[2] != b'}' {
         return (7 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{q}", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{q}", &[&value]), fmt::Error::InvalidTemplate) {
         return (8 as process::ExitCode)!;
     }
     let flag = true;
-    if not expect_error(writer.print("{x}", [&flag]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{x}", &[&flag]), fmt::Error::InvalidTemplate) {
         return (9 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{x}", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{x}", &[&value]), fmt::Error::InvalidTemplate) {
         return (10 as process::ExitCode)!;
     }
-    switch fmt::print_unchecked(&mut writer, "{:X}", [&value]) {
+    switch fmt::print_unchecked(&mut writer, "{:X}", &[&value]) {
         !ok => _ = ok,
         error! => return (11 as process::ExitCode)!,
     }
-    if not expect_error(writer.print("{:q}", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:q}", &[&value]), fmt::Error::InvalidTemplate) {
         return (12 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:08", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:08", &[&value]), fmt::Error::InvalidTemplate) {
         return (13 as process::ExitCode)!;
     }
     let byte = 7u8;
-    if not expect_error(writer.print("{:+}", [&byte]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:+}", &[&byte]), fmt::Error::InvalidTemplate) {
         return (14 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:+}", [&flag]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:+}", &[&flag]), fmt::Error::InvalidTemplate) {
         return (15 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:#}", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:#}", &[&value]), fmt::Error::InvalidTemplate) {
         return (16 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:#}", [&flag]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:#}", &[&flag]), fmt::Error::InvalidTemplate) {
         return (17 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:.}", [&flag]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:.}", &[&flag]), fmt::Error::InvalidTemplate) {
         return (18 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:.2}", [&value]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:.2}", &[&value]), fmt::Error::InvalidTemplate) {
         return (19 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:_5}", [&flag]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:_5}", &[&flag]), fmt::Error::InvalidTemplate) {
         return (20 as process::ExitCode)!;
     }
     let ptr = &value;
-    if not expect_error(writer.print("{:+p}", [&ptr]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:+p}", &[&ptr]), fmt::Error::InvalidTemplate) {
         return (21 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:#p}", [&ptr]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:#p}", &[&ptr]), fmt::Error::InvalidTemplate) {
         return (22 as process::ExitCode)!;
     }
-    if not expect_error(writer.print("{:.2p}", [&ptr]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print("{:.2p}", &[&ptr]), fmt::Error::InvalidTemplate) {
         return (23 as process::ExitCode)!;
     }
     !{}

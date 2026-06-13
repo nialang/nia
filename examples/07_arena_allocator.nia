@@ -54,7 +54,7 @@ fn run(init: Init) mem::Error!void {
 
     debug::print(
         "arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",
-        [
+        &[
             &first_total,
             &first_capacity,
             &first_used,

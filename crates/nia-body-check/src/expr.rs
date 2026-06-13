@@ -40,7 +40,6 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, ty);
             return ty;
         }
-        let array_expected = self.array_expected_from_slice_expected(expected);
         let ty = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) => self.error(),
             ExprKind::Integer(_) => self.integer_literal_type(expr),
@@ -59,9 +58,11 @@ impl<'a> BodyChecker<'a> {
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
             }
-            ExprKind::ArrayLiteral { elems } => {
-                self.check_array_literal(expr.span, array_expected.or(expected), elems)
-            }
+            ExprKind::ArrayLiteral { elems } => match self.expected_array_type(expected) {
+                Some(expected) => self.check_array_literal(expr.span, Some(expected), elems),
+                None if expected.is_some() => self.infer_array_literal_expr(expr),
+                None => self.check_array_literal(expr.span, None, elems),
+            },
             ExprKind::StructLiteral { fields } => {
                 self.check_struct_literal(expr.span, expected, fields)
             }
@@ -74,24 +75,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_struct_literal(expr.span, Some(explicit), fields)
             }
             ExprKind::Unary { op, expr: inner } => {
-                let expected_ref_target = match (op, expected.and_then(|ty| self.interner.get(ty)))
-                {
-                    (
-                        UnaryOp::RefReadOnly,
-                        Some(TyKind::Pointer {
-                            is_readonly: true,
-                            elem,
-                        }),
-                    )
-                    | (
-                        UnaryOp::Ref,
-                        Some(TyKind::Pointer {
-                            is_readonly: false,
-                            elem,
-                        }),
-                    ) => Some(*elem),
-                    _ => None,
-                };
+                let expected_ref_target = self.expected_ref_target_from_expected(*op, expected);
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_ptr_ty) =
                         self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly), expected)
@@ -190,7 +174,19 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Cast { expr: inner, ty } => {
                 let source = self.check_expr(inner);
                 let target = self.ty_for_type(ty);
-                self.check_cast(expr.span, source, target);
+                if let Some(coerced) = self
+                    .coerce_c_string_to_pointer(inner, target, source)
+                    .or_else(|| self.coerce_array_to_slice(inner, target, source))
+                    .or_else(|| self.coerce_pointer_array_to_slice(inner, target, source))
+                    .or_else(|| self.coerce_mutable_pointer_to_readonly(target, source))
+                    .or_else(|| {
+                        self.coerce_pointer_array_to_slice_trait_object(inner, target, source)
+                    })
+                {
+                    self.record_expr_node_type(inner, coerced);
+                } else {
+                    self.check_cast(expr.span, source, target);
+                }
                 if self.is_open_enum(target) {
                     self.check_integer_literal_enum_backing_range(inner, target, "cast");
                 }
@@ -273,8 +269,10 @@ impl<'a> BodyChecker<'a> {
         let ty = if let Some(expected) = expected {
             self.coerce_c_string_to_pointer(expr, expected, ty)
                 .or_else(|| self.coerce_array_to_slice(expr, expected, ty))
+                .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, ty))
                 .or_else(|| self.coerce_mutable_pointer_to_readonly(expected, ty))
                 .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
+                .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, ty))
                 .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, ty))
                 .or_else(|| self.materialize_inferred_array_type(expected, ty))
                 .unwrap_or(ty)
@@ -351,6 +349,43 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
             self.error()
+        }
+    }
+
+    fn expected_array_type(&self, expected: Option<InternedTyId>) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected?);
+        matches!(self.interner.get(expected), Some(TyKind::Array { .. })).then_some(expected)
+    }
+
+    fn expected_ref_target_from_expected(
+        &mut self,
+        op: UnaryOp,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected?);
+        match (op, self.interner.get(expected).cloned()) {
+            (
+                UnaryOp::RefReadOnly,
+                Some(TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                }),
+            )
+            | (
+                UnaryOp::Ref,
+                Some(TyKind::Pointer {
+                    is_readonly: false,
+                    elem,
+                }),
+            ) => Some(elem),
+            (UnaryOp::RefReadOnly, Some(TyKind::Slice { elem, .. }))
+            | (UnaryOp::Ref, Some(TyKind::Slice { elem, .. })) => {
+                Some(self.interner.intern(TyKind::Array {
+                    len: ArrayLenTy::Infer,
+                    elem,
+                }))
+            }
+            _ => None,
         }
     }
 

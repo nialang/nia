@@ -331,7 +331,7 @@ impl<'a> BodyChecker<'a> {
         is_readonly: bool,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        let lhs_expected = self.array_expected_from_slice_expected(expected);
+        let lhs_expected = self.literal_array_expected_from_slice_expected(expected);
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
         let range_ty = self.check_slice_range_bounds(range);
         if is_readonly {

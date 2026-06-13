@@ -452,14 +452,14 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn checks_array_to_slice_coercions_and_rvalue_reference_targets() {
+fn checks_literal_and_pointer_array_to_slice_coercions_and_rvalue_reference_targets() {
     let checked = pipeline(
         r#"
 fn take(xs: & [i32]) i32 {
     xs.len() as i32
 }
 
-fn mutate(xs: &[i32]) i32 {
+fn mutate(xs: &mut [i32]) i32 {
     xs[0] = 9;
     xs[0]
 }
@@ -469,13 +469,18 @@ fn bytes(xs: & [u8]) i32 {
 }
 
 fn main() i32 {
-    var ro: & [i32] = [1, 2, 3];
-    var rw: &[i32] = [4, 5];
+    var ro: & [char] = "abc";
+    var rb: & [u8] = b"abc";
+    var rc: & [u8] = c"hi";
+    var cast_text: & [char] = "abc" as &[char];
+    var cast_bytes: & [u8] = b"abc" as &[u8];
+    var cast_cbytes: & [u8] = c"hi" as &[u8];
     var arr: [2]i32 = [6, 7];
-    var from_place: & [i32] = arr;
+    var from_place: & [i32] = &arr;
+    var cast_from_place: & [i32] = &arr as &[i32];
     var from_string: & [u8] = c"hi";
-    _ = take([1, 2, 3]);
-    _ = mutate([4, 5]);
+    _ = take(&[1, 2, 3]);
+    _ = mutate(&mut [4, 5]);
     _ = bytes(c"hi");
 
     var int_ptr: &i32 = &10;
@@ -523,9 +528,55 @@ fn make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked.facts.node_array_to_slice_coercions.len() >= 6,
+        checked.facts.node_array_to_slice_coercions.len() >= 4,
         "{:?}",
         checked.facts.node_array_to_slice_coercions
+    );
+    assert!(
+        checked.facts.node_pointer_array_to_slice_coercions.len() >= 3,
+        "{:?}",
+        checked.facts.node_pointer_array_to_slice_coercions
+    );
+}
+
+#[test]
+fn rejects_general_array_value_to_slice_coercions() {
+    let checked = pipeline(
+        r#"
+fn take(xs: &[i32]) i32 {
+    xs.len() as i32
+}
+
+fn main() i32 {
+    var arr: [2]i32 = [1, 2];
+    var from_place: &[i32] = arr;
+    var from_literal: &[i32] = [3, 4];
+    var cast_place = arr as &[i32];
+    var cast_literal = [2]i32[7, 8] as &[i32];
+    take(arr) + take([5, 6])
+}
+"#,
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .filter(|message| message.contains("expected &[i32], got [2]i32"))
+            .count()
+            >= 3,
+        "{messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .filter(|message| message.contains("invalid cast: cannot cast [2]i32 to &[i32]"))
+            .count()
+            >= 2,
+        "{messages:?}"
     );
 }
 

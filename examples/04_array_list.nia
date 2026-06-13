@@ -10,7 +10,7 @@ fn run(init: Init) mem::Error!void {
     var storage: [256]u8 = [_]u8[0; 256];
     // FixedBufferAllocator never touches the OS; allocation fails when this
     // local byte array runs out of space.
-    var fixed = mem::FixedBufferAllocator::init(storage);
+    var fixed = mem::FixedBufferAllocator::init(&mut storage);
     // &mut fixed is the allocator handle. Bind it once so every container
     // operation uses the same pointer.
     let allocator = &mut fixed;
@@ -33,7 +33,7 @@ fn run(init: Init) mem::Error!void {
 
     debug::print(
         "array_list len={} capacity={} values={} total={}\n",
-        [&len, &capacity, &values, &total],
+        &[&len, &capacity, &values, &total],
     );
 
     !{}

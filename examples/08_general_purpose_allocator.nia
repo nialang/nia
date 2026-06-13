@@ -33,7 +33,7 @@ fn run(init: Init) mem::Error!void {
     var used = gpa.query_used();
     var capacity = gpa.query_capacity();
 
-    debug::print("values={} total={} heap_used={} heap_capacity={}\n", [
+    debug::print("values={} total={} heap_used={} heap_capacity={}\n", &[
         &values,
         &total,
         &used,

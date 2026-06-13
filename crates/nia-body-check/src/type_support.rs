@@ -9,7 +9,7 @@ use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
-use nia_sema_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
+use nia_sema_ir::{ArrayToSliceCoercion, CStringPointerCoercion, PointerArrayToSliceCoercion};
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, PrimitiveTy, TraitId, TyKind};
@@ -292,11 +292,21 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, coerced);
             return;
         }
+        if let Some(coerced) = self.coerce_pointer_array_to_slice(expr, expected, actual) {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
         if let Some(coerced) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
             self.record_expr_node_type(expr, coerced);
             return;
         }
         if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
+        if let Some(coerced) =
+            self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual)
+        {
             self.record_expr_node_type(expr, coerced);
             return;
         }
@@ -323,7 +333,7 @@ impl<'a> BodyChecker<'a> {
         matches!(self.interner.get(ty), Some(TyKind::ComptimeOnly))
     }
 
-    pub(crate) fn array_expected_from_slice_expected(
+    pub(crate) fn literal_array_expected_from_slice_expected(
         &mut self,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -343,6 +353,12 @@ impl<'a> BodyChecker<'a> {
         expected: InternedTyId,
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
+        if !matches!(
+            expr.kind,
+            ExprKind::String(_) | ExprKind::ByteString(_) | ExprKind::CString(_)
+        ) {
+            return None;
+        }
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::Slice {
@@ -379,6 +395,74 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
+    }
+
+    pub(crate) fn coerce_pointer_array_to_slice(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        let Some(TyKind::Slice {
+            is_readonly: expected_readonly,
+            elem: expected_elem,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let Some(TyKind::Pointer {
+            is_readonly: actual_readonly,
+            elem: actual_elem,
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        if !expected_readonly && actual_readonly {
+            return None;
+        }
+        let actual_elem = self.normalization.normalize(actual_elem);
+        let Some(TyKind::Array {
+            elem: actual_array_elem,
+            ..
+        }) = self.interner.get(actual_elem).cloned()
+        else {
+            return None;
+        };
+        if !self.types_match(expected_elem, actual_array_elem) {
+            return None;
+        }
+        self.record_pointer_array_to_slice_node_coercion(
+            expr,
+            PointerArrayToSliceCoercion {
+                pointer_ty: actual,
+                array_ty: actual_elem,
+                slice_ty: expected,
+                is_readonly: expected_readonly,
+            },
+        );
+        Some(expected)
+    }
+
+    pub(crate) fn pointer_array_slice_type_for_trait_object_source(
+        &mut self,
+        actual: InternedTyId,
+    ) -> Option<(InternedTyId, InternedTyId, bool)> {
+        let actual = self.normalization.normalize(actual);
+        let Some(TyKind::Pointer {
+            is_readonly,
+            elem: array_ty,
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        let array_ty = self.normalization.normalize(array_ty);
+        let Some(TyKind::Array { elem, .. }) = self.interner.get(array_ty).cloned() else {
+            return None;
+        };
+        let slice_ty = self.interner.intern(TyKind::Slice { is_readonly, elem });
+        Some((array_ty, slice_ty, is_readonly))
     }
 
     pub(crate) fn coerce_c_string_to_pointer(
@@ -770,6 +854,7 @@ impl<'a> BodyChecker<'a> {
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_array_to_slice_coercions: HashMap::new(),
+            node_pointer_array_to_slice_coercions: HashMap::new(),
             node_c_string_pointer_coercions: HashMap::new(),
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),

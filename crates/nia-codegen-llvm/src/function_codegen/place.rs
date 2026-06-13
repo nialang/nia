@@ -186,6 +186,27 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             Some(TyKind::Pointer { elem, .. }) => {
                 let ptr = self.emit_expr(lhs)?.into_pointer_value()?;
+                if let Some(TyKind::Array {
+                    len,
+                    elem: array_elem,
+                }) = self.module.ty_kind(*elem)
+                {
+                    let array_len = self.module.array_len(len, span)?;
+                    let len = self.module.context.i64_type().const_int(array_len, false);
+                    if self.is_zero_sized(*elem) {
+                        return Ok((ptr, len, *array_elem));
+                    }
+                    let zero = self.module.context.i64_type().const_int(0, false);
+                    let array_ty = self.module.llvm_basic_type(*elem, span)?;
+                    let elem_ptr = unsafe {
+                        self.builder
+                            .build_gep(array_ty, ptr, &[zero, zero], "arrayptrdecay")
+                            .map_err(|_| {
+                                self.error(span, "failed to build pointer array slice base")
+                            })?
+                    };
+                    return Ok((elem_ptr, len, *array_elem));
+                }
                 Ok((ptr, one, *elem))
             }
             Some(TyKind::Slice { elem, .. }) => {

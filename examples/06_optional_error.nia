@@ -33,7 +33,7 @@ pub fn main(init: Init) ExitCode!void {
     var values: [3]i32 = [10, 20, 32];
     var pair_sum = 0;
     // switch can destructure both success and error-union cases explicitly.
-    switch checked_pair(values) {
+    switch checked_pair(&values) {
         !sum => {
             pair_sum = sum;
             if sum != 42 {
@@ -43,7 +43,7 @@ pub fn main(init: Init) ExitCode!void {
         error! => return exit(2)!,
     }
 
-    switch require_at(values, 9usize) {
+    switch require_at(&values, 9usize) {
         !value => {
             _ = value;
             return exit(3)!;
@@ -51,7 +51,7 @@ pub fn main(init: Init) ExitCode!void {
         error! => _ = error,
     }
 
-    debug::print("optional/error pair_sum={} missing=error\n", [&pair_sum]);
+    debug::print("optional/error pair_sum={} missing=error\n", &[&pair_sum]);
 
     !{}
 }

@@ -207,7 +207,7 @@ fn fill(xs: &mut [i32]) i32 {
 fn main() i32 {
     var xs: [4]i32 = [1, 2, 3, 4];
     var part = & xs[1..=2];
-    sum(part) + sum([5, 6]) + fill([0, 1])
+    sum(part) + sum(&[5, 6]) + fill(&mut [0, 1])
 }
 "#,
             )],

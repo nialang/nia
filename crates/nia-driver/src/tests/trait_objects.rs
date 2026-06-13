@@ -283,7 +283,7 @@ fn read_all(sources: & [ & Source]) i32 {
 }
 
 fn main() i32 {
-    read_all([&8])
+    read_all(&[&8])
 }
 "#,
     );
@@ -431,7 +431,7 @@ fn use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
 }
 
 fn main() i32 {
-    use_all([&10])
+    use_all(&[&10])
 }
 "#,
     );

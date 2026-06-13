@@ -347,8 +347,8 @@ fn overwrite(xs: &mut [i32]) i32 {
 fn main() i32 {
     var xs: [3]i32 = [1, 2, 3];
     var borrow = & xs[..];
-    var literal: & [i32] = [4, 5, 6];
-    first(borrow) + first(literal) + first([7, 8]) + first_byte(c"hi") + overwrite([6, 7])
+    var literal: & [i32] = &[4, 5, 6];
+    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(c"hi") + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
 "#,
     )

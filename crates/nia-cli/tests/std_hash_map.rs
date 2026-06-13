@@ -94,10 +94,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ).?;
 
     let long = b"12345678901234567890123456789012345678901234567890123456789012345678901234567890";
-    let expected = hash::wyhash(6u64, long);
+    let expected = hash::wyhash(6u64, &long);
 
     var one = hash::Wyhash::init(6u64);
-    one.update(long);
+    one.update(&long);
     if one.finish() != expected or one.finish() != expected {
         return (8 as process::ExitCode)!;
     }
@@ -138,14 +138,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let pair: [2]u8 = [1u8, 2u8];
     let slice_hash = hash_bytes(12u64, &pair[..]);
     var raw_hasher = hash::Wyhash::init(12u64);
-    raw_hasher.write(pair);
+    raw_hasher.write(&pair);
     if slice_hash == raw_hasher.finish() {
         return (70 as process::ExitCode)!;
     }
 
     var manual_slice_hasher = hash::Wyhash::init(12u64);
     (2usize).hash(&mut manual_slice_hasher);
-    manual_slice_hasher.write(pair);
+    manual_slice_hasher.write(&pair);
     if slice_hash != manual_slice_hasher.finish() {
         return (71 as process::ExitCode)!;
     }
@@ -153,7 +153,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var int_hasher = hash::Wyhash::init(13u64);
     (0x01020304u32).hash(&mut int_hasher);
     let little_endian: [4]u8 = [4u8, 3u8, 2u8, 1u8];
-    if int_hasher.finish() != hash::wyhash(13u64, little_endian) {
+    if int_hasher.finish() != hash::wyhash(13u64, &little_endian) {
         return (72 as process::ExitCode)!;
     }
 
@@ -905,7 +905,7 @@ fn run(init: process::Init) mem::Error!void {
     }
 
     var fail_storage: [8192]u8 = [0; 8192];
-    var fail_allocator = FailAllocator::init(fail_storage);
+    var fail_allocator = FailAllocator::init(&mut fail_storage);
     var rollback = std::HashMap[i32, i32]::init_seed(558u64);
     defer rollback.deinit(&mut fail_allocator).?;
     rollback.reserve(&mut fail_allocator, 14usize).?;
@@ -1016,7 +1016,7 @@ fn run(init: process::Init) mem::Error!void {
     }
 
     var free_fail_storage: [8192]u8 = [0; 8192];
-    var free_fail_allocator = FailAllocator::init(free_fail_storage);
+    var free_fail_allocator = FailAllocator::init(&mut free_fail_storage);
     var free_fail = std::HashMap[i32, i32]::init_seed(560u64);
     defer free_fail.deinit(&mut free_fail_allocator).?;
     free_fail.reserve(&mut free_fail_allocator, 14usize).?;
@@ -1274,7 +1274,7 @@ fn run(init: process::Init) mem::Error!void {
     }
 
     var tiny_storage: [16]u8 = [0; 16];
-    var tiny = mem::FixedBufferAllocator::init(tiny_storage);
+    var tiny = mem::FixedBufferAllocator::init(&mut tiny_storage);
     var tiny_map = std::HashMap[i32, i32]::init_seed(11u64);
     defer tiny_map.deinit(&mut tiny).?;
     switch tiny_map.reserve(&mut tiny, 64usize) {
@@ -1334,7 +1334,7 @@ fn run(init: process::Init) mem::Error!void {
 
     _ = map.put(&mut page, 1, 10).?;
     _ = map.put(&mut page, 2, 20).?;
-    debug::print("hash_map={}\n", [&map]);
+    debug::print("hash_map={}\n", &[&map]);
     !{}
 }
 
@@ -1628,7 +1628,7 @@ extend FailAllocator : mem::Allocator {
 fn run(init: process::Init) mem::Error!void {
     _ = init;
     var storage: [32768]u8 = [0; 32768];
-    var allocator = FailAllocator::init(storage);
+    var allocator = FailAllocator::init(&mut storage);
     var map = std::HashMap[i32, i32]::init_seed(123u64);
     defer map.deinit(&mut allocator).?;
 
