@@ -153,6 +153,49 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_exposes_cstr_from_std_root() {
+    let root = temp_dir("emit_exe_exposes_cstr_from_std_root");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let value = std::CStr::from_ptr(c"nia");
+    if value.len() != 3usize {
+        return process::exit(1)!;
+    }
+    let bytes = value.bytes();
+    if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
+        return process::exit(2)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std root CStr");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted std root CStr executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_links_freestanding_executable() {
     let root = temp_dir("emit_exe_links_freestanding_executable");
     let main = root.join("main.nia");
