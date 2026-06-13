@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, AssignOp, Attribute, BinaryOp, BindingItem, BindingStmt, Block,
-    BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem, EnumVariant, Expr,
-    ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, ForPattern,
-    ForPatternKind, FunctionItem, IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module,
+    ArrayElements, ArrayLen, AssignOp, Attribute, BinaryOp, BindingItem, BindingPatternKind,
+    BindingStmt, Block, BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem,
+    EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt,
+    ForPattern, FunctionItem, IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module,
     ModuleItem, Param, Pattern, PatternBindingMode, PatternKind, ReceiverKind, Stmt, StmtKind,
-    StringLiteral, StructItem, SwitchArm, SwitchArmBody, SwitchStmt, TraitAssociatedType,
-    TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp,
-    UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
-    WhereClause, WherePredicate, WhileStmt,
+    StringLiteral, StructItem, SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind,
+    SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind,
+    TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem,
+    UsingName, UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};

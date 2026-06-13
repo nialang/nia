@@ -224,20 +224,22 @@ fn bad() i32 {
 }
 
 #[test]
-fn checks_optional_and_error_union_switch_patterns() {
+fn checks_optional_and_error_union_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_optional(value: ?i32) i32 {
-    switch value {
-        ?x => x,
-        null => 0,
+    if let ?x = value {
+        x
+    } else null {
+        0
     }
 }
 
 fn unwrap_error(value: i32!i32) i32 {
-    switch value {
-        !x => x,
-        e! => e,
+    if let !x = value {
+        x
+    } else e! {
+        e
     }
 }
 "#,
@@ -248,16 +250,18 @@ fn unwrap_error(value: i32!i32) i32 {
     let missing = pipeline(
         r#"
 fn bad(value: ?i32) i32 {
-    switch value {
-        ?x => x,
-    }
+    let unwrapped: i32 = if let ?x = value {
+        x
+    };
+    unwrapped
 }
 "#,
     );
     assert!(
-        missing.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("non-exhaustive optional switch")),
+        missing
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("non-exhaustive if pattern")),
         "{:?}",
         missing.diagnostics
     );
@@ -265,9 +269,10 @@ fn bad(value: ?i32) i32 {
     let wrong_target = pipeline(
         r#"
 fn bad(value: i32) i32 {
-    switch value {
-        ?x => x,
-        _ => 0,
+    if let ?x = value {
+        x
+    } else _ {
+        0
     }
 }
 "#,

@@ -2,12 +2,6 @@
 use super::expr::expr_can_terminate_statement_without_semicolon;
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PatternIdentMode {
-    Expr,
-    Bind,
-}
-
 impl Parser {
     pub(super) fn parse_stmt(&mut self) -> Option<Stmt> {
         let start = self.peek().span.start;
@@ -103,12 +97,12 @@ impl Parser {
         let pattern_start = self.peek().span.start;
         let pattern_kind = if self.eat(TokenKind::Amp).is_some() {
             if self.eat(TokenKind::Mut).is_some() {
-                ForPatternKind::MutPointer
+                BindingPatternKind::MutPointer
             } else {
-                ForPatternKind::Pointer
+                BindingPatternKind::Pointer
             }
         } else {
-            ForPatternKind::Value
+            BindingPatternKind::Value
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
         let pattern_span = Span::new(pattern_start, self.previous_end());
@@ -175,12 +169,12 @@ impl Parser {
         let start = self.peek().span.start;
         let kind = if self.eat(TokenKind::Amp).is_some() {
             if self.eat(TokenKind::Mut).is_some() {
-                ForPatternKind::MutPointer
+                BindingPatternKind::MutPointer
             } else {
-                ForPatternKind::Pointer
+                BindingPatternKind::Pointer
             }
         } else {
-            ForPatternKind::Value
+            BindingPatternKind::Value
         };
         if self.eat(TokenKind::Let).is_some() || self.eat(TokenKind::Var).is_some() {
             self.error_here("for patterns do not use `let` or `var`; write `for x in iter`");
@@ -242,11 +236,12 @@ impl Parser {
         Some(SwitchStmt { target, arms })
     }
 
-    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<Pattern>> {
+    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<SwitchPattern>> {
         let mut patterns = Vec::new();
         loop {
-            patterns
-                .push(self.parse_pattern_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?);
+            patterns.push(
+                self.parse_switch_pattern_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?,
+            );
             if self.at(TokenKind::FatArrow) {
                 break;
             }
@@ -262,27 +257,59 @@ impl Parser {
         Some(patterns)
     }
 
-    pub(super) fn parse_pattern_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
-        self.parse_pattern_until(stops, PatternIdentMode::Expr)
+    fn parse_switch_pattern_until_tokens(&mut self, stops: &[TokenKind]) -> Option<SwitchPattern> {
+        if self.at(TokenKind::Underscore) {
+            let span = self.expect(TokenKind::Underscore, "expected `_` in switch pattern")?;
+            return Some(SwitchPattern {
+                span,
+                kind: SwitchPatternKind::Wildcard,
+            });
+        }
+
+        let expr = self.parse_expr_until_tokens(stops)?;
+        let ExprKind::Range(range) = expr.kind else {
+            return Some(SwitchPattern {
+                span: expr.span,
+                kind: SwitchPatternKind::Expr(Box::new(expr)),
+            });
+        };
+        match (&range.start, &range.end) {
+            (Some(start), Some(end)) => Some(SwitchPattern {
+                span: expr.span,
+                kind: SwitchPatternKind::Range {
+                    start: Box::new((**start).clone()),
+                    end: Box::new((**end).clone()),
+                    inclusive: range.inclusive,
+                },
+            }),
+            _ => {
+                self.error_at(
+                    expr.span,
+                    "open-ended switch range patterns are not supported; use `_` for the default arm",
+                );
+                Some(SwitchPattern {
+                    span: expr.span,
+                    kind: SwitchPatternKind::Expr(Box::new(
+                        self.make_expr(expr.span, ExprKind::Range(range)),
+                    )),
+                })
+            }
+        }
     }
 
     pub(super) fn parse_binding_pattern_until_tokens(
         &mut self,
         stops: &[TokenKind],
     ) -> Option<Pattern> {
-        self.parse_pattern_until(stops, PatternIdentMode::Bind)
+        self.parse_pattern_until(stops)
     }
 
     fn parse_payload_pattern_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
-        self.parse_pattern_until(stops, PatternIdentMode::Bind)
+        self.parse_pattern_until(stops)
     }
 
-    fn parse_pattern_until(
-        &mut self,
-        stops: &[TokenKind],
-        mode: PatternIdentMode,
-    ) -> Option<Pattern> {
-        let mut pattern = self.parse_pattern_atom_until(stops, mode)?;
+    fn parse_pattern_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        let mut pattern = self.parse_pattern_atom_until(stops)?;
         while self.eat(TokenKind::Bang).is_some() {
             let span = Span::new(pattern.span.start, self.previous_end());
             pattern = Pattern {
@@ -293,11 +320,7 @@ impl Parser {
         Some(pattern)
     }
 
-    fn parse_pattern_atom_until(
-        &mut self,
-        stops: &[TokenKind],
-        mode: PatternIdentMode,
-    ) -> Option<Pattern> {
+    fn parse_pattern_atom_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
         if self.at(TokenKind::Underscore) {
             let span = self.expect(TokenKind::Underscore, "expected `_` in pattern")?;
             return Some(Pattern {
@@ -335,10 +358,7 @@ impl Parser {
                 kind: PatternKind::ErrorOk(Box::new(pattern)),
             });
         }
-        if (mode == PatternIdentMode::Bind
-            || matches!(self.tokens.nth_kind(1), Some(TokenKind::Bang)))
-            && self.at_bare_pattern_binding(stops)
-        {
+        if self.at_bare_pattern_binding(stops) {
             let span = self.peek().span;
             let name = self.expect_text(TokenKind::Ident, "expected pattern binding")?;
             return Some(Pattern {

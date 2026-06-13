@@ -68,7 +68,7 @@ pub enum TypedStmtKind {
 pub struct TypedBinding {
     pub local_id: LocalId,
     pub name: String,
-    pub pattern_kind: nia_ast::ForPatternKind,
+    pub pattern_kind: nia_ast::BindingPatternKind,
     pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
     pub is_let: bool,
@@ -77,7 +77,7 @@ pub struct TypedBinding {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedForIn {
     pub binding: Option<TypedForBinding>,
-    pub pattern_kind: nia_ast::ForPatternKind,
+    pub pattern_kind: nia_ast::BindingPatternKind,
     pub item_ty: InternedTyId,
     pub binding_ty: InternedTyId,
     pub iter: TypedExpr,
@@ -110,7 +110,7 @@ pub struct TypedSwitch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSwitchArm {
-    pub patterns: Vec<TypedPattern>,
+    pub patterns: Vec<TypedSwitchPattern>,
     pub body: TypedSwitchArmBody,
     pub span: Span,
 }
@@ -148,6 +148,24 @@ pub enum TypedPatternKind {
     OptionalNull,
     ErrorOk(Box<TypedPattern>),
     ErrorErr(Box<TypedPattern>),
+    Expr(TypedExpr),
+    Range {
+        start: Box<TypedExpr>,
+        end: Box<TypedExpr>,
+        inclusive: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedSwitchPattern {
+    pub ty: InternedTyId,
+    pub span: Span,
+    pub kind: TypedSwitchPatternKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedSwitchPatternKind {
+    Wildcard,
     Expr(TypedExpr),
     CheckedInt {
         value: i128,

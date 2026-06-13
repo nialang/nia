@@ -175,9 +175,10 @@ extend ArgsIter {
     }
 
     pub fn next(&mut self) ?Arg {
-        let value = switch self.args.get(self.index) {
-            ?value => value,
-            null => return null,
+        let value = if let ?value = self.args.get(self.index) {
+            value
+        } else null {
+            return null;
         };
         self.index += 1usize;
         ?value
@@ -280,9 +281,10 @@ extend EnvIter {
         if self.index >= self.len {
             null
         } else {
-            let value = switch self.env.get(self.index) {
-                ?value => value,
-                null => return null,
+            let value = if let ?value = self.env.get(self.index) {
+                value
+            } else null {
+                return null;
             };
             self.index += 1usize;
             ?value
@@ -302,9 +304,10 @@ pub fn exit(code: i32) ExitCode {
 
 extend[T] fs::Error!T {
     pub fn exit(self) ExitCode!T {
-        switch self {
-            !value => !value,
-            error! => error.as_exit_code()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
         }
     }
 }
@@ -323,9 +326,10 @@ extend fmt::Error {
 
 extend[T] fmt::Error!T {
     pub fn exit(self) ExitCode!T {
-        switch self {
-            !value => !value,
-            error! => error.as_exit_code()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
         }
     }
 }
@@ -343,9 +347,10 @@ extend mem::Error {
 
 extend[T] mem::Error!T {
     pub fn exit(self) ExitCode!T {
-        switch self {
-            !value => !value,
-            error! => error.as_exit_code()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
         }
     }
 }

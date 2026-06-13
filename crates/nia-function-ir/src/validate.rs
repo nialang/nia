@@ -221,7 +221,7 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionOp::Binding(binding) => {
                 self.require_local(binding.local_id, binding.value_span(), "binding local")?;
                 if let Some(value) = &binding.value {
-                    self.validate_expr(value)?;
+                    self.validate_value_expr(value)?;
                 }
             }
             FunctionOp::StoreLocal {
@@ -230,13 +230,15 @@ impl<'a> FunctionIrValidator<'a> {
                 span,
             } => {
                 self.require_local(*local_id, *span, "store local")?;
-                self.validate_expr(value)?;
+                self.validate_value_expr(value)?;
             }
             FunctionOp::MemoryIntrinsic(memory) => {
-                self.validate_expr(&memory.dest)?;
+                self.validate_value_expr(&memory.dest)?;
                 match &memory.source {
                     FunctionMemoryIntrinsicSource::Slice(source)
-                    | FunctionMemoryIntrinsicSource::Byte(source) => self.validate_expr(source)?,
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.validate_value_expr(source)?
+                    }
                 }
             }
             FunctionOp::Expr(expr) => self.validate_expr(expr)?,
@@ -250,11 +252,11 @@ impl<'a> FunctionIrValidator<'a> {
             self.require_block(successor, terminator.span(), "terminator successor")?;
         }
         match terminator {
-            FunctionTerminator::If { cond, .. } => self.validate_expr(cond)?,
+            FunctionTerminator::If { cond, .. } => self.validate_value_expr(cond)?,
             FunctionTerminator::Switch { target, arms, .. } => {
-                self.validate_expr(target)?;
+                self.validate_value_expr(target)?;
                 for arm in arms {
-                    self.validate_expr(&arm.pattern)?;
+                    self.validate_value_expr(&arm.pattern)?;
                 }
             }
             FunctionTerminator::Try {
@@ -262,13 +264,13 @@ impl<'a> FunctionIrValidator<'a> {
                 success_local,
                 ..
             } => {
-                self.validate_expr(value)?;
+                self.validate_value_expr(value)?;
                 self.require_local(*success_local, value.span, "try success local")?;
             }
             FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
-                    self.validate_expr(value)?;
+                    self.validate_value_expr(value)?;
                 }
             }
             FunctionTerminator::Error { .. }
@@ -303,11 +305,11 @@ impl<'a> FunctionIrValidator<'a> {
         terminator: &FunctionTerminator,
     ) -> Result<(), FunctionIrError> {
         match terminator {
-            FunctionTerminator::If { cond, .. } => self.validate_expr(cond)?,
+            FunctionTerminator::If { cond, .. } => self.validate_value_expr(cond)?,
             FunctionTerminator::Switch { target, arms, .. } => {
-                self.validate_expr(target)?;
+                self.validate_value_expr(target)?;
                 for arm in arms {
-                    self.validate_expr(&arm.pattern)?;
+                    self.validate_value_expr(&arm.pattern)?;
                 }
             }
             FunctionTerminator::Try {
@@ -315,13 +317,13 @@ impl<'a> FunctionIrValidator<'a> {
                 success_local,
                 ..
             } => {
-                self.validate_expr(value)?;
+                self.validate_value_expr(value)?;
                 self.require_local(*success_local, value.span, "try success local")?;
             }
             FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
-                    self.validate_expr(value)?;
+                    self.validate_value_expr(value)?;
                 }
             }
             FunctionTerminator::Error { .. }
@@ -334,8 +336,25 @@ impl<'a> FunctionIrValidator<'a> {
     fn validate_for_header(&self, header: &FunctionForHeader) -> Result<(), FunctionIrError> {
         match header {
             FunctionForHeader::Infinite => Ok(()),
-            FunctionForHeader::Condition(cond) => self.validate_expr(cond),
+            FunctionForHeader::Condition(cond) => self.validate_value_expr(cond),
         }
+    }
+
+    fn validate_value_expr(&self, expr: &FunctionExpr) -> Result<(), FunctionIrError> {
+        if Self::is_effect_only_expr(expr) {
+            return Err(FunctionIrError::new(
+                expr.span,
+                "effect-only expression used where a value is required",
+            ));
+        }
+        self.validate_expr(expr)
+    }
+
+    fn is_effect_only_expr(expr: &FunctionExpr) -> bool {
+        matches!(
+            expr.kind,
+            FunctionExprKind::Trap | FunctionExprKind::InlineAsm(_) | FunctionExprKind::Discard(_)
+        )
     }
 
     fn validate_expr(&self, expr: &FunctionExpr) -> Result<(), FunctionIrError> {
@@ -355,77 +374,79 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Splat { value: inner }
             | FunctionExprKind::Bitmask { vector: inner }
             | FunctionExprKind::BitIntrinsic { value: inner, .. }
-            | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
-                self.validate_expr(inner)?
+                self.validate_value_expr(inner)?
             }
+            FunctionExprKind::Discard(inner) => self.validate_expr(inner)?,
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {
-                    self.validate_expr(start)?;
+                    self.validate_value_expr(start)?;
                 }
                 if let Some(end) = &range.end {
-                    self.validate_expr(end)?;
+                    self.validate_value_expr(end)?;
                 }
             }
-            FunctionExprKind::RangeBound { range, .. } => self.validate_expr(range)?,
+            FunctionExprKind::RangeBound { range, .. } => self.validate_value_expr(range)?,
             FunctionExprKind::AddrOf(place) => self.validate_place(place)?,
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
-                        self.validate_expr(elem)?;
+                        self.validate_value_expr(elem)?;
                     }
                 }
-                FunctionArrayElements::Repeat { value, .. } => self.validate_expr(value)?,
+                FunctionArrayElements::Repeat { value, .. } => self.validate_value_expr(value)?,
             },
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
-                    self.validate_expr(&field.value)?;
+                    self.validate_value_expr(&field.value)?;
                 }
             }
-            FunctionExprKind::UnionLiteral { field, .. } => self.validate_expr(&field.value)?,
+            FunctionExprKind::UnionLiteral { field, .. } => {
+                self.validate_value_expr(&field.value)?
+            }
             FunctionExprKind::Binary { lhs, rhs, .. }
             | FunctionExprKind::Index { lhs, index: rhs }
             | FunctionExprKind::ExtractElement {
                 vector: lhs,
                 index: rhs,
             } => {
-                self.validate_expr(lhs)?;
-                self.validate_expr(rhs)?;
+                self.validate_value_expr(lhs)?;
+                self.validate_value_expr(rhs)?;
             }
             FunctionExprKind::InsertElement {
                 vector,
                 index,
                 value,
             } => {
-                self.validate_expr(vector)?;
-                self.validate_expr(index)?;
-                self.validate_expr(value)?;
+                self.validate_value_expr(vector)?;
+                self.validate_value_expr(index)?;
+                self.validate_value_expr(value)?;
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.validate_place(place)?;
-                self.validate_expr(rhs)?;
+                self.validate_value_expr(rhs)?;
             }
             FunctionExprKind::Call { callee, args } => {
                 self.validate_callee(callee)?;
                 for arg in args {
-                    self.validate_expr(arg)?;
+                    self.validate_value_expr(arg)?;
                 }
             }
-            FunctionExprKind::Field { lhs, .. } => self.validate_expr(lhs)?,
+            FunctionExprKind::Field { lhs, .. } => self.validate_value_expr(lhs)?,
             FunctionExprKind::Slice { lhs, range, .. } => {
-                self.validate_expr(lhs)?;
+                self.validate_value_expr(lhs)?;
                 if let Some(start) = &range.start {
-                    self.validate_expr(start)?;
+                    self.validate_value_expr(start)?;
                 }
                 if let Some(end) = &range.end {
-                    self.validate_expr(end)?;
+                    self.validate_value_expr(end)?;
                 }
             }
             FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
-                    self.validate_expr(&input.value)?;
+                    self.validate_value_expr(&input.value)?;
                 }
                 for output in &asm.outputs {
                     self.validate_place(&output.place)?;
@@ -453,10 +474,10 @@ impl<'a> FunctionIrValidator<'a> {
 
     fn validate_atomic(&self, atomic: &FunctionAtomic) -> Result<(), FunctionIrError> {
         match atomic {
-            FunctionAtomic::Load { ptr, .. } => self.validate_expr(ptr),
+            FunctionAtomic::Load { ptr, .. } => self.validate_value_expr(ptr),
             FunctionAtomic::Store { ptr, value, .. } | FunctionAtomic::Rmw { ptr, value, .. } => {
-                self.validate_expr(ptr)?;
-                self.validate_expr(value)
+                self.validate_value_expr(ptr)?;
+                self.validate_value_expr(value)
             }
             FunctionAtomic::Cmpxchg {
                 ptr,
@@ -464,9 +485,9 @@ impl<'a> FunctionIrValidator<'a> {
                 desired,
                 ..
             } => {
-                self.validate_expr(ptr)?;
-                self.validate_expr(expected)?;
-                self.validate_expr(desired)
+                self.validate_value_expr(ptr)?;
+                self.validate_value_expr(expected)?;
+                self.validate_value_expr(desired)
             }
             FunctionAtomic::Fence { .. } => Ok(()),
         }
@@ -479,7 +500,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
-            | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),
+            | FunctionCallee::FunctionPointer(receiver) => self.validate_value_expr(receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
             | FunctionCallee::TraitAssociatedFunction { .. }
@@ -492,12 +513,12 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionPlaceBase::Local(local_id) => {
                 self.require_local(*local_id, place.span, "place local")?
             }
-            FunctionPlaceBase::Deref(expr) => self.validate_expr(expr)?,
+            FunctionPlaceBase::Deref(expr) => self.validate_value_expr(expr)?,
             FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Index(index) => self.validate_expr(index)?,
+                FunctionPlaceElem::Index(index) => self.validate_value_expr(index)?,
                 FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
             }
         }
@@ -602,6 +623,11 @@ mod tests {
         }
     }
 
+    fn test_ty() -> nia_ids::InternedTyId {
+        let interner = nia_ty::TyInterner::new(nia_ids::ModuleId(0));
+        interner.primitive(nia_ty::PrimitiveTy::Void)
+    }
+
     #[test]
     fn rejects_scope_parent_cycles() {
         let body = empty_body(vec![
@@ -677,6 +703,53 @@ mod tests {
             .expect_err("missing outer block should fail");
         assert!(
             error.message.contains("references missing block `99`"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_effect_only_expression_in_value_position() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = FunctionBody {
+            span,
+            locals: vec![FunctionLocal {
+                id: LocalId(0),
+                name: "value".to_string(),
+                kind: crate::FunctionLocalKind::Binding,
+                ty,
+                span,
+            }],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Trap,
+                    },
+                    span,
+                }],
+                terminator: FunctionTerminator::Tail { value: None, span },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        };
+
+        let error = validate_function_body(&body).expect_err("trap cannot produce a value");
+
+        assert!(
+            error
+                .message
+                .contains("effect-only expression used where a value is required"),
             "{error:?}"
         );
     }

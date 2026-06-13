@@ -153,13 +153,15 @@ extend DirIterator : Iterator {
     type Item = Error!DirEntry;
 
     pub fn next(&mut self) ?(Error!DirEntry) {
-        let entry = switch self.reader.next() {
-            ?result => result.as_fs_error(),
-            null => return null,
+        let entry = if let ?result = self.reader.next() {
+            result.as_fs_error()
+        } else null {
+            return null;
         };
-        switch entry {
-            !value => ?(!value.as_fs_dir_entry()),
-            err! => ?(err!),
+        if let !value = entry {
+            ?(!value.as_fs_dir_entry())
+        } else err! {
+            ?(err!)
         }
     }
 }

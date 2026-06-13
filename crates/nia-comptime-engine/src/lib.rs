@@ -4196,13 +4196,14 @@ fn main() usize {
     }
 
     #[test]
-    fn evaluates_lowered_switch_with_optional_payload_patterns() {
+    fn evaluates_lowered_if_pattern_with_optional_payload_patterns() {
         let (module, errors) = nia_parser::parse_module(
             r#"
 fn main() usize {
-    switch ?8 {
-        ?value => value,
-        null => 0,
+    if let ?value = ?8 {
+        value
+    } else null {
+        0
     }
 }
 "#,
@@ -4218,13 +4219,14 @@ fn main() usize {
     }
 
     #[test]
-    fn evaluates_lowered_switch_with_error_union_payload_patterns() {
+    fn evaluates_lowered_if_pattern_with_error_union_payload_patterns() {
         let (module, errors) = nia_parser::parse_module(
             r#"
 fn main() usize {
-    switch 5! {
-        !value => value,
-        error! => error,
+    if let !value = 5! {
+        value
+    } else error! {
+        error
     }
 }
 "#,

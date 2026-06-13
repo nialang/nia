@@ -235,16 +235,18 @@ fn wrap(flag: bool) i32!i32 {
 }
 
 fn read_optional(value: ?i32) i32 {
-    switch value {
-        ?x => x,
-        null => 0,
+    if let ?x = value {
+        x
+    } else null {
+        0
     }
 }
 
 fn read_error(value: i32!i32) i32 {
-    switch value {
-        !x => x,
-        e! => e,
+    if let !x = value {
+        x
+    } else e! {
+        e
     }
 }
 
@@ -284,12 +286,14 @@ fn read() convert::A!?Item {
 }
 
 pub fn run() i32 {
-    switch read().as_b() {
-        !maybe => switch maybe {
-            ?item => item.value,
-            null => 0,
-        },
-        err! => err as i32,
+    if let !maybe = read().as_b() {
+        if let ?item = maybe {
+            item.value
+        } else null {
+            0
+        }
+    } else err! {
+        err as i32
     }
 }
 "#,
@@ -314,9 +318,10 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     pub fn as_b(self) B!T {
-        switch self {
-            !value => !value,
-            err! => to_b(err)!,
+        if let !value = self {
+            !value
+        } else err! {
+            to_b(err)!
         }
     }
 }

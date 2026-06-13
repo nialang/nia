@@ -172,9 +172,10 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [0]u8 = [];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    switch stdout.write_all(b"nia\n") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
+    if let !ok = stdout.write_all(b"nia\n") {
+        _ = ok;
+    } else error! {
+        return (1 as process::ExitCode)!;
     }
     !{}
 }
@@ -202,13 +203,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var raw_buffer: [0]u8 = [];
     var raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    switch stdout.write_all(b"nia\n") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
+    if let !ok = stdout.write_all(b"nia\n") {
+        _ = ok;
+    } else error! {
+        return (1 as process::ExitCode)!;
     }
-    switch stdout.flush() {
-        !ok => _ = ok,
-        error! => return (2 as process::ExitCode)!,
+    if let !ok = stdout.flush() {
+        _ = ok;
+    } else error! {
+        return (2 as process::ExitCode)!;
     }
     !{}
 }
@@ -232,9 +235,10 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
-    switch file.write_all(b"nia\n") {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
+    if let !ok = file.write_all(b"nia\n") {
+        _ = ok;
+    } else error! {
+        return (1 as process::ExitCode)!;
     }
     !{}
 }
@@ -273,9 +277,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var buffer: [64]u8 = [0; 64];
     var reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
     var bytes: [1]u8 = [0];
-    switch reader.read(&mut bytes[..]) {
-        !ok => _ = ok,
-        error! => return (1 as process::ExitCode)!,
+    if let !ok = reader.read(&mut bytes[..]) {
+        _ = ok;
+    } else error! {
+        return (1 as process::ExitCode)!;
     }
     !{}
 }
@@ -1289,9 +1294,10 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.current;
-            self.current = switch self.current.next() {
-                ?next => next,
-                null => self.end,
+            self.current = if let ?next = self.current.next() {
+                next
+            } else null {
+                self.end
             };
             ?value
         }

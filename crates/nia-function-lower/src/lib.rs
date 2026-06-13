@@ -5,11 +5,12 @@ use nia_body_ir::{
     TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee, TypedExpr,
     TypedExprKind, TypedForIn, TypedIfPattern, TypedInlineAsm, TypedLocal, TypedLocalKind,
     TypedLoop, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedWhile,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedSwitchPatternKind, TypedWhile,
 };
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TyInterner, TyKind};
+use nia_ty::{BuiltinTrait, PrimitiveTy, TyInterner, TyKind};
 
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
@@ -137,6 +138,28 @@ impl FunctionLowerer {
             entry,
             ty: body.ty,
         }
+    }
+
+    fn is_never_ty(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.as_ref().and_then(|interner| interner.get(ty)),
+            Some(TyKind::Primitive(PrimitiveTy::Never))
+        )
+    }
+
+    fn expr_lowers_as_effect_only(&self, expr: &TypedExpr) -> bool {
+        self.is_never_ty(expr.ty)
+            || matches!(
+                expr.kind,
+                TypedExprKind::MemoryIntrinsic(_)
+                    | TypedExprKind::InlineAsm(_)
+                    | TypedExprKind::Trap
+                    | TypedExprKind::Discard(_)
+            )
+    }
+
+    fn expr_lowers_as_terminating_effect(&self, expr: &TypedExpr) -> bool {
+        self.is_never_ty(expr.ty) || matches!(expr.kind, TypedExprKind::Trap)
     }
 
     fn reset_function_state(&mut self) {

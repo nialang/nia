@@ -34,9 +34,10 @@ extend os::Error {
 
 extend[T] os::Error!T {
     pub(package) fn as_fs_error(self) Error!T {
-        switch self {
-            !value => !value,
-            error! => error.as_fs_error()!,
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_fs_error()!
         }
     }
 }
@@ -65,15 +66,13 @@ extend os::Timestamp {
 extend os::FileMetadata {
     pub(package) fn as_fs_metadata(&self) Metadata {
         var accessed: ?Timestamp = null;
-        switch self.accessed() {
-            ?value => accessed = ?value.as_fs_timestamp(),
-            null => {},
-        }
+        if let ?value = self.accessed() {
+            accessed = ?value.as_fs_timestamp();
+        } else null {}
         var status_changed: ?Timestamp = null;
-        switch self.status_changed() {
-            ?value => status_changed = ?value.as_fs_timestamp(),
-            null => {},
-        }
+        if let ?value = self.status_changed() {
+            status_changed = ?value.as_fs_timestamp();
+        } else null {}
         Metadata::init(
             self.kind().as_fs_file_kind(),
             self.file_id(),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Pattern, PatternKind, Stmt,
-    StmtKind, SwitchArmBody,
+    StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
@@ -19,12 +19,7 @@ struct Flow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum PatternFingerprint {
-    Bind,
-    OptionalSome(Box<PatternFingerprint>),
-    OptionalNull,
-    ErrorOk(Box<PatternFingerprint>),
-    ErrorErr(Box<PatternFingerprint>),
+enum SwitchPatternFingerprint {
     Expr(ExprFingerprint),
     Range {
         start: ExprFingerprint,
@@ -314,10 +309,10 @@ impl FlowChecker<'_> {
                 let mut all_arms_terminate = !switch.arms.is_empty();
                 for arm in &switch.arms {
                     for pattern in &arm.patterns {
-                        if matches!(&pattern.kind, PatternKind::Wildcard) {
+                        if matches!(&pattern.kind, SwitchPatternKind::Wildcard) {
                             has_default = true;
                         }
-                        self.check_pattern_flow(pattern);
+                        self.check_switch_pattern_flow(pattern);
                     }
                     all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
                 }
@@ -456,6 +451,19 @@ impl FlowChecker<'_> {
         self.check_expr_flow(expr);
     }
 
+    fn check_switch_pattern_flow(&mut self, pattern: &SwitchPattern) {
+        match &pattern.kind {
+            SwitchPatternKind::Wildcard => {}
+            SwitchPatternKind::Expr(expr) => {
+                self.check_expr_flow(expr);
+            }
+            SwitchPatternKind::Range { start, end, .. } => {
+                self.check_expr_flow(start);
+                self.check_expr_flow(end);
+            }
+        }
+    }
+
     fn check_pattern_flow(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
@@ -477,7 +485,7 @@ impl FlowChecker<'_> {
         let mut seen = HashSet::new();
         for arm in &switch.arms {
             for pattern in &arm.patterns {
-                if matches!(&pattern.kind, PatternKind::Wildcard) {
+                if matches!(&pattern.kind, SwitchPatternKind::Wildcard) {
                     if has_default {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0501",
@@ -488,7 +496,7 @@ impl FlowChecker<'_> {
                     has_default = true;
                     continue;
                 }
-                if let Some(fingerprint) = Self::pattern_fingerprint(pattern)
+                if let Some(fingerprint) = Self::switch_pattern_fingerprint(pattern)
                     && !seen.insert(fingerprint)
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -501,28 +509,17 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn pattern_fingerprint(pattern: &Pattern) -> Option<PatternFingerprint> {
+    fn switch_pattern_fingerprint(pattern: &SwitchPattern) -> Option<SwitchPatternFingerprint> {
         match &pattern.kind {
-            PatternKind::Wildcard => None,
-            PatternKind::Bind { .. } => Some(PatternFingerprint::Bind),
-            PatternKind::OptionalSome(pattern) => Some(PatternFingerprint::OptionalSome(Box::new(
-                Self::pattern_fingerprint(pattern)?,
-            ))),
-            PatternKind::OptionalNull => Some(PatternFingerprint::OptionalNull),
-            PatternKind::ErrorOk(pattern) => Some(PatternFingerprint::ErrorOk(Box::new(
-                Self::pattern_fingerprint(pattern)?,
-            ))),
-            PatternKind::ErrorErr(pattern) => Some(PatternFingerprint::ErrorErr(Box::new(
-                Self::pattern_fingerprint(pattern)?,
-            ))),
-            PatternKind::Expr(expr) => {
-                Some(PatternFingerprint::Expr(Self::expr_fingerprint(expr)?))
-            }
-            PatternKind::Range {
+            SwitchPatternKind::Wildcard => None,
+            SwitchPatternKind::Expr(expr) => Some(SwitchPatternFingerprint::Expr(
+                Self::expr_fingerprint(expr)?,
+            )),
+            SwitchPatternKind::Range {
                 start,
                 end,
                 inclusive,
-            } => Some(PatternFingerprint::Range {
+            } => Some(SwitchPatternFingerprint::Range {
                 start: Self::expr_fingerprint(start)?,
                 end: Self::expr_fingerprint(end)?,
                 inclusive: *inclusive,

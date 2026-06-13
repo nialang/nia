@@ -563,7 +563,7 @@ pub struct ResolvedComptimeForBinding {
     span: Span,
     name: Option<String>,
     local_id: Option<LocalId>,
-    pattern_kind: nia_ast::ForPatternKind,
+    pattern_kind: nia_ast::BindingPatternKind,
 }
 
 impl ResolvedComptimeForBinding {
@@ -571,7 +571,7 @@ impl ResolvedComptimeForBinding {
         span: Span,
         name: Option<String>,
         local_id: Option<LocalId>,
-        pattern_kind: nia_ast::ForPatternKind,
+        pattern_kind: nia_ast::BindingPatternKind,
     ) -> Self {
         Self {
             span,
@@ -593,7 +593,7 @@ impl ResolvedComptimeForBinding {
         self.local_id
     }
 
-    pub fn pattern_kind(&self) -> nia_ast::ForPatternKind {
+    pub fn pattern_kind(&self) -> nia_ast::BindingPatternKind {
         self.pattern_kind
     }
 }
@@ -1159,7 +1159,7 @@ pub struct EarlyComptimeForBinding {
     pub span: Span,
     pub name: Option<String>,
     pub local_id: Option<LocalId>,
-    pub pattern_kind: nia_ast::ForPatternKind,
+    pub pattern_kind: nia_ast::BindingPatternKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2889,10 +2889,34 @@ fn lower_switch_arm_with_context(
         patterns: arm
             .patterns
             .iter()
-            .map(|pattern| lower_pattern_with_context(pattern, context))
+            .map(|pattern| lower_switch_pattern_with_context(pattern, context))
             .collect::<Result<Vec<_>, _>>()?,
         body: lower_switch_arm_body_with_context(&arm.body, context)?,
     })
+}
+
+fn lower_switch_pattern_with_context(
+    pattern: &nia_ast::SwitchPattern,
+    context: &dyn ComptimeLowerContext,
+) -> Result<EarlyComptimePattern, ComptimeLowerError> {
+    match &pattern.kind {
+        nia_ast::SwitchPatternKind::Wildcard => {
+            Ok(EarlyComptimePattern::Wildcard { span: pattern.span })
+        }
+        nia_ast::SwitchPatternKind::Expr(expr) => {
+            lower_expr_internal(expr, context).map(EarlyComptimePattern::Expr)
+        }
+        nia_ast::SwitchPatternKind::Range {
+            start,
+            end,
+            inclusive,
+        } => Ok(EarlyComptimePattern::Range {
+            start: lower_expr_internal(start, context)?,
+            end: lower_expr_internal(end, context)?,
+            inclusive: *inclusive,
+            span: pattern.span,
+        }),
+    }
 }
 
 fn lower_pattern_with_context(
@@ -3139,7 +3163,7 @@ mod tests {
                 node_key: stmt_key(0),
                 kind: nia_ast::StmtKind::Binding(Box::new(nia_ast::BindingStmt {
                     name: "x".to_string(),
-                    pattern_kind: nia_ast::ForPatternKind::Value,
+                    pattern_kind: nia_ast::BindingPatternKind::Value,
                     pattern_span: span(),
                     pattern_node_key: stmt_key(2),
                     ty: None,

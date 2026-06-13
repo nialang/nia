@@ -65,6 +65,47 @@ fn validates_defer_body_references_to_enclosing_locals() {
 }
 
 #[test]
+fn trap_tail_lowers_as_effect_only_even_with_value_type() {
+    let ty = test_ty();
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Trap,
+        })),
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    assert!(
+        function_body.blocks.iter().any(|block| {
+            block.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::Expr(FunctionExpr {
+                        kind: FunctionExprKind::Trap,
+                        ..
+                    })
+                )
+            })
+        }),
+        "{function_body:#?}"
+    );
+    assert!(
+        function_body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, FunctionTerminator::Error { .. })),
+        "{function_body:#?}"
+    );
+    validate_function_body(&function_body).expect("trap tail should be valid effect IR");
+}
+
+#[test]
 fn rejects_missing_successor_block() {
     let mut function_body = manual_function_body_for_scope_edges();
     function_body.blocks[0].terminator = FunctionTerminator::Branch {

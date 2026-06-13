@@ -45,9 +45,10 @@ extend Layout {
     where T: Sized
     {
         let elem_len = @size[T]();
-        let size = switch elem_len.checked_mul(count) {
-            ?value => value,
-            null => return Error::OutOfMemory!,
+        let size = if let ?value = elem_len.checked_mul(count) {
+            value
+        } else null {
+            return Error::OutOfMemory!;
         };
         Layout::init(size, @align[T]())
     }

@@ -18,58 +18,33 @@ using std::process;
 
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
-    switch allocator.alloc_slice[i32](0) {
-        !items => {
-            if items.len() != 0 {
+    if let !items = allocator.alloc_slice[i32](0) { if items.len() != 0 {
                 return (2 as process::ExitCode)!;
             }
-            switch allocator.free_slice[i32](items) {
-                !ok => _ = ok,
-                error! => return (3 as process::ExitCode)!,
-            }
-        },
-        error! => return (1 as process::ExitCode)!,
-    }
+            if let !ok = allocator.free_slice[i32](items) { _ = ok; } else error! { return (3 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
-    switch allocator.alloc_slice[void](4) {
-        !items => {
-            if items.len() != 4 {
+    if let !items = allocator.alloc_slice[void](4) { if items.len() != 4 {
                 return (2 as process::ExitCode)!;
             }
-            switch allocator.free_slice[void](items) {
-                !ok => _ = ok,
-                error! => return (3 as process::ExitCode)!,
-            }
-        },
-        error! => return (1 as process::ExitCode)!,
-    }
+            if let !ok = allocator.free_slice[void](items) { _ = ok; } else error! { return (3 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
 fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void {
     var allocator = mem::PageAllocator::init();
     var layout: mem::Layout;
-    switch mem::Layout::array[void](8) {
-        !value => layout = value,
-        error! => return (1 as process::ExitCode)!,
-    }
+    if let !value = mem::Layout::array[void](8) { layout = value; } else error! { return (1 as process::ExitCode)!; }
     var block: mem::Block;
-    switch allocator.alloc(layout) {
-        !value => block = value,
-        error! => return (2 as process::ExitCode)!,
-    }
+    if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
     var items = block.as_slice[void]();
     if items.len() != 0 {
         return (3 as process::ExitCode)!;
     }
-    switch allocator.free(block) {
-        !ok => _ = ok,
-        error! => return (4 as process::ExitCode)!,
-    }
+    if let !ok = allocator.free(block) { _ = ok; } else error! { return (4 as process::ExitCode)!; }
     !{}
 }
 

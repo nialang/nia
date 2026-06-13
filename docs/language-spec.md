@@ -862,20 +862,24 @@ fn read(value: i32!i32) i32!i32 {
 Patterns can destructure optional and error-union values:
 
 ```nia
-switch maybe {
-    ?x => x,
-    null => 0,
+if let ?x = maybe {
+    x
+} else null {
+    0
 }
 
-switch result {
-    !x => x,
-    err! => err,
+if let !x = result {
+    x
+} else err! {
+    err
 }
 
-switch nested {
-    ?!value => value,
-    ?err! => err,
-    null => 0,
+if let ?!value = nested {
+    value
+} else ?err! {
+    err
+} else null {
+    0
 }
 ```
 
@@ -884,8 +888,10 @@ payload. `null` matches the empty optional case. `!pattern` matches the
 error-union success case. `pattern!` matches the error-union error case.
 Patterns may be nested, so `?!value` matches an optional present value whose
 payload is an error-union success value, while `?err!` matches the nested error
-case. A binding pattern must be the only pattern in its arm, because the binding
-is only initialized on that case.
+case. Pointer binding forms such as `let &value = ptr;` and `for &value in
+items` are binding destructuring forms too, but they are parsed on local/loop
+bindings rather than as optional/error-union match patterns. Neither form is a
+`switch` case pattern.
 
 ### 4.6 Structs
 
@@ -1276,34 +1282,39 @@ Open-ended switch range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
 ranges and overlapping integer patterns are rejected.
 
-Optional and error-union switches use recursive case patterns:
+`switch` case patterns are value dispatch patterns only: expression patterns,
+integer ranges, and `_`. `switch` does not destructure optional or error-union
+values. Use `if let` or `if var` for recursive binding patterns:
 
 ```nia
-switch value {
-    ?x => return x;
-    null => return 0;
+if let ?x = value {
+    return x;
+} else null {
+    return 0;
 }
 
-switch result {
-    !x => return x;
-    err! => return err;
+if let !x = result {
+    return x;
+} else err! {
+    return err;
 }
 
-switch nested {
-    ?!value => return value;
-    ?err! => return err;
-    null => return 0;
+if let ?!value = nested {
+    return value;
+} else ?err! {
+    return err;
+} else null {
+    return 0;
 }
 ```
 
 `?pattern` matches the payload of a present optional. `!pattern` matches the
 success payload of an error union. `pattern!` matches the error payload of an
-error union. `null` and `_` match the empty optional case and the fallback case.
-Patterns may nest across optional and error-union layers.
-
-Optional switches must cover `?pattern` and `null`, or provide `_`. Error-union
-switches must cover `!pattern` and `pattern!`, or provide `_`. A binding pattern
-may not be combined with other patterns in the same arm.
+error union. `null` matches the empty optional case. `_` is a catch-all
+optional/error-union pattern in `if let` / `if var`; in `switch`, `_` is the
+default case. These match patterns may nest across optional and error-union
+layers. Pointer destructuring forms such as `let &value = ptr;` are separate
+local/loop binding syntax, not switch case syntax.
 
 Switch expression arms must produce compatible value types unless an arm exits
 through `return`, `break`, or `continue`. Switches over closed enums must cover
@@ -1547,7 +1558,7 @@ x /= 2;
 uninitialized declarations. A declaration without an explicit type must have an
 initializer.
 
-Local bindings may use pointer patterns:
+Local bindings may use pointer destructuring:
 
 ```nia
 let &x = ptr;
@@ -1556,8 +1567,10 @@ var &mut y: i32 = mut_ptr;
 
 `let &x = ptr` requires `ptr: &T` and binds `x: T`. `var &mut y: T = ptr`
 requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
-type after destructuring, not the pointer input type. Pointer-pattern local
-bindings require an initializer.
+type after destructuring, not the pointer input type. Pointer-destructuring
+local bindings require an initializer. This syntax is separate from the
+optional/error-union match patterns used by `if let` and `if var`, and from the
+value/range/default patterns used by `switch`.
 
 ## 7. Statements And Semicolons
 
@@ -1614,8 +1627,8 @@ When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
 
-`if let` and `if var` match a value with the same pattern language used by
-`switch`:
+`if let` and `if var` match a value with the binding/destructuring pattern
+language:
 
 ```nia
 if let !value = result {

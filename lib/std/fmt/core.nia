@@ -111,12 +111,11 @@ extend FormatSpec {
     }
 
     pub fn has_precision(&self) bool {
-        switch self.precision {
-            ?precision => {
-                _ = precision;
-                true
-            },
-            null => false,
+        if let ?precision = self.precision {
+            _ = precision;
+            true
+        } else null {
+            false
         }
     }
 
@@ -180,13 +179,14 @@ extend Formatter {
 
     pub fn precision_width(&mut self, content_width: usize, spec: FormatSpec) usize {
         _ = self;
-        switch spec.precision() {
-            ?precision => if precision < content_width {
+        if let ?precision = spec.precision() {
+            if precision < content_width {
                 precision
             } else {
                 content_width
-            },
-            null => content_width,
+            }
+        } else null {
+            content_width
         }
     }
 
@@ -474,12 +474,11 @@ extend[W] W : FormatWriter
 where W: io::Writer
 {
     fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void {
-        switch self.write_all(bytes) {
-            !ok => !ok,
-            error! => {
-                _ = error;
-                Error::Write!
-            },
+        if let !ok = self.write_all(bytes) {
+            !ok
+        } else error! {
+            _ = error;
+            Error::Write!
         }
     }
 }
