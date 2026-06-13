@@ -765,6 +765,12 @@ impl<'a> ValueResolver<'a> {
                 },
             );
         }
+        if self
+            .using_scope
+            .is_some_and(|scope| scope.has_unresolved_name(name))
+        {
+            return ValueNameResolution::Error;
+        }
 
         // Local bindings and parameters are resolved by nia-local-resolve.
         ValueNameResolution::LocalDeferred

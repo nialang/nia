@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::DefId;
 use nia_ids::ModuleId;
@@ -106,6 +106,7 @@ pub struct ModuleUsingScope {
     pub modules: HashMap<String, ModuleId>,
     pub values: HashMap<String, UsingEntry>,
     pub types: HashMap<String, UsingEntry>,
+    pub unresolved_names: HashSet<String>,
 }
 
 impl ModuleUsingScope {
@@ -119,6 +120,10 @@ impl ModuleUsingScope {
 
     pub fn lookup_type(&self, name: &str) -> Option<&UsingEntry> {
         self.types.get(name)
+    }
+
+    pub fn has_unresolved_name(&self, name: &str) -> bool {
+        self.unresolved_names.contains(name)
     }
 
     pub fn entries(&self) -> impl Iterator<Item = (&str, &UsingEntry)> {

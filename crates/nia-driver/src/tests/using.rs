@@ -145,6 +145,65 @@ pub fn add(a: i32, b: i32) i32 { a + b }
 }
 
 #[test]
+fn pub_using_wildcard_does_not_reexport_non_public_child_modules() {
+    let root = temp_dir("pub_using_wildcard_does_not_reexport_non_public_child_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+module parent;
+using root::parent;
+
+fn main() i32 {
+    parent::facade::internal::secret()
+}
+"#,
+    );
+    write(
+        &root.join("parent.nia"),
+        r#"
+pub module facade;
+pub(super) module source;
+"#,
+    );
+    std::fs::create_dir_all(root.join("parent")).expect("create parent dir");
+    write(
+        &root.join("parent/facade.nia"),
+        r#"
+using super::source;
+pub using source::*;
+"#,
+    );
+    write(
+        &root.join("parent/source.nia"),
+        r#"
+pub(super) module internal;
+pub fn visible() i32 { 1 }
+"#,
+    );
+    std::fs::create_dir_all(root.join("parent/source")).expect("create source dir");
+    write(
+        &root.join("parent/source/internal.nia"),
+        r#"
+pub fn secret() i32 { 42 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("unknown namespace `internal`")
+            || diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown value `internal`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn pub_using_module_namespace_is_visible_downstream() {
     let root = temp_dir("pub_using_module_namespace_is_visible_downstream");
     write(

@@ -742,6 +742,12 @@ impl<'a> TypeResolver<'a> {
                 .insert(node_key.clone(), global);
             return TypeNameResolution::External(global);
         }
+        if self
+            .using_scope
+            .is_some_and(|scope| scope.has_unresolved_name(&segment.name))
+        {
+            return TypeNameResolution::Error;
+        }
         if !self.suppress_unknown_type_errors {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0201",
