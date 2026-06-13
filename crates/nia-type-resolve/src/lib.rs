@@ -11,7 +11,10 @@ use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, Public
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::{ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, visibility_allows};
+use nia_imports::{
+    ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
+    module_declaration_visibility_allows, visibility_allows,
+};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;
@@ -188,14 +191,65 @@ struct TypeResolver<'a> {
 }
 
 impl TypeResolver<'_> {
+    fn graph(&self) -> Option<&ModuleGraph> {
+        self.graph.or(self.program_defs.graph)
+    }
+
     fn visibility_allows(&self, module_id: ModuleId, visibility: Visibility) -> bool {
         if module_id == self.defs.module_id {
             return true;
         }
-        let Some(graph) = self.graph.or(self.program_defs.graph) else {
+        let Some(graph) = self.graph() else {
             return visibility == Visibility::Public;
         };
         visibility_allows(visibility, graph, module_id, self.defs.module_id)
+    }
+
+    fn module_declaration_visible(
+        &self,
+        declaring_module: ModuleId,
+        visibility: Visibility,
+    ) -> bool {
+        let Some(graph) = self.graph() else {
+            return visibility == Visibility::Public;
+        };
+        module_declaration_visibility_allows(
+            visibility,
+            graph,
+            declaring_module,
+            self.defs.module_id,
+        )
+    }
+
+    fn child_module_declaration(
+        &self,
+        parent_module: ModuleId,
+        name: &str,
+    ) -> Option<(ModuleId, Visibility)> {
+        let graph = self.graph()?;
+        let parent = graph.get(parent_module)?;
+        let target = parent.children.get(name).copied()?;
+        let declaration = parent
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
+
+    fn direct_type_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+        let Some(target_defs) = self.defs_for_module(module_id) else {
+            return DirectMember::Unloaded;
+        };
+        let Some(def_id) = target_defs.module_scope.types.get(name) else {
+            return DirectMember::Missing;
+        };
+        let Some(def) = target_defs.defs.get(def_id) else {
+            return DirectMember::Missing;
+        };
+        if !self.visibility_allows(module_id, def.visibility) {
+            return DirectMember::Private;
+        }
+        DirectMember::Visible(def_id)
     }
 }
 
@@ -203,6 +257,14 @@ impl TypeResolver<'_> {
 enum ResolvedNamespace {
     Module(ModuleId),
     Type(GlobalDefId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectMember<T> {
+    Visible(T),
+    Private,
+    Missing,
+    Unloaded,
 }
 
 impl<'ast> Visitor<'ast> for TypeResolver<'_> {
@@ -584,7 +646,7 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
-        let graph = self.graph.or(self.program_defs.graph)?;
+        let graph = self.graph()?;
         match name {
             "self" => Some(self.defs.module_id),
             "super" => graph.get(self.defs.module_id)?.parent,
@@ -618,18 +680,48 @@ impl<'a> TypeResolver<'a> {
                         }));
                     }
                 }
-                let target_defs = self.defs_for_module(module_id)?;
-                let def_id = target_defs.module_scope.types.get(&segment.name)?;
-                let def = target_defs.defs.get(def_id)?;
-                if !self.visibility_allows(module_id, def.visibility) {
+                if let Some((child_module, visibility)) =
+                    self.child_module_declaration(module_id, &segment.name)
+                {
+                    if self.module_declaration_visible(module_id, visibility) {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0201",
                         path_span,
-                        format!("type `{}` is private", segment.name),
+                        format!("module namespace `{}` is private", segment.name),
                     ));
                     return None;
                 }
-                Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+                match self.direct_type_member(module_id, &segment.name) {
+                    DirectMember::Visible(def_id) => {
+                        Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+                    }
+                    DirectMember::Private => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
+                            path_span,
+                            format!("type `{}` is private", segment.name),
+                        ));
+                        None
+                    }
+                    DirectMember::Missing => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
+                            path_span,
+                            format!("unknown namespace `{}`", segment.name),
+                        ));
+                        None
+                    }
+                    DirectMember::Unloaded => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
+                            path_span,
+                            "module namespace refers to an unloaded module",
+                        ));
+                        None
+                    }
+                }
             }
             ResolvedNamespace::Type(_) => None,
         }
@@ -655,20 +747,34 @@ impl<'a> TypeResolver<'a> {
                 .insert(node_key.clone(), global);
             return TypeNameResolution::External(global);
         }
-        let Some(target_defs) = self.defs_for_module(module_id) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
-                span,
-                "module namespace refers to an unloaded module",
-            ));
-            return TypeNameResolution::Error;
+        let def_id = match self.direct_type_member(module_id, &segment.name) {
+            DirectMember::Visible(def_id) => def_id,
+            DirectMember::Private => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    format!("type `{path_text}` is private"),
+                ));
+                return TypeNameResolution::Error;
+            }
+            DirectMember::Missing => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    format!("unknown type `{}`", segment.name),
+                ));
+                return TypeNameResolution::Error;
+            }
+            DirectMember::Unloaded => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    span,
+                    "module namespace refers to an unloaded module",
+                ));
+                return TypeNameResolution::Error;
+            }
         };
-        let Some(def_id) = target_defs.module_scope.types.get(&segment.name) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
-                span,
-                format!("unknown type `{}`", segment.name),
-            ));
+        let Some(target_defs) = self.defs_for_module(module_id) else {
             return TypeNameResolution::Error;
         };
         let Some(def) = target_defs.defs.get(def_id) else {
@@ -678,14 +784,6 @@ impl<'a> TypeResolver<'a> {
             def.kind,
             DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
         ) {
-            return TypeNameResolution::Error;
-        }
-        if !self.visibility_allows(module_id, def.visibility) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
-                span,
-                format!("type `{path_text}` is private"),
-            ));
             return TypeNameResolution::Error;
         }
         self.node_qualified_type_names

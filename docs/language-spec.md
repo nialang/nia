@@ -104,10 +104,11 @@ The current standard library surface is intentionally small. Standard-library
 files are modules, so module-shaped APIs are imported by their file paths, such
 as `using std::process;` or `using std::io;`. The root `std` file is a curated
 facade for selected direct names; it currently exposes `std::range`,
-`std::inclusive`, `std::from`, `std::ArrayList`, `std::HashMap`,
-and `std::Atomic`. Containers are organized under
-`std::collections` internally, but the root facade keeps the ordinary user-facing
-entry points at `std::ArrayList` and `std::HashMap`.
+`std::inclusive`, `std::from`, `std::Range`, `std::RangeInclusive`,
+`std::RangeFrom`, `std::ArrayList`, `std::HashMap`, and `std::Atomic`.
+Containers are organized under `std::collections` internally, but the root
+facade keeps the ordinary user-facing entry points at `std::ArrayList` and
+`std::HashMap`.
 
 - `std::process` defines the executable entry payload, the open-enum process
   exit value, and `exit` for constructing exit values.
@@ -190,10 +191,11 @@ entry points at `std::ArrayList` and `std::HashMap`.
   standard-library facade over the compiler atomic builtins.
 - `std::slice` defines `SliceIter`, and slices provide `.iter()` for explicit
   read-only iteration.
-- `std::range` defines range-to-iterator adapters for integer ranges. Its
-  `Step` trait is implemented for the built-in integer types that have
-  representable `MAX` values. The common range constructors are also re-exported
-  by the root `std` facade.
+- `std::range`, `std::inclusive`, and `std::from` construct stateful iterators
+  from native range values. The corresponding iterator types are exposed as
+  `std::Range`, `std::RangeInclusive`, and `std::RangeFrom`. Their `Step` trait
+  is implemented for the built-in integer types that have representable `MAX`
+  values; the underlying `std::range` module is an implementation detail.
 
 `std::os` is a Nia-defined OS layer, not libc. Platform-specific syscall
 backends are package-internal implementation details. A future `std::c` can

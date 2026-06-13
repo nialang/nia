@@ -366,6 +366,18 @@ pub fn visibility_allows(
     }
 }
 
+pub fn module_declaration_visibility_allows(
+    visibility: Visibility,
+    graph: &ModuleGraph,
+    declaring_module: ModuleId,
+    accessing_module: ModuleId,
+) -> bool {
+    if visibility == Visibility::Private {
+        return is_descendant_or_self(graph, accessing_module, declaring_module);
+    }
+    visibility_allows(visibility, graph, declaring_module, accessing_module)
+}
+
 fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: ModuleId) -> bool {
     let mut current = Some(module);
     while let Some(module_id) = current {
