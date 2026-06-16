@@ -173,6 +173,10 @@ extend ArgsIter {
     pub fn remaining(&self) usize {
         self.args.len() - self.index
     }
+}
+
+extend ArgsIter : Iterator {
+    type Item = Arg;
 
     pub fn next(&mut self) ?Arg {
         let value = if let ?value = self.args.get(self.index) {
@@ -276,6 +280,10 @@ extend EnvIter {
     pub fn remaining(&self) usize {
         self.len - self.index
     }
+}
+
+extend EnvIter : Iterator {
+    type Item = EnvVar;
 
     pub fn next(&mut self) ?EnvVar {
         if self.index >= self.len {
