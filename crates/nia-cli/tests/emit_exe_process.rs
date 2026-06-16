@@ -721,6 +721,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if iter.remaining() != 0usize {
         return (13 as process::ExitCode)!;
     }
+    var for_count = 0usize;
+    for arg in args.skip_program() {
+        if for_count == 0usize {
+            if arg.len() != 3usize {
+                return (18 as process::ExitCode)!;
+            }
+        } else if for_count == 1usize {
+            if let !value = fmt::parse[u16](arg) {
+                if value != 1234u16 {
+                    return (19 as process::ExitCode)!;
+                }
+            } else error! {
+                return (20 as process::ExitCode)!;
+            }
+        } else {
+            return (21 as process::ExitCode)!;
+        }
+        for_count += 1usize;
+    }
+    if for_count != 2usize {
+        return (22 as process::ExitCode)!;
+    }
     var first = first_arg.bytes();
     var second = second_arg.bytes();
     if first.len() != 3 {
@@ -800,9 +822,7 @@ fn starts_with_needle(bytes: &[u8]) bool {
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var iter = init.env().iter();
-    while iter.remaining() != 0usize {
-        var item = if let ?value = iter.next() { value } else null { return (1 as process::ExitCode)!; };
+    for item in init.env().iter() {
         if starts_with_needle(item.bytes()) {
             return !{};
         }
