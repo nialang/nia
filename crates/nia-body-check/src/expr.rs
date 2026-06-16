@@ -680,6 +680,10 @@ impl<'a> BodyChecker<'a> {
             && !self.is_numeric_literal_expr(else_branch)
         {
             let else_ty = self.check_expr(else_branch);
+            if self.is_never(else_ty) {
+                let then_ty = self.check_block(then_branch);
+                return self.block_tail_materialized_type(then_branch, then_ty);
+            }
             let then_ty = self.check_block_with_expected(then_branch, Some(else_ty));
             self.expect_block_tail_type(then_branch, else_ty, then_ty, "if branches");
             return if self.is_never(then_ty) {
@@ -690,13 +694,17 @@ impl<'a> BodyChecker<'a> {
         }
 
         let then_ty = self.check_block(then_branch);
+        if self.is_never(then_ty) {
+            let else_ty = self.check_expr(else_branch);
+            return if self.is_never(else_ty) {
+                then_ty
+            } else {
+                self.expr_ty(else_branch).unwrap_or(else_ty)
+            };
+        }
         let else_ty = self.check_expr_with_expected(else_branch, Some(then_ty));
         self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
-        if self.is_never(then_ty) {
-            self.expr_ty(else_branch).unwrap_or(else_ty)
-        } else {
-            then_ty
-        }
+        then_ty
     }
 
     fn check_comptime_if_expr(

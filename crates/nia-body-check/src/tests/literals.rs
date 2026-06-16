@@ -184,6 +184,51 @@ fn main(flag: bool, x: usize) usize {
 }
 
 #[test]
+fn allows_never_if_branches_to_converge_to_the_other_branch_type() {
+    let checked = pipeline(
+        r#"
+fn then_return_else_void(flag: bool) void {
+    if flag {
+        return;
+    } else {
+        var x = 1;
+    }
+}
+
+fn chained_returns(byte: u8) void {
+    if byte == b'/' {
+        return;
+    } else if byte == b'*' {
+        return;
+    } else {
+    }
+}
+
+fn then_return_else_value(flag: bool) i32 {
+    if flag {
+        return 1;
+    } else {
+        2
+    }
+}
+
+fn then_value_else_return(flag: bool) i32 {
+    if flag {
+        1
+    } else {
+        return 2;
+    }
+}
+
+fn numeric_then_else_return(flag: bool, x: usize) usize {
+    if flag { 1 } else { return x; }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_numeric_literal_suffixes() {
     let checked = pipeline(
         r#"
