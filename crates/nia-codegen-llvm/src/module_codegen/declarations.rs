@@ -403,10 +403,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             def_id.def_id.0,
             self.trait_object_adapters.borrow().len()
         );
-        let adapter = self
-            .module
-            .add_function(&name, function_ty, None)
-            .map_err(Self::diagnostic_from_llvm_error)?;
+        let adapter = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self.context.create_builder();
         let entry = self.context.append_basic_block(adapter, "entry")?;
         builder.position_at_end(entry);

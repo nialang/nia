@@ -273,6 +273,78 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_links_slice_trait_object_adapters_from_multiple_modules() {
+    let root = temp_dir("emit_exe_links_slice_trait_object_adapters_from_multiple_modules");
+    let main = root.join("main.nia");
+    let left = root.join("left.nia");
+    let right = root.join("right.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+pub module left;
+pub module right;
+
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    left::write(init).?;
+    right::write(init).?;
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        &left,
+        r#"
+using std::io;
+using std::process;
+
+pub fn write(init: process::Init) process::ExitCode!void {
+    var buffer = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    defer stdout.flush().exit().?;
+    stdout.print("{}\n", &[&b"left"[..]]).exit()
+}
+"#,
+    )
+    .expect("write left source");
+    std::fs::write(
+        &right,
+        r#"
+using std::io;
+using std::process;
+
+pub fn write(init: process::Init) process::ExitCode!void {
+    var buffer = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    defer stdout.flush().exit().?;
+    stdout.print("{}\n", &[&b"right"[..]]).exit()
+}
+"#,
+    )
+    .expect("write right source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_runs_slice_trait_object_dispatch_with_zst_argument() {
     let root = temp_dir("emit_exe_runs_slice_trait_object_dispatch_with_zst_argument");
     let main = root.join("main.nia");

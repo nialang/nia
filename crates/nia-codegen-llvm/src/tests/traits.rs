@@ -232,6 +232,7 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.self"), "{ir}");
     assert!(ir.contains("nia__traitobj_adapter__"), "{ir}");
+    assert!(ir.contains("define internal"), "{ir}");
     assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
 }
 
