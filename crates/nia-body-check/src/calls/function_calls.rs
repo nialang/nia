@@ -64,8 +64,8 @@ impl<'a> BodyChecker<'a> {
         let current_def_id = self.current_def_id?;
         let target_ty = self.extension_methods_by_id.get(&current_def_id)?.target_ty;
         let candidates = self.method_candidates_for_target(target_ty, name);
-        let method_id = self.single_method_candidate(callee.span, name, &candidates)?;
-        let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
+        let candidate = self.single_method_candidate(callee.span, name, &candidates)?;
+        let method_id = candidate.method.def_id;
         let resolved = self.resolved_function_signature(method_id)?;
         let receiver_ty = resolved
             .signature
@@ -75,7 +75,8 @@ impl<'a> BodyChecker<'a> {
             .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
         Some(FunctionItemRef {
             resolved,
-            type_args: self.extension_target_instance_args(method_id, &target_substitutions),
+            type_args: self
+                .extension_target_instance_args(method_id, &candidate.target_substitutions),
             receiver_ty,
         })
     }
@@ -176,8 +177,8 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<FunctionItemRef> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
-        let method_id = self.single_method_candidate(span, name, &candidates)?;
-        let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
+        let candidate = self.single_method_candidate(span, name, &candidates)?;
+        let method_id = candidate.method.def_id;
         let resolved = self.resolved_function_signature(method_id)?;
         let receiver_ty = resolved
             .signature
@@ -187,7 +188,8 @@ impl<'a> BodyChecker<'a> {
             .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
         Some(FunctionItemRef {
             resolved,
-            type_args: self.extension_target_instance_args(method_id, &target_substitutions),
+            type_args: self
+                .extension_target_instance_args(method_id, &candidate.target_substitutions),
             receiver_ty,
         })
     }

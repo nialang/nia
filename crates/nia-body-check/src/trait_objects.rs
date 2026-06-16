@@ -291,7 +291,8 @@ impl<'a> BodyChecker<'a> {
             ) {
                 self.record_generic_instantiation(def_id, &args, span);
             } else if method.has_default {
-                let mut args = vec![self_ty];
+                let default_self_ty = self.trait_receiver_self_ty(self_ty).unwrap_or(self_ty);
+                let mut args = vec![default_self_ty];
                 args.extend(trait_args.iter().copied());
                 self.record_generic_instantiation(method_id, &args, span);
             }

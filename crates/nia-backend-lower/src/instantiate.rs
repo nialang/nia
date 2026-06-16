@@ -388,6 +388,46 @@ impl<'a> ModuleLowerer<'a> {
                 .any(|arg| self.ty_contains_generic_param(*arg))
     }
 
+    pub(crate) fn default_trait_method_self_arg(
+        &mut self,
+        trait_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> InternedTyId {
+        if self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty) {
+            return self_ty;
+        }
+        if let Some(pointee) = self.pointer_elem_ty(self_ty)
+            && self.source_trait_goal_is_satisfied(trait_id, trait_args, pointee)
+        {
+            return pointee;
+        }
+        self_ty
+    }
+
+    fn source_trait_goal_is_satisfied(
+        &mut self,
+        trait_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> bool {
+        let assumptions = self.current_trait_assumptions();
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
+        };
+        let mut solver = context.solver(&mut self.interner, &assumptions);
+        solver.proves(TraitGoal {
+            self_ty,
+            trait_id: TraitId::Source(trait_id),
+            trait_args: trait_args.to_vec(),
+        })
+    }
+
     fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
         let current_interner = self.interner.clone();
         let body_interner = &self.input.body_ir.interner;

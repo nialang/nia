@@ -102,7 +102,7 @@ impl<'a> BodyChecker<'a> {
                 candidates: trait_candidates,
             });
         }
-        let Some(method_id) = self.single_method_candidate(span, name, &candidates) else {
+        let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
                 span,
@@ -110,6 +110,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
+        let method_id = candidate.method.def_id;
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
@@ -121,13 +122,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        let Some(mut substitutions) = self.extension_target_substitutions(method_id, target_ty)
-        else {
-            for arg in args {
-                self.check_expr(arg);
-            }
-            return Some(self.error());
-        };
+        let mut substitutions = candidate.target_substitutions.clone();
         let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
         else {
             for arg in args {

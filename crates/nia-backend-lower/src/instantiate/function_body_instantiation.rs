@@ -663,7 +663,9 @@ impl<'a> ModuleLowerer<'a> {
                 } else if self.trait_method_has_default(method_id)
                     && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
                 {
-                    let mut instance_args = vec![self_ty];
+                    let default_self_ty =
+                        self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
+                    let mut instance_args = vec![default_self_ty];
                     instance_args.extend(trait_args.iter().copied());
                     instance_args.extend(args);
                     FunctionCallee::Method {
@@ -732,7 +734,9 @@ impl<'a> ModuleLowerer<'a> {
                 } else if self.trait_method_has_default(method_id)
                     && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
                 {
-                    let mut instance_args = vec![self_ty];
+                    let default_self_ty =
+                        self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
+                    let mut instance_args = vec![default_self_ty];
                     instance_args.extend(trait_args.iter().copied());
                     instance_args.extend(args);
                     FunctionCallee::FunctionInstance {
