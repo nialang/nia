@@ -16,8 +16,9 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_llvm::{
     Context, LlvmError,
+    module::Linkage,
     target::TargetMachine,
-    types::StructType,
+    types::{FunctionType, StructType},
     values::{FunctionValue, GlobalValue},
 };
 use nia_mangle::{mangle_base_symbol, mangle_type_with};
@@ -373,6 +374,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let self_part = self.mangle_ty(self_ty);
         let object_part = self.mangle_ty(object_ty);
         format!("nia__vtable__{self_part}__as__{object_part}")
+    }
+
+    pub(super) fn add_internal_helper_function(
+        &self,
+        name: &str,
+        ty: FunctionType<'ctx>,
+    ) -> Result<FunctionValue<'ctx>, Diagnostic> {
+        self.module
+            .add_function(name, ty, Some(Linkage::Internal))
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn mangle_ty(&self, ty: InternedTyId) -> String {
