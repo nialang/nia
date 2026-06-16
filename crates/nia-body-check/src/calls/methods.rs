@@ -24,8 +24,7 @@ pub(super) struct MethodCall<'a> {
 
 pub(super) struct MethodGenericContext<'a> {
     pub(super) span: Span,
-    pub(super) receiver_ty: InternedTyId,
-    pub(super) method_id: GlobalDefId,
+    pub(super) target_substitutions: &'a HashMap<String, InternedTyId>,
     pub(super) method_args: Option<&'a [BracketArg]>,
     pub(super) lowered_method_args: &'a [InternedTyId],
     pub(super) expected: Option<InternedTyId>,
@@ -56,6 +55,7 @@ pub(super) struct DynamicTraitMethodCandidate {
 pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
     pub(super) method: VisibleExtensionMethod,
+    pub(super) target_substitutions: HashMap<String, InternedTyId>,
 }
 
 mod associated;
@@ -170,7 +170,8 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
-        let method_id = self.single_method_candidate(call.span, call.name, &candidates)?;
+        let candidate = self.single_method_candidate(call.span, call.name, &candidates)?;
+        let method_id = candidate.method.def_id;
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
@@ -218,8 +219,7 @@ impl<'a> BodyChecker<'a> {
         let Some(mut substitutions) = self.method_generic_substitutions(
             MethodGenericContext {
                 span: call.span,
-                receiver_ty,
-                method_id,
+                target_substitutions: &candidate.target_substitutions,
                 method_args: call.type_args,
                 lowered_method_args: &method_instantiation_args,
                 expected: call.expected,

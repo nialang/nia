@@ -815,6 +815,115 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_mut_receiver_default_trait_method_with_associated_error() {
+    let root = temp_dir("emits_mut_receiver_default_trait_method_with_associated_error");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Writer {
+    type Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize;
+
+    fn write_all(&mut self, bytes: &[u8]) Error!void {
+        _ = self.write(bytes).?;
+        !{}
+    }
+}
+
+trait FormatWriter {
+    type Error;
+
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void;
+}
+
+extend[W] W : FormatWriter
+where W: Writer
+{
+    type Error = [W as Writer]::Error;
+
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!void {
+        self.write_all(bytes)
+    }
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {
+    count: usize,
+}
+
+extend Sink : Writer {
+    type Error = Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        self.count += bytes.len();
+        !bytes.len()
+    }
+}
+
+fn use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!void
+where W: FormatWriter
+{
+    writer.write_fmt_bytes(bytes)
+}
+
+fn main() i32 {
+    var sink: Sink = { count: 0 };
+    if let !ok = use_format[Sink](&mut sink, b"ok") {
+        _ = ok;
+        sink.count as i32
+    } else error! {
+        1
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let instance_symbols = checked
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.function_instances.iter())
+        .map(|instance| instance.symbol.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        !instance_symbols
+            .iter()
+            .any(|symbol| symbol.contains("__inst__ptr__nom__Sink")),
+        "{instance_symbols:#?}"
+    );
+    assert!(
+        instance_symbols
+            .iter()
+            .any(|symbol| symbol.contains("write_all__inst__t_nom__Sink")),
+        "{instance_symbols:#?}"
+    );
+    assert!(
+        instance_symbols
+            .iter()
+            .any(|symbol| symbol.contains("write_fmt_bytes__inst__t_nom__Sink")),
+        "{instance_symbols:#?}"
+    );
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("write_all__inst__"), "{ir}");
+    assert!(ir.contains("write_fmt_bytes__inst__"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn emits_trait_default_method_instances() {
     let root = temp_dir("emits_trait_default_method_instances");
     let main = root.join("main.nia");

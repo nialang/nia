@@ -100,7 +100,10 @@ impl<'a> BodyChecker<'a> {
             .map(|arg| self.substitute_generics(*arg, &substitutions))
             .collect::<Vec<_>>();
         if candidate.has_default {
-            let mut instance_args = vec![candidate.self_ty];
+            let default_self_ty = self
+                .trait_receiver_self_ty(call.receiver_ty)
+                .unwrap_or(candidate.self_ty);
+            let mut instance_args = vec![default_self_ty];
             instance_args.extend(trait_args.iter().copied());
             instance_args.extend(method_instantiation_args.iter().copied());
             self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);

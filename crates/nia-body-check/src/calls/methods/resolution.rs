@@ -24,10 +24,12 @@ impl<'a> BodyChecker<'a> {
             .all_methods_named(name)
             .into_iter()
             .filter_map(|(candidate_ty, method)| {
-                self.match_type_pattern(candidate_ty, target_ty, &mut HashMap::new())
+                let mut target_substitutions = HashMap::new();
+                self.match_type_pattern(candidate_ty, target_ty, &mut target_substitutions)
                     .then_some(MethodCandidate {
                         target_ty: candidate_ty,
                         method,
+                        target_substitutions,
                     })
             })
             .collect()
@@ -46,14 +48,19 @@ impl<'a> BodyChecker<'a> {
                 .into_iter()
                 .filter_map(|(target_ty, method)| {
                     let target_ty = self.normalization.normalize(target_ty);
-                    let mut substitutions = HashMap::new();
+                    let mut target_substitutions = HashMap::new();
                     (self.match_extension_receiver_target(
                         target_ty,
                         method.def_id,
                         receiver_ty,
-                        &mut substitutions,
-                    ) && self.extension_method_where_predicates_hold(&method, &substitutions))
-                    .then_some(MethodCandidate { target_ty, method })
+                        &mut target_substitutions,
+                    ) && self
+                        .extension_method_where_predicates_hold(&method, &target_substitutions))
+                    .then_some(MethodCandidate {
+                        target_ty,
+                        method,
+                        target_substitutions,
+                    })
                 })
                 .collect::<Vec<_>>();
             if !candidates.is_empty() {
@@ -84,12 +91,6 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         method_id: GlobalDefId,
     ) -> InternedTyId {
-        if !matches!(
-            self.interner.get(target_ty),
-            Some(TyKind::TraitObjectPointee { .. } | TyKind::SlicePointee { .. })
-        ) {
-            return target_ty;
-        }
         self.method_receiver_kind(method_id)
             .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
             .unwrap_or(target_ty)
@@ -120,7 +121,10 @@ impl<'a> BodyChecker<'a> {
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
         let candidate_target_ty = self.receiver_candidate_target_ty(target_ty, method_id);
-        if self.match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
+        if self.try_match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
+            return true;
+        }
+        if self.try_match_type_pattern(target_ty, receiver_ty, substitutions) {
             return true;
         }
         if self.trait_object_extension_target_matches_receiver(
@@ -140,6 +144,20 @@ impl<'a> BodyChecker<'a> {
             );
         }
         false
+    }
+
+    fn try_match_type_pattern(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        let mut candidate_substitutions = substitutions.clone();
+        if !self.match_type_pattern(pattern, actual, &mut candidate_substitutions) {
+            return false;
+        }
+        *substitutions = candidate_substitutions;
+        true
     }
 
     fn trait_object_extension_target_matches_receiver(
@@ -506,7 +524,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn trait_receiver_self_ty(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
+    pub(crate) fn trait_receiver_self_ty(
+        &mut self,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
         let receiver_ty = self.normalization.normalize(receiver_ty);
         match self.interner.get(receiver_ty).cloned() {
             Some(TyKind::TraitObject { .. }) => None,
@@ -527,7 +548,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         name: &str,
         candidates: &[MethodCandidate],
-    ) -> Option<GlobalDefId> {
+    ) -> Option<MethodCandidate> {
         let mut selected = None;
         let mut count = 0;
         for candidate in candidates {
@@ -537,7 +558,7 @@ impl<'a> BodyChecker<'a> {
             }) {
                 continue;
             }
-            selected = Some(candidate.method.def_id);
+            selected = Some(candidate.clone());
             count += 1;
             if count <= 1 {
                 continue;
@@ -886,8 +907,7 @@ impl<'a> BodyChecker<'a> {
         context: MethodGenericContext<'_>,
         signature: &FunctionSignature,
     ) -> Option<HashMap<String, InternedTyId>> {
-        let mut substitutions =
-            self.extension_target_substitutions(context.method_id, context.receiver_ty)?;
+        let mut substitutions = context.target_substitutions.clone();
         let method_arg_count = context.lowered_method_args.len();
         if context.method_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::user_error_at("E0301", 
@@ -912,19 +932,6 @@ impl<'a> BodyChecker<'a> {
             );
         }
         Some(substitutions)
-    }
-
-    pub(in crate::calls) fn extension_target_substitutions(
-        &mut self,
-        method_id: GlobalDefId,
-        receiver_ty: InternedTyId,
-    ) -> Option<HashMap<String, InternedTyId>> {
-        let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
-            return Some(HashMap::new());
-        };
-        let mut substitutions = HashMap::new();
-        self.match_extension_receiver_target(target_ty, method_id, receiver_ty, &mut substitutions)
-            .then_some(substitutions)
     }
 
     fn extension_method_where_predicates_hold(
@@ -968,12 +975,6 @@ impl<'a> BodyChecker<'a> {
         self.extension_methods_by_id
             .get(&method_id)
             .map(|method| method.impl_generics.as_slice())
-    }
-
-    fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<InternedTyId> {
-        self.extension_methods_by_id
-            .get(&method_id)
-            .map(|method| method.target_ty)
     }
 
     pub(crate) fn match_type_pattern(
