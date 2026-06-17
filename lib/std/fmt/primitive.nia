@@ -168,6 +168,10 @@ extend usize : core::Format {
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
         format_unsigned_spec(self.* as u128, formatter, spec)
     }
+
+    fn format_usize_arg(&self) ?usize {
+        ?self.*
+    }
 }
 
 fn format_pointer_spec(

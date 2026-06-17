@@ -22,8 +22,9 @@ to the expected slice.
 
 `std::fmt` placeholders are positional. Use `{}` for display formatting and
 `{:...}` for format options: alignment and fill (`{:>5}`, `{:_>5}`), text
-precision (`{:.3}`), integer bases (`{:x}`, `{:X}`, `{:b}`, `{:o}`), signs
-(`{:+}`), alternate prefixes (`{:#x}`), zero padding (`{:05}`), and pointer
+precision (`{:.3}`), dynamic width and precision from following `usize`
+arguments (`{:<{}}`, `{:>{}.{}}`), integer bases (`{:x}`, `{:X}`, `{:b}`,
+`{:o}`), signs (`{:+}`), alternate prefixes (`{:#x}`), zero padding (`{:05}`), and pointer
 addresses (`{:p}`). Literal braces are written as `{{` and `}}`. The matching
 parse helpers are `fmt::parse[T](input)` and
 `fmt::parse_radix[T](input, radix)` for primitive integers and bools. They use

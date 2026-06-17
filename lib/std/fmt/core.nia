@@ -23,6 +23,10 @@ pub trait Format {
             Error::InvalidTemplate!
         }
     }
+
+    fn format_usize_arg(&self) ?usize {
+        null
+    }
 }
 
 pub enum FormatPresentation: i32 {

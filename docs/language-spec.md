@@ -150,7 +150,8 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   Format placeholders are positional. `{}` uses display formatting. Extended
   placeholders begin with `{:...}` and support alignment/fill (`{:>5}`,
   `{:<5}`, `{:^5}`, `{:_>5}`), text precision by character count (`{:.3}`,
-  `{:>8.3}`), integer signs (`{:+}`), alternate integer prefixes (`{:#x}`,
+  `{:>8.3}`), dynamic width and precision from following `usize` arguments
+  (`{:<{}}`, `{:>{}.{}}`), integer signs (`{:+}`), alternate integer prefixes (`{:#x}`,
   `{:#b}`, `{:#o}`), integer presentations (`{:x}`, `{:X}`, `{:b}`, `{:o}`),
   zero padding (`{:05}`, `{:#08x}`), pointer formatting (`{:p}`), and escaped
   braces (`{{` and `}}`). The old shorthand forms such as `{x}` are invalid.
