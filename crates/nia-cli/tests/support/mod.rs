@@ -16,7 +16,7 @@ use std::{
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 const MAX_COMMAND_LIMIT: usize = 4;
-const MAX_HEAVY_COMPILER_LIMIT: usize = 1;
+const MAX_HEAVY_COMPILER_LIMIT: usize = 3;
 const MAX_ARTIFACT_EMIT_LIMIT: usize = 2;
 const COMMAND_SLOT_MEMORY_BYTES: usize = 384 * 1024 * 1024;
 const HEAVY_COMPILER_SLOT_MEMORY_BYTES: usize = 1024 * 1024 * 1024;
