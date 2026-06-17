@@ -989,25 +989,112 @@ impl<'a> ModuleLowerer<'a> {
         struct_instances: &[nia_backend_ir::BackendStructInstance],
         union_instances: &[nia_backend_ir::BackendUnionInstance],
     ) {
-        let computed = nia_layout::compute_layouts_with_normalized_types(
+        let array_lengths = |id| self.input.comptime.array_lengths.get(&id).copied();
+        let program = ProgramLayoutContext {
+            layouts: None,
+            array_lengths: Some(&array_lengths),
+            structs: Some(self.input.program_structs),
+            unions: Some(self.input.program_unions),
+        };
+        let normalization = nia_type_normalize::normalize_module_types(
+            self.input.module_id,
+            &self.interner,
+            self.input.signatures,
+        );
+        let layout_input = nia_layout::LayoutComputationInput {
+            defs: self.input.defs,
+            interner: &self.interner,
+            signatures: self.input.signatures,
+            normalized: &normalization.normalized,
+            array_lengths: &array_lengths,
+            target: self.input.layouts.target,
+            program,
+        };
+        let computed = nia_layout::compute_layouts_with_program_context(
             self.input.defs,
             &self.interner,
             self.input.signatures,
-            &self.input.type_normalization.normalized,
-            &|id| self.input.comptime.array_lengths.get(&id).copied(),
+            &normalization.normalized,
+            &array_lengths,
             self.input.layouts.target,
+            program,
         );
-        append_missing_layout_instances(
-            &mut layouts.struct_instances,
-            computed.struct_instances,
+        append_missing_type_layouts(&mut layouts.types, computed.types);
+        append_missing_nominal_layouts(
+            &mut layouts.structs,
+            computed.structs,
             self.input.module_id,
         );
-        append_missing_layout_instances(
-            &mut layouts.union_instances,
-            computed.union_instances,
-            self.input.module_id,
+        append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
+        self.append_local_instance_layouts(
+            layouts,
+            layout_input,
+            struct_instances,
+            union_instances,
         );
         self.append_foreign_instance_layouts(layouts, struct_instances, union_instances);
+    }
+
+    fn append_local_instance_layouts(
+        &self,
+        layouts: &mut BackendLayouts,
+        layout_input: nia_layout::LayoutComputationInput<'_>,
+        struct_instances: &[nia_backend_ir::BackendStructInstance],
+        union_instances: &[nia_backend_ir::BackendUnionInstance],
+    ) {
+        let mut seen_structs = layouts
+            .struct_instances
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
+        for instance in struct_instances {
+            if instance.def_id.module_id != self.input.module_id {
+                continue;
+            }
+            let key = BackendStructInstanceKey {
+                def_id: instance.def_id,
+                args: instance.args.clone(),
+            };
+            if !seen_structs.insert(key.clone()) {
+                continue;
+            }
+            if let Some(layout) = nia_layout::compute_struct_instance_layout_with_program_context(
+                layout_input,
+                nia_layout::InstanceLayoutRequest {
+                    def_id: instance.def_id,
+                    args: &instance.args,
+                },
+            ) {
+                layouts.struct_instances.push((key, layout));
+            }
+        }
+
+        let mut seen_unions = layouts
+            .union_instances
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
+        for instance in union_instances {
+            if instance.def_id.module_id != self.input.module_id {
+                continue;
+            }
+            let key = BackendStructInstanceKey {
+                def_id: instance.def_id,
+                args: instance.args.clone(),
+            };
+            if !seen_unions.insert(key.clone()) {
+                continue;
+            }
+            if let Some(layout) = nia_layout::compute_union_instance_layout_with_program_context(
+                layout_input,
+                nia_layout::InstanceLayoutRequest {
+                    def_id: instance.def_id,
+                    args: &instance.args,
+                },
+            ) {
+                layouts.union_instances.push((key, layout));
+            }
+        }
     }
 
     fn append_foreign_instance_layouts(
@@ -1517,21 +1604,41 @@ fn index_layout_instances_by_def<'a>(
     instances_by_def
 }
 
-fn append_missing_layout_instances(
-    output: &mut Vec<(BackendStructInstanceKey, nia_layout::StructLayout)>,
-    computed: HashMap<StructLayoutKey, nia_layout::StructLayout>,
+fn append_missing_type_layouts(
+    output: &mut Vec<(InternedTyId, nia_layout::TypeLayout)>,
+    computed: HashMap<InternedTyId, nia_layout::TypeLayout>,
+) {
+    for (ty, layout) in computed {
+        if let Some((_, existing)) = output
+            .iter_mut()
+            .find(|(existing_ty, _)| *existing_ty == ty)
+        {
+            *existing = layout;
+        } else {
+            output.push((ty, layout));
+        }
+    }
+}
+
+fn append_missing_nominal_layouts(
+    output: &mut Vec<(GlobalDefId, nia_layout::StructLayout)>,
+    computed: HashMap<DefId, nia_layout::StructLayout>,
     default_module_id: ModuleId,
 ) {
     let mut existing = output
         .iter()
-        .map(|(key, _)| key.clone())
+        .map(|(def_id, _)| *def_id)
         .collect::<HashSet<_>>();
-    for (key, layout) in computed {
-        let key = BackendStructInstanceKey::from_module_key(default_module_id, &key);
-        if existing.insert(key.clone()) {
-            output.push((key, layout));
+    for (def_id, layout) in computed {
+        let def_id = GlobalDefId {
+            module_id: default_module_id,
+            def_id,
+        };
+        if existing.insert(def_id) {
+            output.push((def_id, layout));
         }
     }
 }
+
 #[cfg(test)]
 mod tests;
