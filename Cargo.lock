@@ -233,6 +233,7 @@ dependencies = [
  "nia-comptime-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-executable-reachability",
  "nia-flow-check",
  "nia-function-ir",
  "nia-function-lower",
@@ -349,6 +350,21 @@ dependencies = [
  "nia-opt",
  "nia-static-ir",
  "nia-ty",
+]
+
+[[package]]
+name = "nia-executable-reachability"
+version = "0.4.2"
+dependencies = [
+ "nia-body-ir",
+ "nia-defs",
+ "nia-ids",
+ "nia-imports",
+ "nia-item-signatures",
+ "nia-sema-ir",
+ "nia-ty",
+ "nia-type-lower",
+ "nia-type-normalize",
 ]
 
 [[package]]

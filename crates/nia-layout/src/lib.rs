@@ -227,6 +227,15 @@ pub fn compute_struct_instance_layout_with_program_context(
         input.program,
     );
     computer.nominal_layout(Span::default(), request.def_id, request.args)?;
+    if request.def_id.module_id != input.defs.module_id {
+        return computer
+            .external_struct_instances
+            .get(&GlobalStructLayoutKey {
+                def_id: request.def_id,
+                args: request.args.to_vec(),
+            })
+            .cloned();
+    }
     computer
         .struct_instances
         .get(&StructLayoutKey {
@@ -250,6 +259,15 @@ pub fn compute_union_instance_layout_with_program_context(
         input.program,
     );
     computer.nominal_layout(Span::default(), request.def_id, request.args)?;
+    if request.def_id.module_id != input.defs.module_id {
+        return computer
+            .external_union_instances
+            .get(&GlobalStructLayoutKey {
+                def_id: request.def_id,
+                args: request.args.to_vec(),
+            })
+            .cloned();
+    }
     computer
         .union_instances
         .get(&StructLayoutKey {

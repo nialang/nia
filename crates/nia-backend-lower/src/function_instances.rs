@@ -255,8 +255,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn instance_arg_debug_name(&self, ty: InternedTyId) -> String {
-        if ty.interner_id == self.interner.interner_id() {
+        if ty.interner_id == self.type_context.interner.interner_id() {
             return self
+                .type_context
                 .interner
                 .get(ty)
                 .map(|kind| format!("{kind:?}"))
@@ -433,7 +434,9 @@ impl<'a> ModuleLowerer<'a> {
             .map(|generic| {
                 (
                     generic.clone(),
-                    self.interner.intern(TyKind::GenericParam(generic.clone())),
+                    self.type_context
+                        .interner
+                        .intern(TyKind::GenericParam(generic.clone())),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -462,13 +465,20 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    let signature_ty =
-                        nia_ty::import_type_into(&mut self.interner, source_interner, param.ty);
+                    let signature_ty = nia_ty::import_type_into(
+                        &mut self.type_context.interner,
+                        source_interner,
+                        param.ty,
+                    );
                     let param_local = param_locals.get(index).copied();
                     let local_ty = if param.receiver.is_some() {
                         param_local
                             .map(|(_, ty)| {
-                                nia_ty::import_type_into(&mut self.interner, body_interner, ty)
+                                nia_ty::import_type_into(
+                                    &mut self.type_context.interner,
+                                    body_interner,
+                                    ty,
+                                )
                             })
                             .unwrap_or(signature_ty)
                     } else {
@@ -489,7 +499,7 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect(),
             return_type: nia_ty::import_type_into(
-                &mut self.interner,
+                &mut self.type_context.interner,
                 source_interner,
                 signature.signature.return_type,
             ),
@@ -599,8 +609,8 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
-        let local = if arg.interner_id == self.interner.interner_id()
-            && let Some(kind) = self.interner.get(arg)
+        let local = if arg.interner_id == self.type_context.interner.interner_id()
+            && let Some(kind) = self.type_context.interner.get(arg)
             && !matches!(kind, TyKind::Error)
         {
             arg
@@ -608,12 +618,13 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(kind) = source.get(arg)
             && !matches!(kind, TyKind::Error)
         {
-            nia_ty::import_type_into(&mut self.interner, &source, arg)
-        } else if arg.interner_id == self.interner.interner_id() && self.interner.get(arg).is_some()
+            nia_ty::import_type_into(&mut self.type_context.interner, &source, arg)
+        } else if arg.interner_id == self.type_context.interner.interner_id()
+            && self.type_context.interner.get(arg).is_some()
         {
             arg
         } else if let Some(source) = self.known_interner_containing_ty(arg).cloned() {
-            nia_ty::import_type_into(&mut self.interner, &source, arg)
+            nia_ty::import_type_into(&mut self.type_context.interner, &source, arg)
         } else {
             arg
         };
@@ -621,7 +632,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.interner.clone();
+        let current_interner = self.type_context.interner.clone();
         contains_generic_param(
             ty,
             &mut |ty| {
@@ -636,7 +647,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.interner.clone();
+        let current_interner = self.type_context.interner.clone();
         contains_unresolved_projection(ty, &mut |ty| {
             (ty.interner_id == current_interner.interner_id())
                 .then(|| current_interner.get(ty).cloned())
@@ -656,7 +667,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.monomorphization
                     .type_interners
                     .get(&arg.interner_id)
-                    .map(|source| nia_ty::import_type_into(&mut self.interner, source, arg))
+                    .map(|source| {
+                        nia_ty::import_type_into(&mut self.type_context.interner, source, arg)
+                    })
                     .unwrap_or(arg)
             })
             .collect()

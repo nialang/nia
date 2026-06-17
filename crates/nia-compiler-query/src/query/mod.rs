@@ -37,6 +37,7 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{collections::HashMap, sync::Arc};
 
+mod backend_lowering;
 mod base;
 mod checked;
 mod checks;
@@ -46,6 +47,7 @@ mod providers;
 mod resolve;
 mod types;
 
+use backend_lowering::*;
 use base::*;
 use checked::*;
 use checks::*;

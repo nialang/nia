@@ -9,18 +9,21 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let current = self.current_instantiated_function?;
+        let current = self.instantiation.function?;
         if current.module_id != self.input.module_id {
             return None;
         }
-        let current_impl_index = *self.trait_impls_by_method.get(&current)?;
+        let current_impl_index = *self.trait_context.trait_impls_by_method.get(&current)?;
         let impl_signature = self.input.trait_impls.get(current_impl_index)?;
         if impl_signature.trait_id != key.trait_id {
             return None;
         }
         let impl_interner = impl_signature.interner.clone();
-        let target_ty =
-            nia_ty::import_type_into(&mut self.interner, &impl_interner, impl_signature.target_ty);
+        let target_ty = nia_ty::import_type_into(
+            &mut self.type_context.interner,
+            &impl_interner,
+            impl_signature.target_ty,
+        );
         let mut substitutions = std::collections::HashMap::new();
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
@@ -31,7 +34,9 @@ impl<'a> ModuleLowerer<'a> {
         let impl_trait_args = impl_signature
             .trait_args
             .iter()
-            .map(|arg| nia_ty::import_type_into(&mut self.interner, &impl_interner, *arg))
+            .map(|arg| {
+                nia_ty::import_type_into(&mut self.type_context.interner, &impl_interner, *arg)
+            })
             .collect::<Vec<_>>();
         if !impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
             self.match_extension_type_pattern(*left, *right, &mut substitutions)
@@ -46,6 +51,7 @@ impl<'a> ModuleLowerer<'a> {
             .find(|method| {
                 method.is_trait_witness
                     && self
+                        .trait_context
                         .trait_impls_by_method
                         .get(&method.def_id)
                         .is_some_and(|impl_index| *impl_index == current_impl_index)
@@ -123,7 +129,7 @@ impl<'a> ModuleLowerer<'a> {
             program_enums: Some(self.input.program_enums),
         };
         let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &assumptions,
             &associated_type_assumptions,
         );
@@ -150,16 +156,16 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(super) fn current_trait_assumptions(&mut self) -> Vec<TraitGoal> {
-        let Some(current) = self.current_instantiated_function else {
+        let Some(current) = self.instantiation.function else {
             return Vec::new();
         };
-        let Some(substitutions) = self.current_type_substitutions else {
+        let Some(substitutions) = self.instantiation.type_substitutions else {
             return Vec::new();
         };
         let mut assumptions = self.current_method_owner_trait_assumptions(current);
         let substitutions = self
-            .type_substitutions
-            .get(substitutions.0)
+            .type_context
+            .type_substitutions(substitutions)
             .cloned()
             .unwrap_or_default();
         for (predicates, source_interner) in self.current_where_predicate_sources(current) {
@@ -171,7 +177,7 @@ impl<'a> ModuleLowerer<'a> {
             for predicate in predicates {
                 for bound in predicate.bounds {
                     if let Some((trait_id, trait_args)) = Self::trait_id_and_args_from(
-                        &self.interner,
+                        &self.type_context.interner,
                         self.input.type_normalization,
                         self.input.program_traits,
                         bound.trait_ty,
@@ -226,10 +232,15 @@ impl<'a> ModuleLowerer<'a> {
         };
         let trait_args = generics
             .iter()
-            .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
+            .map(|generic| {
+                self.type_context
+                    .interner
+                    .intern(TyKind::GenericParam(generic.clone()))
+            })
             .collect();
         Some(TraitGoal {
             self_ty: self
+                .type_context
                 .interner
                 .intern(TyKind::GenericParam("Self".to_string())),
             trait_id: TraitId::Source(trait_def_id),
@@ -273,7 +284,11 @@ impl<'a> ModuleLowerer<'a> {
         Vec<nia_item_signatures::WherePredicateSignature>,
         nia_ty::TyInterner,
     )> {
-        let program_index = self.trait_impls_by_method.get(&current).copied()?;
+        let program_index = self
+            .trait_context
+            .trait_impls_by_method
+            .get(&current)
+            .copied()?;
         self.input.trait_impls.get(program_index).map(|signature| {
             (
                 signature.where_predicates.clone(),
@@ -284,7 +299,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
         Self::trait_id_and_args_from(
-            &self.interner,
+            &self.type_context.interner,
             self.input.type_normalization,
             self.input.program_traits,
             ty,
@@ -383,7 +398,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: receiver_ptr.span,
-                    ty: self.interner.intern(TyKind::Pointer {
+                    ty: self.type_context.interner.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::DerefRead),
                         elem,
                     }),
@@ -415,7 +430,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: index.span,
-                    ty: self.interner.intern(TyKind::Pointer {
+                    ty: self.type_context.interner.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::IndexRead),
                         elem,
                     }),
@@ -481,7 +496,7 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &[]);
+        let mut solver = context.solver(&mut self.type_context.interner, &[]);
         matches!(
             solver.resolve(TraitGoal {
                 self_ty,
@@ -505,7 +520,7 @@ impl<'a> ModuleLowerer<'a> {
         };
         let assumptions = self.current_trait_assumptions();
         if assumptions.is_empty()
-            && let Some(resolution) = self.builtin_trait_resolutions.get(&key)
+            && let Some(resolution) = self.trait_context.builtin_trait_resolutions.get(&key)
         {
             return resolution.clone();
         }
@@ -517,14 +532,15 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &assumptions);
+        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
         let resolution = solver.resolve(TraitGoal {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),
             trait_args: key.trait_args.clone(),
         });
         if assumptions.is_empty() {
-            self.builtin_trait_resolutions
+            self.trait_context
+                .builtin_trait_resolutions
                 .insert(key, resolution.clone());
         }
         resolution
@@ -535,11 +551,14 @@ impl<'a> ModuleLowerer<'a> {
         key: &ExtensionTraitMethodKey,
     ) -> Vec<ExtensionTraitMethodCandidate> {
         let mut out = self
+            .trait_context
             .extension_trait_method_candidates
             .get(key)
             .cloned()
             .unwrap_or_default();
-        if let Some((_, instance_candidates)) = &self.instance_extension_trait_method_candidates {
+        if let Some((_, instance_candidates)) =
+            &self.instantiation.extension_trait_method_candidates
+        {
             for candidate in instance_candidates.get(key).cloned().unwrap_or_default() {
                 if !out
                     .iter()

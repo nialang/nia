@@ -177,8 +177,8 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
-        let previous_function = self.current_instantiated_function.replace(global_def_id);
-        let previous_substitutions = self.current_type_substitutions.take();
+        let instantiation_snapshot = self.instantiation.take_snapshot();
+        self.instantiation.set_function_scope(global_def_id, None);
         let effective_generics = self
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
@@ -187,7 +187,9 @@ impl<'a> ModuleLowerer<'a> {
             .map(|generic| {
                 (
                     generic.clone(),
-                    self.interner.intern(TyKind::GenericParam(generic.clone())),
+                    self.type_context
+                        .interner
+                        .intern(TyKind::GenericParam(generic.clone())),
                 )
             })
             .collect::<std::collections::HashMap<_, _>>();
@@ -263,8 +265,7 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span,
         });
-        self.current_instantiated_function = previous_function;
-        self.current_type_substitutions = previous_substitutions;
+        self.instantiation.restore(instantiation_snapshot);
         backend_function
     }
 
@@ -280,11 +281,11 @@ impl<'a> ModuleLowerer<'a> {
             {
                 local_ty
             }
-            ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+            ReceiverKind::RefReadOnly => self.type_context.interner.intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
             }),
-            ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+            ReceiverKind::Ref => self.type_context.interner.intern(TyKind::Pointer {
                 is_readonly: false,
                 elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
             }),
@@ -292,7 +293,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn receiver_base_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
-        match self.interner.get(ty) {
+        match self.type_context.interner.get(ty) {
             Some(TyKind::Pointer { elem, .. }) => Some(*elem),
             _ => None,
         }
@@ -300,7 +301,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_fat_receiver_local_ty(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
-            self.interner.get(ty),
+            self.type_context.interner.get(ty),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
         )
     }

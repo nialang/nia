@@ -2,7 +2,9 @@
 mod function_instances;
 mod function_refs;
 mod instantiate;
+mod instantiation_context;
 mod items;
+mod layout_extender;
 mod module_const_prop;
 mod module_dce;
 mod module_devirt;
@@ -10,7 +12,9 @@ mod module_inline;
 mod operator_dispatch;
 mod opt;
 mod struct_instances;
+mod trait_context;
 mod trait_object_vtables;
+mod type_context;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -18,8 +22,7 @@ use std::time::Instant;
 use nia_ast::{Expr, ItemKind, Module, Visibility};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
-    BackendStructInstanceKey, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
-    BackendTraitObjectVtableKey,
+    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
 };
 use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
@@ -31,14 +34,13 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
     WherePredicateSignature,
 };
-use nia_layout::{Layouts, ProgramLayoutContext, StructLayoutKey};
+use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
 use nia_node_id::NodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
-use nia_trait_solve::TraitResolution;
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -107,6 +109,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
+    pub program_comptime:
+        &'a std::collections::HashMap<ModuleId, &'a nia_comptime_check::ComptimeCheck>,
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub roots: BackendFunctionRoots,
@@ -292,7 +296,7 @@ fn append_function_instances(
         &module.union_instances,
     );
     module.layouts = backend_layouts;
-    module.interner = lowerer.interner.clone();
+    module.interner = lowerer.type_context.interner.clone();
 }
 
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
@@ -333,36 +337,18 @@ pub(crate) struct ModuleLowerer<'a> {
     shared: &'a BackendLowerShared,
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
-    pub(crate) interner: nia_ty::TyInterner,
+    pub(crate) type_context: type_context::BackendTypeContext<'a, 'a>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
-    trait_impls_by_method: HashMap<GlobalDefId, usize>,
-    extension_trait_method_candidates:
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    instance_extension_trait_method_candidates: Option<(
-        ModuleId,
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    )>,
-    instance_extension_interner: Option<&'a nia_ty::TyInterner>,
-    dynamic_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
-    current_instantiated_function: Option<GlobalDefId>,
-    current_instantiation_module_id: Option<ModuleId>,
-    current_instantiated_body_interner: Option<&'a nia_ty::TyInterner>,
-    current_type_substitutions: Option<TypeSubstitutionId>,
+    trait_context: trait_context::BackendTraitContext,
+    instantiation: instantiation_context::BackendInstantiationContext<'a>,
     foreign_function_instance_refs: Vec<function_refs::FunctionInstanceRef>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
-    builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
-    trait_methods_with_defaults: HashSet<GlobalDefId>,
-    type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
-    type_substitutions: Vec<HashMap<String, InternedTyId>>,
-    type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
     def_names: HashMap<GlobalDefId, String>,
-    method_names_by_def: HashMap<GlobalDefId, String>,
-    trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
     function_sources: HashMap<GlobalDefId, BackendFunctionSource<'a>>,
 }
 
@@ -490,23 +476,13 @@ impl<'a> ModuleLowerer<'a> {
             shared,
             monomorphization,
             optimization,
-            interner: input.function_interner.clone(),
+            type_context: type_context::BackendTypeContext::new(input, shared),
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
             extension_generics_by_method: index_extension_generics_by_method(input.extensions),
-            trait_impls_by_method: index_trait_impls_by_method(input),
-            extension_trait_method_candidates: index_extension_trait_method_candidates(
-                input.extensions,
-                input.extension_interner.unwrap_or(input.function_interner),
-            ),
-            instance_extension_trait_method_candidates: None,
-            instance_extension_interner: None,
-            dynamic_type_interners: HashMap::new(),
-            current_instantiated_function: None,
-            current_instantiation_module_id: None,
-            current_instantiated_body_interner: None,
-            current_type_substitutions: None,
+            trait_context: trait_context::BackendTraitContext::new(input),
+            instantiation: instantiation_context::BackendInstantiationContext::default(),
             foreign_function_instance_refs: Vec::new(),
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
@@ -514,15 +490,8 @@ impl<'a> ModuleLowerer<'a> {
             union_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.union_instances.keys(),
             ),
-            builtin_trait_resolutions: HashMap::new(),
-            trait_methods_with_defaults: index_trait_methods_with_defaults(input),
-            type_instantiations: HashMap::new(),
-            type_substitutions: Vec::new(),
-            type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
             def_names: HashMap::new(),
-            method_names_by_def: index_method_names_by_def(input),
-            trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
             function_sources: HashMap::new(),
         }
     }
@@ -669,7 +638,7 @@ impl<'a> ModuleLowerer<'a> {
         BackendModule {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
-            interner: self.interner.clone(),
+            interner: self.type_context.interner.clone(),
             comptime: self.input.comptime.clone(),
             layouts: backend_layouts,
             structs,
@@ -875,7 +844,7 @@ impl<'a> ModuleLowerer<'a> {
             &module.union_instances,
         );
         module.layouts = backend_layouts;
-        module.interner = self.interner.clone();
+        module.interner = self.type_context.interner.clone();
     }
 
     fn complete_reachable_backend_items(
@@ -989,190 +958,8 @@ impl<'a> ModuleLowerer<'a> {
         struct_instances: &[nia_backend_ir::BackendStructInstance],
         union_instances: &[nia_backend_ir::BackendUnionInstance],
     ) {
-        let array_lengths = |id| self.input.comptime.array_lengths.get(&id).copied();
-        let program = ProgramLayoutContext {
-            layouts: None,
-            array_lengths: Some(&array_lengths),
-            structs: Some(self.input.program_structs),
-            unions: Some(self.input.program_unions),
-        };
-        let normalization = nia_type_normalize::normalize_module_types(
-            self.input.module_id,
-            &self.interner,
-            self.input.signatures,
-        );
-        let layout_input = nia_layout::LayoutComputationInput {
-            defs: self.input.defs,
-            interner: &self.interner,
-            signatures: self.input.signatures,
-            normalized: &normalization.normalized,
-            array_lengths: &array_lengths,
-            target: self.input.layouts.target,
-            program,
-        };
-        let computed = nia_layout::compute_layouts_with_program_context(
-            self.input.defs,
-            &self.interner,
-            self.input.signatures,
-            &normalization.normalized,
-            &array_lengths,
-            self.input.layouts.target,
-            program,
-        );
-        append_missing_type_layouts(&mut layouts.types, computed.types);
-        append_missing_nominal_layouts(
-            &mut layouts.structs,
-            computed.structs,
-            self.input.module_id,
-        );
-        append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
-        self.append_local_instance_layouts(
-            layouts,
-            layout_input,
-            struct_instances,
-            union_instances,
-        );
-        self.append_foreign_instance_layouts(layouts, struct_instances, union_instances);
-    }
-
-    fn append_local_instance_layouts(
-        &self,
-        layouts: &mut BackendLayouts,
-        layout_input: nia_layout::LayoutComputationInput<'_>,
-        struct_instances: &[nia_backend_ir::BackendStructInstance],
-        union_instances: &[nia_backend_ir::BackendUnionInstance],
-    ) {
-        let mut seen_structs = layouts
-            .struct_instances
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        for instance in struct_instances {
-            if instance.def_id.module_id != self.input.module_id {
-                continue;
-            }
-            let key = BackendStructInstanceKey {
-                def_id: instance.def_id,
-                args: instance.args.clone(),
-            };
-            if !seen_structs.insert(key.clone()) {
-                continue;
-            }
-            if let Some(layout) = nia_layout::compute_struct_instance_layout_with_program_context(
-                layout_input,
-                nia_layout::InstanceLayoutRequest {
-                    def_id: instance.def_id,
-                    args: &instance.args,
-                },
-            ) {
-                layouts.struct_instances.push((key, layout));
-            }
-        }
-
-        let mut seen_unions = layouts
-            .union_instances
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        for instance in union_instances {
-            if instance.def_id.module_id != self.input.module_id {
-                continue;
-            }
-            let key = BackendStructInstanceKey {
-                def_id: instance.def_id,
-                args: instance.args.clone(),
-            };
-            if !seen_unions.insert(key.clone()) {
-                continue;
-            }
-            if let Some(layout) = nia_layout::compute_union_instance_layout_with_program_context(
-                layout_input,
-                nia_layout::InstanceLayoutRequest {
-                    def_id: instance.def_id,
-                    args: &instance.args,
-                },
-            ) {
-                layouts.union_instances.push((key, layout));
-            }
-        }
-    }
-
-    fn append_foreign_instance_layouts(
-        &self,
-        layouts: &mut BackendLayouts,
-        struct_instances: &[nia_backend_ir::BackendStructInstance],
-        union_instances: &[nia_backend_ir::BackendUnionInstance],
-    ) {
-        let array_lengths = |id| self.input.comptime.array_lengths.get(&id).copied();
-        let program = ProgramLayoutContext {
-            layouts: None,
-            array_lengths: Some(&array_lengths),
-            structs: Some(self.input.program_structs),
-            unions: Some(self.input.program_unions),
-        };
-        let layout_input = nia_layout::LayoutComputationInput {
-            defs: self.input.defs,
-            interner: &self.interner,
-            signatures: self.input.signatures,
-            normalized: &self.input.type_normalization.normalized,
-            array_lengths: &array_lengths,
-            target: self.input.layouts.target,
-            program,
-        };
-
-        let mut seen_structs = layouts
-            .struct_instances
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        for instance in struct_instances {
-            if instance.def_id.module_id == self.input.module_id {
-                continue;
-            }
-            let key = BackendStructInstanceKey {
-                def_id: instance.def_id,
-                args: instance.args.clone(),
-            };
-            if !seen_structs.insert(key.clone()) {
-                continue;
-            }
-            if let Some(layout) = nia_layout::compute_struct_instance_layout_with_program_context(
-                layout_input,
-                nia_layout::InstanceLayoutRequest {
-                    def_id: instance.def_id,
-                    args: &instance.args,
-                },
-            ) {
-                layouts.struct_instances.push((key, layout));
-            }
-        }
-
-        let mut seen_unions = layouts
-            .union_instances
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        for instance in union_instances {
-            if instance.def_id.module_id == self.input.module_id {
-                continue;
-            }
-            let key = BackendStructInstanceKey {
-                def_id: instance.def_id,
-                args: instance.args.clone(),
-            };
-            if !seen_unions.insert(key.clone()) {
-                continue;
-            }
-            if let Some(layout) = nia_layout::compute_union_instance_layout_with_program_context(
-                layout_input,
-                nia_layout::InstanceLayoutRequest {
-                    def_id: instance.def_id,
-                    args: &instance.args,
-                },
-            ) {
-                layouts.union_instances.push((key, layout));
-            }
-        }
+        layout_extender::BackendLayoutExtender::new(self.input, &self.type_context.interner)
+            .extend_for_instances(layouts, struct_instances, union_instances);
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
@@ -1242,7 +1029,7 @@ impl<'a> ModuleLowerer<'a> {
             def_id,
             name,
             args,
-            &self.interner,
+            &self.type_context.interner,
             |def_id| {
                 if let Some(name) = def_names.get(&def_id) {
                     return name.clone();
@@ -1293,17 +1080,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
-        let ty = self.input.type_normalization.normalize(ty);
-        if let Some(layout) = self.input.layouts.types.get(&ty).cloned() {
-            return Some(layout);
-        }
-        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
-            return None;
-        };
-        if def_id.module_id != self.input.module_id {
-            return None;
-        }
-        self.input.layouts.nominal_type_layout(*def_id, args)
+        self.type_context.layout_of(ty)
     }
 
     fn error_ty(&self) -> InternedTyId {
@@ -1311,48 +1088,18 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if ty.interner_id == self.interner.interner_id() {
-            return self.interner.get(ty);
-        }
-        if let Some(extension_interner) = self.input.extension_interner
-            && ty.interner_id == extension_interner.interner_id()
-        {
-            return extension_interner.get(ty);
-        }
-        self.known_interner_containing_ty(ty)
-            .and_then(|interner| interner.get(ty))
+        self.type_context.ty_kind(ty)
     }
 
     pub(crate) fn known_interner_containing_ty(
         &self,
         ty: InternedTyId,
     ) -> Option<&nia_ty::TyInterner> {
-        let mut error_candidate = None;
-        let dynamic_interners = self
-            .dynamic_type_interners
-            .get(&ty.interner_id)
-            .into_iter()
-            .flat_map(|interners| interners.iter().rev());
-        let shared_interners = self
-            .shared
-            .known_type_interners
-            .get(&ty.interner_id)
-            .into_iter()
-            .flat_map(|interners| interners.iter().rev());
-        for interner in dynamic_interners.chain(shared_interners) {
-            match interner.get(ty) {
-                Some(TyKind::Error) => {
-                    error_candidate.get_or_insert(interner);
-                }
-                Some(_) => return Some(interner),
-                None => {}
-            }
-        }
-        error_candidate
+        self.type_context.known_interner_containing_ty(ty)
     }
 
     fn remember_type_interner(&mut self, interner: &nia_ty::TyInterner) {
-        insert_known_type_interner(&mut self.dynamic_type_interners, interner);
+        self.type_context.remember_interner(interner);
     }
 }
 
@@ -1368,7 +1115,7 @@ fn refresh_known_backend_type_interner_from_source(
 ) {
     let Some(interner) = lowerers
         .get(source_index)
-        .map(|lowerer| lowerer.interner.clone())
+        .map(|lowerer| lowerer.type_context.interner.clone())
     else {
         return;
     };
@@ -1602,42 +1349,6 @@ fn index_layout_instances_by_def<'a>(
             .push(key.clone());
     }
     instances_by_def
-}
-
-fn append_missing_type_layouts(
-    output: &mut Vec<(InternedTyId, nia_layout::TypeLayout)>,
-    computed: HashMap<InternedTyId, nia_layout::TypeLayout>,
-) {
-    for (ty, layout) in computed {
-        if let Some((_, existing)) = output
-            .iter_mut()
-            .find(|(existing_ty, _)| *existing_ty == ty)
-        {
-            *existing = layout;
-        } else {
-            output.push((ty, layout));
-        }
-    }
-}
-
-fn append_missing_nominal_layouts(
-    output: &mut Vec<(GlobalDefId, nia_layout::StructLayout)>,
-    computed: HashMap<DefId, nia_layout::StructLayout>,
-    default_module_id: ModuleId,
-) {
-    let mut existing = output
-        .iter()
-        .map(|(def_id, _)| *def_id)
-        .collect::<HashSet<_>>();
-    for (def_id, layout) in computed {
-        let def_id = GlobalDefId {
-            module_id: default_module_id,
-            def_id,
-        };
-        if existing.insert(def_id) {
-            output.push((def_id, layout));
-        }
-    }
 }
 
 #[cfg(test)]
