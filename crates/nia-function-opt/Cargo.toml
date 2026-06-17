@@ -1,0 +1,19 @@
+[package]
+name = "nia-function-opt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ast.workspace = true
+nia-comptime-engine.workspace = true
+nia-function-ir.workspace = true
+nia-ids.workspace = true
+nia-opt.workspace = true
+
+[dev-dependencies]
+nia-span.workspace = true
+
+[lib]
+path = "src/lib.rs"
