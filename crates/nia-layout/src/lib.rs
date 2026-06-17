@@ -51,6 +51,12 @@ pub struct StructLayoutKey {
     pub args: Vec<InternedTyId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GlobalStructLayoutKey {
+    def_id: GlobalDefId,
+    args: Vec<InternedTyId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldLayout {
     pub def_id: DefId,
@@ -265,6 +271,8 @@ struct LayoutComputer<'a> {
     unions: HashMap<DefId, StructLayout>,
     struct_instances: HashMap<StructLayoutKey, StructLayout>,
     union_instances: HashMap<StructLayoutKey, StructLayout>,
+    external_struct_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
+    external_union_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
     diagnostics: Vec<Diagnostic>,
     visiting: HashSet<InternedTyId>,
     visiting_structs: HashSet<StructLayoutKey>,
@@ -294,6 +302,8 @@ impl<'a> LayoutComputer<'a> {
             unions: HashMap::new(),
             struct_instances: HashMap::new(),
             union_instances: HashMap::new(),
+            external_struct_instances: HashMap::new(),
+            external_union_instances: HashMap::new(),
             diagnostics: Vec::new(),
             visiting: HashSet::new(),
             visiting_structs: HashSet::new(),
@@ -352,8 +362,13 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn layout_ty(&mut self, ty_id: InternedTyId, span: Span) -> Option<TypeLayout> {
-        let ty_id = self.normalize_ty(ty_id);
+        let original_ty_id = ty_id;
+        if let Some(layout) = self.types.get(&original_ty_id).cloned() {
+            return Some(layout);
+        }
+        let ty_id = self.normalize_ty(original_ty_id);
         if let Some(layout) = self.types.get(&ty_id).cloned() {
+            self.types.insert(original_ty_id, layout.clone());
             return Some(layout);
         }
         if !self.visiting.insert(ty_id) {
@@ -395,6 +410,7 @@ impl<'a> LayoutComputer<'a> {
         self.visiting.remove(&ty_id);
         if let Some(layout) = &layout {
             self.types.insert(ty_id, layout.clone());
+            self.types.insert(original_ty_id, layout.clone());
         }
         layout
     }
@@ -575,15 +591,93 @@ impl<'a> LayoutComputer<'a> {
             && let Some(signature) = program_structs.get(&def_id).cloned()
         {
             let signature = import_struct_signature(&mut self.interner, &signature);
-            return self.struct_layout(span, def_id.def_id, &signature, args);
+            return self.external_struct_layout(span, def_id, &signature, args);
         }
         if let Some(program_unions) = self.program.unions
             && let Some(signature) = program_unions.get(&def_id).cloned()
         {
             let signature = import_union_signature(&mut self.interner, &signature);
-            return self.union_layout(span, def_id.def_id, &signature, args);
+            return self.external_union_layout(span, def_id, &signature, args);
         }
         None
+    }
+
+    fn external_struct_layout(
+        &mut self,
+        _span: Span,
+        def_id: GlobalDefId,
+        signature: &StructSignature,
+        args: &[InternedTyId],
+    ) -> Option<TypeLayout> {
+        let key = GlobalStructLayoutKey {
+            def_id,
+            args: args.to_vec(),
+        };
+        if let Some(existing) = self.external_struct_instances.get(&key) {
+            return Some(existing.layout.clone());
+        }
+        if signature.generics.len() != args.len() {
+            return None;
+        }
+        let substitutions: HashMap<String, InternedTyId> = signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect();
+        let local_key = StructLayoutKey {
+            def_id: def_id.def_id,
+            args: args.to_vec(),
+        };
+        let struct_layout = if signature.is_extern {
+            self.c_struct_layout(&local_key, signature, &substitutions)?
+        } else {
+            self.nia_struct_layout(&local_key, signature, &substitutions)?
+        };
+        let layout = struct_layout.layout.clone();
+        self.external_struct_instances.insert(key, struct_layout);
+        Some(layout)
+    }
+
+    fn external_union_layout(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        signature: &UnionSignature,
+        args: &[InternedTyId],
+    ) -> Option<TypeLayout> {
+        let key = GlobalStructLayoutKey {
+            def_id,
+            args: args.to_vec(),
+        };
+        if let Some(existing) = self.external_union_instances.get(&key) {
+            return Some(existing.layout.clone());
+        }
+        if signature.generics.len() != args.len() {
+            return None;
+        }
+        if signature.fields.is_empty() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
+                span,
+                "union requires at least one field",
+            ));
+            return None;
+        }
+        let substitutions: HashMap<String, InternedTyId> = signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect();
+        let local_key = StructLayoutKey {
+            def_id: def_id.def_id,
+            args: args.to_vec(),
+        };
+        let union_layout = self.union_field_layout(&local_key, signature, &substitutions)?;
+        let layout = union_layout.layout.clone();
+        self.external_union_instances.insert(key, union_layout);
+        Some(layout)
     }
 
     fn enum_layout(&mut self, span: Span, signature: &EnumSignature) -> Option<TypeLayout> {
