@@ -421,7 +421,23 @@ let cbytes: &[u8] = c"nia";
 ```
 
 This is a literal-specific creation rule. It does not create static storage and
-does not make ordinary array values decay into slices.
+does not make ordinary array values decay into slices. The temporary has the
+same block-scoped lifetime as other materialized rvalues, so returning that
+slice or storing it beyond the block leaves a dangling reference. If a stable
+address is required, bind the literal to storage with the desired lifetime, such
+as a caller-side binding, caller-provided buffer, or top-level `let` storage.
+
+```nia
+fn dangling() &[u8] {
+    b"nia" // valid but returns a slice to block-scoped temporary storage
+}
+
+let stable = b"nia";
+
+fn stable_bytes() &[u8] {
+    &stable
+}
+```
 
 Multiline string literals use consecutive lines beginning with `\\`. Byte and C
 multiline string literals use `b\\` or `c\\` on the first line; continuation
