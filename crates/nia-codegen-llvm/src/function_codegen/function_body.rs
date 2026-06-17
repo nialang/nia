@@ -1286,7 +1286,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionExprKind::Discard(inner) => self.emit_effect_expr(inner),
             FunctionExprKind::Call { callee, args } => {
-                let _ = self.emit_call_raw(expr, callee, args)?;
+                if let crate::module_codegen::AbiReturn::IndirectOut(ty) =
+                    self.module.classify_function_return(expr.ty)
+                {
+                    let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
+                    let result_ptr = self
+                        .builder
+                        .build_alloca(result_ty, "discard.call.out")
+                        .map_err(|_| {
+                            self.error(expr.span, "failed to allocate discarded call result")
+                        })?;
+                    let _ = self.emit_call_raw_with_out(expr, callee, args, Some(result_ptr))?;
+                } else {
+                    let _ = self.emit_call_raw(expr, callee, args)?;
+                }
                 Ok(())
             }
             FunctionExprKind::Trap => self.emit_trap(expr.span),

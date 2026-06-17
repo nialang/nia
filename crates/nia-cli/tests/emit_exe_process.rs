@@ -6,6 +6,59 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_discards_indirect_return_call_in_loop() {
+    let root = temp_dir("emit_exe_discards_indirect_return_call_in_loop");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process::{Init, ExitCode};
+
+fn should_skip(arg: std::process::Arg) bool {
+    _ = arg;
+    false
+}
+
+pub fn main(init: Init) ExitCode!void {
+    let args = init.args();
+    var paths = args.skip_program();
+    while true {
+        let path = if let ?value = paths.next() {
+            value
+        } else null {
+            break;
+        };
+        if should_skip(path) {
+            _ = paths.next();
+            continue;
+        }
+        _ = path;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe discarded indirect return call");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn atomic_std_facade_checks_emits_and_runs() {
     let root = temp_dir("atomic_std_facade_checks_emits_and_runs");
     let main = root.join("main.nia");
