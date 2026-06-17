@@ -1,6 +1,9 @@
 using std::debug;
 using std::process;
+using std::slice;
 using process::{Init, ExitCode, exit};
+
+let stable_bytes_storage = b"nia";
 
 fn first(values: &[i32]) i32 {
     values[0]
@@ -8,6 +11,24 @@ fn first(values: &[i32]) i32 {
 
 fn write_first(values: &mut [i32], value: i32) void {
     values[0] = value;
+}
+
+fn byte_sum(bytes: &[u8]) usize {
+    var total = 0usize;
+    for &byte in bytes.iter() {
+        total += byte as usize;
+    }
+    total
+}
+
+fn copy_name(output: &mut [u8]) usize {
+    let source = b"nia";
+    var index = 0usize;
+    while index < source.len() and index < output.len() {
+        output[index] = source[index];
+        index += 1usize;
+    }
+    index
 }
 
 pub fn main(init: Init) ExitCode!void {
@@ -28,10 +49,23 @@ pub fn main(init: Init) ExitCode!void {
     let bytes = b"ni" b"a";
     // c"..." includes a trailing NUL byte for C ABI calls.
     let c_name = c"nia";
+
+    // Literal-to-slice creation is a call-site convenience, not static storage.
+    // This is fine because the temporary only needs to live through byte_sum.
+    let direct_sum = byte_sum(b"nia");
+
+    // Use a top-level let when an address should refer to global static storage.
+    let stable_bytes = &stable_bytes_storage[..];
+
+    // Or let the caller provide storage that the callee fills.
+    var copied: [8]u8 = [0; 8];
+    let copied_len = copy_name(&mut copied);
+
     var window_len = window.len();
     var name_len = name.len();
     var bytes_len = bytes.len();
     var c_name_len = c_name.len();
+    var stable_bytes_len = stable_bytes.len();
     var first_written = writable[0];
 
     if first_written != 2 {
@@ -46,10 +80,27 @@ pub fn main(init: Init) ExitCode!void {
     if c_name[3] != 0u8 {
         return exit(4)!;
     }
+    if direct_sum != 312usize {
+        return exit(5)!;
+    }
+    if stable_bytes_len != 3usize or stable_bytes[2] != b'a' {
+        return exit(6)!;
+    }
+    if copied_len != 3usize or copied[0] != b'n' or copied[2] != b'a' {
+        return exit(7)!;
+    }
 
     debug::print(
-        "slice window={} first={} text={} bytes={} cstring={}\n",
-        &[&window_len, &first_written, &name_len, &bytes_len, &c_name_len],
+        "slice window={} first={} text={} bytes={} cstring={} stable={} copied={}\n",
+        &[
+            &window_len,
+            &first_written,
+            &name_len,
+            &bytes_len,
+            &c_name_len,
+            &stable_bytes_len,
+            &copied_len,
+        ],
     );
 
     !{}

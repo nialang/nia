@@ -556,6 +556,40 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_inferred_global_string_family_arrays() {
+    let root = temp_dir("emits_inferred_global_string_family_arrays");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+let bytes = b"nia";
+let text = "ok";
+
+fn main() i32 {
+    bytes[0] as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+
+    assert!(
+        ir.contains("@nia__m0__d0__bytes = constant [3 x i8]"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("@nia__m0__d1__text = constant [2 x i32]"),
+        "{ir}"
+    );
+}
+
+#[test]
 fn emits_adjacent_string_literal_concatenation() {
     let root = temp_dir("emits_adjacent_string_literal_concatenation");
     let main = root.join("main.nia");

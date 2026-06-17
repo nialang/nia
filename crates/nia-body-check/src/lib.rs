@@ -478,6 +478,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         },
         facts: SemanticFacts {
             local_types: checker.local_types,
+            global_types: checker
+                .global_types
+                .into_iter()
+                .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
+                .collect(),
             generic_instantiations: checker.generic_instantiations,
             function_facts: checker.function_facts,
             node_expr_types: checker.node_expr_types,

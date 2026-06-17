@@ -1437,6 +1437,7 @@ fn semantic_facts_for_reachable_functions(
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> SemanticFacts {
     let mut reachable_facts = SemanticFacts::default();
+    reachable_facts.global_types = facts.global_types;
     for def_id in reachable_functions {
         let Some(function_facts) = facts.function_facts.get(def_id) else {
             continue;
