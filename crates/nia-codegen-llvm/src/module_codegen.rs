@@ -18,8 +18,8 @@ use nia_llvm::{
     Context, LlvmError,
     module::Linkage,
     target::TargetMachine,
-    types::{FunctionType, StructType},
-    values::{FunctionValue, GlobalValue},
+    types::{BasicTypeEnum, FunctionType, StructType},
+    values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
 use nia_mangle::{mangle_base_symbol, mangle_type_with};
 use nia_span::Span;
@@ -128,6 +128,42 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let id = *counter;
         *counter += 1;
         format!(".nia.static.array.{id}")
+    }
+
+    pub(super) fn materialize_static_array_pointer(
+        &self,
+        array_ty: BasicTypeEnum<'ctx>,
+        value: BasicValueEnum<'ctx>,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if matches!(value, BasicValueEnum::PointerValue(_)) {
+            return Err(self.error(
+                span,
+                "static array pointer source emitted a pointer instead of an array",
+            ));
+        }
+        let value_ty = value.get_type().map_err(|err| {
+            self.error(
+                span,
+                format!("failed to inspect static array value: {err:?}"),
+            )
+        })?;
+        if value_ty != array_ty {
+            return Err(self.error(
+                span,
+                format!(
+                    "static array pointer source type does not match array type: expected {array_ty:?}, got {value_ty:?}"
+                ),
+            ));
+        }
+        let global = self
+            .module
+            .add_global(array_ty, None, &self.next_static_array_name())
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global.set_linkage(Linkage::Internal);
+        global.set_constant(true);
+        global.set_initializer(&value);
+        Ok(global.as_pointer_value())
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
