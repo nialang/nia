@@ -27,6 +27,10 @@ pub enum StaticInit {
         function: GlobalDefId,
         args: Vec<InternedTyId>,
     },
+    StaticArrayPointer {
+        array_ty: InternedTyId,
+        array_init: Box<StaticInit>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

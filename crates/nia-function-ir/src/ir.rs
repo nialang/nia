@@ -257,7 +257,7 @@ pub enum FunctionExprKind {
         op: FunctionBitIntrinsicOp,
         value: Box<FunctionExpr>,
     },
-    CStringPointer {
+    StaticArrayPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,
     },

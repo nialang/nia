@@ -141,26 +141,6 @@ fn decode_byte_string_literal_part(text: &str) -> Option<Vec<u8>> {
     decode_char_inner(inner)
 }
 
-pub(super) fn decode_c_string_literal(literal: &StringLiteral) -> Option<Vec<u8>> {
-    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    for part in &literal.parts {
-        bytes.extend(decode_c_string_literal_part(part)?);
-    }
-    bytes.push(0);
-    Some(bytes)
-}
-
-fn decode_c_string_literal_part(text: &str) -> Option<Vec<u8>> {
-    if strip_multiline_prefix(text).is_some() {
-        return decode_multiline_string_literal(text);
-    }
-    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
-    decode_char_inner(inner)
-}
-
 pub(super) fn numeric_literal_suffix(text: &str) -> Option<&str> {
     let start = numeric_suffix_start(text)?;
     Some(&text[start..])
@@ -291,12 +271,7 @@ pub(super) fn string_literal_char_len(literal: &StringLiteral) -> Option<usize> 
 }
 
 fn string_literal_part_char_len(text: &str) -> Option<usize> {
-    if text
-        .strip_prefix("b")
-        .or_else(|| text.strip_prefix("c"))
-        .unwrap_or(text)
-        .starts_with("\\\\")
-    {
+    if text.strip_prefix("b").unwrap_or(text).starts_with("\\\\") {
         return multiline_string_literal_char_len(text);
     }
     let inner = text.strip_prefix('"')?.strip_suffix('"')?;
@@ -323,29 +298,8 @@ fn byte_string_literal_part_len(text: &str) -> Option<usize> {
     decoded_byte_len(inner)
 }
 
-pub(super) fn c_string_literal_len(literal: &StringLiteral) -> Option<usize> {
-    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
-        return None;
-    }
-    let bytes = literal.parts.iter().try_fold(0usize, |len, text| {
-        len.checked_add(c_string_literal_part_len(text)?)
-    })?;
-    bytes.checked_add(1)
-}
-
 fn is_multiline_literal(text: &str) -> bool {
-    text.strip_prefix('b')
-        .or_else(|| text.strip_prefix('c'))
-        .unwrap_or(text)
-        .starts_with("\\\\")
-}
-
-fn c_string_literal_part_len(text: &str) -> Option<usize> {
-    if text.strip_prefix("c").unwrap_or(text).starts_with("\\\\") {
-        return multiline_string_literal_byte_len(text);
-    }
-    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
-    decoded_byte_len(inner)
+    text.strip_prefix('b').unwrap_or(text).starts_with("\\\\")
 }
 
 fn decoded_byte_len(inner: &str) -> Option<usize> {
@@ -640,16 +594,6 @@ mod tests {
                 parts: vec!["\\\\hello\\n".to_string()],
             }),
             Some("hello\\n".chars().count())
-        );
-    }
-
-    #[test]
-    fn counts_adjacent_quoted_c_string_with_single_nul() {
-        assert_eq!(
-            c_string_literal_len(&StringLiteral {
-                parts: vec![r#"c"foo""#.to_string(), r#"c"bar""#.to_string()],
-            }),
-            Some(7)
         );
     }
 }

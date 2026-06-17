@@ -723,7 +723,7 @@ impl FunctionLowerer {
                 TypedExprKind::Local(local_id) => {
                     *max_id = (*max_id).max(local_id.0.saturating_add(1));
                 }
-                TypedExprKind::CStringPointer { array: inner, .. }
+                TypedExprKind::StaticArrayPointer { array: inner, .. }
                 | TypedExprKind::Unary { expr: inner, .. }
                 | TypedExprKind::OptionalSome { expr: inner }
                 | TypedExprKind::ErrorOk { expr: inner }

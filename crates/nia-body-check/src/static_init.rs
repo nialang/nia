@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{
-    decode_byte_char_literal, decode_byte_string_literal, decode_c_string_literal,
-    decode_char_literal, decode_string_literal, numeric_literal_body, parse_int_literal,
+    decode_byte_char_literal, decode_byte_string_literal, decode_char_literal,
+    decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind, IndexArg};
 use nia_diagnostic::Diagnostic;
@@ -14,6 +14,26 @@ use nia_ty::{IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
+        match &expr.kind {
+            ExprKind::String(literal) => {
+                if self.static_init_target_is_array(ty) {
+                    self.lower_static_string_array_init(expr, literal)
+                } else {
+                    self.lower_static_string_pointer_init(expr, literal)
+                }
+            }
+            ExprKind::ByteString(literal) => {
+                if self.static_init_target_is_array(ty) {
+                    self.lower_static_byte_string_array_init(expr, literal)
+                } else {
+                    self.lower_static_byte_string_pointer_init(expr, literal)
+                }
+            }
+            _ => self.lower_static_init(expr),
+        }
+    }
+
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
         match &expr.kind {
             ExprKind::Integer(text) => parse_int_literal(text)
@@ -28,36 +48,10 @@ impl<'a> BodyChecker<'a> {
                 }),
             ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
-            ExprKind::String(literal) => decode_string_literal(literal)
-                .map(StaticInit::Chars)
-                .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
-                        expr.span,
-                        "invalid string literal in static initializer",
-                    ));
-                    StaticInit::Chars(Vec::new())
-                }),
-            ExprKind::ByteString(literal) => decode_byte_string_literal(literal)
-                .map(StaticInit::Bytes)
-                .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
-                        expr.span,
-                        "invalid byte string literal in static initializer",
-                    ));
-                    StaticInit::Bytes(Vec::new())
-                }),
-            ExprKind::CString(literal) => decode_c_string_literal(literal)
-                .map(StaticInit::Bytes)
-                .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
-                        expr.span,
-                        "invalid C string literal in static initializer",
-                    ));
-                    StaticInit::Bytes(Vec::new())
-                }),
+            ExprKind::String(literal) => self.lower_static_string_pointer_init(expr, literal),
+            ExprKind::ByteString(literal) => {
+                self.lower_static_byte_string_pointer_init(expr, literal)
+            }
             ExprKind::Char(text) => decode_char_literal(text)
                 .map(StaticInit::Char)
                 .unwrap_or_else(|| {
@@ -113,14 +107,28 @@ impl<'a> BodyChecker<'a> {
                 StaticInit::Zero
             }
             ExprKind::ArrayLiteral { elems } => match elems {
-                ArrayElements::List(elems) => StaticInit::Array(
-                    elems
-                        .iter()
-                        .map(|elem| self.lower_static_init(elem))
-                        .collect(),
-                ),
+                ArrayElements::List(elems) => {
+                    let elem_ty = self
+                        .expr_ty(expr)
+                        .and_then(|ty| self.static_array_elem_ty(ty));
+                    StaticInit::Array(
+                        elems
+                            .iter()
+                            .map(|elem| {
+                                elem_ty
+                                    .map(|ty| self.lower_static_init_with_target(elem, ty))
+                                    .unwrap_or_else(|| self.lower_static_init(elem))
+                            })
+                            .collect(),
+                    )
+                }
                 ArrayElements::Repeat { value, count } => StaticInit::Repeat {
-                    value: Box::new(self.lower_static_init(value)),
+                    value: Box::new(
+                        self.expr_ty(expr)
+                            .and_then(|ty| self.static_array_elem_ty(ty))
+                            .map(|ty| self.lower_static_init_with_target(value, ty))
+                            .unwrap_or_else(|| self.lower_static_init(value)),
+                    ),
                     count: self.lower_array_repeat_count(count),
                 },
             },
@@ -131,7 +139,12 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .map(|field| StaticFieldInit {
                             field: self.field_def_for_struct_ty(ty, &field.name),
-                            value: self.lower_static_init(&field.value),
+                            value: self
+                                .static_field_ty(ty, &field.name)
+                                .map(|field_ty| {
+                                    self.lower_static_init_with_target(&field.value, field_ty)
+                                })
+                                .unwrap_or_else(|| self.lower_static_init(&field.value)),
                         })
                         .collect(),
                 )
@@ -155,6 +168,23 @@ impl<'a> BodyChecker<'a> {
                     StaticInit::Zero
                 }),
             ExprKind::Unary {
+                op: nia_ast::UnaryOp::Deref,
+                expr: inner,
+            } => match &inner.kind {
+                ExprKind::String(literal) => self.lower_static_string_array_init(expr, literal),
+                ExprKind::ByteString(literal) => {
+                    self.lower_static_byte_string_array_init(expr, literal)
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        expr.span,
+                        "global initializer is not representable as static data yet",
+                    ));
+                    StaticInit::Zero
+                }
+            },
+            ExprKind::Unary {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
             } => self.lower_static_address_init(expr),
@@ -168,6 +198,120 @@ impl<'a> BodyChecker<'a> {
                 StaticInit::Zero
             }
         }
+    }
+
+    fn lower_static_init_with_target(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
+        match &expr.kind {
+            ExprKind::String(literal) => {
+                if self.static_init_target_is_array(ty) {
+                    self.lower_static_string_array_init(expr, literal)
+                } else {
+                    self.lower_static_string_pointer_init(expr, literal)
+                }
+            }
+            ExprKind::ByteString(literal) => {
+                if self.static_init_target_is_array(ty) {
+                    self.lower_static_byte_string_array_init(expr, literal)
+                } else {
+                    self.lower_static_byte_string_pointer_init(expr, literal)
+                }
+            }
+            ExprKind::Cast { expr: inner, .. } => self.lower_static_cast_init_with_target(
+                expr,
+                inner,
+                self.expr_ty(expr).unwrap_or(ty),
+            ),
+            _ => self.lower_static_init(expr),
+        }
+    }
+
+    fn lower_static_string_pointer_init(
+        &mut self,
+        expr: &Expr,
+        literal: &nia_ast::StringLiteral,
+    ) -> StaticInit {
+        StaticInit::StaticArrayPointer {
+            array_ty: self.string_literal_array_type(literal),
+            array_init: Box::new(self.lower_static_string_array_init(expr, literal)),
+        }
+    }
+
+    fn lower_static_byte_string_pointer_init(
+        &mut self,
+        expr: &Expr,
+        literal: &nia_ast::StringLiteral,
+    ) -> StaticInit {
+        StaticInit::StaticArrayPointer {
+            array_ty: self.byte_string_literal_array_type(literal),
+            array_init: Box::new(self.lower_static_byte_string_array_init(expr, literal)),
+        }
+    }
+
+    fn lower_static_string_array_init(
+        &mut self,
+        expr: &Expr,
+        literal: &nia_ast::StringLiteral,
+    ) -> StaticInit {
+        decode_string_literal(literal)
+            .map(StaticInit::Chars)
+            .unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    "invalid string literal in static initializer",
+                ));
+                StaticInit::Chars(Vec::new())
+            })
+    }
+
+    fn lower_static_byte_string_array_init(
+        &mut self,
+        expr: &Expr,
+        literal: &nia_ast::StringLiteral,
+    ) -> StaticInit {
+        decode_byte_string_literal(literal)
+            .map(StaticInit::Bytes)
+            .unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    "invalid byte string literal in static initializer",
+                ));
+                StaticInit::Bytes(Vec::new())
+            })
+    }
+
+    fn static_init_target_is_array(&mut self, ty: InternedTyId) -> bool {
+        let ty = self.normalization.normalize(ty);
+        matches!(self.interner.get(ty), Some(TyKind::Array { .. }))
+    }
+
+    fn static_array_elem_ty(&mut self, ty: InternedTyId) -> Option<InternedTyId> {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Array { elem, .. }) => Some(elem),
+            _ => None,
+        }
+    }
+
+    fn static_field_ty(&mut self, ty: InternedTyId, name: &str) -> Option<InternedTyId> {
+        let ty = self.normalization.normalize(ty);
+        let TyKind::Nominal { def_id, args } = self.interner.get(ty).cloned()? else {
+            return None;
+        };
+        let resolved = if self.is_union_def(def_id) {
+            self.resolved_union_signature(def_id)?
+                .signature
+                .as_struct_like()
+        } else {
+            self.resolved_struct_signature(def_id)?.signature
+        };
+        let substitutions = self.generic_substitutions(&resolved.generics, &args);
+        resolved
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .map(|field| self.substitute_generics(field.ty, &substitutions))
     }
 
     fn eval_static_comptime_int_expr(
@@ -204,6 +348,25 @@ impl<'a> BodyChecker<'a> {
         let Some(target_ty) = self.expr_ty(cast) else {
             return init;
         };
+        self.finish_static_cast_init(cast, init, target_ty)
+    }
+
+    fn lower_static_cast_init_with_target(
+        &mut self,
+        cast: &Expr,
+        inner: &Expr,
+        target_ty: InternedTyId,
+    ) -> StaticInit {
+        let init = self.lower_static_init_with_target(inner, target_ty);
+        self.finish_static_cast_init(cast, init, target_ty)
+    }
+
+    fn finish_static_cast_init(
+        &mut self,
+        _cast: &Expr,
+        init: StaticInit,
+        target_ty: InternedTyId,
+    ) -> StaticInit {
         let Some(TyKind::Primitive(primitive)) = self.interner.get(target_ty) else {
             return init;
         };

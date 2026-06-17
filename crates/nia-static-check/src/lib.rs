@@ -127,7 +127,6 @@ impl StaticChecker<'_> {
             | ExprKind::Float(_)
             | ExprKind::String(_)
             | ExprKind::ByteString(_)
-            | ExprKind::CString(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Bool(_) => None,
@@ -151,6 +150,7 @@ impl StaticChecker<'_> {
                 UnaryOp::Ref | UnaryOp::RefReadOnly => {
                     self.static_address_path_reject_reason(inner)
                 }
+                UnaryOp::Deref if Self::is_string_family_literal(inner) => None,
                 UnaryOp::Not | UnaryOp::BitNot | UnaryOp::Deref => {
                     Some("unsupported unary operator")
                 }
@@ -208,6 +208,10 @@ impl StaticChecker<'_> {
         self.eval_static_int_expr(expr)
             .err()
             .map(|_| "expression is not an integer constant expression")
+    }
+
+    fn is_string_family_literal(expr: &Expr) -> bool {
+        matches!(expr.kind, ExprKind::String(_) | ExprKind::ByteString(_))
     }
 
     fn static_address_reject_reason(&self, expr: &Expr) -> Option<&'static str> {

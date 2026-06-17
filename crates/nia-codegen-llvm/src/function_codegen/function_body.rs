@@ -1322,7 +1322,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Null
-            | FunctionExprKind::CStringPointer { .. } => Ok(()),
+            | FunctionExprKind::StaticArrayPointer { .. } => Ok(()),
             _ => {
                 let _ = self.emit_expr(expr)?;
                 Ok(())

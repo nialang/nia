@@ -464,11 +464,13 @@ where S: GetPtr {
 
 fn main(slice_read: & [usize], slice_mut: &mut [usize]) usize {
     var array: [4]i32 = [1, 2, 3, 4];
+    var literal_ptr = b"nia\0".get_ptr_read();
     array.len()
         + slice_read.len()
         + slice_mut.len()
         + ptr_read_value(slice_read)
         + ptr_value(slice_mut)
+        + literal_ptr[0] as usize
 }
 "##,
     );

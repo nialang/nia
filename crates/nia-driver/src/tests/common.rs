@@ -103,7 +103,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
-        | FunctionExprKind::CStringPointer { array: expr, .. } => {
+        | FunctionExprKind::StaticArrayPointer { array: expr, .. } => {
             function_expr_contains_builtin_eq(expr)
         }
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
@@ -241,7 +241,7 @@ fn expr_contains_dynamic_trait_callee(expr: &TypedExpr) -> bool {
         | TypedExprKind::Cast { expr, .. }
         | TypedExprKind::TraitObjectUpcast { expr, .. }
         | TypedExprKind::TraitObjectCoercion { expr, .. }
-        | TypedExprKind::CStringPointer { array: expr, .. } => {
+        | TypedExprKind::StaticArrayPointer { array: expr, .. } => {
             expr_contains_dynamic_trait_callee(expr)
         }
         TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {

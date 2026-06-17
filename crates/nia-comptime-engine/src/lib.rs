@@ -31,6 +31,7 @@ pub enum ComptimeValue {
     Float(f64),
     Bool(bool),
     String(String),
+    Pointer(Box<ComptimeValue>),
     Array(Vec<ComptimeValue>),
     Range(ComptimeRangeValue),
     Struct(BTreeMap<String, ComptimeValue>),
@@ -473,22 +474,20 @@ fn eval_resolved_comptime_expr_flow(
         ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
         ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
         ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
-            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
+            .map(|value| {
+                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(string_to_char_array(&value))))
+            })
             .ok_or_else(|| ComptimeError {
                 span,
                 message: "unsupported string literal in comptime expression".to_string(),
             })?,
         ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .map(|value| {
+                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(bytes_to_array(&value))))
+            })
             .ok_or_else(|| ComptimeError {
                 span,
                 message: "unsupported byte string literal in comptime expression".to_string(),
-            })?,
-        ResolvedComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-            .ok_or_else(|| ComptimeError {
-                span,
-                message: "unsupported C string literal in comptime expression".to_string(),
             })?,
         ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
             .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
@@ -639,12 +638,22 @@ fn eval_resolved_comptime_expr_flow(
                 });
             }
         },
-        ResolvedComptimeExprKind::Unary { op, .. } => {
-            return Err(ComptimeError {
-                span,
-                message: format!("unsupported unary operator in comptime expression: {op:?}"),
-            });
-        }
+        ResolvedComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Deref,
+            expr: inner,
+        } => match eval_resolved_value_or_return_flow!(inner, env) {
+            ComptimeValue::Pointer(value) => *value,
+            _ => {
+                return Err(ComptimeError {
+                    span,
+                    message: "comptime dereference requires a pointer value".to_string(),
+                });
+            }
+        },
+        ResolvedComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref,
+            expr: inner,
+        } => ComptimeValue::Pointer(Box::new(eval_resolved_value_or_return_flow!(inner, env))),
         ResolvedComptimeExprKind::OptionalSome { expr: inner } => ComptimeValue::Optional(Some(
             Box::new(eval_resolved_value_or_return_flow!(inner, env)),
         )),
@@ -701,22 +710,20 @@ fn eval_comptime_expr_flow(
         EarlyComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
         EarlyComptimeExprKind::Null => ComptimeValue::Optional(None),
         EarlyComptimeExprKind::String(literal) => eval_string_literal(literal)
-            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
+            .map(|value| {
+                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(string_to_char_array(&value))))
+            })
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: "unsupported string literal in comptime expression".to_string(),
             })?,
         EarlyComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .map(|value| {
+                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(bytes_to_array(&value))))
+            })
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: "unsupported byte string literal in comptime expression".to_string(),
-            })?,
-        EarlyComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
-            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-            .ok_or_else(|| ComptimeError {
-                span: expr.span,
-                message: "unsupported C string literal in comptime expression".to_string(),
             })?,
         EarlyComptimeExprKind::Integer(text) => eval_int_literal(text)
             .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
@@ -873,12 +880,22 @@ fn eval_comptime_expr_flow(
                 });
             }
         },
-        EarlyComptimeExprKind::Unary { op, .. } => {
-            return Err(ComptimeError {
-                span: expr.span,
-                message: format!("unsupported unary operator in comptime expression: {op:?}"),
-            });
-        }
+        EarlyComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Deref,
+            expr: inner,
+        } => match eval_value_or_return_flow!(inner, env) {
+            ComptimeValue::Pointer(value) => *value,
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime dereference requires a pointer value".to_string(),
+                });
+            }
+        },
+        EarlyComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref,
+            expr: inner,
+        } => ComptimeValue::Pointer(Box::new(eval_value_or_return_flow!(inner, env))),
         EarlyComptimeExprKind::OptionalSome { expr: inner } => {
             ComptimeValue::Optional(Some(Box::new(eval_value_or_return_flow!(inner, env))))
         }
@@ -3579,6 +3596,9 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
         (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::Pointer(lhs), ComptimeValue::Pointer(rhs)) => values_equal(lhs, rhs),
+        (ComptimeValue::Pointer(lhs), rhs) => values_equal(lhs, rhs),
+        (lhs, ComptimeValue::Pointer(rhs)) => values_equal(lhs, rhs),
         (ComptimeValue::String(lhs), ComptimeValue::Array(rhs)) => {
             Some(char_array_to_string(rhs)? == *lhs)
         }
@@ -3637,6 +3657,7 @@ fn comptime_error_message(value: &ComptimeValue) -> Option<String> {
     match value {
         ComptimeValue::String(value) => Some(value.clone()),
         ComptimeValue::Array(values) => char_array_to_string(values),
+        ComptimeValue::Pointer(value) => comptime_error_message(value),
         _ => None,
     }
 }
@@ -3666,12 +3687,6 @@ fn decode_string_literal_part(text: &str) -> Option<String> {
 
 pub fn eval_byte_string_literal(literal: &ComptimeStringLiteral) -> Option<Vec<u8>> {
     eval_byte_literal(literal, "b\"")
-}
-
-pub fn eval_c_string_literal(literal: &ComptimeStringLiteral) -> Option<Vec<u8>> {
-    let mut bytes = eval_byte_literal(literal, "c\"")?;
-    bytes.push(0);
-    Some(bytes)
 }
 
 fn eval_byte_literal(literal: &ComptimeStringLiteral, prefix: &str) -> Option<Vec<u8>> {

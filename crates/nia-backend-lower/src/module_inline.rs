@@ -315,7 +315,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Atomic(atomic) => {
                 self.inline_leaf_calls_in_atomic(atomic, function_candidates, instance_candidates);
             }
-            FunctionExprKind::CStringPointer { array, .. }
+            FunctionExprKind::StaticArrayPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
             | FunctionExprKind::OptionalSome { expr: array }
@@ -893,7 +893,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => {}
         FunctionExprKind::InlineAsm(_)
-        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
@@ -1057,7 +1057,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Trap
         | FunctionExprKind::Local(_)
         | FunctionExprKind::InlineAsm(_)
-        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::Atomic(_)

@@ -161,7 +161,7 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic),
-            FunctionExprKind::CStringPointer { array, .. } => self.validate_expr(array),
+            FunctionExprKind::StaticArrayPointer { array, .. } => self.validate_expr(array),
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

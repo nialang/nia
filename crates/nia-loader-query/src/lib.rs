@@ -1366,7 +1366,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         let main_path = root.join("main.nia");
         write(
             &main_path,
-            r#"fn main() void { _ = std::CStr::from_ptr(c"nia"); }"#,
+            r#"fn main() void { if let ?text = std::CStr::from_bytes(b"nia\0") { _ = text; } else null {} }"#,
         );
 
         let program = load_program(main_path.to_string_lossy().into_owned());

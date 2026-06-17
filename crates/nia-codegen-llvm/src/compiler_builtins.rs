@@ -151,7 +151,9 @@ impl CompilerBuiltinCollector {
                 }
             }
             FunctionExprKind::Atomic(atomic) => self.collect_atomic(interner, atomic),
-            FunctionExprKind::CStringPointer { array, .. } => self.collect_expr(interner, array),
+            FunctionExprKind::StaticArrayPointer { array, .. } => {
+                self.collect_expr(interner, array)
+            }
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

@@ -257,8 +257,8 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Atomic(atomic) => {
                     FunctionExprKind::Atomic(self.instantiate_atomic(atomic, substitutions))
                 }
-                FunctionExprKind::CStringPointer { array, is_readonly } => {
-                    FunctionExprKind::CStringPointer {
+                FunctionExprKind::StaticArrayPointer { array, is_readonly } => {
+                    FunctionExprKind::StaticArrayPointer {
                         array: Box::new(self.instantiate_expr(*array, substitutions)),
                         is_readonly,
                     }

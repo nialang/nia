@@ -65,6 +65,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         HashMap<GlobalDefId, Vec<(ModuleId, Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
+    static_array_counter: RefCell<usize>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
@@ -103,6 +104,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
+            static_array_counter: RefCell::new(0),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
             mangled_types: RefCell::new(HashMap::new()),
@@ -119,6 +121,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.module
             .ir_string()
             .map_err(Self::diagnostic_from_llvm_error)
+    }
+
+    pub(super) fn next_static_array_name(&self) -> String {
+        let mut counter = self.static_array_counter.borrow_mut();
+        let id = *counter;
+        *counter += 1;
+        format!(".nia.static.array.{id}")
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {

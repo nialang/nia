@@ -382,7 +382,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(end, seen, out);
                 }
             }
-            FunctionExprKind::CStringPointer { array, .. } => {
+            FunctionExprKind::StaticArrayPointer { array, .. } => {
                 self.collect_struct_instances_expr(array, seen, out);
             }
             FunctionExprKind::InlineAsm(asm) => {
@@ -973,7 +973,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(end, seen, out);
                 }
             }
-            FunctionExprKind::CStringPointer { array, .. } => {
+            FunctionExprKind::StaticArrayPointer { array, .. } => {
                 self.collect_union_instances_expr(array, seen, out);
             }
             FunctionExprKind::InlineAsm(asm) => {

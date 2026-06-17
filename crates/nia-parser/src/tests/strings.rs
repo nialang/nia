@@ -26,7 +26,6 @@ fn parses_adjacent_quoted_string_literals_as_one_literal() {
         r#"
 let text = "hello" "" ", " "world" "" "!" "\n" "done";
 let bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
-let cstr = c"" c"hello" c"" c", " c"" c"world" c"" c"!";
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -44,13 +43,6 @@ let cstr = c"" c"hello" c"" c", " c"" c"world" c"" c"!";
         bytes.value.as_ref().map(|value| &value.kind),
         Some(ExprKind::ByteString(literal)) if literal.parts.len() == 8
     ));
-    let ItemKind::Binding(cstr) = &module.items[2].kind else {
-        panic!("expected binding");
-    };
-    assert!(matches!(
-        cstr.value.as_ref().map(|value| &value.kind),
-        Some(ExprKind::CString(literal)) if literal.parts.len() == 8
-    ));
 }
 
 #[test]
@@ -58,8 +50,6 @@ fn rejects_adjacent_string_literals_with_different_prefixes() {
     let (_module, errors) = parse_module(
         r#"
 let a = "hello" b"world";
-let b = b"hello" c"world";
-let c = "hello" c"world";
 "#,
     );
     assert_eq!(
@@ -69,7 +59,7 @@ let c = "hello" c"world";
                 .message
                 .contains("adjacent string literals must use the same literal prefix"))
             .count(),
-        3,
+        1,
         "{errors:?}"
     );
 }

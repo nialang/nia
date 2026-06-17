@@ -125,7 +125,8 @@ fn main() i32 {
     value();
     _ = value();
     _ = effect();
-    _ = printf(c"ok\n");
+    let fmt = b"ok\n\0";
+    _ = printf(&(fmt.*[0]));
     effect();
     abort();
     0

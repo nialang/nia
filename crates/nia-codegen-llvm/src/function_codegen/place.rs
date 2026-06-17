@@ -30,10 +30,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             | FunctionExprKind::Field { .. }
             | FunctionExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
-            FunctionExprKind::CStringPointer { array, .. } => self
-                .emit_c_string_pointer(expr.span, array)?
+            FunctionExprKind::StaticArrayPointer { array, .. } => self
+                .emit_static_array_pointer(expr.span, array)?
                 .into_pointer_value()
-                .map_err(|_| self.error(expr.span, "C string pointer value is not a pointer")),
+                .map_err(|_| self.error(expr.span, "static array pointer value is not a pointer")),
             _ => Err(self.error(expr.span, "expression is not a place")),
         }
     }
@@ -256,23 +256,57 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    pub(super) fn emit_c_string_pointer(
+    pub(super) fn emit_static_array_pointer(
         &mut self,
         span: Span,
         array: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if let FunctionExprKind::StaticArrayPointer { array, .. } = &array.kind {
+            return self.emit_static_array_pointer(span, array);
+        }
         let Some(TyKind::Array { .. }) = self.module.ty_kind(array.ty) else {
-            return Err(self.error(span, "C string literal pointer source is not an array"));
+            return Err(self.error(span, "string literal pointer source is not an array"));
         };
-        let base_ptr = self.emit_array_temp_addr(array)?;
         let array_ty = self.module.llvm_basic_type(array.ty, span)?;
-        let zero = self.module.context.i64_type().const_int(0, false);
-        let ptr = unsafe {
-            self.builder
-                .build_gep(array_ty, base_ptr, &[zero, zero], "cstr")
-                .map_err(|_| self.error(span, "failed to build C string literal pointer"))?
+        let value = match &array.kind {
+            FunctionExprKind::String(scalars) => {
+                self.emit_string_literal(array.ty, array.span, scalars)?
+            }
+            FunctionExprKind::ByteString(bytes) => {
+                self.emit_byte_string_literal(array.ty, array.span, bytes)?
+            }
+            _ => self.emit_expr(array)?,
         };
-        Ok(ptr.into())
+        if matches!(value, BasicValueEnum::PointerValue(_)) {
+            return Err(self.error(
+                span,
+                "static array pointer source emitted a pointer instead of an array",
+            ));
+        }
+        let value_ty = value.get_type().map_err(|err| {
+            self.error(
+                span,
+                format!("failed to inspect static array value: {err:?}"),
+            )
+        })?;
+        if value_ty != array_ty {
+            return Err(self.error(
+                span,
+                format!(
+                    "static array pointer source type does not match array type: expected {array_ty:?}, got {value_ty:?}"
+                ),
+            ));
+        }
+        let name = self.module.next_static_array_name();
+        let global = self
+            .module
+            .module
+            .add_global(array_ty, None, &name)
+            .map_err(|err| self.error(span, format!("failed to create string literal: {err:?}")))?;
+        global.set_linkage(nia_llvm::module::Linkage::Internal);
+        global.set_constant(true);
+        global.set_initializer(&value);
+        Ok(global.as_pointer_value().into())
     }
 
     fn emit_range_start(

@@ -165,10 +165,10 @@ extern fn printf(fmt: &u8, ...);
 
 fn main(flag: bool) i32 {
     _ = printf(flag, 1);
-    var s = c"hello";
-    printf(&s[0], &s[..]);
-    var sp = &(&s[..]);
-    printf(&s[0], sp.*);
+    var s = b"hello\0";
+    printf(&(s.*[0]), s);
+    var sp = &s;
+    printf(&(s.*[0]), sp.*);
     0
 }
 "#,

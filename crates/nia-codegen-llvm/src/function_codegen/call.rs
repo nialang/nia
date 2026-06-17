@@ -699,6 +699,6 @@ fn is_addressable_receiver(receiver: &FunctionExpr) -> bool {
             }
             | FunctionExprKind::Field { .. }
             | FunctionExprKind::Index { .. }
-            | FunctionExprKind::CStringPointer { .. }
+            | FunctionExprKind::StaticArrayPointer { .. }
     )
 }

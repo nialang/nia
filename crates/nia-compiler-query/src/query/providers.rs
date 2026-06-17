@@ -1185,7 +1185,7 @@ fn collect_typed_expr_refs(expr: &TypedExpr, refs: &mut TypedBodyRefs) {
             collect_typed_expr_refs(value, refs);
         }
         TypedExprKind::BitIntrinsic { value, .. }
-        | TypedExprKind::CStringPointer { array: value, .. }
+        | TypedExprKind::StaticArrayPointer { array: value, .. }
         | TypedExprKind::Unary { expr: value, .. }
         | TypedExprKind::OptionalSome { expr: value }
         | TypedExprKind::ErrorOk { expr: value }
@@ -1460,9 +1460,6 @@ fn semantic_facts_for_reachable_functions(
         reachable_facts
             .node_pointer_array_to_slice_coercions
             .extend(function_facts.node_pointer_array_to_slice_coercions.clone());
-        reachable_facts
-            .node_c_string_pointer_coercions
-            .extend(function_facts.node_c_string_pointer_coercions.clone());
         reachable_facts
             .node_trait_object_coercions
             .extend(function_facts.node_trait_object_coercions.clone());
@@ -1899,9 +1896,6 @@ fn collect_function_fact_owner_modules(
     }
     for coercion in facts.node_pointer_array_to_slice_coercions.values() {
         type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);
-    }
-    for coercion in facts.node_c_string_pointer_coercions.values() {
-        type_ids.extend([coercion.array_ty, coercion.pointer_ty]);
     }
     for coercion in facts.node_trait_object_coercions.values() {
         type_ids.extend([coercion.source_ty, coercion.target_ty]);

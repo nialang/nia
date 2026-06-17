@@ -693,7 +693,6 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::ExprKind::Float(_)
             | nia_ast::ExprKind::String(_)
             | nia_ast::ExprKind::ByteString(_)
-            | nia_ast::ExprKind::CString(_)
             | nia_ast::ExprKind::Char(_)
             | nia_ast::ExprKind::ByteChar(_)
             | nia_ast::ExprKind::Raw(_)
@@ -1255,6 +1254,12 @@ impl Analyzer<'_> {
                     value => value,
                 }
             }
+            Some(TyKind::Pointer { elem, .. }) => match value {
+                ComptimeValue::Pointer(value) => ComptimeValue::Pointer(Box::new(
+                    self.normalize_runtime_typed_comptime_value(*value, elem),
+                )),
+                value => value,
+            },
             Some(TyKind::Optional { elem }) => match value {
                 ComptimeValue::Optional(Some(value)) => ComptimeValue::Optional(Some(Box::new(
                     self.normalize_runtime_typed_comptime_value(*value, elem),
@@ -1348,6 +1353,13 @@ impl Analyzer<'_> {
                 for value in values {
                     self.validate_runtime_typed_value(span, value, elem);
                 }
+            }
+            Some(TyKind::Pointer { elem, .. }) => {
+                let ComptimeValue::Pointer(value) = value else {
+                    self.push_comptime_type_mismatch(span, "pointer");
+                    return;
+                };
+                self.validate_runtime_typed_value(span, value, elem);
             }
             Some(TyKind::Optional { elem }) => match value {
                 ComptimeValue::Optional(Some(value)) => {
@@ -2368,9 +2380,6 @@ impl Analyzer<'_> {
                 .comptime_byte_string_literal_type(
                     nia_comptime_engine::eval_byte_string_literal(literal)?.len() as u64,
                 ),
-            ResolvedComptimeExprKind::CString(literal) => self.comptime_byte_string_literal_type(
-                nia_comptime_engine::eval_c_string_literal(literal)?.len() as u64,
-            ),
             ResolvedComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
@@ -3884,7 +3893,15 @@ impl Analyzer<'_> {
                 self.is_integer_runtime_type(inner_ty)
                     .then_some(ComptimeValueType::Runtime(inner_ty))
             }
-            ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref | ComptimeUnaryOp::Deref => None,
+            ComptimeUnaryOp::Deref => {
+                let inner_ty = self.resolved_comptime_arg_runtime_type(inner, None)?;
+                let TyKind::Pointer { elem, .. } = self.ty_kind(inner_ty)? else {
+                    return None;
+                };
+                self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
+                    .map(ComptimeValueType::Runtime)
+            }
+            ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref => None,
         }
     }
 
@@ -4084,13 +4101,29 @@ impl Analyzer<'_> {
         let len = nia_comptime_engine::eval_string_literal(literal)?
             .chars()
             .count() as u64;
-        self.comptime_array_runtime_type(len, PrimitiveTy::Char)
+        self.comptime_array_pointer_runtime_type(len, PrimitiveTy::Char)
             .map(ComptimeValueType::Runtime)
     }
 
     fn comptime_byte_string_literal_type(&mut self, len: u64) -> Option<ComptimeValueType> {
-        self.comptime_array_runtime_type(len, PrimitiveTy::U8)
+        self.comptime_array_pointer_runtime_type(len, PrimitiveTy::U8)
             .map(ComptimeValueType::Runtime)
+    }
+
+    fn comptime_array_pointer_runtime_type(
+        &mut self,
+        len: u64,
+        elem_primitive: PrimitiveTy,
+    ) -> Option<InternedTyId> {
+        let array = self.comptime_array_runtime_type(len, elem_primitive)?;
+        self.comptime_runtime_type(
+            array,
+            |elem| TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            },
+            self.current_execution_module_id(),
+        )
     }
 
     fn comptime_array_runtime_type(

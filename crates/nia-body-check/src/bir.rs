@@ -24,8 +24,7 @@ use nia_ty::{BuiltinTrait, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::{
-    decode_byte_string_literal, decode_c_string_literal, decode_char_literal,
-    decode_string_literal, numeric_literal_body,
+    decode_byte_string_literal, decode_char_literal, decode_string_literal, numeric_literal_body,
 };
 
 mod asm;
@@ -381,21 +380,6 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
-        if forced_ty.is_none()
-            && let Some(coercion) = self
-                .node_c_string_pointer_coercions
-                .get(&expr.node_key)
-                .copied()
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.pointer_ty,
-                kind: TypedExprKind::CStringPointer {
-                    array: Box::new(self.lower_expr_with_ty(expr, Some(coercion.array_ty))),
-                    is_readonly: coercion.is_readonly,
-                },
-            };
-        }
         if let Some(upcast) = forced_ty
             .is_none()
             .then(|| self.node_trait_object_upcasts.get(&expr.node_key).copied())
@@ -515,13 +499,34 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Float(text) => TypedExprKind::Float(numeric_literal_body(text).to_string()),
             ExprKind::String(literal) => {
-                TypedExprKind::String(decode_string_literal(literal).unwrap_or_default())
+                let array = TypedExpr {
+                    span: expr.span,
+                    ty: self.string_literal_array_type(literal),
+                    kind: TypedExprKind::String(decode_string_literal(literal).unwrap_or_default()),
+                };
+                if forced_ty == Some(array.ty) {
+                    return array;
+                }
+                TypedExprKind::StaticArrayPointer {
+                    array: Box::new(array),
+                    is_readonly: true,
+                }
             }
             ExprKind::ByteString(literal) => {
-                TypedExprKind::ByteString(decode_byte_string_literal(literal).unwrap_or_default())
-            }
-            ExprKind::CString(literal) => {
-                TypedExprKind::ByteString(decode_c_string_literal(literal).unwrap_or_default())
+                let array = TypedExpr {
+                    span: expr.span,
+                    ty: self.byte_string_literal_array_type(literal),
+                    kind: TypedExprKind::ByteString(
+                        decode_byte_string_literal(literal).unwrap_or_default(),
+                    ),
+                };
+                if forced_ty == Some(array.ty) {
+                    return array;
+                }
+                TypedExprKind::StaticArrayPointer {
+                    array: Box::new(array),
+                    is_readonly: true,
+                }
             }
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),

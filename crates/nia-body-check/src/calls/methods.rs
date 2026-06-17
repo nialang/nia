@@ -85,15 +85,19 @@ impl<'a> BodyChecker<'a> {
         } else {
             Vec::new()
         };
+        let mut call_receiver_ty = receiver_ty;
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
             BuiltinTraitMethod::from_name(name)?;
+            call_receiver_ty = self
+                .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
+                .unwrap_or(receiver_ty);
         }
         self.check_method_call_with_receiver_ty(
             MethodCall {
                 span,
                 node_key: &expr.node_key,
                 receiver,
-                receiver_ty,
+                receiver_ty: call_receiver_ty,
                 name,
                 type_args: None,
                 args,
@@ -127,19 +131,21 @@ impl<'a> BodyChecker<'a> {
         } else {
             Vec::new()
         };
-        if candidates.is_empty()
-            && trait_candidates.is_empty()
-            && dynamic_candidates.is_empty()
-            && BuiltinTraitMethod::from_name(name).is_none()
-        {
-            return None;
+        let mut call_receiver_ty = receiver_ty;
+        if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
+            if BuiltinTraitMethod::from_name(name).is_none() {
+                return None;
+            }
+            call_receiver_ty = self
+                .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
+                .unwrap_or(receiver_ty);
         }
         self.check_method_call_with_receiver_ty(
             MethodCall {
                 span,
                 node_key: &expr.node_key,
                 receiver,
-                receiver_ty,
+                receiver_ty: call_receiver_ty,
                 name,
                 type_args: Some(type_args),
                 args,
@@ -279,5 +285,53 @@ impl<'a> BodyChecker<'a> {
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
+    }
+
+    fn builtin_place_method_receiver_coercion(
+        &mut self,
+        receiver: &Expr,
+        name: &str,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let method = BuiltinTraitMethod::from_name(name)?;
+        if !method.is_place_method() {
+            return None;
+        }
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let Some(TyKind::Pointer {
+            is_readonly,
+            elem: array_ty,
+        }) = self.interner.get(receiver_ty).cloned()
+        else {
+            return None;
+        };
+        let array_ty = self.normalization.normalize(array_ty);
+        let Some(TyKind::Array { elem, .. }) = self.interner.get(array_ty).cloned() else {
+            return None;
+        };
+        let slice_is_readonly = match method {
+            BuiltinTraitMethod::Slice | BuiltinTraitMethod::GetPtr => {
+                if is_readonly {
+                    return None;
+                }
+                false
+            }
+            BuiltinTraitMethod::SliceRead | BuiltinTraitMethod::GetPtrRead => true,
+            _ => return None,
+        };
+        let slice_ty = self.interner.intern(TyKind::Slice {
+            is_readonly: slice_is_readonly,
+            elem,
+        });
+        self.record_pointer_array_to_slice_node_coercion(
+            receiver,
+            nia_sema_ir::PointerArrayToSliceCoercion {
+                pointer_ty: receiver_ty,
+                array_ty,
+                slice_ty,
+                is_readonly: slice_is_readonly,
+            },
+        );
+        Some(slice_ty)
     }
 }

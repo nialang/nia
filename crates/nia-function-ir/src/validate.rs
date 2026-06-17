@@ -362,7 +362,7 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::Local(local_id) => {
                 self.require_local(*local_id, expr.span, "local expression")?
             }
-            FunctionExprKind::CStringPointer { array: inner, .. }
+            FunctionExprKind::StaticArrayPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::OptionalSome { expr: inner }
             | FunctionExprKind::ErrorOk { expr: inner }

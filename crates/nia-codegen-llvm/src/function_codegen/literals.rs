@@ -50,6 +50,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         scalars: &[u32],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self
+            .module
+            .layout_of(ty)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return self
+                .module
+                .llvm_basic_type(ty, span)?
+                .const_zero()
+                .map_err(|err| {
+                    self.error(span, format!("failed to create zero literal: {err:?}"))
+                });
+        }
         let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "string literal target type is not an array"));
         };
@@ -70,6 +83,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         bytes: &[u8],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self
+            .module
+            .layout_of(ty)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return self
+                .module
+                .llvm_basic_type(ty, span)?
+                .const_zero()
+                .map_err(|err| {
+                    self.error(span, format!("failed to create zero literal: {err:?}"))
+                });
+        }
         let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "byte string literal target type is not an array"));
         };

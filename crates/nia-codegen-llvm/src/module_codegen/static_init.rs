@@ -44,7 +44,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::Chars(scalars) => {
                 self.static_chars_init_value_in(interner, ty, scalars, span)
             }
-            StaticInit::Bytes(bytes) => Ok(self.context.const_string(bytes, true).into()),
+            StaticInit::Bytes(bytes) => {
+                if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
+                    return self
+                        .llvm_basic_type_in(ty, span, interner, layouts)?
+                        .const_zero()
+                        .map_err(Self::diagnostic_from_llvm_error);
+                }
+                Ok(self.context.const_string(bytes, true).into())
+            }
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
             StaticInit::Char(value) => self.static_char_init_value_in(interner, ty, *value, span),
             StaticInit::Array(elems) => {
@@ -68,6 +76,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             StaticInit::AddrOfFunction { function, args } => {
                 self.static_addr_of_function_value(ty, *function, args, span, interner, layouts)
+            }
+            StaticInit::StaticArrayPointer {
+                array_ty,
+                array_init,
+            } => {
+                self.static_array_pointer_value(ty, *array_ty, array_init, span, interner, layouts)
             }
         }
     }
@@ -133,6 +147,53 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
             .into_pointer_type()?;
         Ok(ptr.const_bitcast(target_ptr_ty).into())
+    }
+
+    fn static_array_pointer_value(
+        &self,
+        ty: InternedTyId,
+        array_ty: InternedTyId,
+        array_init: &StaticInit,
+        span: Span,
+        target_interner: &TyInterner,
+        target_layouts: &BackendLayouts,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(owner) = self.program.module(array_ty.interner_id) else {
+            return Err(self.error(span, "missing static array pointer owner module"));
+        };
+        let llvm_array_ty =
+            self.llvm_basic_type_in(array_ty, span, &owner.interner, &owner.layouts)?;
+        let value =
+            self.static_init_value_in(array_ty, array_init, span, &owner.interner, &owner.layouts)?;
+        if matches!(value, BasicValueEnum::PointerValue(_)) {
+            return Err(self.error(
+                span,
+                "static array pointer source emitted a pointer instead of an array",
+            ));
+        }
+        let value_ty = value.get_type().map_err(Self::diagnostic_from_llvm_error)?;
+        if value_ty != llvm_array_ty {
+            return Err(self.error(
+                span,
+                format!(
+                    "static array pointer source type does not match array type: expected {llvm_array_ty:?}, got {value_ty:?}"
+                ),
+            ));
+        }
+        let global = self
+            .module
+            .add_global(llvm_array_ty, None, &self.next_static_array_name())
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global.set_linkage(nia_llvm::module::Linkage::Internal);
+        global.set_constant(true);
+        global.set_initializer(&value);
+        let target_ptr_ty = self
+            .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
+            .into_pointer_type()?;
+        Ok(global
+            .as_pointer_value()
+            .const_bitcast(target_ptr_ty)
+            .into())
     }
 
     fn static_addr_of_function_value(
@@ -207,6 +268,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         scalars: &[u32],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
+            return self
+                .llvm_basic_type_in(ty, span, interner, self.layouts_for(ty))?
+                .const_zero()
+                .map_err(Self::diagnostic_from_llvm_error);
+        }
         let Some(TyKind::Array { elem, .. }) = interner.get(ty) else {
             return Err(self.error(
                 span,
@@ -253,9 +320,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if count == 0 || is_zero_static_init(value) {
             return Ok(self
                 .llvm_basic_type_in(ty, span, interner, layouts)?
-                .into_array_type()?
                 .const_zero()
-                .into());
+                .map_err(Self::diagnostic_from_llvm_error)?);
         }
         if let StaticInit::Byte(byte) = value
             && let Some(TyKind::Array { elem, .. }) = interner.get(ty)
@@ -410,6 +476,8 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
-        StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,
+        StaticInit::AddrOfGlobal { .. }
+        | StaticInit::AddrOfFunction { .. }
+        | StaticInit::StaticArrayPointer { .. } => false,
     }
 }

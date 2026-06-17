@@ -3449,7 +3449,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let text: [4]char = id("nia!");
+comptime let text: [4]char = id("nia!".*);
 comptime let n: usize = accept4(text);
 
 fn main() i32 {
@@ -3473,7 +3473,7 @@ comptime fn total(values: [3]usize, text: [4]char) usize {
     values.len() + text.len() + values[1..].len()
 }
 
-comptime let n: usize = total([1usize, 2usize, 3usize], "nia!");
+comptime let n: usize = total([1usize, 2usize, 3usize], "nia!".*);
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -3547,7 +3547,7 @@ comptime fn is_target_os(value: [5]char) bool {
     @builtin().target.os == value
 }
 
-comptime let n: usize = if is_target_os("linux") { 4usize } else { 2usize };
+comptime let n: usize = if is_target_os("linux".*) { 4usize } else { 2usize };
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -3567,7 +3567,7 @@ fn comptime_target_strings_pass_as_char_arrays() {
         &root.join("main.nia"),
         r#"
 comptime fn accept_linux(value: [5]char) usize {
-    if value.len() == 5usize and value[0] == 'l' and value == "linux" {
+    if value.len() == 5usize and value[0] == 'l' and value == "linux".* {
         5usize
     } else {
         0usize
@@ -3888,8 +3888,8 @@ comptime let os = config::target_os();
 }
 
 #[test]
-fn comptime_byte_and_c_string_literals_are_typed_arrays() {
-    let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
+fn comptime_byte_string_literals_are_typed_arrays() {
+    let root = temp_dir("comptime_byte_string_literals_are_typed_arrays");
     write(
         &root.join("main.nia"),
         r#"
@@ -3909,7 +3909,7 @@ comptime fn c_score(value: [4]u8) usize {
     }
 }
 
-comptime let n: usize = byte_score(b"nia") + c_score(c"nia");
+comptime let n: usize = byte_score(b"nia".*) + c_score(b"nia\0".*);
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -3952,16 +3952,16 @@ comptime fn multiline_score(value: [11]char) usize {
     }
 }
 
-comptime let text: [3]char = "n" "ia";
-comptime let bytes: [3]u8 = b"n" b"ia";
-comptime let multiline: [11]char =
+comptime let text: [3]char = ("n" "ia").*;
+comptime let bytes: [3]u8 = (b"n" b"ia").*;
+comptime let multiline: [11]char = (
     \\hello
     \\world
-;
-comptime let byte_multiline: [11]u8 =
+).*;
+comptime let byte_multiline: [11]u8 = (
     b\\hello
     \\world
-;
+).*;
 comptime let n: usize =
     char_score(text)
     + byte_score(bytes)

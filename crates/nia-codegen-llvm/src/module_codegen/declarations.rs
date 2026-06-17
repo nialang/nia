@@ -280,6 +280,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 )?,
                 None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
             };
+            let init_ty = init.get_type().map_err(Self::diagnostic_from_llvm_error)?;
+            if init_ty != ty {
+                return Err(self.error(
+                    global.span,
+                    format!(
+                        "global `{}` initializer type does not match declaration: expected {ty:?}, got {init_ty:?}",
+                        global.name
+                    ),
+                ));
+            }
             value.set_initializer(&init);
         }
         Ok(())

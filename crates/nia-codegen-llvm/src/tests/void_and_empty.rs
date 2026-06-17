@@ -311,8 +311,9 @@ fn effect() {}
 fn value() i32 { 7 }
 
 fn main() i32 {
+    let fmt = b"ok\n\0";
     _ = effect();
-    _ = printf(c"ok\n");
+    _ = printf(&(fmt.*[0]));
     _ = value();
     0
 }

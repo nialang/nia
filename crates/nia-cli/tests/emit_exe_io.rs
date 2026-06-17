@@ -111,7 +111,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var copied: [5]u8 = [0, 0, 0, 0, 0];
     var reader = io::FixedBufferReader::init(writer.written());
     if let !ok = reader.read_exact(&mut copied[..]) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
-    var expected = b"nia 7";
+    var expected: &[u8] = b"nia 7";
     if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
         return (4 as process::ExitCode)!;
     }
@@ -242,6 +242,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let neg: i32 = -7;
     let byte = 171u8;
     let text = "nia";
+    let text_slice: &[char] = text;
     let ch = 'λ';
     let flag = true;
     let width = 5usize;
@@ -264,20 +265,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
         &byte,
         &byte,
         &byte,
-        &text[..],
-        &text[..],
-        &text[..],
-        &text[..],
+        text_slice,
+        text_slice,
+        text_slice,
+        text_slice,
         &ch,
         &ch,
         &flag,
         &flag,
         &byte,
-        &text[..],
+        text_slice,
         &width,
-        &text[..],
+        text_slice,
         &precision,
-        &text[..],
+        text_slice,
         &width,
         &precision,
     ]).exit().?;
@@ -814,7 +815,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (8 as process::ExitCode)!;
     }
 
-    var expected = b"abcdefghij";
+    var expected: &[u8] = b"abcdefghij";
     var written = backing.written();
     var index = 0usize;
     while index < written.len() {
@@ -912,7 +913,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    let expected = b"abcdef";
+    let expected: &[u8] = b"abcdef";
     let written = backing.written();
     var index = 0usize;
     while index < expected.len() {
@@ -933,7 +934,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if direct_writer.len() != 0 or direct_backing.len() != 6 {
         return (7 as process::ExitCode)!;
     }
-    let direct_expected = b"ghijkl";
+    let direct_expected: &[u8] = b"ghijkl";
     let direct_written = direct_backing.written();
     index = 0usize;
     while index < direct_expected.len() {
@@ -1090,7 +1091,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var source = PartialReader::init(b"abcdef");
     var bytes: [6]u8 = [0; 6];
     if let !ok = source.read_exact(&mut bytes[..]) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
-    let expected = b"abcdef";
+    let expected: &[u8] = b"abcdef";
     var index = 0usize;
     while index < expected.len() {
         if bytes[index] != expected[index] {
