@@ -253,6 +253,47 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_imported_generic_struct_with_imported_comptime_array_field_length() {
+    let root = temp_dir("emits_imported_generic_struct_with_imported_comptime_array_field_length");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+module defs;
+using root::defs;
+using defs::Boxed;
+
+fn take(box: Boxed[u8]) u8 {
+    box.values[2]
+}
+
+fn main() u8 {
+    var box: Boxed[u8] = { values: [1, 2, 3] };
+    take(box)
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub comptime let N: usize = 3;
+
+pub struct Boxed[T] {
+    values: [N]T,
+}
+"#,
+    )
+    .expect("write defs source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("[3 x i8]"));
+}
+
+#[test]
 fn emits_large_array_repeat_count_from_comptime_binding() {
     let root = temp_dir("emits_large_array_repeat_count_from_comptime_binding");
     let main = root.join("main.nia");
