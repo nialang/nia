@@ -126,9 +126,11 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.
 - `std::cstr` defines `CStr`, a non-owning view of a NUL-terminated byte
-  sequence. It provides `from_ptr`, `raw_ptr`, `len`, `bytes`, and `is_empty`,
-  and implements `std::fmt::Format` as raw byte output. `CStr` does not imply
-  UTF-8 validity.
+  sequence. It provides `from_ptr` for external C string pointers,
+  `from_bytes` for NUL-terminated byte slices such as `b"name\0"`, `raw_ptr`,
+  `len`, `bytes`, and `is_empty`, and implements `std::fmt::Format` as raw byte
+  output. `CStr` does not imply UTF-8 validity and is not required for FFI APIs
+  that can operate directly on `&u8`.
 - `std::os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
 - `std::io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
@@ -361,8 +363,8 @@ String literals:
 "hello\n"
 ```
 
-String literals are not `String`, pointers, or slices. A string literal is fixed
-length Unicode scalar array syntax, with type `[N]char`.
+String literals are read-only pointers to fixed-length Unicode scalar arrays.
+`"..."` has type `&[N]char`.
 
 Byte string literals:
 
@@ -371,19 +373,9 @@ b"nia"
 b"nia\0"
 ```
 
-Byte string literals are fixed length byte-array syntax, with type `[N]u8`.
-
-C string literals:
-
-```nia
-c"nia"
-```
-
-C string literals are byte string literals with one trailing NUL byte appended.
-`c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
-are allowed; the syntax only appends one trailing NUL.
-Use `std::CStr` when a runtime API wants a NUL-terminated byte-string
-view, for example `std::CStr::from_ptr(c"nia")`.
+Byte string literals are read-only pointers to fixed-length byte arrays.
+`b"..."` has type `&[N]u8`. NUL-terminated byte sequences are written
+explicitly, for example `b"nia\0"`.
 
 Adjacent quoted string literals with the same prefix are concatenated into one
 literal:
@@ -391,7 +383,6 @@ literal:
 ```nia
 "hello, " "world"
 b"ni" b"a\0"
-c"hello, " c"world"
 ```
 
 This is source-level literal concatenation, not runtime string or array
@@ -399,50 +390,34 @@ concatenation. Mixed literal families are invalid:
 
 ```nia
 "hello" b"world" // invalid
-b"hello" c"world" // invalid
-"hello" c"world" // invalid
 ```
 
-For adjacent C string literals, the trailing NUL is appended once to the final
-combined byte sequence. For example, `c"foo" c"bar"` has type `[7]u8` and is
-equivalent to `b"foobar\0"`.
-
-In an expected `&u8` context, a C string literal may be coerced to
-a pointer to its first byte. This creates a block-scoped array temporary; it does
-not promote the literal to static storage. The coercion is specific to C string
-literals and does not apply to byte string literals or arbitrary `[N]u8` arrays.
-
-In an expected slice context, string-family literals may also be created
-directly as slices:
+In an expected slice context, string-family literal pointers may coerce to
+slices:
 
 ```nia
 let text: &[char] = "nia";
 let bytes: &[u8] = b"nia";
-let cbytes: &[u8] = c"nia";
 ```
 
-This is a literal-specific creation rule. It does not create static storage and
-does not make ordinary array values decay into slices. The temporary has the
-same block-scoped lifetime as other materialized rvalues, so returning that
-slice or storing it beyond the block leaves a dangling reference. If a stable
-address is required, bind the literal to storage with the desired lifetime, such
-as a caller-side binding, caller-provided buffer, or top-level `let` storage.
+This is the ordinary pointer-array-to-slice coercion. It does not make ordinary
+array values decay into slices.
 
 ```nia
 fn dangling() &[u8] {
-    b"nia" // valid but returns a slice to block-scoped temporary storage
+    b"nia" // valid: literal storage is static and read-only
 }
 
 let stable = b"nia";
 
 fn stable_bytes() &[u8] {
-    &stable
+    stable
 }
 ```
 
-Multiline string literals use consecutive lines beginning with `\\`. Byte and C
-multiline string literals use `b\\` or `c\\` on the first line; continuation
-lines still use `\\`:
+Multiline string literals use consecutive lines beginning with `\\`. Byte
+multiline string literals use `b\\` on the first line; continuation lines still
+use `\\`:
 
 ```nia
 \\mov rax, 60
@@ -450,17 +425,14 @@ lines still use `\\`:
 
 b\\mov rax, 60
 \\syscall
-
-c\\mov rax, 60
-\\syscall
 ```
 
 For multiline strings, indentation before the delimiter is ignored, the delimiter
 itself is not part of the string, and the text after the delimiter is copied as
 is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
-The prefix selects the same type family as the quoted form: `[N]char`, `[N]u8`,
-or NUL-terminated `[N + 1]u8`.
+The prefix selects the same type family as the quoted form: `&[N]char` or
+`&[N]u8`.
 
 Multiline string literals do not participate in adjacent literal concatenation.
 Use adjacent quoted literals when a long single-line literal should be split
@@ -602,8 +574,8 @@ var temp = &Point { x: 1, y: 2 };
 var answer = &42i32;
 var returned = &make_i32();
 
-let hello = c"hello";
-_ = & hello[0];
+let hello = b"hello\0";
+_ = &(hello.*[0]);
 ```
 
 ### 4.3 Arrays
@@ -619,7 +591,7 @@ an array literal provides the element count:
 
 ```nia
 var xs: [_]i32 = [1, 2, 3];
-var name: [_]u8 = c"nia";
+var name: [_]u8 = b"nia".*;
 ```
 
 `[_]T` is only valid in contexts initialized by an array literal or string
@@ -769,10 +741,9 @@ read(arr);      // error
 read([1, 2, 3]); // error
 ```
 
-String, byte string, and C string literal expressions have a separate
-literal-creation-site convenience. When a slice is expected, `"..."` may create
-`&[char]`, while `b"..."` and `c"..."` may create `&[u8]`. This rule is
-specific to those literals; it does not apply to arbitrary `[N]T` values.
+String and byte string literal expressions have type `&[N]char` and `&[N]u8`.
+When a slice is expected, the ordinary pointer-array-to-slice coercion can
+produce `&[char]` or `&[u8]`.
 
 Range forms:
 
@@ -1389,7 +1360,7 @@ Top-level `let` creates immutable global static storage. Implementations should
 place it in read-only data where possible:
 
 ```nia
-let hello = c"hello\n";
+let hello: [7]u8 = b"hello\n\0".*;
 ```
 
 Top-level `let` initializers must be expressible as static initialization data.
@@ -1397,8 +1368,8 @@ They do not execute arbitrary compile-time programs:
 
 ```nia
 let a = 1 + 2;           // allowed: integer static expression
-let hello = c"hi";       // allowed: byte-array static data
-let p = & hello[0]; // allowed: global static address
+let hello: [3]u8 = b"hi\0".*; // allowed: byte-array static data
+let p = &hello[0];       // allowed: global static address
 let bad = { 1 + 2 };     // error: block execution is not static data
 ```
 
@@ -1519,7 +1490,7 @@ Top-level bindings may infer their type or write it explicitly:
 ```nia
 var hello = "hello\n";
 var counter: i32 = 0;
-let banner = c"nia";
+let banner = b"nia";
 ```
 
 Non-extern top-level initialized bindings must satisfy static initialization
@@ -1551,7 +1522,7 @@ Explicit type declaration:
 
 ```nia
 var x: i32 = 1;
-var name: [4]u8 = c"nia";
+var name: [4]u8 = b"nia\0".*;
 ```
 
 Assignment to an existing place:
@@ -2015,8 +1986,11 @@ and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
 `GetPtrRead` implementations. Mutable slices also have compiler-proven
 `GetPtr` implementations, whose `get_ptr()` method returns `&mut T`. Arrays
 intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
-with `&array[..]`. User types may implement these traits for custom contiguous
-storage abstractions, but may not overlap compiler-proven slice implementations.
+with `&array[..]`. A pointer to an array may coerce to a slice at the receiver
+of these built-in place methods, so `b"name\0".get_ptr_read()` is valid and
+explicitly produces a pointer to the first byte. User types may implement these
+traits for custom contiguous storage abstractions, but may not overlap
+compiler-proven slice implementations.
 
 `@load_unaligned[T](ptr)` reads a `T` from a byte pointer with alignment 1.
 `ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`. The caller is
@@ -2890,17 +2864,16 @@ runtime model:
 extern fn foreign_log(message: &u8);
 ```
 
-When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
+When calling C string APIs, use `b"...\0"` and pass an explicit pointer to the
+first byte:
 
 ```nia
-foreign_log(c"hello\n");
+foreign_log(b"hello\n\0".get_ptr_read());
 ```
 
-String, byte string, and C string literals are array values, not places. At the
-literal creation site they may create a slice when a slice is expected. C string
-literals may also be passed directly when `&u8` is expected; this produces a
-pointer to a block-scoped temporary. If a stable C string address is required,
-bind the C string to top-level `let` storage.
+String and byte string literals are read-only pointers to static arrays, not
+element pointers. There is no implicit `&[N]u8` to `&u8` decay; take the first
+element address explicitly with `get_ptr_read()` when an ABI requires `&u8`.
 
 ### 13.1 Internal Symbol Names
 
