@@ -135,6 +135,66 @@ fn main() i32 {
 }
 
 #[test]
+fn control_flow_statement_boundary_stops_binary_expr_across_newline() {
+    let (module, errors) = parse_module(
+        r#"
+fn tail_after_if(bytes: &[u8], start: usize) &[u8] {
+    if start == 0usize {
+    }
+    &bytes[start..bytes.len()]
+}
+
+fn tail_after_if_let(bytes: &[u8], maybe: ?usize) &[u8] {
+    if let ?start = maybe {
+        _ = start;
+    }
+    &bytes[..]
+}
+
+fn parenthesized_if_can_still_be_binary(flag: bool, mask: bool) bool {
+    (if flag {
+        true
+    } else {
+        false
+    }) & mask
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(first) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let first_body = first.body.as_ref().expect("expected body");
+    assert_eq!(first_body.stmts.len(), 1);
+    assert!(matches!(
+        first_body.stmts[0].kind,
+        StmtKind::Expr(ref expr) if matches!(expr.kind, ExprKind::If { .. })
+    ));
+    let first_tail = first_body.tail.as_ref().expect("expected tail");
+    assert!(matches!(first_tail.kind, ExprKind::Unary { .. }));
+
+    let ItemKind::Function(second) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let second_body = second.body.as_ref().expect("expected body");
+    assert_eq!(second_body.stmts.len(), 1);
+    assert!(matches!(
+        second_body.stmts[0].kind,
+        StmtKind::Expr(ref expr) if matches!(expr.kind, ExprKind::IfPattern(_))
+    ));
+    let second_tail = second_body.tail.as_ref().expect("expected tail");
+    assert!(matches!(second_tail.kind, ExprKind::Unary { .. }));
+
+    let ItemKind::Function(third) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let third_body = third.body.as_ref().expect("expected body");
+    let third_tail = third_body.tail.as_ref().expect("expected tail");
+    assert!(matches!(third_tail.kind, ExprKind::Binary { .. }));
+}
+
+#[test]
 fn rejects_var_in_for_in_binding() {
     let (_module, errors) = parse_module(
         r#"
