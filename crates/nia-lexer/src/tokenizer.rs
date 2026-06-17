@@ -89,14 +89,6 @@ impl<'a> Tokenizer<'a> {
                 self.bump();
                 self.char_lit(start, true)
             }
-            b'c' if self.peek() == Some(b'"') => {
-                self.bump();
-                self.string(start, TokenKind::CString)
-            }
-            b'c' if self.peek() == Some(b'\\') && self.peek_next() == Some(b'\\') => {
-                self.bump();
-                self.multiline_string(start, TokenKind::CString)
-            }
             b'a'..=b'z' | b'A'..=b'Z' => self.ident_or_keyword(start),
             b'_' => {
                 if self.peek().is_some_and(is_ident_continue) {
@@ -765,11 +757,10 @@ mod tests {
     #[test]
     fn tokenizes_literals_and_comments() {
         assert_eq!(
-            kinds("\"nia\\0\" b\"nia\" c\"nia\" b'a' '中' // comment\n@size[usize]()"),
+            kinds("\"nia\\0\" b\"nia\" b'a' '中' // comment\n@size[usize]()"),
             vec![
                 TokenKind::String,
                 TokenKind::ByteString,
-                TokenKind::CString,
                 TokenKind::ByteChar,
                 TokenKind::Char,
                 TokenKind::At,
@@ -787,11 +778,10 @@ mod tests {
     #[test]
     fn tokenizes_multiline_string_literals() {
         assert_eq!(
-            kinds("\\\\text\nb\\\\bytes\nc\\\\cstr\nvar x = 1;"),
+            kinds("\\\\text\nb\\\\bytes\nvar x = 1;"),
             vec![
                 TokenKind::String,
                 TokenKind::ByteString,
-                TokenKind::CString,
                 TokenKind::Var,
                 TokenKind::Ident,
                 TokenKind::Eq,
@@ -839,11 +829,10 @@ mod tests {
     #[test]
     fn validates_string_and_char_escapes() {
         assert_eq!(
-            kinds(r#""\n\x41\u{4e2d}" b"\xff" c"ok" '\u{4e2d}' b'\xff'"#),
+            kinds(r#""\n\x41\u{4e2d}" b"\xff" '\u{4e2d}' b'\xff'"#),
             vec![
                 TokenKind::String,
                 TokenKind::ByteString,
-                TokenKind::CString,
                 TokenKind::Char,
                 TokenKind::ByteChar,
                 TokenKind::Eof,

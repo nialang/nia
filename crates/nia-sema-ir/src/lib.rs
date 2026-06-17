@@ -213,7 +213,6 @@ pub struct SemanticFacts {
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
@@ -233,7 +232,6 @@ pub struct FunctionSemanticFacts {
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
@@ -280,13 +278,6 @@ pub struct PointerArrayToSliceCoercion {
     pub pointer_ty: InternedTyId,
     pub array_ty: InternedTyId,
     pub slice_ty: InternedTyId,
-    pub is_readonly: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CStringPointerCoercion {
-    pub array_ty: InternedTyId,
-    pub pointer_ty: InternedTyId,
     pub is_readonly: bool,
 }
 

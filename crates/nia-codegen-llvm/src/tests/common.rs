@@ -172,8 +172,8 @@ struct Header {
 }
 
 let header: Header = { tag: 1, count: 2, flag: 3 };
-let bytes = c"ok";
-let byte_ptr: & u8 = & bytes[0];
+let bytes: [3]u8 = b"ok\0".*;
+let byte_ptr: & u8 = &bytes[0];
 var global: i32 = 5;
 let global_ptr: &i32 = &global;
 

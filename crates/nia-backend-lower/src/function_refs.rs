@@ -175,7 +175,7 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::Atomic(atomic) => {
             collect_function_refs_from_atomic(module_id, atomic, refs)
         }
-        FunctionExprKind::CStringPointer { array, .. }
+        FunctionExprKind::StaticArrayPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
         | FunctionExprKind::OptionalSome { expr: array }
@@ -440,6 +440,9 @@ pub(crate) fn collect_function_refs_from_static_init(
             for field in fields {
                 collect_function_refs_from_static_init(module_id, &field.value, refs);
             }
+        }
+        StaticInit::StaticArrayPointer { array_init, .. } => {
+            collect_function_refs_from_static_init(module_id, array_init, refs);
         }
         StaticInit::AddrOfGlobal { .. } => {}
         StaticInit::AddrOfFunction { function, args } => {

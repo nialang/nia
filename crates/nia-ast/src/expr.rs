@@ -229,7 +229,6 @@ pub enum ExprKind {
     Float(String),
     String(StringLiteral),
     ByteString(StringLiteral),
-    CString(StringLiteral),
     Char(String),
     ByteChar(String),
     Raw(String),

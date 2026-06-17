@@ -363,7 +363,7 @@ fn propagate_cross_function_constants_in_expr(
                 instance_constants,
             );
         }
-        FunctionExprKind::CStringPointer { array, .. }
+        FunctionExprKind::StaticArrayPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
         | FunctionExprKind::OptionalSome { expr: array }

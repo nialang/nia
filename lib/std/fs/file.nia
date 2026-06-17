@@ -31,10 +31,10 @@ extend Dir {
     }
 
     pub fn cwd() Error!Dir {
-        let current = c".";
+        let current = b".\0";
         let handle = os::open_dir_at(
             os::cwd(),
-            &current[0],
+            &(current.*[0]),
             true,
         ).as_fs_error().?;
         !Dir::from_owned_descriptor(handle)

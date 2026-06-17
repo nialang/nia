@@ -77,7 +77,7 @@ fn semantic_use_table(
 #[test]
 fn lowers_checked_program_shape() {
     let source = r#"
-let hello = c"hello";
+let hello = b"hello\0";
 
 struct Point {
     x: i32,
@@ -1112,7 +1112,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_byte_static_initializers() {
     let source = r#"
-let bytes: [3]u8 = b"aaa";
+let bytes: [3]u8 = b"aaa".*;
 
 fn main() u8 {
     bytes[0]
@@ -1141,7 +1141,7 @@ fn main() u8 {
 #[test]
 fn o2_simplifies_repeated_char_static_initializers() {
     let source = r#"
-let text: [3]char = "aaa";
+let text: [3]char = "aaa".*;
 
 fn main() char {
     text[0]
@@ -1340,8 +1340,8 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_string_static_initializers() {
     let source = r#"
-let bytes: [3]u8 = b"aaa";
-let text: [3]char = "aaa";
+let bytes: [3]u8 = b"aaa".*;
+let text: [3]char = "aaa".*;
 
 fn main() u8 {
     bytes[0]
@@ -1379,6 +1379,43 @@ fn main() u8 {
                 }
             ))
     );
+}
+
+#[test]
+fn lowers_global_string_literal_pointers_as_static_array_pointers() {
+    let source = r#"
+let bytes = b"ok";
+let text = "hi";
+
+fn main() u8 {
+    bytes.*[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let module = &lowering.program.modules[0];
+    let bytes = module
+        .globals
+        .iter()
+        .find(|global| global.name == "bytes")
+        .expect("bytes global");
+    let text = module
+        .globals
+        .iter()
+        .find(|global| global.name == "text")
+        .expect("text global");
+
+    assert!(matches!(
+        bytes.init,
+        Some(StaticInit::StaticArrayPointer { .. })
+    ));
+    assert!(matches!(
+        text.init,
+        Some(StaticInit::StaticArrayPointer { .. })
+    ));
 }
 
 #[test]

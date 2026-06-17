@@ -15,9 +15,16 @@ impl BackendValidator<'_> {
             | StaticInit::Bool(_)
             | StaticInit::Char(_)
             | StaticInit::Byte(_)
-            | StaticInit::Chars(_)
-            | StaticInit::Bytes(_)
             | StaticInit::NullPtr => {}
+            StaticInit::Chars(_) | StaticInit::Bytes(_) => {
+                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Array { .. })) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
+                        span,
+                        "backend IR string static initializer target is not array",
+                    ));
+                }
+            }
             StaticInit::Array(elems) => {
                 let Some(elem_ty) = self.array_elem_ty(ty) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
@@ -72,6 +79,19 @@ impl BackendValidator<'_> {
                         "backend IR static initializer references missing function instance",
                     );
                 }
+            }
+            StaticInit::StaticArrayPointer {
+                array_ty,
+                array_init,
+            } => {
+                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Pointer { .. })) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
+                        span,
+                        "backend IR static array pointer initializer target is not pointer",
+                    ));
+                }
+                self.validate_static_init(*array_ty, array_init, span);
             }
         }
     }

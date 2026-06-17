@@ -27,7 +27,6 @@ pub enum TokenKind {
     Float,
     String,
     ByteString,
-    CString,
     Char,
     ByteChar,
 

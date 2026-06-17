@@ -830,7 +830,6 @@ pub enum ResolvedComptimeExprKind {
     Float(String),
     String(ComptimeStringLiteral),
     ByteString(ComptimeStringLiteral),
-    CString(ComptimeStringLiteral),
     Bool(bool),
     Null,
     Name(ComptimeNameResolution),
@@ -1283,7 +1282,6 @@ pub enum EarlyComptimeExprKind {
     Float(String),
     String(ComptimeStringLiteral),
     ByteString(ComptimeStringLiteral),
-    CString(ComptimeStringLiteral),
     Bool(bool),
     Null,
     Ident(EarlyComptimeName),
@@ -1668,9 +1666,6 @@ fn lower_expr_internal(
         }
         nia_ast::ExprKind::ByteString(literal) => {
             EarlyComptimeExprKind::ByteString(lower_string_literal(literal))
-        }
-        nia_ast::ExprKind::CString(literal) => {
-            EarlyComptimeExprKind::CString(lower_string_literal(literal))
         }
         nia_ast::ExprKind::Bool(value) => EarlyComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => EarlyComptimeExprKind::Null,
@@ -2302,7 +2297,6 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
         EarlyComptimeExprKind::Float(value) => ResolvedComptimeExprKind::Float(value),
         EarlyComptimeExprKind::String(value) => ResolvedComptimeExprKind::String(value),
         EarlyComptimeExprKind::ByteString(value) => ResolvedComptimeExprKind::ByteString(value),
-        EarlyComptimeExprKind::CString(value) => ResolvedComptimeExprKind::CString(value),
         EarlyComptimeExprKind::Bool(value) => ResolvedComptimeExprKind::Bool(value),
         EarlyComptimeExprKind::Null => ResolvedComptimeExprKind::Null,
         EarlyComptimeExprKind::Ident(name) | EarlyComptimeExprKind::Qualified(name) => {

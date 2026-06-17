@@ -150,7 +150,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Atomic(atomic) => {
                 changed |= self.devirtualize_direct_trait_calls_in_atomic(atomic);
             }
-            FunctionExprKind::CStringPointer { array, .. }
+            FunctionExprKind::StaticArrayPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
             | FunctionExprKind::OptionalSome { expr: array }

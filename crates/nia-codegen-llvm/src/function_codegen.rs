@@ -359,8 +359,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::BitIntrinsic { op, value } => {
                 self.emit_bit_intrinsic(expr, *op, value)
             }
-            FunctionExprKind::CStringPointer { array, .. } => {
-                self.emit_c_string_pointer(expr.span, array)
+            FunctionExprKind::StaticArrayPointer { array, .. } => {
+                self.emit_static_array_pointer(expr.span, array)
             }
             FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
             FunctionExprKind::StructLiteral { def_id, fields } => {

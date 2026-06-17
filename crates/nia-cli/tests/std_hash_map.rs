@@ -94,28 +94,28 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ).?;
 
     let long = b"12345678901234567890123456789012345678901234567890123456789012345678901234567890";
-    let expected = hash::wyhash(6u64, &long);
+    let expected = hash::wyhash(6u64, long);
 
     var one = hash::Wyhash::init(6u64);
-    one.update(&long);
+    one.update(long);
     if one.finish() != expected or one.finish() != expected {
         return (8 as process::ExitCode)!;
     }
 
     var split = hash::Wyhash::init(6u64);
-    split.update(&long[0usize..1usize]);
-    split.update(&long[1usize..17usize]);
-    split.update(&long[17usize..48usize]);
-    split.update(&long[48usize..49usize]);
-    split.update(&long[49usize..]);
+    split.update(&long.*[0usize..1usize]);
+    split.update(&long.*[1usize..17usize]);
+    split.update(&long.*[17usize..48usize]);
+    split.update(&long.*[48usize..49usize]);
+    split.update(&long.*[49usize..]);
     if split.finish() != expected {
         return (9 as process::ExitCode)!;
     }
 
     var bytewise = hash::Wyhash::init(6u64);
     var i = 0usize;
-    while i < long.len() {
-        bytewise.update(&long[i..(i + 1usize)]);
+    while i < long.*.len() {
+        bytewise.update(&long.*[i..(i + 1usize)]);
         i += 1usize;
     }
     if bytewise.finish() != expected {
@@ -123,17 +123,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let boundary = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/";
-    expect_stream(9u64, &boundary[0usize..0usize], 0usize, 20).?;
-    expect_stream(9u64, &boundary[0usize..1usize], 0usize, 24).?;
-    expect_stream(9u64, &boundary[0usize..15usize], 7usize, 28).?;
-    expect_stream(9u64, &boundary[0usize..16usize], 8usize, 32).?;
-    expect_stream(9u64, &boundary[0usize..17usize], 9usize, 36).?;
-    expect_stream(9u64, &boundary[0usize..47usize], 23usize, 40).?;
-    expect_stream(9u64, &boundary[0usize..48usize], 24usize, 44).?;
-    expect_stream(9u64, &boundary[0usize..49usize], 25usize, 48).?;
-    expect_stream(9u64, &boundary[0usize..63usize], 31usize, 52).?;
-    expect_stream(9u64, &boundary[0usize..64usize], 32usize, 56).?;
-    expect_stream(9u64, &boundary[0usize..65usize], 33usize, 60).?;
+    expect_stream(9u64, &boundary.*[0usize..0usize], 0usize, 20).?;
+    expect_stream(9u64, &boundary.*[0usize..1usize], 0usize, 24).?;
+    expect_stream(9u64, &boundary.*[0usize..15usize], 7usize, 28).?;
+    expect_stream(9u64, &boundary.*[0usize..16usize], 8usize, 32).?;
+    expect_stream(9u64, &boundary.*[0usize..17usize], 9usize, 36).?;
+    expect_stream(9u64, &boundary.*[0usize..47usize], 23usize, 40).?;
+    expect_stream(9u64, &boundary.*[0usize..48usize], 24usize, 44).?;
+    expect_stream(9u64, &boundary.*[0usize..49usize], 25usize, 48).?;
+    expect_stream(9u64, &boundary.*[0usize..63usize], 31usize, 52).?;
+    expect_stream(9u64, &boundary.*[0usize..64usize], 32usize, 56).?;
+    expect_stream(9u64, &boundary.*[0usize..65usize], 33usize, 60).?;
 
     let pair: [2]u8 = [1u8, 2u8];
     let slice_hash = hash_bytes(12u64, &pair[..]);

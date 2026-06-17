@@ -469,7 +469,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::Atomic(_)
         | FunctionExprKind::LoadUnaligned { .. }
-        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::Try { .. }
@@ -928,7 +928,7 @@ fn rewrite_local_copies_in_expr(
         FunctionExprKind::Range(range) => rewrite_local_copies_in_range(range, copies),
         FunctionExprKind::InlineAsm(asm) => rewrite_local_copies_in_inline_asm(asm, copies),
         FunctionExprKind::Atomic(atomic) => rewrite_local_copies_in_atomic(atomic, copies),
-        FunctionExprKind::CStringPointer { array, .. } => {
+        FunctionExprKind::StaticArrayPointer { array, .. } => {
             rewrite_local_copies_in_expr(array, copies)
         }
         FunctionExprKind::RangeBound { range, .. } => rewrite_local_copies_in_expr(range, copies),
@@ -1275,9 +1275,7 @@ fn rewrite_local_constants_in_expr(
         FunctionExprKind::Range(range) => rewrite_local_constants_in_range(range, constants),
         FunctionExprKind::InlineAsm(asm) => rewrite_local_constants_in_inline_asm(asm, constants),
         FunctionExprKind::Atomic(atomic) => rewrite_local_constants_in_atomic(atomic, constants),
-        FunctionExprKind::CStringPointer { array, .. } => {
-            rewrite_local_constants_in_expr(array, constants)
-        }
+        FunctionExprKind::StaticArrayPointer { .. } => false,
         FunctionExprKind::RangeBound { range, .. } => {
             rewrite_local_constants_in_expr(range, constants)
         }
@@ -1617,7 +1615,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. }
-        | FunctionExprKind::CStringPointer { array: expr, .. }
+        | FunctionExprKind::StaticArrayPointer { array: expr, .. }
         | FunctionExprKind::Field { lhs: expr, .. } => {
             changed |= simplify_constant_logical_expr(expr);
         }
@@ -1838,7 +1836,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         FunctionExprKind::Range(range) => collect_place_locals_in_range(range, locals),
         FunctionExprKind::InlineAsm(asm) => collect_place_locals_in_inline_asm(asm, locals),
         FunctionExprKind::Atomic(atomic) => collect_place_locals_in_atomic(atomic, locals),
-        FunctionExprKind::CStringPointer { array, .. } => {
+        FunctionExprKind::StaticArrayPointer { array, .. } => {
             collect_place_locals_in_expr(array, locals)
         }
         FunctionExprKind::RangeBound { range, .. } => collect_place_locals_in_expr(range, locals),
@@ -2102,7 +2100,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         FunctionExprKind::Range(range) => collect_read_locals_in_range(range, locals),
         FunctionExprKind::InlineAsm(asm) => collect_read_locals_in_inline_asm(asm, locals),
         FunctionExprKind::Atomic(atomic) => collect_read_locals_in_atomic(atomic, locals),
-        FunctionExprKind::CStringPointer { array, .. } => {
+        FunctionExprKind::StaticArrayPointer { array, .. } => {
             collect_read_locals_in_expr(array, locals)
         }
         FunctionExprKind::RangeBound { range, .. } => collect_read_locals_in_expr(range, locals),
@@ -2377,7 +2375,7 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         FunctionExprKind::Range(range) => collect_referenced_locals_in_range(range, refs),
         FunctionExprKind::InlineAsm(asm) => collect_referenced_locals_in_inline_asm(asm, refs),
         FunctionExprKind::Atomic(atomic) => collect_referenced_locals_in_atomic(atomic, refs),
-        FunctionExprKind::CStringPointer { array, .. } => {
+        FunctionExprKind::StaticArrayPointer { array, .. } => {
             collect_referenced_locals_in_expr(array, refs)
         }
         FunctionExprKind::RangeBound { range, .. } => {
@@ -2693,7 +2691,9 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         FunctionExprKind::Range(range) => simplify_same_type_casts_in_range(range),
         FunctionExprKind::InlineAsm(asm) => simplify_same_type_casts_in_inline_asm(asm),
         FunctionExprKind::Atomic(atomic) => simplify_same_type_casts_in_atomic(atomic),
-        FunctionExprKind::CStringPointer { array, .. } => simplify_same_type_casts_in_expr(array),
+        FunctionExprKind::StaticArrayPointer { array, .. } => {
+            simplify_same_type_casts_in_expr(array)
+        }
         FunctionExprKind::ArrayLiteral { elems } => {
             simplify_same_type_casts_in_array_elements(elems)
         }
@@ -2985,7 +2985,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::Binary { .. }
         | FunctionExprKind::Cast { .. }
         | FunctionExprKind::InlineAsm(_)
-        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }

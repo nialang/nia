@@ -46,7 +46,6 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Float(_) => self.float_literal_type(expr),
             ExprKind::String(text) => self.string_literal_type(text),
             ExprKind::ByteString(text) => self.byte_string_literal_type(text),
-            ExprKind::CString(text) => self.c_string_literal_type(text),
             ExprKind::Char(_) => self.primitive(PrimitiveTy::Char),
             ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
             ExprKind::Bool(_) => self.bool(),
@@ -106,12 +105,13 @@ impl<'a> BodyChecker<'a> {
                         _ => {}
                     }
                 }
-                let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                 match op {
                     UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
+                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                         self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
                     UnaryOp::RefReadOnly => {
+                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 "E0301",
@@ -126,6 +126,7 @@ impl<'a> BodyChecker<'a> {
                         })
                     }
                     UnaryOp::Ref => {
+                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 "E0301",
@@ -139,7 +140,11 @@ impl<'a> BodyChecker<'a> {
                             elem: inner_ty,
                         })
                     }
-                    UnaryOp::Deref => self.deref_result_type(expr.span, inner_ty),
+                    UnaryOp::Deref => {
+                        let expected = self.pointer_to_deref_expected(expected);
+                        let inner_ty = self.check_expr_with_expected(inner, expected);
+                        self.deref_result_type(expr.span, inner_ty)
+                    }
                 }
             }
             ExprKind::OptionalSome { expr: inner } => {
@@ -175,8 +180,7 @@ impl<'a> BodyChecker<'a> {
                 let source = self.check_expr(inner);
                 let target = self.ty_for_type(ty);
                 if let Some(coerced) = self
-                    .coerce_c_string_to_pointer(inner, target, source)
-                    .or_else(|| self.coerce_array_to_slice(inner, target, source))
+                    .coerce_array_to_slice(inner, target, source)
                     .or_else(|| self.coerce_pointer_array_to_slice(inner, target, source))
                     .or_else(|| self.coerce_mutable_pointer_to_readonly(target, source))
                     .or_else(|| {
@@ -229,7 +233,7 @@ impl<'a> BodyChecker<'a> {
                     return ty;
                 }
                 let lhs_expected = match index {
-                    IndexArg::Expr(_) => self.array_expected_from_index_expected(expected),
+                    IndexArg::Expr(_) => self.index_lhs_expected_from_index_expected(expected),
                     IndexArg::Range(_) => None,
                 };
                 let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
@@ -268,8 +272,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
-            self.coerce_c_string_to_pointer(expr, expected, ty)
-                .or_else(|| self.coerce_array_to_slice(expr, expected, ty))
+            self.coerce_array_to_slice(expr, expected, ty)
                 .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, ty))
                 .or_else(|| self.coerce_mutable_pointer_to_readonly(expected, ty))
                 .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
@@ -790,14 +793,26 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|tail| self.is_numeric_literal_expr(tail))
     }
 
-    fn array_expected_from_index_expected(
+    fn index_lhs_expected_from_index_expected(
         &mut self,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let expected = expected?;
-        Some(self.interner.intern(TyKind::Array {
+        let array = self.interner.intern(TyKind::Array {
             len: ArrayLenTy::Infer,
             elem: expected,
+        });
+        Some(array)
+    }
+
+    fn pointer_to_deref_expected(
+        &mut self,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let elem = expected?;
+        Some(self.interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem,
         }))
     }
 
@@ -1128,7 +1143,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(index);
                 return ty;
             }
-            let lhs_expected = self.array_expected_from_index_expected(expected);
+            let lhs_expected = self.index_lhs_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
             let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
             self.expect_integer(index.span, index_ty, "index");

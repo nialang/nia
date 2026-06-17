@@ -5,8 +5,8 @@ use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 pub use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue,
-    CStringPointerCoercion, ComptimeIfSelection, FunctionReference, GenericInstantiation,
-    PointerArrayToSliceCoercion, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
+    ComptimeIfSelection, FunctionReference, GenericInstantiation, PointerArrayToSliceCoercion,
+    ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_span::Span;
 use nia_static_ir::StaticInit;
@@ -245,7 +245,7 @@ pub enum TypedExprKind {
         op: TypedBitIntrinsicOp,
         value: Box<TypedExpr>,
     },
-    CStringPointer {
+    StaticArrayPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,
     },

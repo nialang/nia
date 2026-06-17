@@ -208,13 +208,25 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let value = std::CStr::from_ptr(c"nia");
+    let value = if let ?value = std::CStr::from_bytes(b"nia\0") {
+        value
+    } else null {
+        return process::exit(3)!;
+    };
     if value.len() != 3usize {
         return process::exit(1)!;
     }
     let bytes = value.bytes();
     if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
         return process::exit(2)!;
+    }
+    if let ?invalid = std::CStr::from_bytes(b"nia") {
+        _ = invalid;
+        return process::exit(4)!;
+    } else null {}
+    let ptr = b"nia\0".get_ptr_read();
+    if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
+        return process::exit(5)!;
     }
     !{}
 }
@@ -358,7 +370,8 @@ pub fn write(init: process::Init) process::ExitCode!void {
     var buffer = [_]u8[0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
-    stdout.print("{}\n", &[&b"left"[..]]).exit()
+    let text = b"left";
+    stdout.print("{}\n", &[&text.*[..]]).exit()
 }
 "#,
     )
@@ -373,7 +386,8 @@ pub fn write(init: process::Init) process::ExitCode!void {
     var buffer = [_]u8[0; 128];
     var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
-    stdout.print("{}\n", &[&b"right"[..]]).exit()
+    let text = b"right";
+    stdout.print("{}\n", &[&text.*[..]]).exit()
 }
 "#,
     )
@@ -932,7 +946,7 @@ fn emit_exe_exposes_process_env_as_values() {
 using std::process;
 
 fn starts_with_needle(bytes: &[u8]) bool {
-    var needle = b"NIA_TEST_ENV=ok";
+    let needle: &[u8] = b"NIA_TEST_ENV=ok";
     if bytes.len() < needle.len() {
         return false;
     }

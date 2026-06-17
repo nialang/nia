@@ -484,12 +484,12 @@ fn emits_local_string_char_and_byte_char_literals() {
 fn main() i32 {
     var text = "A\0";
     var bytes = b"A\0";
-    var cstr = c"A";
+    var nul_bytes = b"A\0";
     var ch = 'A';
     var byte = b'A';
     _ = bytes;
-    _ = cstr;
-    text[0] as u32 as i32 + ch as u32 as i32 + byte as i32
+    _ = nul_bytes;
+    text.*[0] as u32 as i32 + ch as u32 as i32 + byte as i32
 }
 "#,
     )
@@ -515,7 +515,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
     std::fs::write(
         &main,
         r#"
-let bytes: [4]u8 = b"aaaa";
+let bytes: [4]u8 = b"aaaa".*;
 
 fn main() i32 {
     bytes[0] as i32
@@ -566,7 +566,7 @@ let bytes = b"nia";
 let text = "ok";
 
 fn main() i32 {
-    bytes[0] as i32
+    bytes.*[0] as i32
 }
 "#,
     )
@@ -579,14 +579,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
 
-    assert!(
-        ir.contains("@nia__m0__d0__bytes = constant [3 x i8]"),
-        "{ir}"
-    );
-    assert!(
-        ir.contains("@nia__m0__d1__text = constant [2 x i32]"),
-        "{ir}"
-    );
+    assert!(ir.contains("@nia__m0__d0__bytes = constant ptr"), "{ir}");
+    assert!(ir.contains("@nia__m0__d1__text = constant ptr"), "{ir}");
+    assert!(ir.contains("@.nia.static.array"), "{ir}");
 }
 
 #[test]
@@ -598,28 +593,30 @@ fn emits_adjacent_string_literal_concatenation() {
         r#"
 extern fn printf(fmt: & u8, ...);
 
-let fmt =
-    c""
-    c"  #  Type      Offset             VirtAddr           FileSiz"
-    c""
-    c"            MemSiz"
-    c""
-    c"             Flags Align\n";
+let fmt: [104]u8 = (
+    b""
+    b"  #  Type      Offset             VirtAddr           FileSiz"
+    b""
+    b"            MemSiz"
+    b""
+    b"             Flags Align\n\0"
+).*;
 
 fn main() i32 {
     var text = "中" "" "a" "" "b" "" "c" "";
     var bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let inline_fmt = (
+        b""
+        b"  #  Type      Offset             VirtAddr           FileSiz"
+        b""
+        b"            MemSiz"
+        b""
+        b"             Flags Align\n\0"
+    );
     _ = text;
     _ = bytes;
-    printf(
-        c""
-        c"  #  Type      Offset             VirtAddr           FileSiz"
-        c""
-        c"            MemSiz"
-        c""
-        c"             Flags Align\n"
-    );
-    printf(& fmt[0]);
+    printf(&(inline_fmt.*[0]));
+    printf(&fmt[0]);
     0
 }
 "#,

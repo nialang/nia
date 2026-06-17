@@ -519,7 +519,8 @@ extern fn fclose(file: &void) i32;
 extern fn fopen(path: & u8, mode: & u8) &void;
 
 fn inspect(path: & u8) i32 {
-    var file = fopen(path, c"rb");
+    let mode = b"rb\0";
+    var file = fopen(path, &(mode.*[0]));
 
     if file as usize == 0 {
         return 1;

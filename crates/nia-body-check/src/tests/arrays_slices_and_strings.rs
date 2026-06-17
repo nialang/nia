@@ -355,30 +355,26 @@ fn main() i32 {
 }
 
 #[test]
-fn checks_text_byte_and_c_string_literal_types() {
+fn checks_text_and_byte_string_literal_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    var text: [3]char = "中a\n";
-    var adjacent_text: [9]char = "中" "" "a\n" "" "b" "c" "" "done";
-    var inferred_text: [_]char = "hi";
-    var multiline: [11]char =
+    var text: [3]char = "中a\n".*;
+    var adjacent_text: [9]char = ("中" "" "a\n" "" "b" "c" "" "done").*;
+    var inferred_text: [_]char = "hi".*;
+    var multiline: [11]char = (
         \\hello
         \\world
-    ;
-    var byte_multiline: [11]u8 =
+    ).*;
+    var byte_multiline: [11]u8 = (
         b\\hello
         \\world
-    ;
-    var c_multiline: [12]u8 =
-        c\\hello
-        \\world
-    ;
-    var bytes: [4]u8 = b"nia\0";
-    var adjacent_bytes: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
-    var cstr: [4]u8 = c"nia";
-    var adjacent_cstr: [4]u8 = c"" c"n" c"" c"i" c"" c"a" c"" c"";
-    var wrong_text_len: [2]char = "中a\n";
+    ).*;
+    var bytes: [4]u8 = b"nia\0".*;
+    var adjacent_bytes: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
+    var nul_terminated: [4]u8 = b"nia\0".*;
+    var adjacent_nul_terminated: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
+    var wrong_text_len: [2]char = "中a\n".*;
     var bad_bytes: [3]u8 = "nia";
     var byte: u8 = b'a';
     var ch: char = 'a';
@@ -419,13 +415,13 @@ fn checks_index_and_address_of_array_elements() {
         r#"
 extern fn puts(ptr: &u8) i32;
 
-let hello = c"hello";
+let hello = b"hello\0";
 
 fn main(flag: bool) i32 {
     var xs: [2]u8 = [1, 2];
     var p: &u8 = &xs[0];
-    var c: &u8 = &hello[0];
-    _ = puts(&hello[0]);
+    var c: &u8 = &(hello.*[0]);
+    _ = puts(&(hello.*[0]));
     _ = xs[flag];
     0
 }
@@ -471,17 +467,19 @@ fn bytes(xs: & [u8]) i32 {
 fn main() i32 {
     var ro: & [char] = "abc";
     var rb: & [u8] = b"abc";
-    var rc: & [u8] = c"hi";
+    var rc: & [u8] = b"hi\0";
     var cast_text: & [char] = "abc" as &[char];
     var cast_bytes: & [u8] = b"abc" as &[u8];
-    var cast_cbytes: & [u8] = c"hi" as &[u8];
+    var cast_cbytes: & [u8] = b"hi\0" as &[u8];
     var arr: [2]i32 = [6, 7];
     var from_place: & [i32] = &arr;
     var cast_from_place: & [i32] = &arr as &[i32];
-    var from_string: & [u8] = c"hi";
+    var from_string: & [u8] = b"hi\0";
+    var literal_ptr: &u8 = b"hi\0".get_ptr_read();
     _ = take(&[1, 2, 3]);
     _ = mutate(&mut [4, 5]);
-    _ = bytes(c"hi");
+    _ = bytes(b"hi\0");
+    _ = literal_ptr;
 
     var int_ptr: &i32 = &10;
     var sum_ptr: &i32 = &(1 + 2);
@@ -526,11 +524,6 @@ fn make() i32 {
             .any(|diagnostic| diagnostic.summary.contains("slice target")),
         "{:?}",
         checked.diagnostics
-    );
-    assert!(
-        checked.facts.node_array_to_slice_coercions.len() >= 4,
-        "{:?}",
-        checked.facts.node_array_to_slice_coercions
     );
     assert!(
         checked.facts.node_pointer_array_to_slice_coercions.len() >= 3,
@@ -651,43 +644,7 @@ fn main(ro_ptr: &i32, ro_slice: &[i32]) void {
 }
 
 #[test]
-fn checks_c_string_literal_pointer_coercions() {
-    let checked = pipeline(
-        r#"
-extern fn printf(fmt: &u8, ...);
-
-fn takes_read(ptr: &u8) i32 {
-    ptr.* as i32
-}
-
-fn takes_mut(ptr: &mut u8) i32 {
-    ptr.* = b'H';
-    ptr.* as i32
-}
-
-fn main() i32 {
-    var rw: &mut u8 = c"hello";
-    var ro: &u8 = c"world";
-    var adjacent: &u8 = c"hello, " c"world";
-    _ = printf(c"hello, world\n");
-    _ = printf(
-        c"  #  Type      Offset             VirtAddr           FileSiz"
-        c"            MemSiz             Flags Align\n"
-    );
-    _ = takes_read(
-        c\\multi
-        \\line
-    );
-    takes_mut(rw) + takes_read(ro) + takes_read(adjacent)
-}
-"#,
-    );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(checked.facts.node_c_string_pointer_coercions.len(), 6);
-}
-
-#[test]
-fn rejects_non_c_string_literal_pointer_coercions() {
+fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
 fn main() void {
@@ -712,5 +669,4 @@ fn main() void {
             >= 2,
         "{messages:?}"
     );
-    assert!(checked.facts.node_c_string_pointer_coercions.is_empty());
 }

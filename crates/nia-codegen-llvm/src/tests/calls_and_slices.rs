@@ -354,7 +354,8 @@ fn main() i32 {
     var xs: [3]i32 = [1, 2, 3];
     var borrow = & xs[..];
     var literal: & [i32] = &[4, 5, 6];
-    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(c"hi") + overwrite(&mut xs) + overwrite(&mut [6, 7])
+    let bytes = b"hi";
+    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(bytes) + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
 "#,
     )
@@ -366,7 +367,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("arraytmp"), "{ir}");
+    assert!(ir.contains("@.nia.static.array"), "{ir}");
     assert!(ir.contains("insertvalue"), "{ir}");
     assert!(ir.contains("getelementptr"), "{ir}");
 }
@@ -405,10 +406,10 @@ fn emits_global_string_pointer_call() {
         &main,
         r#"
 extern fn puts(s: & u8) i32;
-let hello = c"hello";
+let hello: [6]u8 = b"hello\0".*;
 
 fn main() i32 {
-    _ = puts(& hello[0]);
+    _ = puts(&hello[0]);
     0
 }
 "#,
@@ -463,8 +464,8 @@ fn main(i: usize) i32 {
 }
 
 #[test]
-fn emits_c_string_literal_pointer_coercions() {
-    let root = temp_dir("emits_c_string_literal_pointer_coercions");
+fn emits_explicit_byte_string_first_element_pointers() {
+    let root = temp_dir("emits_explicit_byte_string_first_element_pointers");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -477,13 +478,17 @@ fn first(ptr: &mut u8) i32 {
 }
 
 fn main() i32 {
-    var direct: & u8 = c"hello";
-    var writable: &mut u8 = c"mutable";
-    _ = puts(c"world");
-    _ = puts(
-        c\\multi
+    var mutable: [8]u8 = b"mutable\0".*;
+    let hello = b"hello\0";
+    let world = b"world\0";
+    let multiline = (
+        b\\multi
         \\line
     );
+    var direct: & u8 = &(hello.*[0]);
+    var writable: &mut u8 = &mut mutable[0];
+    _ = puts(&(world.*[0]));
+    _ = puts(&(multiline.*[0]));
     first(writable) + direct.* as i32
 }
 "#,
@@ -497,7 +502,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));
-    assert!(ir.contains("arraytmp"));
+    assert!(ir.contains("@.nia.static.array"));
     assert!(ir.contains("getelementptr"));
     assert!(ir.contains("call i32 @puts"));
     assert!(ir.contains("[6 x i8] c\"hello\\00\""), "{ir}");

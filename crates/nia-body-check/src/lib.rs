@@ -37,10 +37,10 @@ use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
-    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    ComptimeIfSelection, FunctionReference, FunctionSemanticFacts, GenericInstantiation,
-    PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse,
-    TraitObjectCoercion, TraitObjectUpcast,
+    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, ComptimeIfSelection,
+    FunctionReference, FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion,
+    ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
+    TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -435,7 +435,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
         node_pointer_array_to_slice_coercions: HashMap::new(),
-        node_c_string_pointer_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_comptime_if_selections: HashMap::new(),
@@ -489,7 +488,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
-            node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_comptime_if_selections: checker.node_comptime_if_selections,
@@ -573,7 +571,6 @@ struct BodyChecker<'a> {
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
@@ -717,20 +714,6 @@ impl<'a> BodyChecker<'a> {
         if let Some(facts) = self.current_function_facts() {
             facts
                 .node_pointer_array_to_slice_coercions
-                .insert(expr.node_key.clone(), coercion);
-        }
-    }
-
-    fn record_c_string_pointer_node_coercion(
-        &mut self,
-        expr: &Expr,
-        coercion: CStringPointerCoercion,
-    ) {
-        self.node_c_string_pointer_coercions
-            .insert(expr.node_key.clone(), coercion);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_c_string_pointer_coercions
                 .insert(expr.node_key.clone(), coercion);
         }
     }
@@ -1092,7 +1075,7 @@ impl<'a> BodyChecker<'a> {
         };
         self.global_types.insert(def_id, global_ty);
         if global_ty != self.error() {
-            let init = self.lower_static_init(value);
+            let init = self.lower_global_static_init(value, global_ty);
             self.global_inits.insert(self.global_def_id(def_id), init);
         }
     }

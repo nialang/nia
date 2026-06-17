@@ -84,8 +84,8 @@ impl FunctionLowerer {
                 op: self.lower_bit_intrinsic_op(*op),
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },
-            TypedExprKind::CStringPointer { array, is_readonly } => {
-                FunctionExprKind::CStringPointer {
+            TypedExprKind::StaticArrayPointer { array, is_readonly } => {
+                FunctionExprKind::StaticArrayPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
                     is_readonly: *is_readonly,
                 }

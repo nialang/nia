@@ -34,7 +34,6 @@ enum ExprFingerprint {
     Float(String),
     String(Vec<String>),
     ByteString(Vec<String>),
-    CString(Vec<String>),
     Char(String),
     ByteChar(String),
     Bool(bool),
@@ -423,7 +422,6 @@ impl FlowChecker<'_> {
             | ExprKind::Float(_)
             | ExprKind::String(_)
             | ExprKind::ByteString(_)
-            | ExprKind::CString(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Raw(_)
@@ -533,7 +531,6 @@ impl FlowChecker<'_> {
             ExprKind::Float(value) => Some(ExprFingerprint::Float(value.clone())),
             ExprKind::String(value) => Some(ExprFingerprint::String(value.parts.clone())),
             ExprKind::ByteString(value) => Some(ExprFingerprint::ByteString(value.parts.clone())),
-            ExprKind::CString(value) => Some(ExprFingerprint::CString(value.parts.clone())),
             ExprKind::Char(value) => Some(ExprFingerprint::Char(value.clone())),
             ExprKind::ByteChar(value) => Some(ExprFingerprint::ByteChar(value.clone())),
             ExprKind::Bool(value) => Some(ExprFingerprint::Bool(*value)),

@@ -133,10 +133,12 @@ fn main() i32 {
     var y = id(x);
     var n = @size[Pair]();
     var s = take(&[1, 2, 3]);
+    var literal_slice: &[i32] = &[4, 5, 6];
     var t = text("ok");
-    var p = cstr(c"ok");
+    let ok = b"ok\0";
+    var p = cstr(&(ok.*[0]));
     var q = call_ptr(& id, y);
-    q + n as i32 + s as i32 + t as i32 + p as i32
+    q + n as i32 + s as i32 + literal_slice.len() as i32 + t as i32 + p as i32
 }
 "#,
         Some(version),
@@ -255,29 +257,7 @@ fn main() i32 {
     assert!(
         checked
             .facts
-            .node_array_to_slice_coercions
-            .keys()
-            .any(|key| {
-                key.source_version() == version
-                    && key.kind == SyntaxKind::Expr
-                    && matches!(key.position, NodePosition::ChildPathRange { .. })
-            })
-    );
-    assert!(
-        checked
-            .facts
             .node_pointer_array_to_slice_coercions
-            .keys()
-            .any(|key| {
-                key.source_version() == version
-                    && key.kind == SyntaxKind::Expr
-                    && matches!(key.position, NodePosition::ChildPathRange { .. })
-            })
-    );
-    assert!(
-        checked
-            .facts
-            .node_c_string_pointer_coercions
             .keys()
             .any(|key| {
                 key.source_version() == version

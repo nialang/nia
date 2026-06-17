@@ -128,7 +128,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (7 as process::ExitCode)!;
     }
-    var expected = b"nia fs";
+    var expected: &[u8] = b"nia fs";
     var index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
@@ -224,7 +224,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (7 as process::ExitCode)!;
     }
-    var expected = b"open close";
+    var expected: &[u8] = b"open close";
     var index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {

@@ -540,9 +540,6 @@ impl Parser {
             TokenKind::ByteString => {
                 self.parse_string_literal_run(TokenKind::ByteString, ExprKind::ByteString)
             }
-            TokenKind::CString => {
-                self.parse_string_literal_run(TokenKind::CString, ExprKind::CString)
-            }
             TokenKind::Char => Some(self.literal_expr(token, ExprKind::Char)),
             TokenKind::ByteChar => Some(self.literal_expr(token, ExprKind::ByteChar)),
             TokenKind::True => {
@@ -909,19 +906,13 @@ impl Parser {
     }
 
     fn peek_is_quoted_string_literal(&self) -> bool {
-        matches!(
-            self.peek().kind,
-            TokenKind::String | TokenKind::ByteString | TokenKind::CString
-        ) && self.token_is_quoted_string_literal(self.peek())
+        matches!(self.peek().kind, TokenKind::String | TokenKind::ByteString)
+            && self.token_is_quoted_string_literal(self.peek())
     }
 
     fn token_is_quoted_string_literal(&self, token: &SyntaxToken) -> bool {
         let text = self.token_text(token);
-        !text
-            .strip_prefix('b')
-            .or_else(|| text.strip_prefix('c'))
-            .unwrap_or(text)
-            .starts_with("\\\\")
+        !text.strip_prefix('b').unwrap_or(text).starts_with("\\\\")
     }
 
     fn has_line_break_between(&self, start: usize, end: usize) -> bool {

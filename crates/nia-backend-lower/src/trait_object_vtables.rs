@@ -190,7 +190,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::RangeBound { range: inner, .. }
-            | FunctionExprKind::CStringPointer { array: inner, .. }
+            | FunctionExprKind::StaticArrayPointer { array: inner, .. }
             | FunctionExprKind::OptionalSome { expr: inner }
             | FunctionExprKind::ErrorOk { expr: inner }
             | FunctionExprKind::ErrorErr { expr: inner }

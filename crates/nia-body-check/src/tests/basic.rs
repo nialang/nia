@@ -139,8 +139,8 @@ fn accepts_explicit_return_without_tail_expression() {
 extern fn printf(fmt: &u8, ...);
 
 fn main() i32 {
-    var hello = c"hello, world!\n";
-    printf(&hello[0]);
+    var hello = b"hello, world!\n\0";
+    printf(&(hello.*[0]));
     return 0;
 }
 "#,
