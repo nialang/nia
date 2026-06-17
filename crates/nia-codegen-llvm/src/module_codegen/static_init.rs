@@ -165,35 +165,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.llvm_basic_type_in(array_ty, span, &owner.interner, &owner.layouts)?;
         let value =
             self.static_init_value_in(array_ty, array_init, span, &owner.interner, &owner.layouts)?;
-        if matches!(value, BasicValueEnum::PointerValue(_)) {
-            return Err(self.error(
-                span,
-                "static array pointer source emitted a pointer instead of an array",
-            ));
-        }
-        let value_ty = value.get_type().map_err(Self::diagnostic_from_llvm_error)?;
-        if value_ty != llvm_array_ty {
-            return Err(self.error(
-                span,
-                format!(
-                    "static array pointer source type does not match array type: expected {llvm_array_ty:?}, got {value_ty:?}"
-                ),
-            ));
-        }
-        let global = self
-            .module
-            .add_global(llvm_array_ty, None, &self.next_static_array_name())
-            .map_err(Self::diagnostic_from_llvm_error)?;
-        global.set_linkage(nia_llvm::module::Linkage::Internal);
-        global.set_constant(true);
-        global.set_initializer(&value);
+        let ptr = self.materialize_static_array_pointer(llvm_array_ty, value, span)?;
         let target_ptr_ty = self
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
             .into_pointer_type()?;
-        Ok(global
-            .as_pointer_value()
-            .const_bitcast(target_ptr_ty)
-            .into())
+        Ok(ptr.const_bitcast(target_ptr_ty).into())
     }
 
     fn static_addr_of_function_value(

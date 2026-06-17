@@ -277,36 +277,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             _ => self.emit_expr(array)?,
         };
-        if matches!(value, BasicValueEnum::PointerValue(_)) {
-            return Err(self.error(
-                span,
-                "static array pointer source emitted a pointer instead of an array",
-            ));
-        }
-        let value_ty = value.get_type().map_err(|err| {
-            self.error(
-                span,
-                format!("failed to inspect static array value: {err:?}"),
-            )
-        })?;
-        if value_ty != array_ty {
-            return Err(self.error(
-                span,
-                format!(
-                    "static array pointer source type does not match array type: expected {array_ty:?}, got {value_ty:?}"
-                ),
-            ));
-        }
-        let name = self.module.next_static_array_name();
-        let global = self
+        let ptr = self
             .module
-            .module
-            .add_global(array_ty, None, &name)
-            .map_err(|err| self.error(span, format!("failed to create string literal: {err:?}")))?;
-        global.set_linkage(nia_llvm::module::Linkage::Internal);
-        global.set_constant(true);
-        global.set_initializer(&value);
-        Ok(global.as_pointer_value().into())
+            .materialize_static_array_pointer(array_ty, value, span)?;
+        Ok(ptr.into())
     }
 
     fn emit_range_start(
