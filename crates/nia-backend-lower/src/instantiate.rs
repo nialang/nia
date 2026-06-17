@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     ExtensionTraitMethodCandidate, ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId,
-    TypeSubstitutionKey,
 };
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_function_ir::{
@@ -128,8 +127,8 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
-        if ty.interner_id == self.interner.interner_id()
-            && let Some(kind) = self.interner.get(ty)
+        if ty.interner_id == self.type_context.interner.interner_id()
+            && let Some(kind) = self.type_context.interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
             return ty;
@@ -138,18 +137,20 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(kind) = interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
-            return nia_ty::import_type_into(&mut self.interner, &interner, ty);
+            return nia_ty::import_type_into(&mut self.type_context.interner, &interner, ty);
         }
-        if ty.interner_id == self.interner.interner_id() && self.interner.get(ty).is_some() {
+        if ty.interner_id == self.type_context.interner.interner_id()
+            && self.type_context.interner.get(ty).is_some()
+        {
             return ty;
         }
-        if let Some(interner) = self.current_instantiated_body_interner
+        if let Some(interner) = self.instantiation.body_interner
             && ty.interner_id == interner.interner_id()
         {
-            return nia_ty::import_type_into(&mut self.interner, interner, ty);
+            return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
         }
         if let Some(interner) = self.known_interner_containing_ty(ty).cloned() {
-            return nia_ty::import_type_into(&mut self.interner, &interner, ty);
+            return nia_ty::import_type_into(&mut self.type_context.interner, &interner, ty);
         }
         ty
     }
@@ -183,32 +184,30 @@ impl<'a> ModuleLowerer<'a> {
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
-        let previous_candidates = self.instance_extension_trait_method_candidates.take();
-        let previous_interner = self.instance_extension_interner.take();
-        let previous_function = self.current_instantiated_function.replace(function);
-        let previous_instantiation_module_id = self
-            .current_instantiation_module_id
-            .replace(instantiation_module_id);
-        let previous_body_interner = self.current_instantiated_body_interner.take();
-        let previous_substitutions = self.current_type_substitutions.take();
-        self.current_instantiated_body_interner = self
+        let instantiation_snapshot = self.instantiation.take_snapshot();
+        let body_interner = self
             .input
             .program_type_interners
             .get(&function.module_id)
             .copied()
             .or(Some(&self.input.body_ir.interner));
+        let substitutions = self.intern_type_substitutions(substitutions);
+        self.instantiation.set_instance_scope(
+            function,
+            instantiation_module_id,
+            body_interner,
+            substitutions,
+        );
         if instantiation_module_id != self.input.module_id
             && let Some((extensions, interner)) =
                 self.input.program_extensions.get(&instantiation_module_id)
         {
-            self.instance_extension_trait_method_candidates = Some((
+            self.instantiation.extension_trait_method_candidates = Some((
                 instantiation_module_id,
                 crate::index_extension_trait_method_candidates(extensions, interner),
             ));
-            self.instance_extension_interner = Some(*interner);
+            self.instantiation.extension_interner = Some(*interner);
         }
-        let substitutions = self.intern_type_substitutions(substitutions);
-        self.current_type_substitutions = Some(substitutions);
         let body = FunctionBody {
             span: body.span,
             locals: body
@@ -243,17 +242,13 @@ impl<'a> ModuleLowerer<'a> {
         };
         let body = self.resolve_builtin_operator_calls_in_body(body);
         let body = self.optimize_function_body(function, is_instance, type_arg_count, body);
-        self.instance_extension_trait_method_candidates = previous_candidates;
-        self.instance_extension_interner = previous_interner;
-        self.current_instantiated_function = previous_function;
-        self.current_instantiation_module_id = previous_instantiation_module_id;
-        self.current_instantiated_body_interner = previous_body_interner;
-        self.current_type_substitutions = previous_substitutions;
+        self.instantiation.restore(instantiation_snapshot);
         body
     }
 
     pub(super) fn current_arg_module_id(&self) -> ModuleId {
-        self.current_instantiation_module_id
+        self.instantiation
+            .instantiation_module_id
             .unwrap_or(self.input.module_id)
     }
 
@@ -265,7 +260,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<HashMap<String, InternedTyId>> {
         let mut substitutions = HashMap::new();
         let target_ty = nia_ty::import_type_into(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &candidate.source_interner,
             candidate.target_ty,
         );
@@ -279,7 +274,11 @@ impl<'a> ModuleLowerer<'a> {
             .trait_args
             .iter()
             .map(|arg| {
-                nia_ty::import_type_into(&mut self.interner, &candidate.source_interner, *arg)
+                nia_ty::import_type_into(
+                    &mut self.type_context.interner,
+                    &candidate.source_interner,
+                    *arg,
+                )
             })
             .collect::<Vec<_>>();
         if !candidate_trait_args
@@ -305,13 +304,17 @@ impl<'a> ModuleLowerer<'a> {
         predicates
             .iter()
             .map(|predicate| nia_item_signatures::WherePredicateSignature {
-                ty: nia_ty::import_type_into(&mut self.interner, source_interner, predicate.ty),
+                ty: nia_ty::import_type_into(
+                    &mut self.type_context.interner,
+                    source_interner,
+                    predicate.ty,
+                ),
                 bounds: predicate
                     .bounds
                     .iter()
                     .map(|bound| nia_item_signatures::WhereBoundSignature {
                         trait_ty: nia_ty::import_type_into(
-                            &mut self.interner,
+                            &mut self.type_context.interner,
                             source_interner,
                             bound.trait_ty,
                         ),
@@ -322,7 +325,7 @@ impl<'a> ModuleLowerer<'a> {
                                 |binding| nia_item_signatures::AssociatedTypeBindingSignature {
                                     name: binding.name.clone(),
                                     ty: nia_ty::import_type_into(
-                                        &mut self.interner,
+                                        &mut self.type_context.interner,
                                         source_interner,
                                         binding.ty,
                                     ),
@@ -420,7 +423,7 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &assumptions);
+        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
         solver.proves(TraitGoal {
             self_ty,
             trait_id: TraitId::Source(trait_id),
@@ -429,7 +432,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.interner.clone();
+        let current_interner = self.type_context.interner.clone();
         let body_interner = &self.input.body_ir.interner;
         let extension_interner = self.input.extension_interner;
         let mut ty_kind = |ty: InternedTyId| {
@@ -444,12 +447,12 @@ impl<'a> ModuleLowerer<'a> {
             {
                 return extension_interner.get(ty).cloned();
             }
-            if let Some(interner) = self.current_instantiated_body_interner
+            if let Some(interner) = self.instantiation.body_interner
                 && ty.interner_id == interner.interner_id()
             {
                 return interner.get(ty).cloned();
             }
-            if let Some(current) = self.current_instantiated_function
+            if let Some(current) = self.instantiation.function
                 && let Some(interner) = self.input.program_type_interners.get(&current.module_id)
                 && ty.interner_id == interner.interner_id()
             {
@@ -489,13 +492,13 @@ impl<'a> ModuleLowerer<'a> {
         let key = TypeInstantiationKey {
             ty,
             substitutions,
-            current_function: self.current_instantiated_function,
+            current_function: self.instantiation.function,
         };
         let can_use_cache = active_projections.is_empty();
-        if can_use_cache && let Some(instantiated) = self.type_instantiations.get(&key) {
-            return *instantiated;
+        if can_use_cache && let Some(instantiated) = self.type_context.type_instantiation(&key) {
+            return instantiated;
         }
-        match self.interner.get(ty).cloned() {
+        match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => {
                 let instantiated = self.type_substitution(substitutions, &name).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -503,47 +506,63 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = match self.interner.get(elem).cloned() {
-                    Some(TyKind::SlicePointee { elem }) => {
-                        self.interner.intern(TyKind::Slice { is_readonly, elem })
-                    }
+                let instantiated = match self.type_context.interner.get(elem).cloned() {
+                    Some(TyKind::SlicePointee { elem }) => self
+                        .type_context
+                        .interner
+                        .intern(TyKind::Slice { is_readonly, elem }),
                     Some(TyKind::TraitObjectPointee {
                         trait_id,
                         trait_args,
                         associated_type_bindings,
-                    }) => self.interner.intern(TyKind::TraitObject {
+                    }) => self.type_context.interner.intern(TyKind::TraitObject {
                         is_readonly,
                         trait_id,
                         trait_args,
                         associated_type_bindings,
                     }),
-                    _ => self.interner.intern(TyKind::Pointer { is_readonly, elem }),
+                    _ => self
+                        .type_context
+                        .interner
+                        .intern(TyKind::Pointer { is_readonly, elem }),
                 };
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::Slice { is_readonly, elem });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::Slice { is_readonly, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::SlicePointee { elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::SlicePointee { elem });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::SlicePointee { elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::Array { len, elem });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::Array { len, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Range { kind, bound }) => {
                 let bound = bound.map(|bound| {
                     self.instantiate_ty_with_id_inner(bound, substitutions, active_projections)
                 });
-                let instantiated = self.interner.intern(TyKind::Range { kind, bound });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::Range { kind, bound });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::FunctionPointer {
@@ -563,7 +582,7 @@ impl<'a> ModuleLowerer<'a> {
                     substitutions,
                     active_projections,
                 );
-                let instantiated = self.interner.intern(TyKind::FunctionPointer {
+                let instantiated = self.type_context.interner.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
@@ -573,7 +592,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Optional { elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::Optional { elem });
+                let instantiated = self.type_context.interner.intern(TyKind::Optional { elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::ErrorUnion { error, value }) => {
@@ -581,7 +600,10 @@ impl<'a> ModuleLowerer<'a> {
                     self.instantiate_ty_with_id_inner(error, substitutions, active_projections);
                 let value =
                     self.instantiate_ty_with_id_inner(value, substitutions, active_projections);
-                let instantiated = self.interner.intern(TyKind::ErrorUnion { error, value });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::ErrorUnion { error, value });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Nominal { def_id, args }) => {
@@ -592,7 +614,10 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
                     })
                     .collect::<Vec<_>>();
-                let instantiated = self.interner.intern(TyKind::Nominal { def_id, args });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::Nominal { def_id, args });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -604,6 +629,7 @@ impl<'a> ModuleLowerer<'a> {
                     })
                     .collect::<Vec<_>>();
                 let instantiated = self
+                    .type_context
                     .interner
                     .intern(TyKind::BuiltinTrait { trait_id, args });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -645,7 +671,7 @@ impl<'a> ModuleLowerer<'a> {
                         ),
                     })
                     .collect();
-                let instantiated = self.interner.intern(TyKind::TraitObject {
+                let instantiated = self.type_context.interner.intern(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
@@ -689,11 +715,14 @@ impl<'a> ModuleLowerer<'a> {
                         ),
                     })
                     .collect();
-                let instantiated = self.interner.intern(TyKind::TraitObjectPointee {
-                    trait_id,
-                    trait_args,
-                    associated_type_bindings,
-                });
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::TraitObjectPointee {
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings,
+                    });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Projection {
@@ -719,7 +748,7 @@ impl<'a> ModuleLowerer<'a> {
                     trait_args: trait_args.clone(),
                     name: name.clone(),
                 };
-                let projection = self.interner.intern(TyKind::Projection {
+                let projection = self.type_context.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
@@ -769,15 +798,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|(name, ty)| (name.clone(), self.import_instance_arg_type(*ty)))
             .collect::<Vec<_>>();
         substitutions.sort_by(|left, right| left.0.cmp(&right.0));
-        let key = TypeSubstitutionKey { substitutions };
-        if let Some(id) = self.type_substitution_ids.get(&key) {
-            return *id;
-        }
-        let id = TypeSubstitutionId(self.type_substitutions.len());
-        self.type_substitutions
-            .push(key.substitutions.iter().cloned().collect());
-        self.type_substitution_ids.insert(key, id);
-        id
+        self.type_context.intern_type_substitutions(substitutions)
     }
 
     pub(super) fn empty_type_substitution_id(&mut self) -> TypeSubstitutionId {
@@ -794,10 +815,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         name: &str,
     ) -> Option<InternedTyId> {
-        self.type_substitutions
-            .get(substitutions.0)?
-            .get(name)
-            .copied()
+        self.type_context.type_substitution(substitutions, name)
     }
 
     fn cache_type_instantiation(
@@ -805,8 +823,8 @@ impl<'a> ModuleLowerer<'a> {
         key: TypeInstantiationKey,
         instantiated: InternedTyId,
     ) -> InternedTyId {
-        self.type_instantiations.insert(key, instantiated);
-        instantiated
+        self.type_context
+            .cache_type_instantiation(key, instantiated)
     }
 
     fn finish_type_instantiation(
@@ -842,7 +860,7 @@ impl<'a> ModuleLowerer<'a> {
             program_enums: Some(self.input.program_enums),
         };
         let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &[],
             &associated_type_assumptions,
         );
@@ -854,7 +872,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> Vec<AssociatedTypeProjectionEq> {
-        let Some(current) = self.current_instantiated_function else {
+        let Some(current) = self.instantiation.function else {
             return Vec::new();
         };
         if current.module_id != self.input.module_id {
@@ -866,14 +884,19 @@ impl<'a> ModuleLowerer<'a> {
         if def.kind != nia_defs::DefKind::Method {
             return Vec::new();
         }
-        let Some(impl_index) = self.trait_impls_by_method.get(&current).copied() else {
+        let Some(impl_index) = self
+            .trait_context
+            .trait_impls_by_method
+            .get(&current)
+            .copied()
+        else {
             return Vec::new();
         };
         let Some(impl_signature) = self.input.trait_impls.get(impl_index) else {
             return Vec::new();
         };
         let target_ty = nia_ty::import_type_into(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &impl_signature.interner,
             impl_signature.target_ty,
         );
@@ -886,7 +909,8 @@ impl<'a> ModuleLowerer<'a> {
         let trait_args = trait_args
             .into_iter()
             .map(|arg| {
-                let actual = nia_ty::import_type_into(&mut self.interner, &impl_interner, arg);
+                let actual =
+                    nia_ty::import_type_into(&mut self.type_context.interner, &impl_interner, arg);
                 self.instantiate_ty_with_id_inner(actual, substitutions, active_projections)
             })
             .collect::<Vec<_>>();
@@ -899,7 +923,7 @@ impl<'a> ModuleLowerer<'a> {
             .into_iter()
             .map(|associated_type| {
                 let ty = nia_ty::import_type_into(
-                    &mut self.interner,
+                    &mut self.type_context.interner,
                     &impl_interner,
                     associated_type.ty,
                 );
@@ -915,14 +939,15 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn current_associated_type_assumptions_without_active_projections(
         &mut self,
     ) -> Vec<AssociatedTypeProjectionEq> {
-        let Some(substitutions) = self.current_type_substitutions else {
+        let Some(substitutions) = self.instantiation.type_substitutions else {
             return Vec::new();
         };
         self.current_associated_type_assumptions(substitutions, &mut HashSet::new())
     }
 
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        self.instance_extension_interner
+        self.instantiation
+            .extension_interner
             .filter(|interner| ty.interner_id == interner.interner_id())
             .and_then(|interner| interner.get(ty))
             .or_else(|| {

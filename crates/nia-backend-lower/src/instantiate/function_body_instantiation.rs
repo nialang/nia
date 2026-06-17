@@ -859,7 +859,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn trait_method_has_default(&self, method_id: GlobalDefId) -> bool {
-        self.trait_methods_with_defaults.contains(&method_id)
+        self.trait_context
+            .trait_methods_with_defaults
+            .contains(&method_id)
     }
 
     pub(crate) fn resolve_trait_method_impl(
@@ -871,6 +873,7 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let trait_method_name = self
+            .trait_context
             .method_names_by_def
             .get(&trait_method_id)
             .cloned()
@@ -941,12 +944,12 @@ impl<'a> ModuleLowerer<'a> {
         general: &crate::ExtensionTraitMethodCandidate,
     ) -> bool {
         let specific_target = nia_ty::import_type_into(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &specific.source_interner,
             specific.target_ty,
         );
         let general_target = nia_ty::import_type_into(
-            &mut self.interner,
+            &mut self.type_context.interner,
             &general.source_interner,
             general.target_ty,
         );
@@ -956,12 +959,12 @@ impl<'a> ModuleLowerer<'a> {
         let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
             |(specific_arg, general_arg)| {
                 let specific_arg = nia_ty::import_type_into(
-                    &mut self.interner,
+                    &mut self.type_context.interner,
                     &specific.source_interner,
                     *specific_arg,
                 );
                 let general_arg = nia_ty::import_type_into(
-                    &mut self.interner,
+                    &mut self.type_context.interner,
                     &general.source_interner,
                     *general_arg,
                 );

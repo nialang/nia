@@ -983,6 +983,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_arg_count: trait_args.len(),
         };
         let candidates = self
+            .trait_context
             .extension_trait_method_candidates
             .get(&key)
             .cloned()
@@ -1042,7 +1043,7 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &[]);
+        let mut solver = context.solver(&mut self.type_context.interner, &[]);
         solver.resolve(TraitGoal {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),

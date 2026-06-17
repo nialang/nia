@@ -40,6 +40,7 @@ members = [
     "crates/nia-function-ir",
     "crates/nia-function-lower",
     "crates/nia-function-opt",
+    "crates/nia-executable-reachability",
     "crates/nia-monomorphize",
     "crates/nia-mangle",
     "crates/nia-backend-ir",
@@ -99,6 +100,7 @@ nia-body-check = { path = "crates/nia-body-check" }
 nia-function-ir = { path = "crates/nia-function-ir" }
 nia-function-lower = { path = "crates/nia-function-lower" }
 nia-function-opt = { path = "crates/nia-function-opt" }
+nia-executable-reachability = { path = "crates/nia-executable-reachability" }
 nia-monomorphize = { path = "crates/nia-monomorphize" }
 nia-mangle = { path = "crates/nia-mangle" }
 nia-backend-ir = { path = "crates/nia-backend-ir" }

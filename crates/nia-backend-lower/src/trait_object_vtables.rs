@@ -379,7 +379,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_id,
             trait_args,
             ..
-        }) = self.interner.get(key.object_ty).cloned()
+        }) = self.type_context.interner.get(key.object_ty).cloned()
         else {
             return None;
         };
@@ -407,11 +407,13 @@ impl<'a> ModuleLowerer<'a> {
         key: BackendTraitObjectVtableKey,
         span: nia_span::Span,
     ) -> Option<BackendTraitObjectVtable> {
-        if let Some(vtable) = self.trait_object_vtables.get(&key) {
+        if let Some(vtable) = self.trait_context.trait_object_vtables.get(&key) {
             return vtable;
         }
         let vtable = self.build_trait_object_vtable(key.clone(), span);
-        self.trait_object_vtables.insert(key, vtable.clone());
+        self.trait_context
+            .trait_object_vtables
+            .insert(key, vtable.clone());
         vtable
     }
 
@@ -485,13 +487,16 @@ impl<'a> ModuleLowerer<'a> {
         let substitutions =
             ModuleLowerer::generic_substitutions(&trait_signature.generics, trait_args);
         for supertrait in &trait_signature.supertraits {
-            let supertrait =
-                nia_ty::import_type_into(&mut self.interner, &program_trait.interner, *supertrait);
+            let supertrait = nia_ty::import_type_into(
+                &mut self.type_context.interner,
+                &program_trait.interner,
+                *supertrait,
+            );
             let supertrait = self.instantiate_ty(supertrait, &substitutions);
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
-            }) = self.interner.get(supertrait).cloned()
+            }) = self.type_context.interner.get(supertrait).cloned()
             else {
                 continue;
             };

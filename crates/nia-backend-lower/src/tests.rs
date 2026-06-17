@@ -231,6 +231,7 @@ fn main() i32 {
         .iter()
         .map(|(def_id, body)| (*def_id, lower_function_body(body)))
         .collect::<HashMap<_, _>>();
+    let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -247,6 +248,7 @@ fn main() i32 {
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         comptime: &comptime,
+        program_comptime: &program_comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
@@ -4580,6 +4582,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     );
     let mut comptime = comptime;
     mutate_comptime(&mut comptime, &type_lowering);
+    let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -4596,6 +4599,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         comptime: &comptime,
+        program_comptime: &program_comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,

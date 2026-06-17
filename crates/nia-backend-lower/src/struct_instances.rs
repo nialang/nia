@@ -586,7 +586,7 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
-        match self.interner.get(ty).cloned() {
+        match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
@@ -726,7 +726,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(|field| {
                     nia_ty::import_type_into(
-                        &mut self.interner,
+                        &mut self.type_context.interner,
                         &program_signature.interner,
                         field.ty,
                     )
@@ -764,7 +764,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(|field| {
                     let ty = nia_ty::import_type_into(
-                        &mut self.interner,
+                        &mut self.type_context.interner,
                         &program_signature.interner,
                         field.ty,
                     );
@@ -1177,7 +1177,7 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
-        match self.interner.get(ty).cloned() {
+        match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
@@ -1317,7 +1317,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(|field| {
                     nia_ty::import_type_into(
-                        &mut self.interner,
+                        &mut self.type_context.interner,
                         &program_signature.interner,
                         field.ty,
                     )
@@ -1355,7 +1355,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(|field| {
                     let ty = nia_ty::import_type_into(
-                        &mut self.interner,
+                        &mut self.type_context.interner,
                         &program_signature.interner,
                         field.ty,
                     );
@@ -1376,7 +1376,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn instance_args_contain_generic_param(&mut self, args: &[InternedTyId]) -> bool {
-        let current_interner = self.interner.clone();
+        let current_interner = self.type_context.interner.clone();
         let mut ty_kind = |ty: InternedTyId| {
             (ty.interner_id == current_interner.interner_id())
                 .then(|| current_interner.get(ty).cloned())
