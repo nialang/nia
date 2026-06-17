@@ -113,9 +113,15 @@ impl<'a> ModuleLowerer<'a> {
         let def_id = self.def_id_for_node(node_key, DefKind::Global)?;
         let global_def_id = self.global_def_id(def_id);
         let signature = self.input.signatures.globals.get(&def_id)?;
-        let ty = signature
-            .explicit_type
-            .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value)))
+        let ty = self
+            .input
+            .semantic_facts
+            .global_types
+            .get(&global_def_id)
+            .copied()
+            .or(signature
+                .explicit_type
+                .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value))))
             .unwrap_or_else(|| self.error_ty());
         let init = self
             .input

@@ -206,6 +206,7 @@ fn int_mask(bits: u32) -> u128 {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,
+    pub global_types: HashMap<GlobalDefId, InternedTyId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     pub node_expr_types: HashMap<NodeKey, InternedTyId>,
