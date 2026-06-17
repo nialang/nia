@@ -132,6 +132,11 @@ impl Parser {
             if stops.iter().any(|kind| self.at(kind.clone())) {
                 break;
             }
+            if expr_can_terminate_statement_without_semicolon(&lhs)
+                && self.has_line_break_between(lhs.span.end, self.peek().span.start)
+            {
+                break;
+            }
             if prec < min_prec {
                 break;
             }
