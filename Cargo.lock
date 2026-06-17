@@ -111,6 +111,7 @@ dependencies = [
  "nia-flow-check",
  "nia-function-ir",
  "nia-function-lower",
+ "nia-function-opt",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -387,6 +388,18 @@ dependencies = [
  "nia-sema-ir",
  "nia-span",
  "nia-ty",
+]
+
+[[package]]
+name = "nia-function-opt"
+version = "0.4.2"
+dependencies = [
+ "nia-ast",
+ "nia-comptime-engine",
+ "nia-function-ir",
+ "nia-ids",
+ "nia-opt",
+ "nia-span",
 ]
 
 [[package]]
