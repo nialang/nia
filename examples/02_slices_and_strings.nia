@@ -42,16 +42,14 @@ pub fn main(init: Init) ExitCode!void {
     var writable = &mut zeros[..];
     write_first(writable, first(window));
 
-    // Text literals are arrays; string literal expressions can still create slices
-    // directly when a slice is expected.
+    // Text and byte-string literals are read-only pointers to static arrays.
     let name = "nia";
     // Adjacent byte-string literals concatenate.
     let bytes = b"ni" b"a";
-    // c"..." includes a trailing NUL byte for C ABI calls.
-    let c_name = c"nia";
+    // Add a trailing NUL explicitly for C ABI calls.
+    let c_name = b"nia\0";
 
-    // Literal-to-slice creation is a call-site convenience, not static storage.
-    // This is fine because the temporary only needs to live through byte_sum.
+    // Pointer-to-array literals coerce to slices when a slice is expected.
     let direct_sum = byte_sum(b"nia");
 
     // Use a top-level let when an address should refer to global static storage.
