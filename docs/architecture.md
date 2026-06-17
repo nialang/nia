@@ -132,8 +132,9 @@ Current Nia-owned optimization consumers:
   directly from the effective generic parameter order, avoiding a clone-and-sort
   pass for every nested generic edge.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
-  backend IR. Backend passes are selected from policy capabilities, not directly
-  from the user-facing level. Cheap dead-code elimination enables same-type cast
+  backend IR and delegates function-local Function IR cleanup to
+  `nia-function-opt`. Function passes are selected from policy capabilities, not
+  directly from the user-facing level. Cheap dead-code elimination enables same-type cast
   removal, no-op local store removal, removal of zero-sized local runtime
   binding/store operations while preserving initializer effects, removal of
   unused compiler-generated temporary bindings, and removal of discarded
@@ -449,6 +450,10 @@ per-module visibility filtering do not rebuild the same normalization map.
 Comptime and body-check providers also depend on program-level module/definition
 map queries, so they do not rebuild identical cross-module context maps for each
 module.
+Executable reachability pruning is intentionally outside the provider file in
+`nia-executable-reachability`, and backend lowering input assembly is isolated
+behind `query/backend_lowering.rs`; providers should wire query dependencies and
+timing boundaries rather than owning program analysis or backend input shape.
 
 The query frontend is batch-friendly. Persistent caches, cross-session reuse,
 LSP scheduling, cancellation, and priority handling are separate future layers.
@@ -911,8 +916,39 @@ edges, terminators, defer bodies, locals, builtin values, and inline assembly
 options.
 
 This split keeps the Function IR data model reusable by validation, analyses,
-backend lowering, and codegen without making the IR crate depend on the
-source-shaped body IR that currently feeds it.
+backend lowering, optimization, and codegen without making the IR crate depend
+on the source-shaped body IR that currently feeds it.
+
+### 9.6 `nia-function-opt`
+
+Optimizes `nia-function-ir::FunctionBody` using only function-local IR, the
+Nia optimization policy, and narrow target/layout facts supplied by the caller.
+It owns Function IR pass ordering, policy gating, local CFG cleanup, local copy
+and constant propagation, dead-store and unused-local cleanup, pure wrapper
+removal, same-type cast cleanup, defer-body CFG cleanup, and the shared
+recursive Function IR traversal helpers used by those passes.
+
+This crate is deliberately not a backend program optimizer. It does not know
+about backend modules, symbol mangling, reachability, monomorphized function
+instance queues, trait object vtables, global/static initializers, or layout
+tables. When a pass needs target facts, such as whether a lowered type is
+zero-sized, the caller supplies a narrow callback. `nia-backend-lower` consumes
+this crate as an adapter boundary: it provides layout facts, records backend
+optimization report entries, and keeps module-level backend transforms separate
+from function-local optimization.
+
+### 9.7 `nia-executable-reachability`
+
+Computes the module and function set required for freestanding executable
+codegen. It starts from the root `main` and freestanding `_start` runtime roots,
+then walks typed bodies, semantic facts, trait/default methods, extension
+witnesses, and owner modules for referenced types.
+
+This crate deliberately returns reachability sets instead of owning
+`CheckedModule`. `nia-compiler-query` keeps query orchestration and module
+filtering, while this crate owns the executable pruning analysis. That boundary
+prevents provider code from becoming a typed-body traversal or semantic-fact
+analysis module.
 
 ## 10. Monomorphization And Symbols
 
