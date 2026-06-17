@@ -22,6 +22,10 @@ pub fn cwd() FileDescriptor {
     fd::cwd()
 }
 
+pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
+    fd::getcwd(buffer)
+}
+
 pub fn page_size() usize {
     memory::page_size()
 }

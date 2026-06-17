@@ -4,6 +4,8 @@ pub(package) module options;
 pub(package) module path;
 pub(package) module types;
 
+pub using file::getcwd;
+
 pub using types::{
     CreateDirOptions,
     CreateOptions,
