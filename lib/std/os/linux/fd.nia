@@ -113,6 +113,29 @@ pub fn cwd() FileDescriptor {
     FileDescriptor::init(types::at_fdcwd)
 }
 
+pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
+    if buffer.len() == 0usize {
+        return Errno::Invalid!;
+    }
+    let ret = syscall::syscall2(
+        syscall::getcwd,
+        buffer.get_ptr() as usize,
+        buffer.len(),
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        var len = ret as usize;
+        if len > buffer.len() {
+            return Errno::TooLong!;
+        }
+        if len != 0usize and buffer[len - 1usize] == 0u8 {
+            len -= 1usize;
+        }
+        !&buffer[0..len]
+    }
+}
+
 pub fn open_at(
     dir: FileDescriptor,
     path: &u8,

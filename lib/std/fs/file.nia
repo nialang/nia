@@ -19,6 +19,10 @@ using types::{
     DirIterator,
 };
 
+pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
+    os::getcwd(buffer).as_fs_error()
+}
+
 comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {

@@ -104,6 +104,10 @@ pub fn cwd() FileHandle {
     FileHandle::from_platform(platform::cwd())
 }
 
+pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
+    platform::getcwd(buffer).as_os_error()
+}
+
 pub fn open_at(
     dir: FileHandle,
     path: &u8,

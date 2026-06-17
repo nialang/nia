@@ -6,6 +6,60 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_std_fs_getcwd_returns_path_slice() {
+    let root = temp_dir("emit_exe_std_fs_getcwd_returns_path_slice");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var buffer: [4096]u8 = [0; 4096];
+    let cwd = if let !value = fs::getcwd(&mut buffer[..]) {
+        value
+    } else error! {
+        return (1 as process::ExitCode)!;
+    };
+    if cwd.len() == 0usize {
+        return (2 as process::ExitCode)!;
+    }
+    if cwd[0] != b'/' {
+        return (3 as process::ExitCode)!;
+    }
+    if cwd[cwd.len() - 1usize] == 0u8 {
+        return (4 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe fs getcwd");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");
