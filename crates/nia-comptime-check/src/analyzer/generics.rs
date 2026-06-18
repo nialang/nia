@@ -1,0 +1,347 @@
+use super::*;
+
+impl Analyzer<'_> {
+    pub(super) fn infer_generics_from_tys(
+        &mut self,
+        span: Span,
+        target_module_id: ModuleId,
+        pattern_ty: InternedTyId,
+        actual_ty: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> Result<(), ComptimeError> {
+        let Some(pattern_kind) = self
+            .source_interner_for_module(pattern_ty.interner_id)
+            .and_then(|interner| interner.get(pattern_ty))
+            .cloned()
+        else {
+            return Ok(());
+        };
+        match pattern_kind {
+            TyKind::GenericParam(name) => {
+                let imported = self.import_ty_into_module(span, actual_ty, target_module_id)?;
+                if let Some(existing) = substitutions.get(&name) {
+                    if *existing != imported {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "conflicting inferred comptime generic type argument `{name}`"
+                            ),
+                        });
+                    }
+                } else {
+                    substitutions.insert(name, imported);
+                }
+            }
+            TyKind::Pointer { is_readonly, elem } => {
+                if let Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.ty_kind(actual_ty)
+                    && is_readonly == actual_readonly
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::Slice { is_readonly, elem } => {
+                if let Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.ty_kind(actual_ty)
+                    && is_readonly == actual_readonly
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::SlicePointee { elem } => {
+                if let Some(TyKind::SlicePointee { elem: actual_elem }) = self.ty_kind(actual_ty) {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::Array { len, elem } => {
+                if let Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }) = self.ty_kind(actual_ty)
+                    && len == actual_len
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::Range { kind, bound } => {
+                if let Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }) = self.ty_kind(actual_ty)
+                    && kind == actual_kind
+                    && let (Some(bound), Some(actual_bound)) = (bound, actual_bound)
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        bound,
+                        actual_bound,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            } => {
+                if let Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return_type,
+                    is_variadic: actual_is_variadic,
+                }) = self.ty_kind(actual_ty)
+                    && is_variadic == actual_is_variadic
+                    && params.len() == actual_params.len()
+                {
+                    for (param, actual_param) in params.into_iter().zip(actual_params) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            param,
+                            actual_param,
+                            substitutions,
+                        )?;
+                    }
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        return_type,
+                        actual_return_type,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::Optional { elem } => {
+                if let Some(TyKind::Optional { elem: actual_elem }) = self.ty_kind(actual_ty) {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::ErrorUnion { error, value } => {
+                if let Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }) = self.ty_kind(actual_ty)
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        error,
+                        actual_error,
+                        substitutions,
+                    )?;
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        value,
+                        actual_value,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::Nominal { def_id, args } => {
+                if let Some(TyKind::Nominal {
+                    def_id: actual_def_id,
+                    args: actual_args,
+                }) = self.ty_kind(actual_ty)
+                    && def_id == actual_def_id
+                    && args.len() == actual_args.len()
+                {
+                    for (arg, actual_arg) in args.into_iter().zip(actual_args) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            arg,
+                            actual_arg,
+                            substitutions,
+                        )?;
+                    }
+                }
+            }
+            TyKind::BuiltinTrait { args, .. } => {
+                if let Some(TyKind::BuiltinTrait {
+                    args: actual_args, ..
+                }) = self.ty_kind(actual_ty)
+                    && args.len() == actual_args.len()
+                {
+                    for (arg, actual_arg) in args.into_iter().zip(actual_args) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            arg,
+                            actual_arg,
+                            substitutions,
+                        )?;
+                    }
+                }
+            }
+            TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            } => {
+                if let Some(
+                    TyKind::TraitObject {
+                        trait_args: actual_trait_args,
+                        associated_type_bindings: actual_bindings,
+                        ..
+                    }
+                    | TyKind::TraitObjectPointee {
+                        trait_args: actual_trait_args,
+                        associated_type_bindings: actual_bindings,
+                        ..
+                    },
+                ) = self.ty_kind(actual_ty)
+                    && trait_args.len() == actual_trait_args.len()
+                    && associated_type_bindings.len() == actual_bindings.len()
+                {
+                    for (arg, actual_arg) in trait_args.into_iter().zip(actual_trait_args) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            arg,
+                            actual_arg,
+                            substitutions,
+                        )?;
+                    }
+                    for (binding, actual_binding) in
+                        associated_type_bindings.into_iter().zip(actual_bindings)
+                    {
+                        if binding.name == actual_binding.name {
+                            self.infer_generics_from_tys(
+                                span,
+                                target_module_id,
+                                binding.ty,
+                                actual_binding.ty,
+                                substitutions,
+                            )?;
+                        }
+                    }
+                }
+            }
+            TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            } => {
+                if let Some(TyKind::Projection {
+                    self_ty: actual_self_ty,
+                    trait_args: actual_trait_args,
+                    ..
+                }) = self.ty_kind(actual_ty)
+                    && trait_args.len() == actual_trait_args.len()
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        self_ty,
+                        actual_self_ty,
+                        substitutions,
+                    )?;
+                    for (arg, actual_arg) in trait_args.into_iter().zip(actual_trait_args) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            arg,
+                            actual_arg,
+                            substitutions,
+                        )?;
+                    }
+                }
+            }
+            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. } => {
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<TyKind> {
+        self.working_interners
+            .get(&ty.interner_id)
+            .and_then(|interner| interner.get(ty).cloned())
+            .or_else(|| {
+                self.source_interner_for_module(ty.interner_id)
+                    .and_then(|interner| interner.get(ty).cloned())
+            })
+    }
+
+    pub(super) fn import_ty_into_module(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        target_module_id: ModuleId,
+    ) -> Result<InternedTyId, ComptimeError> {
+        let Some(source_interner) = self
+            .working_interners
+            .get(&ty.interner_id)
+            .cloned()
+            .or_else(|| self.source_interner_for_module(ty.interner_id).cloned())
+        else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot resolve comptime generic function type argument interner"
+                    .to_string(),
+            });
+        };
+        let target = self
+            .working_interners
+            .get_mut(&target_module_id)
+            .expect("target working interner must exist");
+        Ok(import_type_into(target, &source_interner, ty))
+    }
+
+    pub(super) fn import_ty_into_module_or_none(
+        &mut self,
+        ty: InternedTyId,
+        target_module_id: ModuleId,
+    ) -> Option<InternedTyId> {
+        if ty.interner_id == target_module_id {
+            return Some(ty);
+        }
+        let source_interner = self
+            .working_interners
+            .get(&ty.interner_id)
+            .cloned()
+            .or_else(|| self.source_interner_for_module(ty.interner_id).cloned())?;
+        let target = self.working_interners.get_mut(&target_module_id)?;
+        Some(import_type_into(target, &source_interner, ty))
+    }
+}
