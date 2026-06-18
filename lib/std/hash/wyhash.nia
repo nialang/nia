@@ -1,5 +1,5 @@
-using package::mem;
-using package::hash::traits;
+using pkg::mem;
+using pkg::hash::traits;
 
 using traits::Hasher;
 

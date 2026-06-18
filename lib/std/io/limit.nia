@@ -1,4 +1,4 @@
-using package::io::traits;
+using pkg::io::traits;
 
 using traits::Reader;
 

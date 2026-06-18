@@ -1,4 +1,4 @@
-using package::mem::types;
+using pkg::mem::types;
 
 using types::Order;
 

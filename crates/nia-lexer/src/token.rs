@@ -55,7 +55,7 @@ pub enum TokenKind {
     Null,
     Or,
     Pub,
-    Package,
+    Pkg,
     Return,
     Struct,
     SelfType,

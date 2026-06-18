@@ -220,7 +220,7 @@ impl<'a> Tokenizer<'a> {
             "not" => TokenKind::Not,
             "null" => TokenKind::Null,
             "or" => TokenKind::Or,
-            "package" => TokenKind::Package,
+            "pkg" => TokenKind::Pkg,
             "pub" => TokenKind::Pub,
             "return" => TokenKind::Return,
             "Self" => TokenKind::SelfType,

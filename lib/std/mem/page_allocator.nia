@@ -1,6 +1,6 @@
-using package::mem::allocator;
-using package::mem::types;
-using package::os;
+using pkg::mem::allocator;
+using pkg::mem::types;
+using pkg::os;
 
 using allocator::Allocator;
 using types::{Block, Layout};

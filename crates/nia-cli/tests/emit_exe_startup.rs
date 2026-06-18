@@ -53,9 +53,9 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
         &std_start,
         r#"
 @[if os == "linux" and arch == "x86_64"]
-pub(package) module freestanding;
+pub(pkg) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
-using package::start::freestanding::linux::x86_64;
+using pkg::start::freestanding::linux::x86_64;
 "#,
     )
     .expect("write custom std start facade");
@@ -63,7 +63,7 @@ using package::start::freestanding::linux::x86_64;
         &std_start_freestanding,
         r#"
 @[if os == "linux"]
-pub(package) module linux;
+pub(pkg) module linux;
 "#,
     )
     .expect("write custom std freestanding facade");
@@ -71,7 +71,7 @@ pub(package) module linux;
         &std_start_freestanding_linux,
         r#"
 @[if arch == "x86_64"]
-pub(package) module x86_64;
+pub(pkg) module x86_64;
 "#,
     )
     .expect("write custom std linux facade");

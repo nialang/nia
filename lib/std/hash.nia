@@ -1,6 +1,6 @@
-pub(package) module impls;
-pub(package) module traits;
-pub(package) module wyhash;
+pub(pkg) module impls;
+pub(pkg) module traits;
+pub(pkg) module wyhash;
 
 pub using traits::{Hash, Hasher};
 pub using wyhash::{Wyhash, wyhash};

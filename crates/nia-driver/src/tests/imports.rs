@@ -82,7 +82,7 @@ fn main() i32 {
     write(
         &root.join("dep/api.nia"),
         r#"
-using package::helper;
+using pkg::helper;
 
 pub fn answer() i32 {
     helper::answer()
@@ -1156,7 +1156,7 @@ fn main() void {}
     ] {
         assert_eq!(
             std_module_declaration_visibility(&program.graph, path),
-            Visibility::PublicPackage,
+            Visibility::PublicPkg,
             "std::{} should remain package-private",
             path.join("::")
         );
@@ -2107,15 +2107,15 @@ fn main() i32 {
     write(
         &root.join("dep/types.nia"),
         r#"
-pub(package) struct Token {
+pub(pkg) struct Token {
     value: i32,
 }
 
-pub(package) fn make_token() Token {
+pub(pkg) fn make_token() Token {
     { value: 31 }
 }
 
-pub(package) fn token_value(token: Token) i32 {
+pub(pkg) fn token_value(token: Token) i32 {
     token.value
 }
 "#,
@@ -2123,7 +2123,7 @@ pub(package) fn token_value(token: Token) i32 {
     write(
         &root.join("dep/api.nia"),
         r#"
-using package::types::{Token, make_token, token_value};
+using pkg::types::{Token, make_token, token_value};
 
 pub fn inside() i32 {
     let token: Token = make_token();
@@ -2249,7 +2249,7 @@ extend Value {
         { data: data }
     }
 
-    pub(package) fn package_score(&self) i32 {
+    pub(pkg) fn package_score(&self) i32 {
         self.data + 1
     }
 }
@@ -2258,7 +2258,7 @@ extend Value {
     write(
         &root.join("dep/api.nia"),
         r#"
-using package::model;
+using pkg::model;
 
 pub fn inside() i32 {
     model::Value::init(41).package_score()
@@ -2322,14 +2322,14 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub(package) comptime let LIMIT: usize = 123usize;
+    pub(pkg) comptime let LIMIT: usize = 123usize;
 }
 "#,
     );
     write(
         &root.join("dep/api.nia"),
         r#"
-using package::model;
+using pkg::model;
 
 pub fn inside() usize {
     model::Marker::LIMIT

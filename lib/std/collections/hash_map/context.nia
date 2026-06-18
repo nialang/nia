@@ -1,5 +1,5 @@
-using package::hash;
-using package::collections::hash_map::types;
+using pkg::hash;
+using pkg::collections::hash_map::types;
 
 using types::HashMapContext;
 

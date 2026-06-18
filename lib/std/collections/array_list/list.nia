@@ -1,7 +1,7 @@
-using package::math;
-using package::mem;
-using package::slice;
-using package::collections::array_list::raw;
+using pkg::math;
+using pkg::mem;
+using pkg::slice;
+using pkg::collections::array_list::raw;
 
 pub struct ArrayList[T]
 where T: Sized

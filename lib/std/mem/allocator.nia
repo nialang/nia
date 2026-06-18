@@ -1,5 +1,5 @@
-using package::mem::copy;
-using package::mem::types;
+using pkg::mem::copy;
+using pkg::mem::types;
 
 using types::{Block, Error, Layout};
 

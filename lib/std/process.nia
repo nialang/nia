@@ -1,9 +1,9 @@
-using package::cstr;
-using package::fs;
-using package::fmt;
-using package::io;
-using package::mem;
-using package::os;
+using pkg::cstr;
+using pkg::fs;
+using pkg::fmt;
+using pkg::io;
+using pkg::mem;
+using pkg::os;
 
 pub enum ExitCode: i32 {
     Success = 0,

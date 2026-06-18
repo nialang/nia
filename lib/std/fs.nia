@@ -1,8 +1,8 @@
-pub(package) module convert;
-pub(package) module file;
-pub(package) module options;
-pub(package) module path;
-pub(package) module types;
+pub(pkg) module convert;
+pub(pkg) module file;
+pub(pkg) module options;
+pub(pkg) module path;
+pub(pkg) module types;
 
 pub using file::getcwd;
 

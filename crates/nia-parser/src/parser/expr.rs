@@ -695,7 +695,7 @@ impl Parser {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Null))
             }
-            TokenKind::Ident | TokenKind::Package => {
+            TokenKind::Ident | TokenKind::Pkg => {
                 self.bump();
                 Some(self.make_expr(
                     token.span,

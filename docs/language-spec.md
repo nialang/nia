@@ -1090,7 +1090,7 @@ and parentheses.
 
 ```nia
 @[if os == "linux" and arch == "x86_64"]
-pub(package) module freestanding;
+pub(pkg) module freestanding;
 
 fn word() usize {
     @[if pointer_width == 64]
@@ -2639,11 +2639,11 @@ fn use_child(
 Each `.nia` file is one module. Module loading is explicit: a source file may
 declare child modules with `module name;` or `pub module name;`. A `using` item
 opens names that are already available through the current module graph or a
-module-map package root; it does not implicitly discover files.
+module-map pkg root; it does not implicitly discover files.
 
 A compilation has one reserved entry package named `root`. The reserved
-`package` root names the current module's own package. The CLI also provides a
-default `std` package root and accepts additional package roots with
+`pkg` root names the current module's own package. The CLI also provides a
+default `std` pkg root and accepts additional package roots with
 `-M name=path` or `--module name=path`. One `-M` entry is one package. Package
 roots are lazy: they are loaded when referenced by `using`, or when executable
 emission injects the standard startup contract.
@@ -2676,14 +2676,14 @@ module zoo; // loads src/app/foo/zoo.nia
 public surface. Plain `module name;` loads the child for the current module but
 keeps the namespace private to the package visibility rules.
 
-### 12.2 Package Roots And Paths
+### 12.2 Pkg Roots And Paths
 
 The reserved path roots are:
 
 - `root`, the compilation entry package, regardless of the current module;
-- `package`, the current module's package root;
-- `std`, the standard-library package root unless overridden with `-M std=...`;
-- any additional package root supplied with `-M name=path`.
+- `pkg`, the current module's pkg root;
+- `std`, the standard-library pkg root unless overridden with `-M std=...`;
+- any additional pkg root supplied with `-M name=path`.
 
 Examples:
 
@@ -2695,34 +2695,34 @@ nia check src/main.nia -M std=/usr/share/nia/std.nia -M math=vendor/math.nia
 using std;
 using std::io;
 using math;
-using package::internal;
+using pkg::internal;
 ```
 
-A mapped root file is the package root module. Tail segments select declared
+A mapped root file is the pkg root module. Tail segments select declared
 child modules below that root. If `std` maps to `/usr/share/nia/std.nia`, then
 `using std::io;` refers to the `io` child declared by that root and backed by
 `/usr/share/nia/std/io.nia`.
 
 Within a loaded module, `self` names the current module and `super` names the
-parent module. `package` names the current package root, while `root` still
+parent module. `pkg` names the current pkg root, while `root` still
 names the compilation entry package:
 
 ```nia
 // src/app/foo/zoo.nia
 using super::helper;
-using package::internal;
+using pkg::internal;
 using root::config;
 ```
 
-Package implementation code should use `package::...` for absolute references
+Package implementation code should use `pkg::...` for absolute references
 to its own modules. For example, the standard library's implementation modules
-use `package::io` and `package::process`; user packages still refer to those
+use `pkg::io` and `pkg::process`; user packages still refer to those
 public modules as `std::io` and `std::process`.
 
 ### 12.3 Using
 
 `using` shortens visible namespaces in the current scope. It can reference a
-package root, a loaded module namespace, an item namespace, or an enum namespace.
+pkg root, a loaded module namespace, an item namespace, or an enum namespace.
 It does not load arbitrary files; child files become modules only through their
 parent's `module` declaration.
 
@@ -2731,7 +2731,7 @@ Supported forms:
 ```nia
 using std;
 using std::process;
-using package::internal;
+using pkg::internal;
 using root::math as m;
 using math::add;
 using math::add as plus;
@@ -2820,8 +2820,8 @@ Wildcard `pub using Enum::*` re-exports every enum variant.
 
 Modules and declarations are private by default. Public APIs are marked with
 `pub`, and restricted visibility can be written as `pub(super)` or
-`pub(package)`. `pub(super)` exposes the item to the parent module and its
-children. `pub(package)` exposes it within the package selected by one `-M`
+`pub(pkg)`. `pub(super)` exposes the item to the parent module and its
+children. `pub(pkg)` exposes it within the package selected by one `-M`
 entry or by the reserved `root`/`std` packages.
 
 `pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `var`,

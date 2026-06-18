@@ -1,5 +1,5 @@
-using package::fs::convert;
-using package::os;
+using pkg::fs::convert;
+using pkg::os;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -144,7 +144,7 @@ extend DirEntry {
 }
 
 extend DirIterator {
-    pub(package) fn init(reader: os::DirectoryReader) DirIterator {
+    pub(pkg) fn init(reader: os::DirectoryReader) DirIterator {
         { reader: reader }
     }
 }

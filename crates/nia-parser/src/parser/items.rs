@@ -66,11 +66,11 @@ impl Parser {
         let vis = if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "super" {
             self.bump();
             Visibility::PublicSuper
-        } else if self.at(TokenKind::Package) {
+        } else if self.at(TokenKind::Pkg) {
             self.bump();
-            Visibility::PublicPackage
+            Visibility::PublicPkg
         } else {
-            self.error_here("expected `super` or `package` in visibility");
+            self.error_here("expected `super` or `pkg` in visibility");
             Visibility::Public
         };
         self.expect(TokenKind::RParen, "expected `)` after visibility")?;

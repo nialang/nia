@@ -1,10 +1,10 @@
-using package::fs::types;
-using package::os;
+using pkg::fs::types;
+using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Timestamp};
 
 extend os::Error {
-    pub(package) fn as_fs_error(self) Error {
+    pub(pkg) fn as_fs_error(self) Error {
         switch self {
             os::Error::PermissionDenied => Error::PermissionDenied,
             os::Error::NotFound => Error::NotFound,
@@ -33,7 +33,7 @@ extend os::Error {
 }
 
 extend[T] os::Error!T {
-    pub(package) fn as_fs_error(self) Error!T {
+    pub(pkg) fn as_fs_error(self) Error!T {
         if let !value = self {
             !value
         } else error! {
@@ -43,7 +43,7 @@ extend[T] os::Error!T {
 }
 
 extend os::FileKind {
-    pub(package) fn as_fs_file_kind(self) FileKind {
+    pub(pkg) fn as_fs_file_kind(self) FileKind {
         switch self {
             os::FileKind::BlockDevice => FileKind::BlockDevice,
             os::FileKind::CharacterDevice => FileKind::CharacterDevice,
@@ -58,13 +58,13 @@ extend os::FileKind {
 }
 
 extend os::Timestamp {
-    pub(package) fn as_fs_timestamp(&self) Timestamp {
+    pub(pkg) fn as_fs_timestamp(&self) Timestamp {
         Timestamp::init(self.seconds(), self.nanos())
     }
 }
 
 extend os::FileMetadata {
-    pub(package) fn as_fs_metadata(&self) Metadata {
+    pub(pkg) fn as_fs_metadata(&self) Metadata {
         var accessed: ?Timestamp = null;
         if let ?value = self.accessed() {
             accessed = ?value.as_fs_timestamp();
@@ -88,7 +88,7 @@ extend os::FileMetadata {
 }
 
 extend os::DirectoryEntry {
-    pub(package) fn as_fs_dir_entry(&self) DirEntry {
+    pub(pkg) fn as_fs_dir_entry(&self) DirEntry {
         DirEntry::init(self.kind().as_fs_file_kind(), self.name())
     }
 }

@@ -1,6 +1,6 @@
-using package::fmt;
-using package::collections::hash_map::map;
-using package::collections::hash_map::types;
+using pkg::fmt;
+using pkg::collections::hash_map::map;
+using pkg::collections::hash_map::types;
 
 using map::HashMapWithContext;
 using types::HashMapContext;
