@@ -56,21 +56,26 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     }
 }
 
+pub(super) struct BackendLoweringModuleInputsInput<'a> {
+    pub(super) checked_modules: &'a [CheckedModule],
+    pub(super) loaded_modules: &'a [LoadedModule],
+    pub(super) visible_extensions: &'a [VisibleExtensionsValue],
+    pub(super) function_bodies: &'a [LoweredFunctionBodies],
+    pub(super) extension_methods: &'a ExtensionMethodsQueryValue,
+    pub(super) program_defs: &'a HashMap<ModuleId, DefCollection>,
+    pub(super) program_signatures: &'a ProgramSignatures,
+    pub(super) indexes: &'a BackendLoweringIndexes<'a>,
+}
+
 pub(super) fn build_backend_lowering_module_inputs<'a>(
-    checked_modules: &'a [CheckedModule],
-    loaded_modules: &'a [LoadedModule],
-    visible_extensions: &'a [VisibleExtensionsValue],
-    function_bodies: &'a [LoweredFunctionBodies],
-    extension_methods: &'a ExtensionMethodsQueryValue,
-    program_defs: &'a HashMap<ModuleId, DefCollection>,
-    program_signatures: &'a ProgramSignatures,
-    indexes: &'a BackendLoweringIndexes<'a>,
+    input: BackendLoweringModuleInputsInput<'a>,
 ) -> Vec<BackendLowerModuleInput<'a>> {
-    checked_modules
+    input
+        .checked_modules
         .iter()
-        .zip(loaded_modules.iter())
-        .zip(visible_extensions.iter())
-        .zip(function_bodies.iter())
+        .zip(input.loaded_modules.iter())
+        .zip(input.visible_extensions.iter())
+        .zip(input.function_bodies.iter())
         .map(
             |(((checked_module, loaded_module), visible_extensions), function_bodies)| {
                 BackendLowerModuleInput {
@@ -88,22 +93,22 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     function_interner: &function_bodies.interner,
                     semantic_facts: &checked_module.semantic_facts,
                     comptime: &checked_module.comptime,
-                    program_comptime: &indexes.program_comptime,
+                    program_comptime: &input.indexes.program_comptime,
                     layouts: &checked_module.layouts,
                     function_bodies: &function_bodies.bodies,
                     roots: backend_function_roots(),
-                    program_function_bodies: &indexes.program_function_bodies,
+                    program_function_bodies: &input.indexes.program_function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
-                    program_extension_methods: &extension_methods.methods,
-                    program_extensions: &indexes.program_extensions,
-                    program_defs,
-                    program_type_interners: &indexes.program_type_interners,
-                    program_functions: &program_signatures.functions,
-                    program_structs: &program_signatures.structs,
-                    program_unions: &program_signatures.unions,
-                    program_enums: &program_signatures.enums,
-                    program_traits: &program_signatures.traits,
-                    trait_impls: &program_signatures.trait_impls,
+                    program_extension_methods: &input.extension_methods.methods,
+                    program_extensions: &input.indexes.program_extensions,
+                    program_defs: input.program_defs,
+                    program_type_interners: &input.indexes.program_type_interners,
+                    program_functions: &input.program_signatures.functions,
+                    program_structs: &input.program_signatures.structs,
+                    program_unions: &input.program_signatures.unions,
+                    program_enums: &input.program_signatures.enums,
+                    program_traits: &input.program_signatures.traits,
+                    trait_impls: &input.program_signatures.trait_impls,
                 }
             },
         )

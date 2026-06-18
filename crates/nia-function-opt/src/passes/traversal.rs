@@ -56,10 +56,13 @@ where
     F: FnMut(&mut FunctionExpr) -> bool,
 {
     match op {
-        FunctionOp::Binding(binding) => binding
-            .value
-            .as_mut()
-            .is_some_and(|value| rewrite_expr(value)),
+        FunctionOp::Binding(binding) => {
+            if let Some(value) = binding.value.as_mut() {
+                rewrite_expr(value)
+            } else {
+                false
+            }
+        }
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => rewrite_expr(value),
         FunctionOp::MemoryIntrinsic(memory) => {
             let mut changed = rewrite_expr(&mut memory.dest);

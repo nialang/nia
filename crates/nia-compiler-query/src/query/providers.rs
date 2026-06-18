@@ -1073,16 +1073,16 @@ fn provide_backend_lowering_inner(
         db.context().timings,
         "backend_lowering.module_inputs",
         || {
-            build_backend_lowering_module_inputs(
-                &checked_modules,
-                &loaded_modules,
-                &visible_extensions,
-                &function_bodies,
-                &extension_methods,
-                program_defs.as_ref(),
-                &program_signatures,
-                &indexes,
-            )
+            build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
+                checked_modules: &checked_modules,
+                loaded_modules: &loaded_modules,
+                visible_extensions: &visible_extensions,
+                function_bodies: &function_bodies,
+                extension_methods: &extension_methods,
+                program_defs: program_defs.as_ref(),
+                program_signatures: &program_signatures,
+                indexes: &indexes,
+            })
         },
     );
     time_provider(
