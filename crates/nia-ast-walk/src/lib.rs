@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, Block, ComptimeIfItemElse, Expr, ExprKind, FunctionItem, IndexArg,
-    Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
-    SwitchPatternKind, TypeArg, TypeKind, TypeRef, WhereClause,
+    ArrayElements, ArrayLen, Attribute, AttributeKind, Block, Expr, ExprKind, FunctionItem,
+    IndexArg, Item, ItemKind, Module, Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody,
+    SwitchPattern, SwitchPatternKind, TypeArg, TypeKind, TypeRef, WhereClause,
 };
 
 pub trait Visitor<'ast> {
@@ -38,17 +38,11 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, module: &'a
 }
 
 pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast Item) {
+    for attribute in &item.attributes {
+        walk_attribute(visitor, attribute);
+    }
     match &item.kind {
         ItemKind::Module(_) | ItemKind::Using(_) => {}
-        ItemKind::ComptimeIf(comptime_if) => {
-            visitor.visit_expr(&comptime_if.cond);
-            for item in &comptime_if.then_items {
-                visitor.visit_item(item);
-            }
-            if let Some(else_branch) = &comptime_if.else_branch {
-                walk_comptime_if_item_else(visitor, else_branch);
-            }
-        }
         ItemKind::Binding(binding) => {
             if let Some(ty) = &binding.ty {
                 visitor.visit_type(ty);
@@ -117,23 +111,12 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
     }
 }
 
-fn walk_comptime_if_item_else<'ast, V: Visitor<'ast> + ?Sized>(
-    visitor: &mut V,
-    else_branch: &'ast ComptimeIfItemElse,
-) {
-    match else_branch {
-        ComptimeIfItemElse::If(comptime_if) => {
-            visitor.visit_expr(&comptime_if.cond);
-            for item in &comptime_if.then_items {
-                visitor.visit_item(item);
-            }
-            if let Some(else_branch) = &comptime_if.else_branch {
-                walk_comptime_if_item_else(visitor, else_branch);
-            }
-        }
-        ComptimeIfItemElse::Items(items) => {
-            for item in items {
-                visitor.visit_item(item);
+fn walk_attribute<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, attribute: &'ast Attribute) {
+    match &attribute.kind {
+        AttributeKind::If(_) => {}
+        AttributeKind::Meta(meta) => {
+            for arg in &meta.args {
+                visitor.visit_expr(arg);
             }
         }
     }
@@ -238,6 +221,9 @@ pub fn walk_block<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, block: &'ast
 }
 
 pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast Stmt) {
+    for attribute in &stmt.attributes {
+        walk_attribute(visitor, attribute);
+    }
     match &stmt.kind {
         StmtKind::Binding(binding) => {
             if let Some(ty) = &binding.ty {
@@ -395,13 +381,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_block(&arm.body);
             }
             if let Some(else_branch) = &if_pattern.else_branch {
-                visitor.visit_expr(else_branch);
-            }
-        }
-        ExprKind::ComptimeIf(comptime_if) => {
-            visitor.visit_expr(&comptime_if.cond);
-            visitor.visit_block(&comptime_if.then_branch);
-            if let Some(else_branch) = &comptime_if.else_branch {
                 visitor.visit_expr(else_branch);
             }
         }

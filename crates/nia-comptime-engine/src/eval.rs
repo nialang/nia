@@ -662,7 +662,7 @@ fn eval_comptime_if_expr_flow(
     } else {
         Err(ComptimeError {
             span,
-            message: "comptime if expression requires an else branch".to_string(),
+            message: "if expression requires an else branch".to_string(),
         })
     }
 }
@@ -761,7 +761,7 @@ fn eval_resolved_comptime_if_expr_flow(
     } else {
         Err(ComptimeError {
             span,
-            message: "comptime if expression requires an else branch".to_string(),
+            message: "if expression requires an else branch".to_string(),
         })
     }
 }
@@ -2776,11 +2776,10 @@ fn eval_if_stmt(
     else_branch: Option<&EarlyComptimeBlock>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let cond_value =
-        match eval_condition_flow(cond, env, "comptime if condition must evaluate to bool")? {
-            ComptimeConditionFlow::Value(value) => value,
-            ComptimeConditionFlow::Flow(flow) => return Ok(flow),
-        };
+    let cond_value = match eval_condition_flow(cond, env, "if condition must evaluate to bool")? {
+        ComptimeConditionFlow::Value(value) => value,
+        ComptimeConditionFlow::Flow(flow) => return Ok(flow),
+    };
     if cond_value {
         eval_function_block(then_branch, env)
     } else {
@@ -2796,14 +2795,11 @@ fn eval_resolved_if_stmt(
     else_branch: Option<&ResolvedComptimeBlock>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let cond_value = match eval_resolved_condition_flow(
-        cond,
-        env,
-        "comptime if condition must evaluate to bool",
-    )? {
-        ComptimeConditionFlow::Value(value) => value,
-        ComptimeConditionFlow::Flow(flow) => return Ok(flow),
-    };
+    let cond_value =
+        match eval_resolved_condition_flow(cond, env, "if condition must evaluate to bool")? {
+            ComptimeConditionFlow::Value(value) => value,
+            ComptimeConditionFlow::Flow(flow) => return Ok(flow),
+        };
     if cond_value {
         eval_resolved_function_block(then_branch, env)
     } else {

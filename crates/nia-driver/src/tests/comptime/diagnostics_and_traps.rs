@@ -75,16 +75,19 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn comptime_error_builtin_is_pruned_by_comptime_if() {
-    let root = temp_dir("comptime_error_builtin_is_pruned_by_comptime_if");
+fn comptime_error_builtin_is_pruned_by_comptime_if_expression() {
+    let root = temp_dir("comptime_error_builtin_is_pruned_by_comptime_if_expression");
     write(
         &root.join("main.nia"),
         r#"
-comptime let n: usize = comptime if true {
-    4usize
-} else {
+comptime fn selected() usize {
+    if true {
+        return 4usize;
+    }
     @error("unreachable comptime branch")
-};
+}
+
+comptime let n: usize = selected();
 
 fn main() usize { n }
 "#,

@@ -226,7 +226,6 @@ impl<'a> LocalResolver<'a> {
             }
             ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
-            | ItemTreeNodeKind::ComptimeIf(_)
             | ItemTreeNodeKind::Struct(_)
             | ItemTreeNodeKind::Union(_)
             | ItemTreeNodeKind::TypeAlias(_) => {}
@@ -527,13 +526,6 @@ impl<'a> LocalResolver<'a> {
                     self.pop_scope();
                 }
                 if let Some(else_branch) = &if_pattern.else_branch {
-                    self.resolve_expr(else_branch);
-                }
-            }
-            ExprKind::ComptimeIf(comptime_if) => {
-                self.resolve_expr(&comptime_if.cond);
-                self.resolve_block(&comptime_if.then_branch);
-                if let Some(else_branch) = &comptime_if.else_branch {
                     self.resolve_expr(else_branch);
                 }
             }
@@ -1207,15 +1199,14 @@ fn main() i32 {
     fn resolves_locals_from_active_item_tree_only() {
         let (module, errors) = parse_module(
             r#"
-comptime if false {
-    fn skipped() i32 {
-        missing
-    }
-} else {
-    fn selected() i32 {
-        var value = 1;
-        value
-    }
+@[if false]
+fn skipped() i32 {
+    missing
+}
+@[if true]
+fn selected() i32 {
+    var value = 1;
+    value
 }
 "#,
         );
@@ -1245,18 +1236,15 @@ comptime if false {
 
     struct BoolResolver(bool);
 
-    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
-        fn resolve_comptime_if(
+    impl nia_item_tree::ConditionResolver for BoolResolver {
+        fn resolve_condition(
             &mut self,
-            span: Span,
-            _cond: &nia_ast::Expr,
-        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
-            let _ = span;
-            Ok(if self.0 {
-                nia_item_tree::ComptimeBranch::Then
-            } else {
-                nia_item_tree::ComptimeBranch::Else
-            })
+            cond: &nia_ast::ConditionExpr,
+        ) -> Result<bool, nia_item_tree::ItemTreeError> {
+            match &cond.kind {
+                nia_ast::ConditionExprKind::Bool(value) => Ok(*value),
+                _ => Ok(self.0),
+            }
         }
     }
 }

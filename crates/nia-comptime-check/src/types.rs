@@ -125,42 +125,6 @@ pub fn import_comptime_value_type(
     }
 }
 
-pub fn builtin_comptime_value_type(pointer_width_ty: InternedTyId) -> ComptimeValueType {
-    ComptimeValueType::Struct(vec![ComptimeValueFieldType {
-        name: "target".to_string(),
-        ty: ComptimeValueType::Struct(vec![
-            ComptimeValueFieldType {
-                name: "arch".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "vendor".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "os".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "env".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "abi".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "endian".to_string(),
-                ty: ComptimeValueType::String,
-            },
-            ComptimeValueFieldType {
-                name: "pointer_width".to_string(),
-                ty: ComptimeValueType::Runtime(pointer_width_ty),
-            },
-        ]),
-    }])
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComptimeKey {
     Global(GlobalDefId),

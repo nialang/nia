@@ -52,30 +52,26 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     std::fs::write(
         &std_start,
         r#"
-comptime if @builtin().target.os == "linux"
-    and @builtin().target.arch == "x86_64"
-{
-    pub(package) module freestanding;
-    using package::start::freestanding::linux::x86_64;
-}
+@[if os == "linux" and arch == "x86_64"]
+pub(package) module freestanding;
+@[if os == "linux" and arch == "x86_64"]
+using package::start::freestanding::linux::x86_64;
 "#,
     )
     .expect("write custom std start facade");
     std::fs::write(
         &std_start_freestanding,
         r#"
-comptime if @builtin().target.os == "linux" {
-    pub(package) module linux;
-}
+@[if os == "linux"]
+pub(package) module linux;
 "#,
     )
     .expect("write custom std freestanding facade");
     std::fs::write(
         &std_start_freestanding_linux,
         r#"
-comptime if @builtin().target.arch == "x86_64" {
-    pub(package) module x86_64;
-}
+@[if arch == "x86_64"]
+pub(package) module x86_64;
 "#,
     )
     .expect("write custom std linux facade");

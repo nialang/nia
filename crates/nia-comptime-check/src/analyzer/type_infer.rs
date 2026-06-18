@@ -333,22 +333,10 @@ impl Analyzer<'_> {
             ResolvedComptimeExprKind::Block(block) => {
                 self.resolved_comptime_block_tail_type(block, expected)
             }
-            ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin) => {
-                Some(self.builtin_comptime_type())
-            }
             ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Error) => None,
             ResolvedComptimeExprKind::CompileError { message } => {
                 let _ = self.resolved_comptime_expr_type(message, None);
                 expected.map(ComptimeValueType::Runtime)
-            }
-            ResolvedComptimeExprKind::Call { callee, args, .. }
-                if args.is_empty()
-                    && matches!(
-                        callee.kind(),
-                        ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin)
-                    ) =>
-            {
-                Some(self.builtin_comptime_type())
             }
             ResolvedComptimeExprKind::Call {
                 callee,

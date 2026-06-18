@@ -44,9 +44,6 @@ impl<'a> BodyChecker<'a> {
         let Some(resolution) = self.builtin_resolution(expr) else {
             return self.error();
         };
-        if matches!(resolution, BuiltinResolution::Builtin) {
-            return self.interner.intern(TyKind::ComptimeOnly);
-        }
         if matches!(resolution, BuiltinResolution::ComptimeError) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -84,9 +81,7 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = self.ty_for_type(type_arg);
         let builtin = match resolution {
-            BuiltinResolution::Builtin
-            | BuiltinResolution::ComptimeError
-            | BuiltinResolution::Trap => return self.error(),
+            BuiltinResolution::ComptimeError | BuiltinResolution::Trap => return self.error(),
             BuiltinResolution::SizeOf => {
                 self.require_sized_type(type_arg.span, ty, name);
                 LayoutBuiltin::Size
@@ -160,19 +155,6 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         match resolution {
-            BuiltinResolution::Builtin => {
-                if !args.is_empty() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
-                        call_span,
-                        "builtin `@builtin` does not take value arguments",
-                    ));
-                    for arg in args {
-                        self.check_expr(arg);
-                    }
-                }
-                self.interner.intern(TyKind::ComptimeOnly)
-            }
             BuiltinResolution::ComptimeError => {
                 if type_arg.is_some() {
                     self.diagnostics.push(Diagnostic::user_error_at(

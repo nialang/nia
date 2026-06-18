@@ -37,10 +37,9 @@ use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
-    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, ComptimeIfSelection,
-    FunctionReference, FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion,
-    ResolvedCall, SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
-    TraitObjectUpcast,
+    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, FunctionReference,
+    FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
+    SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -437,7 +436,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_pointer_array_to_slice_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
-        node_comptime_if_selections: HashMap::new(),
         node_builtin_values: HashMap::new(),
         node_array_repeat_counts: HashMap::new(),
         node_switch_pattern_values: HashMap::new(),
@@ -490,7 +488,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
-            node_comptime_if_selections: checker.node_comptime_if_selections,
             node_builtin_values: checker.node_builtin_values,
             node_builtin_associated_values: input
                 .semantic_uses
@@ -573,7 +570,6 @@ struct BodyChecker<'a> {
     node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
     node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     node_array_repeat_counts: HashMap<NodeKey, u64>,
     node_switch_pattern_values: HashMap<NodeKey, i128>,
@@ -760,16 +756,6 @@ impl<'a> BodyChecker<'a> {
             facts
                 .node_function_references
                 .insert(key.clone(), reference);
-        }
-    }
-
-    fn record_comptime_if_selection(&mut self, expr: &Expr, selection: ComptimeIfSelection) {
-        self.node_comptime_if_selections
-            .insert(expr.node_key.clone(), selection);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_comptime_if_selections
-                .insert(expr.node_key.clone(), selection);
         }
     }
 

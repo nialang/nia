@@ -106,32 +106,38 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
 }
 
 #[test]
-fn parses_comptime_if_items_and_expressions() {
+fn parses_conditional_item_and_statement_attributes() {
     let (module, errors) = parse_module(
         r#"
-comptime if true {
-    fn selected() i32 { 1 }
-} else {
-    fn skipped() i32 { 2 }
-}
+@[if os == "linux" and arch == "x86_64"]
+fn selected() i32 { 1 }
 
 fn main() i32 {
-    comptime if true {
-        1
-    } else {
-        missing_name
-    }
+    @[if pointer_width == 64]
+    let value = 1;
+    @[if os == "linux"]
+    _ = value;
+    value
 }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
-    assert!(matches!(module.items[0].kind, ItemKind::ComptimeIf(_)));
+    assert!(matches!(
+        module.items[0].attributes[0].kind,
+        AttributeKind::If(_)
+    ));
     let ItemKind::Function(function) = &module.items[1].kind else {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let tail = body.tail.as_ref().expect("expected tail");
-    assert!(matches!(tail.kind, ExprKind::ComptimeIf(_)));
+    assert!(matches!(
+        body.stmts[0].attributes[0].kind,
+        AttributeKind::If(_)
+    ));
+    assert!(matches!(
+        body.stmts[1].attributes[0].kind,
+        AttributeKind::If(_)
+    ));
 }
 
 #[test]

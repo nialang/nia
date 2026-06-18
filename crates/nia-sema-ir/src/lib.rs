@@ -215,7 +215,6 @@ pub struct SemanticFacts {
     pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
     pub node_array_repeat_counts: HashMap<NodeKey, u64>,
@@ -234,19 +233,11 @@ pub struct FunctionSemanticFacts {
     pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_array_repeat_counts: HashMap<NodeKey, u64>,
     pub node_switch_pattern_values: HashMap<NodeKey, i128>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     pub node_function_references: HashMap<NodeKey, FunctionReference>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComptimeIfSelection {
-    Then,
-    Else,
-    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -138,8 +138,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_if_expr_is_an_ordinary_comptime_value() {
-    let root = temp_dir("comptime_if_expr_is_an_ordinary_comptime_value");
+fn if_expr_is_an_ordinary_comptime_value() {
+    let root = temp_dir("if_expr_is_an_ordinary_comptime_value");
     write(
         &root.join("main.nia"),
         r#"
@@ -147,7 +147,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = comptime if true {
+comptime let config = if true {
     {width: 4usize}
 } else {
     {width: 8usize}
@@ -166,8 +166,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_if_expr_rejects_non_bool_condition() {
-    let root = temp_dir("comptime_if_expr_rejects_non_bool_condition");
+fn if_expr_rejects_non_bool_condition() {
+    let root = temp_dir("if_expr_rejects_non_bool_condition");
     write(
         &root.join("main.nia"),
         r#"
@@ -175,7 +175,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(comptime if 1usize {
+comptime let n: usize = id(if 1usize {
     4usize
 } else {
     8usize
@@ -195,13 +195,13 @@ comptime let n: usize = id(comptime if 1usize {
 }
 
 #[test]
-fn comptime_fn_returns_comptime_if_expr_value() {
-    let root = temp_dir("comptime_fn_returns_comptime_if_expr_value");
+fn comptime_fn_returns_if_expr_value() {
+    let root = temp_dir("comptime_fn_returns_if_expr_value");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn select() usize {
-    comptime if true {
+    if true {
         4usize
     } else {
         8usize

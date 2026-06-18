@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, AssignOp, Attribute, BinaryOp, BindingItem, BindingPatternKind,
-    BindingStmt, Block, BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem,
-    EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt,
-    ForPattern, FunctionItem, IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module,
-    ModuleItem, Param, Pattern, PatternBindingMode, PatternKind, ReceiverKind, Stmt, StmtKind,
-    StringLiteral, StructItem, SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind,
-    SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind,
-    TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem,
-    UsingName, UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
+    ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
+    BindingItem, BindingPatternKind, BindingStmt, Block, BracketArg, ConditionBinaryOp,
+    ConditionExpr, ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind,
+    ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, ForPattern, FunctionItem,
+    IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern,
+    PatternBindingMode, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem,
+    SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType,
+    TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp,
+    UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
+    WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
@@ -279,11 +280,12 @@ impl Parser {
         }
     }
 
-    fn make_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
+    fn make_stmt(&mut self, span: Span, attributes: Vec<Attribute>, kind: StmtKind) -> Stmt {
         let node_key = self.node_key(NodeSyntaxKind::Stmt, span);
         Stmt {
             span,
             node_key,
+            attributes,
             kind,
         }
     }
@@ -381,10 +383,6 @@ impl Parser {
 
     fn at(&self, kind: TokenKind) -> bool {
         self.tokens.at(kind)
-    }
-
-    fn at_comptime_if(&self) -> bool {
-        self.at(TokenKind::Comptime) && matches!(self.tokens.nth_kind(1), Some(TokenKind::If))
     }
 
     fn at_comptime_fn(&self) -> bool {

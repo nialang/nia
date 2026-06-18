@@ -5,8 +5,8 @@ use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 pub use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue,
-    ComptimeIfSelection, FunctionReference, GenericInstantiation, PointerArrayToSliceCoercion,
-    ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
+    FunctionReference, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
+    TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_span::Span;
 use nia_static_ir::StaticInit;

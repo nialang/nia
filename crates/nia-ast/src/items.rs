@@ -20,9 +20,56 @@ pub struct Item {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
+    pub kind: AttributeKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttributeKind {
+    If(ConditionExpr),
+    Meta(AttributeMeta),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttributeMeta {
     pub path: Vec<String>,
     pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConditionExpr {
     pub span: Span,
+    pub kind: ConditionExprKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConditionExprKind {
+    Bool(bool),
+    Integer(String),
+    String(String),
+    Ident(String),
+    Unary {
+        op: ConditionUnaryOp,
+        expr: Box<ConditionExpr>,
+    },
+    Binary {
+        lhs: Box<ConditionExpr>,
+        op: ConditionBinaryOp,
+        rhs: Box<ConditionExpr>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionUnaryOp {
+    Not,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionBinaryOp {
+    Eq,
+    Ne,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -38,7 +85,6 @@ pub enum Visibility {
 pub enum ItemKind {
     Module(ModuleItem),
     Using(UsingItem),
-    ComptimeIf(ComptimeIfItem),
     Struct(StructItem),
     Union(UnionItem),
     Trait(TraitItem),
@@ -47,19 +93,6 @@ pub enum ItemKind {
     TypeAlias(TypeAliasItem),
     Function(FunctionItem),
     Binding(BindingItem),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeIfItem {
-    pub cond: Expr,
-    pub then_items: Vec<Item>,
-    pub else_branch: Option<ComptimeIfItemElse>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeIfItemElse {
-    If(Box<ComptimeIfItem>),
-    Items(Vec<Item>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

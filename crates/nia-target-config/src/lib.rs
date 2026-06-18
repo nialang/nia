@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
+    ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
+    ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
     Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
     SwitchPatternKind,
 };
-use nia_comptime_ir::{
-    EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeExpr, EarlyComptimeExprKind,
-    EarlyComptimeName, EarlyComptimeParam, EarlyComptimeTypeArg,
-};
 use nia_diagnostic::Diagnostic;
-use nia_item_tree::ActiveModuleItemTree;
-use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
@@ -54,14 +49,9 @@ pub struct PruneResult {
 }
 
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
-    let EarlyComptimeFunctions {
-        functions,
-        diagnostics,
-    } = lower_early_comptime_functions(&module);
     let mut pruner = Pruner {
         config,
-        functions,
-        diagnostics,
+        diagnostics: Vec::new(),
     };
     let pruned = pruner.prune_module(module);
     PruneResult {
@@ -72,285 +62,21 @@ pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneRe
 }
 
 pub fn eval_config_bool(
-    expr: &Expr,
+    expr: &ConditionExpr,
     config: &TargetConfig,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<bool> {
-    let functions = HashMap::new();
-    let mut env = TargetComptimeEnv {
-        config,
-        functions: &functions,
-        call_locals: Vec::new(),
-    };
-    let expr = match nia_comptime_ir::lower_expr_early(expr) {
-        Ok(expr) => expr,
+    match ConditionEvaluator::new(config).eval_bool(expr) {
+        Ok(value) => Some(value),
         Err(err) => {
             diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message));
-            return None;
-        }
-    };
-    nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
-        .map_err(|err| diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message)))
-        .ok()
-}
-
-struct TargetComptimeEnv<'a> {
-    config: &'a TargetConfig,
-    functions: &'a HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
-    call_locals: Vec<TargetComptimeFrame>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct TargetComptimeFrame {
-    values: HashMap<String, nia_comptime_engine::ComptimeValue>,
-    mutable_names: HashSet<String>,
-}
-
-impl nia_comptime_engine::ComptimeCommonEnv for TargetComptimeEnv<'_> {
-    fn resolve_builtin_value(
-        &mut self,
-        span: Span,
-        builtin: nia_ids::ValueBuiltin,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let _ = span;
-        match builtin {
-            nia_ids::ValueBuiltin::Builtin => Ok(builtin_comptime_value(self.config)),
-            nia_ids::ValueBuiltin::Error => Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "builtin `@error` must be called with a message".to_string(),
-            }),
+            None
         }
     }
-
-    fn push_comptime_scope(
-        &mut self,
-        _span: Span,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.call_locals.push(TargetComptimeFrame::default());
-        Ok(())
-    }
-
-    fn pop_comptime_scope(&mut self) {
-        self.call_locals.pop();
-    }
-}
-
-impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
-    fn resolve_name(
-        &mut self,
-        span: Span,
-        name: &EarlyComptimeName,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let EarlyComptimeName::Unresolved(name) = name else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!(
-                    "resolved comptime value `{}` is not available in target conditions",
-                    name.display()
-                ),
-            });
-        };
-        if let Some(value) = self
-            .call_locals
-            .iter()
-            .rev()
-            .find_map(|frame| frame.values.get(name).cloned())
-        {
-            return Ok(value);
-        }
-        Err(nia_comptime_engine::ComptimeError {
-            span,
-            message: format!("unknown target comptime value `{name}`"),
-        })
-    }
-
-    fn resolve_layout_builtin(
-        &mut self,
-        span: Span,
-        _builtin: nia_ids::LayoutBuiltin,
-        _type_arg: &EarlyComptimeTypeArg,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        Err(nia_comptime_engine::ComptimeError {
-            span,
-            message: "layout builtins are not available in target conditions".to_string(),
-        })
-    }
-
-    fn call_function(
-        &mut self,
-        span: Span,
-        callee: &EarlyComptimeExpr,
-        type_args: &[EarlyComptimeTypeArg],
-        arg_exprs: &[EarlyComptimeExpr],
-        args: Vec<nia_comptime_engine::ComptimeValue>,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        if !type_args.is_empty() {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "target conditions cannot call generic `comptime fn` before type lowering"
-                    .to_string(),
-            });
-        }
-        let _ = arg_exprs;
-        let EarlyComptimeExprKind::Ident(name) = &callee.kind else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "target condition can only call same-module `comptime fn`".to_string(),
-            });
-        };
-        let EarlyComptimeName::Unresolved(name) = name else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "target condition cannot call resolved semantic comptime functions"
-                    .to_string(),
-            });
-        };
-        let Some(function) = self.functions.get(name) else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("unknown target comptime function `{name}`"),
-            });
-        };
-        nia_comptime_engine::eval_early_comptime_function_call(
-            span,
-            nia_ids::ModuleId(0),
-            function,
-            Vec::new(),
-            args,
-            self,
-        )
-    }
-
-    fn bind_function_param(
-        &mut self,
-        span: Span,
-        param: &EarlyComptimeParam,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, &param.name, false, value)
-    }
-
-    fn bind_function_local(
-        &mut self,
-        span: Span,
-        binding: &EarlyComptimeBinding,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, &binding.name, binding.is_mutable, value)
-    }
-
-    fn bind_pattern_local(
-        &mut self,
-        span: Span,
-        name: &str,
-        _local_id: Option<nia_ids::LocalId>,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, name, false, value)
-    }
-
-    fn assign_local(
-        &mut self,
-        span: Span,
-        target: &EarlyComptimeAssignTarget,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        match target {
-            EarlyComptimeAssignTarget::Local { name, .. } => {
-                self.assign_named_value(span, name, value)
-            }
-        }
-    }
-}
-
-impl TargetComptimeEnv<'_> {
-    fn bind_named_value(
-        &mut self,
-        span: Span,
-        name: &str,
-        is_mutable: bool,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        let Some(frame) = self.call_locals.last_mut() else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "internal comptime function frame is missing".to_string(),
-            });
-        };
-        if is_mutable {
-            frame.mutable_names.insert(name.to_string());
-        }
-        frame.values.insert(name.to_string(), value);
-        Ok(())
-    }
-
-    fn assign_named_value(
-        &mut self,
-        span: Span,
-        name: &str,
-        value: nia_comptime_engine::ComptimeValue,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        for frame in self.call_locals.iter_mut().rev() {
-            if frame.values.contains_key(name) {
-                if !frame.mutable_names.contains(name) {
-                    return Err(nia_comptime_engine::ComptimeError {
-                        span,
-                        message: format!("cannot assign to immutable comptime local `{name}`"),
-                    });
-                }
-                frame.values.insert(name.to_string(), value);
-                return Ok(());
-            }
-        }
-        Err(nia_comptime_engine::ComptimeError {
-            span,
-            message: format!("unknown comptime assignment target `{name}`"),
-        })
-    }
-}
-
-pub fn builtin_comptime_value(config: &TargetConfig) -> nia_comptime_engine::ComptimeValue {
-    let mut fields = BTreeMap::new();
-    fields.insert("target".to_string(), target_comptime_value(config));
-    nia_comptime_engine::ComptimeValue::Struct(fields)
-}
-
-pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::ComptimeValue {
-    let mut fields = BTreeMap::new();
-    fields.insert(
-        "arch".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.arch.clone()),
-    );
-    fields.insert(
-        "vendor".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.vendor.clone()),
-    );
-    fields.insert(
-        "os".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.os.clone()),
-    );
-    fields.insert(
-        "env".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.env.clone()),
-    );
-    fields.insert(
-        "abi".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.abi.clone()),
-    );
-    fields.insert(
-        "endian".to_string(),
-        nia_comptime_engine::ComptimeValue::String(config.endian.clone()),
-    );
-    fields.insert(
-        "pointer_width".to_string(),
-        nia_comptime_engine::ComptimeValue::Int(i128::from(config.pointer_width).into()),
-    );
-    nia_comptime_engine::ComptimeValue::Struct(fields)
 }
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
-    functions: HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -385,8 +111,10 @@ impl Pruner<'_> {
     }
 
     fn prune_item(&mut self, item: Item) -> Vec<Item> {
+        if !self.attributes_active(&item.attributes, item.span) {
+            return Vec::new();
+        }
         match item.kind {
-            ItemKind::ComptimeIf(_) => Vec::new(),
             ItemKind::Struct(item_struct) => {
                 vec![Item {
                     kind: ItemKind::Struct(item_struct),
@@ -450,6 +178,9 @@ impl Pruner<'_> {
     }
 
     fn prune_stmt(&mut self, stmt: Stmt) -> Vec<Stmt> {
+        if !self.attributes_active(&stmt.attributes, stmt.span) {
+            return Vec::new();
+        }
         match stmt.kind {
             StmtKind::Binding(mut binding) => {
                 binding.value = binding.value.map(|value| self.prune_expr(value));
@@ -501,9 +232,6 @@ impl Pruner<'_> {
         let span = expr.span;
         let node_key = expr.node_key.clone();
         match expr.kind {
-            ExprKind::ComptimeIf(comptime_if) => {
-                self.prune_comptime_if_expr(span, node_key, *comptime_if)
-            }
             ExprKind::Block(block) => Expr {
                 span,
                 node_key,
@@ -720,6 +448,28 @@ impl Pruner<'_> {
         }
     }
 
+    fn attributes_active(&mut self, attributes: &[Attribute], owner_span: Span) -> bool {
+        for attribute in attributes {
+            let AttributeKind::If(cond) = &attribute.kind else {
+                continue;
+            };
+            match ConditionEvaluator::new(self.config).eval_bool(cond) {
+                Ok(true) => {}
+                Ok(false) => return false,
+                Err(err) => {
+                    let _ = owner_span;
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0103",
+                        err.span,
+                        err.message,
+                    ));
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     fn prune_switch_pattern(&mut self, pattern: SwitchPattern) -> SwitchPattern {
         SwitchPattern {
             span: pattern.span,
@@ -810,102 +560,122 @@ impl Pruner<'_> {
             inclusive: range.inclusive,
         }
     }
+}
 
-    fn prune_comptime_if_expr(
-        &mut self,
-        span: Span,
-        node_key: NodeKey,
-        comptime_if: ComptimeIfExpr,
-    ) -> Expr {
-        match self.eval_bool(&comptime_if.cond) {
-            Some(true) => Expr {
-                span,
-                node_key,
-                kind: ExprKind::Block(self.prune_block(comptime_if.then_branch)),
-            },
-            Some(false) => comptime_if.else_branch.map_or(
-                Expr {
-                    span,
-                    node_key: node_key.clone(),
-                    kind: ExprKind::Block(Block {
-                        span,
-                        stmts: Vec::new(),
-                        tail: None,
-                    }),
-                },
-                |else_branch| self.prune_expr(*else_branch),
-            ),
-            None => Expr {
-                span,
-                node_key,
-                kind: ExprKind::Error,
-            },
-        }
-    }
-
-    fn eval_bool(&mut self, expr: &Expr) -> Option<bool> {
-        let mut env = TargetComptimeEnv {
-            config: self.config,
-            functions: &self.functions,
-            call_locals: Vec::new(),
-        };
-        let expr = match nia_comptime_ir::lower_expr_early(expr) {
-            Ok(expr) => expr,
-            Err(err) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0103", err.span, err.message));
-                return None;
-            }
-        };
-        nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
-            .map_err(|err| {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0103", err.span, err.message))
+impl ConditionResolver for Pruner<'_> {
+    fn resolve_condition(&mut self, cond: &ConditionExpr) -> Result<bool, ItemTreeError> {
+        ConditionEvaluator::new(self.config)
+            .eval_bool(cond)
+            .map_err(|err| ItemTreeError {
+                span: err.span,
+                message: err.message,
             })
-            .ok()
     }
 }
 
-impl ComptimeBranchResolver for Pruner<'_> {
-    fn resolve_comptime_if(
-        &mut self,
-        span: Span,
-        cond: &Expr,
-    ) -> Result<ComptimeBranch, ItemTreeError> {
-        let _ = span;
-        Ok(match self.eval_bool(cond) {
-            Some(true) => ComptimeBranch::Then,
-            Some(false) => ComptimeBranch::Else,
-            None => ComptimeBranch::None,
-        })
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConditionError {
+    span: Span,
+    message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConditionValue {
+    Bool(bool),
+    Int(i128),
+    String(String),
+}
+
+struct ConditionEvaluator {
+    values: HashMap<&'static str, ConditionValue>,
+}
+
+impl ConditionEvaluator {
+    fn new(config: &TargetConfig) -> Self {
+        let mut values = HashMap::new();
+        values.insert("arch", ConditionValue::String(config.arch.clone()));
+        values.insert("vendor", ConditionValue::String(config.vendor.clone()));
+        values.insert("os", ConditionValue::String(config.os.clone()));
+        values.insert("env", ConditionValue::String(config.env.clone()));
+        values.insert("abi", ConditionValue::String(config.abi.clone()));
+        values.insert("endian", ConditionValue::String(config.endian.clone()));
+        values.insert(
+            "pointer_width",
+            ConditionValue::Int(i128::from(config.pointer_width)),
+        );
+        Self { values }
     }
-}
 
-struct EarlyComptimeFunctions {
-    functions: HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
-    diagnostics: Vec<Diagnostic>,
-}
-
-fn lower_early_comptime_functions(module: &Module) -> EarlyComptimeFunctions {
-    let mut functions = HashMap::new();
-    let mut diagnostics = Vec::new();
-    for item in &module.items {
-        let ItemKind::Function(function) = &item.kind else {
-            continue;
-        };
-        if !function.is_comptime {
-            continue;
+    fn eval_bool(&self, expr: &ConditionExpr) -> Result<bool, ConditionError> {
+        let value = self.eval(expr)?;
+        match value {
+            ConditionValue::Bool(value) => Ok(value),
+            _ => Err(ConditionError {
+                span: expr.span,
+                message: "condition expression must evaluate to bool".to_string(),
+            }),
         }
-        match nia_comptime_ir::lower_function_early(function.span, function) {
-            Ok(lowered) => {
-                functions.insert(function.name.clone(), lowered);
+    }
+
+    fn eval(&self, expr: &ConditionExpr) -> Result<ConditionValue, ConditionError> {
+        match &expr.kind {
+            ConditionExprKind::Bool(value) => Ok(ConditionValue::Bool(*value)),
+            ConditionExprKind::Integer(text) => {
+                let value = nia_comptime_engine::eval_int_literal(text).map_err(|message| {
+                    ConditionError {
+                        span: expr.span,
+                        message,
+                    }
+                })?;
+                Ok(ConditionValue::Int(value))
             }
-            Err(err) => diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message)),
+            ConditionExprKind::String(text) => {
+                let literal = nia_comptime_ir::ComptimeStringLiteral {
+                    parts: vec![text.clone()],
+                };
+                let Some(value) = nia_comptime_engine::eval_string_literal(&literal) else {
+                    return Err(ConditionError {
+                        span: expr.span,
+                        message: "invalid condition string literal".to_string(),
+                    });
+                };
+                Ok(ConditionValue::String(value))
+            }
+            ConditionExprKind::Ident(name) => {
+                self.values
+                    .get(name.as_str())
+                    .cloned()
+                    .ok_or_else(|| ConditionError {
+                        span: expr.span,
+                        message: format!("unknown condition name `{name}`"),
+                    })
+            }
+            ConditionExprKind::Unary { op, expr: inner } => match op {
+                ConditionUnaryOp::Not => Ok(ConditionValue::Bool(!self.eval_bool(inner)?)),
+            },
+            ConditionExprKind::Binary { lhs, op, rhs } => match op {
+                ConditionBinaryOp::Eq => {
+                    Ok(ConditionValue::Bool(self.eval(lhs)? == self.eval(rhs)?))
+                }
+                ConditionBinaryOp::Ne => {
+                    Ok(ConditionValue::Bool(self.eval(lhs)? != self.eval(rhs)?))
+                }
+                ConditionBinaryOp::And => {
+                    let lhs = self.eval_bool(lhs)?;
+                    if !lhs {
+                        return Ok(ConditionValue::Bool(false));
+                    }
+                    Ok(ConditionValue::Bool(self.eval_bool(rhs)?))
+                }
+                ConditionBinaryOp::Or => {
+                    let lhs = self.eval_bool(lhs)?;
+                    if lhs {
+                        return Ok(ConditionValue::Bool(true));
+                    }
+                    Ok(ConditionValue::Bool(self.eval_bool(rhs)?))
+                }
+            },
         }
-    }
-    EarlyComptimeFunctions {
-        functions,
-        diagnostics,
     }
 }
 
@@ -914,114 +684,5 @@ fn endian() -> &'static str {
         "little"
     } else {
         "big"
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nia_ast::ItemKind;
-    use nia_parser::parse_module;
-
-    #[test]
-    fn prunes_item_comptime_if_with_builtin_target_fields() {
-        let (module, errors) = parse_module(
-            r#"
-comptime if @builtin().target.os == "linux" and @builtin().target.pointer_width == 64 {
-    fn selected() i32 { 1 }
-} else {
-    fn skipped() i32 { 0 }
-}
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-        let result = prune_module_for_target(
-            module,
-            &TargetConfig {
-                arch: "x86_64".to_string(),
-                vendor: "unknown".to_string(),
-                os: "linux".to_string(),
-                env: String::new(),
-                abi: String::new(),
-                endian: "little".to_string(),
-                pointer_width: 64,
-            },
-        );
-        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
-        assert_eq!(result.module.items.len(), 1);
-        let ItemKind::Function(function) = &result.module.items[0].kind else {
-            panic!("expected selected function");
-        };
-        assert_eq!(function.name, "selected");
-    }
-
-    #[test]
-    fn target_condition_cannot_call_runtime_function() {
-        let (module, errors) = parse_module(
-            r#"
-fn enabled() bool { true }
-
-comptime if enabled() {
-    fn selected() i32 { 1 }
-}
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-
-        let result = prune_module_for_target(
-            module,
-            &TargetConfig {
-                arch: "x86_64".to_string(),
-                vendor: "unknown".to_string(),
-                os: "linux".to_string(),
-                env: String::new(),
-                abi: String::new(),
-                endian: "little".to_string(),
-                pointer_width: 64,
-            },
-        );
-
-        assert!(
-            result.diagnostics.iter().any(|diagnostic| diagnostic
-                .summary
-                .contains("unknown target comptime function `enabled`")),
-            "{:?}",
-            result.diagnostics
-        );
-    }
-
-    #[test]
-    fn target_condition_rejects_generic_comptime_function_calls() {
-        let (module, errors) = parse_module(
-            r#"
-comptime fn enabled[T]() bool { true }
-
-comptime if enabled[bool]() {
-    fn selected() i32 { 1 }
-}
-"#,
-        );
-        assert!(errors.is_empty(), "{errors:?}");
-
-        let result = prune_module_for_target(
-            module,
-            &TargetConfig {
-                arch: "x86_64".to_string(),
-                vendor: "unknown".to_string(),
-                os: "linux".to_string(),
-                env: String::new(),
-                abi: String::new(),
-                endian: "little".to_string(),
-                pointer_width: 64,
-            },
-        );
-
-        assert!(
-            result.diagnostics.iter().any(|diagnostic| diagnostic
-                .summary
-                .contains("target conditions cannot call generic `comptime fn`")),
-            "{:?}",
-            result.diagnostics
-        );
     }
 }

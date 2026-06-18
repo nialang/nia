@@ -29,11 +29,11 @@ fn eval_float_literal_ignores_type_suffix_and_separators() {
 }
 
 #[test]
-fn evaluates_builtin_struct_field_conditions() {
+fn evaluates_struct_field_conditions() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() bool {
-    @builtin().target.os == "linux" and @builtin().target.pointer_width == 64
+    config.target.os == "linux" and config.target.pointer_width == 64
 }
 "#,
     );
@@ -43,7 +43,7 @@ fn main() bool {
     };
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let expr = nia_comptime_ir::lower_expr_early(expr).unwrap();
-    let value = eval_early_comptime_bool_expr(&expr, &mut BuiltinEnv).unwrap();
+    let value = eval_early_comptime_bool_expr(&expr, &mut ConfigEnv).unwrap();
     assert!(value);
 }
 
@@ -52,7 +52,7 @@ fn evaluates_lowered_comptime_expr_directly() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() bool {
-    @builtin().target.os == "linux"
+    config.target.os == "linux"
 }
 "#,
     );
@@ -70,7 +70,7 @@ fn main() bool {
     };
     assert_eq!(name, "os");
 
-    let value = eval_early_comptime_bool_expr(&lowered, &mut BuiltinEnv).unwrap();
+    let value = eval_early_comptime_bool_expr(&lowered, &mut ConfigEnv).unwrap();
     assert!(value);
 }
 
@@ -331,23 +331,41 @@ fn main() bool {
     assert!(value);
 }
 
-struct BuiltinEnv;
+struct ConfigEnv;
 
-impl ComptimeCommonEnv for BuiltinEnv {
+impl ComptimeCommonEnv for ConfigEnv {
     fn resolve_builtin_value(
         &mut self,
         span: Span,
-        builtin_value: ValueBuiltin,
+        _builtin_value: ValueBuiltin,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let _ = span;
-        match builtin_value {
-            ValueBuiltin::Builtin => {}
-            ValueBuiltin::Error => {
-                return Err(ComptimeError {
-                    span,
-                    message: "`@error` is not available in this test environment".to_string(),
-                });
-            }
+        Err(ComptimeError {
+            span,
+            message: "`@error` is not available in this test environment".to_string(),
+        })
+    }
+}
+
+impl EarlyComptimeEnv for ConfigEnv {
+    fn resolve_name(
+        &mut self,
+        span: Span,
+        name: &EarlyComptimeName,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let EarlyComptimeName::Unresolved(name) = name else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "resolved comptime value `{}` is not available in this test",
+                    name.display()
+                ),
+            });
+        };
+        if name != "config" {
+            return Err(ComptimeError {
+                span,
+                message: format!("unknown comptime value `{name}`"),
+            });
         }
         let mut target = BTreeMap::new();
         target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
@@ -358,27 +376,6 @@ impl ComptimeCommonEnv for BuiltinEnv {
         let mut builtin = BTreeMap::new();
         builtin.insert("target".to_string(), ComptimeValue::Struct(target));
         Ok(ComptimeValue::Struct(builtin))
-    }
-}
-
-impl EarlyComptimeEnv for BuiltinEnv {
-    fn resolve_name(
-        &mut self,
-        span: Span,
-        name: &EarlyComptimeName,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        match name {
-            EarlyComptimeName::Unresolved(display) => Err(ComptimeError {
-                span,
-                message: format!("unknown comptime value `{display}`"),
-            }),
-            EarlyComptimeName::Resolved { display, .. } => Err(ComptimeError {
-                span,
-                message: format!(
-                    "resolved comptime value `{display}` is not available in this test"
-                ),
-            }),
-        }
     }
 
     fn resolve_layout_builtin(

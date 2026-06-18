@@ -83,7 +83,6 @@ impl FlowChecker<'_> {
                 }
                 ItemKind::Module(_)
                 | ItemKind::Using(_)
-                | ItemKind::ComptimeIf(_)
                 | ItemKind::Struct(_)
                 | ItemKind::Union(_)
                 | ItemKind::Enum(_)
@@ -287,19 +286,6 @@ impl FlowChecker<'_> {
                     falls_through |= self.check_expr_flow(else_branch).falls_through;
                 }
                 Flow { falls_through }
-            }
-            ExprKind::ComptimeIf(comptime_if) => {
-                self.check_expr_flow(&comptime_if.cond);
-                let then_flow = self.check_block(&comptime_if.then_branch);
-                let else_flow = comptime_if.else_branch.as_deref().map_or(
-                    Flow {
-                        falls_through: true,
-                    },
-                    |else_branch| self.check_expr_flow(else_branch),
-                );
-                Flow {
-                    falls_through: then_flow.falls_through || else_flow.falls_through,
-                }
             }
             ExprKind::Switch(switch) => {
                 self.check_switch_patterns(switch);

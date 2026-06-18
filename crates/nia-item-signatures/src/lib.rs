@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    Attribute, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param, ReceiverKind,
-    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
+    Attribute, AttributeKind, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param,
+    ReceiverKind, StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -311,9 +311,7 @@ struct SignatureCollector<'a> {
 impl<'a> SignatureCollector<'a> {
     fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
         match &item.kind {
-            ItemTreeNodeKind::Module(_)
-            | ItemTreeNodeKind::Using(_)
-            | ItemTreeNodeKind::ComptimeIf(_) => {}
+            ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
             ItemTreeNodeKind::Struct(item_struct) => {
                 self.collect_struct(signatures, item, item_struct);
             }
@@ -687,9 +685,12 @@ impl<'a> SignatureCollector<'a> {
     ) -> Vec<FunctionAttribute> {
         let mut out = Vec::new();
         for attribute in attributes {
-            match attribute.path.as_slice() {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            match meta.path.as_slice() {
                 [name] if name == "naked" => {
-                    if !attribute.args.is_empty() {
+                    if !meta.args.is_empty() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0203",
                             attribute.span,
@@ -709,10 +710,7 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0203",
                         attribute.span,
-                        format!(
-                            "unknown function attribute `@[{}]`",
-                            attribute.path.join(".")
-                        ),
+                        format!("unknown function attribute `@[{}]`", meta.path.join(".")),
                     ));
                 }
             }
@@ -946,11 +944,10 @@ fn add(a: i32, b: i32) i32 {
     fn collects_item_signatures_from_active_item_tree_only() {
         let (module, errors) = parse_module(
             r#"
-comptime if false {
-    fn skipped() i32 { 0 }
-} else {
-    fn selected() i32 { 1 }
-}
+@[if false]
+fn skipped() i32 { 0 }
+@[if true]
+fn selected() i32 { 1 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -975,28 +972,24 @@ comptime if false {
             signatures.diagnostics
         );
         assert_eq!(signatures.functions.len(), 1);
-        assert!(
-            signatures
-                .functions
-                .values()
-                .any(|signature| signature.span == active.items[0].span)
-        );
+        assert_eq!(active.items.len(), 1);
+        assert!(matches!(
+            &active_module.items[0].kind,
+            nia_ast::ItemKind::Function(function) if function.name == "selected"
+        ));
     }
 
     struct BoolResolver(bool);
 
-    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
-        fn resolve_comptime_if(
+    impl nia_item_tree::ConditionResolver for BoolResolver {
+        fn resolve_condition(
             &mut self,
-            span: Span,
-            _cond: &nia_ast::Expr,
-        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
-            let _ = span;
-            Ok(if self.0 {
-                nia_item_tree::ComptimeBranch::Then
-            } else {
-                nia_item_tree::ComptimeBranch::Else
-            })
+            cond: &nia_ast::ConditionExpr,
+        ) -> Result<bool, nia_item_tree::ItemTreeError> {
+            match &cond.kind {
+                nia_ast::ConditionExprKind::Bool(value) => Ok(*value),
+                _ => Ok(self.0),
+            }
         }
     }
 }

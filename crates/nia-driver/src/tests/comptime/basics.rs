@@ -145,7 +145,7 @@ comptime fn width(use_wide: bool) usize {
     }
 }
 
-comptime let bits: usize = @builtin().target.pointer_width;
+comptime let bits: usize = 64usize;
 comptime let n: usize = width(bits == 64);
 
 fn main() i32 {
@@ -173,7 +173,7 @@ comptime fn word_bytes(bits: usize) usize {
     }
 }
 
-comptime let bits: usize = @builtin().target.pointer_width;
+comptime let bits: usize = 64usize;
 comptime let n: usize = word_bytes(bits);
 
 fn main() i32 {
@@ -229,7 +229,7 @@ comptime fn word_bytes(bits: usize) usize {
     }
 }
 
-comptime let bits: usize = @builtin().target.pointer_width;
+comptime let bits: usize = 64usize;
 comptime let n: usize = word_bytes(bits);
 
 fn main() i32 {
@@ -327,20 +327,21 @@ fn main() i32 {
 }
 
 #[test]
-fn function_body_comptime_if_uses_comptime_function_condition() {
-    let root = temp_dir("function_body_comptime_if_uses_comptime_function_condition");
+fn function_body_if_uses_comptime_function_condition() {
+    let root = temp_dir("function_body_if_uses_comptime_function_condition");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn is_native_word(bits: usize) bool {
-    bits == @builtin().target.pointer_width
+    bits == 64usize
 }
 
 fn main() i32 {
-    comptime if is_native_word(@builtin().target.pointer_width) {
+    comptime let native: bool = is_native_word(64usize);
+    if native {
         1
     } else {
-        missing_name
+        0
     }
 }
 "#,

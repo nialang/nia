@@ -273,7 +273,6 @@ impl Collector {
             ItemTreeNodeKind::Using(using) => {
                 self.collect_using(item, using);
             }
-            ItemTreeNodeKind::ComptimeIf(_) => {}
             ItemTreeNodeKind::Struct(item_struct) => self.collect_struct(item, item_struct),
             ItemTreeNodeKind::Union(item_union) => self.collect_union(item, item_union),
             ItemTreeNodeKind::Trait(item_trait) => self.collect_trait(item, item_trait),
