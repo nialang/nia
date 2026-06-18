@@ -225,8 +225,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_comptime_function_infers_type_arg_from_builtin_target_field() {
-    let root = temp_dir("generic_comptime_function_infers_type_arg_from_builtin_target_field");
+fn generic_comptime_function_infers_type_arg_from_integer_field() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_integer_field");
     write(
         &root.join("main.nia"),
         r#"
@@ -234,7 +234,8 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let bits: usize = id(@builtin().target.pointer_width);
+comptime let config = {target: {pointer_width: 64usize}};
+comptime let bits: usize = id(config.target.pointer_width);
 comptime let n: usize = bits / 8usize;
 
 fn main() i32 {
@@ -249,8 +250,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_comptime_function_infers_type_arg_from_bound_builtin_struct() {
-    let root = temp_dir("generic_comptime_function_infers_type_arg_from_bound_builtin_struct");
+fn generic_comptime_function_infers_type_arg_from_bound_struct() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_bound_struct");
     write(
         &root.join("main.nia"),
         r#"
@@ -258,7 +259,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let builtin = @builtin();
+comptime let builtin = {target: {pointer_width: 64usize}};
 comptime let bits: usize = id(builtin.target.pointer_width);
 comptime let n: usize = bits / 8usize;
 

@@ -807,7 +807,6 @@ impl<'a> BodyChecker<'a> {
             node_pointer_array_to_slice_coercions: HashMap::new(),
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
-            node_comptime_if_selections: HashMap::new(),
             node_builtin_values: HashMap::new(),
             node_array_repeat_counts: HashMap::new(),
             node_switch_pattern_values: HashMap::new(),

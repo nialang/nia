@@ -415,8 +415,4 @@ impl Analyzer<'_> {
             .rev()
             .find_map(|frame| frame.local_types.get(&local_id).cloned())
     }
-
-    pub(super) fn builtin_comptime_type(&self) -> ComptimeValueType {
-        builtin_comptime_value_type(self.current_runtime_primitive_type(PrimitiveTy::Usize))
-    }
 }

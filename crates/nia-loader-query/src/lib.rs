@@ -1135,16 +1135,15 @@ mod tests {
     }
 
     #[test]
-    fn comptime_if_prunes_unselected_modules_before_graph_loading() {
-        let root = temp_dir("comptime_if_prunes_unselected_modules_before_graph_loading");
+    fn conditional_attribute_prunes_unselected_modules_before_graph_loading() {
+        let root = temp_dir("conditional_attribute_prunes_unselected_modules_before_graph_loading");
         write(
             &root.join("main.nia"),
             r#"
-comptime if false {
-    module missing;
-} else {
-    module present;
-}
+@[if false]
+module missing;
+@[if true]
+module present;
 "#,
         );
         write(&root.join("present.nia"), "pub fn value() i32 { 1 }");
@@ -1162,16 +1161,15 @@ comptime if false {
     }
 
     #[test]
-    fn comptime_if_uses_builtin_target_fields_for_module_pruning() {
-        let root = temp_dir("comptime_if_uses_builtin_target_fields_for_module_pruning");
+    fn conditional_attribute_uses_target_fields_for_module_pruning() {
+        let root = temp_dir("conditional_attribute_uses_target_fields_for_module_pruning");
         write(
             &root.join("main.nia"),
             r#"
-comptime if @builtin().target.os == "definitely-not-the-host-os" {
-    module missing;
-} else {
-    module present;
-}
+@[if os == "definitely-not-the-host-os"]
+module missing;
+@[if os != "definitely-not-the-host-os"]
+module present;
 "#,
         );
         write(&root.join("present.nia"), "pub fn value() i32 { 1 }");

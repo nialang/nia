@@ -21,6 +21,7 @@ pub struct Block {
 pub struct Stmt {
     pub span: Span,
     pub node_key: NodeKey,
+    pub attributes: Vec<crate::Attribute>,
     pub kind: StmtKind,
 }
 
@@ -87,13 +88,6 @@ pub struct WhileStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoopStmt {
     pub body: Block,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeIfExpr {
-    pub cond: Box<Expr>,
-    pub then_branch: Block,
-    pub else_branch: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,7 +309,6 @@ pub enum ExprKind {
         else_branch: Option<Box<Expr>>,
     },
     IfPattern(Box<IfPatternExpr>),
-    ComptimeIf(Box<ComptimeIfExpr>),
     Switch(Box<SwitchStmt>),
 }
 

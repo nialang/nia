@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
-use nia_ast::{AssignOp, BinaryOp, BracketArg, ComptimeIfExpr, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
     BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp, BuiltinValue,
-    ComptimeIfSelection,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
@@ -266,9 +265,6 @@ impl<'a> BodyChecker<'a> {
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
             ExprKind::IfPattern(if_pattern) => self.check_if_pattern_expr(if_pattern, expected),
-            ExprKind::ComptimeIf(comptime_if) => {
-                self.check_comptime_if_expr(expr, comptime_if, expected)
-            }
             ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
@@ -708,42 +704,6 @@ impl<'a> BodyChecker<'a> {
         let else_ty = self.check_expr_with_expected(else_branch, Some(then_ty));
         self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
         then_ty
-    }
-
-    fn check_comptime_if_expr(
-        &mut self,
-        expr: &Expr,
-        comptime_if: &ComptimeIfExpr,
-        expected: Option<InternedTyId>,
-    ) -> InternedTyId {
-        match self.with_comptime_context(|this| {
-            let cond = this.lower_comptime_expr(&comptime_if.cond).map_err(|err| {
-                nia_comptime_engine::ComptimeError {
-                    span: err.span,
-                    message: err.message,
-                }
-            })?;
-            nia_comptime_engine::eval_resolved_comptime_bool_expr(&cond, this)
-        }) {
-            Ok(true) => {
-                self.record_comptime_if_selection(expr, ComptimeIfSelection::Then);
-                self.check_block_with_expected(&comptime_if.then_branch, expected)
-            }
-            Ok(false) => {
-                let Some(else_branch) = comptime_if.else_branch.as_deref() else {
-                    self.record_comptime_if_selection(expr, ComptimeIfSelection::None);
-                    return self.void();
-                };
-                self.record_comptime_if_selection(expr, ComptimeIfSelection::Else);
-                self.check_expr_with_expected(else_branch, expected)
-            }
-            Err(err) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0301", err.span, err.message));
-                self.record_comptime_if_selection(expr, ComptimeIfSelection::None);
-                self.error()
-            }
-        }
     }
 
     pub(crate) fn expect_block_tail_type(

@@ -50,7 +50,6 @@ pub enum ValueNameResolution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinResolution {
-    Builtin,
     ComptimeError,
     Trap,
     SizeOf,
@@ -481,9 +480,7 @@ impl<'a> ValueResolver<'a> {
                 }
             }
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
-            ItemTreeNodeKind::Module(_)
-            | ItemTreeNodeKind::Using(_)
-            | ItemTreeNodeKind::ComptimeIf(_) => {}
+            ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
             ItemTreeNodeKind::TypeAlias(alias) => {
                 walk_where_clause(self, &alias.where_clause);
                 self.visit_type(&alias.ty);
@@ -903,7 +900,6 @@ impl<'a> ValueResolver<'a> {
 
     fn resolve_builtin(&mut self, name: &str, span: Span) -> BuiltinResolution {
         match name {
-            "builtin" => BuiltinResolution::Builtin,
             "error" => BuiltinResolution::ComptimeError,
             "trap" => BuiltinResolution::Trap,
             "size" => BuiltinResolution::SizeOf,
@@ -1122,14 +1118,13 @@ fn main() usize {
     fn resolves_values_from_active_item_tree_only() {
         let (module, errors) = parse_module(
             r#"
-comptime if false {
-    fn skipped() usize {
-        @unknown[usize]()
-    }
-} else {
-    fn selected() usize {
-        @size[usize]()
-    }
+@[if false]
+fn skipped() usize {
+    @unknown[usize]()
+}
+@[if true]
+fn selected() usize {
+    @size[usize]()
 }
 "#,
         );
@@ -1160,18 +1155,15 @@ comptime if false {
 
     struct BoolResolver(bool);
 
-    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
-        fn resolve_comptime_if(
+    impl nia_item_tree::ConditionResolver for BoolResolver {
+        fn resolve_condition(
             &mut self,
-            span: Span,
-            _cond: &nia_ast::Expr,
-        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
-            let _ = span;
-            Ok(if self.0 {
-                nia_item_tree::ComptimeBranch::Then
-            } else {
-                nia_item_tree::ComptimeBranch::Else
-            })
+            cond: &nia_ast::ConditionExpr,
+        ) -> Result<bool, nia_item_tree::ItemTreeError> {
+            match &cond.kind {
+                nia_ast::ConditionExprKind::Bool(value) => Ok(*value),
+                _ => Ok(self.0),
+            }
         }
     }
 }

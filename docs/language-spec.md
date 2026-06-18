@@ -1065,7 +1065,7 @@ require the function item to be a place. `&function_item` is not allowed.
 
 ### 5.1 Attributes
 
-Attributes are AST marks written before an item or aggregate field:
+Attributes are AST marks written before an item, statement, or aggregate field:
 
 ```nia
 @[link_name("runtime_start")]
@@ -1081,8 +1081,33 @@ Attribute syntax is `@[name]` or `@[path.name(args...)]`. Attribute names use
 identifier path segments separated by `.`. Attribute arguments use normal
 expression syntax and are stored with the AST node.
 
+`@[if condition]` is the language-defined conditional compilation attribute.
+It may be attached to items and statements. The condition language is separate
+from ordinary Nia expressions and from `comptime` evaluation. It accepts boolean,
+integer, and string literals; names `arch`, `vendor`, `os`, `env`, `abi`,
+`endian`, and `pointer_width`; unary `not`; binary `and`, `or`, `==`, and `!=`;
+and parentheses.
+
+```nia
+@[if os == "linux" and arch == "x86_64"]
+pub(package) module freestanding;
+
+fn word() usize {
+    @[if pointer_width == 64]
+    return 8;
+    4
+}
+```
+
+The whole file must still parse, so inactive declarations and statements must
+be syntactically valid Nia. After parsing, inactive conditional items and
+statements are removed for the active target before later semantic phases.
+Invalid names, types, imports, or calls in inactive code are not diagnosed for
+that target. Multi-target validation is expected to run the compiler for each
+target a project supports.
+
 Attributes are intentionally separate from builtin expressions. `@foo` remains
-reserved for builtin expression forms such as `@size[T]()` and `@builtin()`.
+reserved for builtin expression forms such as `@size[T]()` and `@error(...)`.
 AST attributes must use the bracketed `@[...]` form.
 
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
@@ -1392,12 +1417,11 @@ fn first_value() i32 {
 `comptime` may appear wherever `var` or `let` binding syntax is accepted. A
 `comptime` binding must have an initializer. Its initializer must be evaluable
 with the current compile-time value evaluator. Current compile-time values cover
-integer, boolean, string, and struct literal values; builtin-provided struct
-values such as `@builtin()`; struct field access; casts that preserve the
-underlying value; boolean `not`, `and`, and `or`; equality comparisons between
-matching primitive comptime value kinds; simple integer arithmetic and bit
-operations; and references to other visible `comptime` bindings. Cyclic
-`comptime` dependencies are errors.
+integer, boolean, string, array, and struct literal values; struct field access;
+casts that preserve the underlying value; boolean `not`, `and`, and `or`;
+equality comparisons between matching primitive comptime value kinds; simple
+integer arithmetic and bit operations; and references to other visible
+`comptime` bindings. Cyclic `comptime` dependencies are errors.
 
 Top-level `pub comptime` bindings participate in normal module visibility and
 may be used through imports:
@@ -1426,50 +1450,8 @@ comptime let p: Point = Point{x: 2, y: 3};
 comptime let width: usize = p.x + p.y;
 ```
 
-`@builtin()` returns an ordinary comptime struct value. Its currently specified
-field is `target`, which is itself a comptime struct with these fields:
-
-```nia
-@builtin().target.arch
-@builtin().target.vendor
-@builtin().target.os
-@builtin().target.env
-@builtin().target.abi
-@builtin().target.endian
-@builtin().target.pointer_width
-```
-
-These fields are ordinary comptime values, not a second target-condition
-language.
-
-`comptime if` selects source for the active target configuration:
-
-```nia
-comptime if @builtin().target.os == "linux" {
-    using root::linux;
-} else {
-    using root::portable;
-}
-
-fn mode() i32 {
-    comptime if @builtin().target.pointer_width == 64 {
-        1
-    } else {
-        0
-    }
-}
-```
-
-The whole file must still parse, so unselected branches must be syntactically
-valid Nia. After parsing, item-level branches are represented in the module item
-tree and an active item surface is selected for the current target. Unselected
-item branches do not contribute imports or definitions for that target. Function
-body `comptime if` uses the same comptime condition semantics while checking the
-body.
-
-Invalid names, types, imports, or calls in an unselected branch are not
-diagnosed for the current target. Multi-target validation is expected to run the
-compiler for each target that a project supports.
+Conditional source selection is expressed with `@[if ...]`, not with
+`comptime`. `comptime` is reserved for compile-time values and functions.
 
 ### 5.7 Global Storage
 
@@ -1923,13 +1905,7 @@ Nia provides a small builtin surface:
 ```nia
 @size[T]()
 @align[T]()
-@builtin().target.arch
-@builtin().target.vendor
-@builtin().target.os
-@builtin().target.env
-@builtin().target.abi
-@builtin().target.endian
-@builtin().target.pointer_width
+@error("message")
 value.len()
 range.start()
 range.end()

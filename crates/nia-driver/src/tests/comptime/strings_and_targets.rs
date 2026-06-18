@@ -2,16 +2,16 @@
 use super::*;
 
 #[test]
-fn comptime_target_strings_compare_with_string_literals() {
-    let root = temp_dir("comptime_target_strings_compare_with_string_literals");
+fn comptime_char_arrays_compare_with_string_literals() {
+    let root = temp_dir("comptime_char_arrays_compare_with_string_literals");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn is_target_os(value: [5]char) bool {
-    @builtin().target.os == value
+comptime fn is_sample_os(value: [5]char) bool {
+    "linux".* == value
 }
 
-comptime let n: usize = if is_target_os("linux".*) { 4usize } else { 2usize };
+comptime let n: usize = if is_sample_os("linux".*) { 4usize } else { 2usize };
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -25,8 +25,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_target_strings_pass_as_char_arrays() {
-    let root = temp_dir("comptime_target_strings_pass_as_char_arrays");
+fn comptime_char_arrays_pass_as_char_arrays() {
+    let root = temp_dir("comptime_char_arrays_pass_as_char_arrays");
     write(
         &root.join("main.nia"),
         r#"
@@ -38,7 +38,7 @@ comptime fn accept_linux(value: [5]char) usize {
     }
 }
 
-comptime let n: usize = accept_linux(@builtin().target.os);
+comptime let n: usize = accept_linux("linux".*);
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -52,8 +52,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_target_strings_validate_char_array_lengths() {
-    let root = temp_dir("comptime_target_strings_validate_char_array_lengths");
+fn comptime_char_arrays_validate_char_array_lengths() {
+    let root = temp_dir("comptime_char_arrays_validate_char_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
@@ -61,7 +61,7 @@ comptime fn accept_short(value: [4]char) usize {
     value.len()
 }
 
-comptime let n: usize = accept_short(@builtin().target.os);
+comptime let n: usize = accept_short("linux".*);
 "#,
     );
 
@@ -77,12 +77,12 @@ comptime let n: usize = accept_short(@builtin().target.os);
 }
 
 #[test]
-fn typed_comptime_target_string_binding_is_a_char_array() {
-    let root = temp_dir("typed_comptime_target_string_binding_is_a_char_array");
+fn typed_comptime_char_array_binding_is_a_char_array() {
+    let root = temp_dir("typed_comptime_char_array_binding_is_a_char_array");
     write(
         &root.join("main.nia"),
         r#"
-comptime let os: [5]char = @builtin().target.os;
+comptime let os: [5]char = "linux".*;
 comptime let n: usize = if os.len() == 5usize {
     os.len()
 } else {
@@ -101,12 +101,12 @@ fn main() i32 {
 }
 
 #[test]
-fn imported_typed_comptime_target_string_binding_is_a_char_array() {
-    let root = temp_dir("imported_typed_comptime_target_string_binding_is_a_char_array");
+fn imported_typed_comptime_char_array_binding_is_a_char_array() {
+    let root = temp_dir("imported_typed_comptime_char_array_binding_is_a_char_array");
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let os: [5]char = @builtin().target.os;
+pub comptime let os: [5]char = "linux".*;
 "#,
     );
     write(
@@ -129,16 +129,16 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_returned_target_string_is_a_char_array() {
-    let root = temp_dir("comptime_function_returned_target_string_is_a_char_array");
+fn comptime_function_returned_char_array_is_a_char_array() {
+    let root = temp_dir("comptime_function_returned_char_array_is_a_char_array");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn target_os() [5]char {
-    @builtin().target.os
+comptime fn sample_os() [5]char {
+    "linux".*
 }
 
-comptime let os: [5]char = target_os();
+comptime let os: [5]char = sample_os();
 comptime let n: usize = os.len();
 
 fn main() i32 {
@@ -153,16 +153,16 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_returned_target_string_can_be_consumed_directly() {
-    let root = temp_dir("comptime_function_returned_target_string_can_be_consumed_directly");
+fn comptime_function_returned_char_array_can_be_consumed_directly() {
+    let root = temp_dir("comptime_function_returned_char_array_can_be_consumed_directly");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn target_os() [5]char {
-    @builtin().target.os
+comptime fn sample_os() [5]char {
+    "linux".*
 }
 
-comptime let n: usize = target_os().len();
+comptime let n: usize = sample_os().len();
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -176,16 +176,16 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_returned_target_string_validates_char_array_length() {
-    let root = temp_dir("comptime_function_returned_target_string_validates_char_array_length");
+fn comptime_function_returned_char_array_validates_char_array_length() {
+    let root = temp_dir("comptime_function_returned_char_array_validates_char_array_length");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn target_os() [4]char {
-    @builtin().target.os
+comptime fn sample_os() [4]char {
+    "linux".*
 }
 
-comptime let os = target_os();
+comptime let os = sample_os();
 "#,
     );
 
@@ -214,7 +214,7 @@ comptime fn total(values: [1][5]char) usize {
     n
 }
 
-comptime let n: usize = total([@builtin().target.os]);
+comptime let n: usize = total(["linux".*]);
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -240,11 +240,11 @@ fn comptime_if_pattern_optional_payload_preserves_array_type() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn target_os() ?[5]char {
-    ?@builtin().target.os
+comptime fn sample_os() ?[5]char {
+    ?"linux".*
 }
 
-comptime let n: usize = if let ?os = target_os() {
+comptime let n: usize = if let ?os = sample_os() {
     os.len()
 } else null {
     0usize
@@ -262,12 +262,12 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_optional_constructor_projects_target_string_payload() {
-    let root = temp_dir("comptime_optional_constructor_projects_target_string_payload");
+fn comptime_optional_constructor_projects_char_array_payload() {
+    let root = temp_dir("comptime_optional_constructor_projects_char_array_payload");
     write(
         &root.join("main.nia"),
         r#"
-comptime let os: ?[5]char = ?@builtin().target.os;
+comptime let os = ?"linux".*;
 comptime let n: usize = if let ?payload = os {
     payload.len()
 } else null {
@@ -293,8 +293,8 @@ fn imported_comptime_function_return_validates_imported_array_length() {
         r#"
 pub comptime let os_len: usize = 5usize;
 
-pub comptime fn target_os() [os_len]char {
-    @builtin().target.os
+pub comptime fn sample_os() [os_len]char {
+    "linux".*
 }
 "#,
     );
@@ -304,7 +304,7 @@ pub comptime fn target_os() [os_len]char {
 module config;
 using root::config;
 
-comptime let n: usize = config::target_os().len();
+comptime let n: usize = config::sample_os().len();
 
 fn main() i32 {
     var values: [n]i32 = [0; n];
@@ -325,8 +325,8 @@ fn imported_comptime_function_return_rejects_imported_array_length_mismatch() {
         r#"
 pub comptime let os_len: usize = 4usize;
 
-pub comptime fn target_os() [os_len]char {
-    @builtin().target.os
+pub comptime fn sample_os() [os_len]char {
+    "linux".*
 }
 "#,
     );
@@ -336,7 +336,7 @@ pub comptime fn target_os() [os_len]char {
 module config;
 using root::config;
 
-comptime let os = config::target_os();
+comptime let os = config::sample_os();
 "#,
     );
 

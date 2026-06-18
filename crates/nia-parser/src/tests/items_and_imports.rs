@@ -78,7 +78,7 @@ pub extern fn start(argc: i32) i32;
 struct Header {
     @[offset(0)]
     magic: u32,
-    @[note(@builtin().target.os)]
+    @[note(config.target.os)]
     flags: u16,
 }
 "#,
@@ -87,29 +87,38 @@ struct Header {
 
     assert_eq!(module.items[0].attributes.len(), 1);
     let attr = &module.items[0].attributes[0];
-    assert_eq!(attr.path, vec!["link_name"]);
-    assert_eq!(attr.args.len(), 1);
-    assert!(matches!(attr.args[0].kind, ExprKind::String(_)));
+    let AttributeKind::Meta(meta) = &attr.kind else {
+        panic!("expected metadata attribute");
+    };
+    assert_eq!(meta.path, vec!["link_name"]);
+    assert_eq!(meta.args.len(), 1);
+    assert!(matches!(meta.args[0].kind, ExprKind::String(_)));
     assert!(matches!(module.items[0].vis, Visibility::Public));
 
     assert_eq!(module.items[1].attributes.len(), 1);
     let attr = &module.items[1].attributes[0];
-    assert_eq!(attr.path, vec!["layout", "version"]);
-    assert_eq!(attr.args.len(), 2);
-    assert!(matches!(attr.args[0].kind, ExprKind::Integer(_)));
-    assert!(matches!(attr.args[1].kind, ExprKind::Bool(true)));
+    let AttributeKind::Meta(meta) = &attr.kind else {
+        panic!("expected metadata attribute");
+    };
+    assert_eq!(meta.path, vec!["layout", "version"]);
+    assert_eq!(meta.args.len(), 2);
+    assert!(matches!(meta.args[0].kind, ExprKind::Integer(_)));
+    assert!(matches!(meta.args[1].kind, ExprKind::Bool(true)));
 
     let ItemKind::Struct(item_struct) = &module.items[1].kind else {
         panic!("expected struct");
     };
     assert_eq!(item_struct.fields.len(), 2);
     assert_eq!(item_struct.fields[0].attributes.len(), 1);
-    assert_eq!(item_struct.fields[0].attributes[0].path, vec!["offset"]);
-    assert_eq!(item_struct.fields[1].attributes.len(), 1);
-    assert_eq!(item_struct.fields[1].attributes[0].path, vec!["note"]);
     assert!(matches!(
-        &item_struct.fields[1].attributes[0].args[0].kind,
-        ExprKind::Field { .. }
+        &item_struct.fields[0].attributes[0].kind,
+        AttributeKind::Meta(meta) if meta.path == ["offset"]
+    ));
+    assert_eq!(item_struct.fields[1].attributes.len(), 1);
+    assert!(matches!(
+        &item_struct.fields[1].attributes[0].kind,
+        AttributeKind::Meta(meta)
+            if meta.path == ["note"] && matches!(meta.args[0].kind, ExprKind::Field { .. })
     ));
 }
 

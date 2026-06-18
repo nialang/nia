@@ -1,5 +1,2 @@
-comptime if @builtin().target.os == "linux"
-    and @builtin().target.arch == "x86_64"
-{
-    pub(package) module freestanding;
-}
+@[if os == "linux" and arch == "x86_64"]
+pub(package) module freestanding;

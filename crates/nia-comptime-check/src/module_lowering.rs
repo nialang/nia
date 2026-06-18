@@ -351,13 +351,6 @@ impl ComptimeModuleLowerer<'_> {
                     self.collect_expr_locals(else_branch, out);
                 }
             }
-            nia_ast::ExprKind::ComptimeIf(comptime_if) => {
-                self.collect_expr_locals(&comptime_if.cond, out);
-                self.collect_block_locals(&comptime_if.then_branch, out);
-                if let Some(else_branch) = comptime_if.else_branch.as_deref() {
-                    self.collect_expr_locals(else_branch, out);
-                }
-            }
             nia_ast::ExprKind::Switch(switch) => {
                 self.collect_expr_locals(&switch.target, out);
                 for arm in &switch.arms {

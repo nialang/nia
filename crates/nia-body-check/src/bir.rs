@@ -15,9 +15,7 @@ use nia_body_ir::{
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
-use nia_sema_ir::{
-    BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ComptimeIfSelection, ResolvedCall,
-};
+use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
 use nia_ty::{BuiltinTrait, TyKind};
@@ -1021,33 +1019,6 @@ impl<'a> BodyChecker<'a> {
                     }),
                 }))
             }
-            ExprKind::ComptimeIf(comptime_if) => {
-                match self
-                    .node_comptime_if_selections
-                    .get(&expr.node_key)
-                    .copied()
-                {
-                    Some(ComptimeIfSelection::Then) => {
-                        TypedExprKind::Block(self.lower_body_with_expected_tail(
-                            &comptime_if.then_branch,
-                            if self.is_never(ty) { None } else { Some(ty) },
-                        ))
-                    }
-                    Some(ComptimeIfSelection::Else) => comptime_if
-                        .else_branch
-                        .as_deref()
-                        .map(|else_branch| {
-                            self.lower_expr_with_ty(
-                                else_branch,
-                                if self.is_never(ty) { None } else { Some(ty) },
-                            )
-                            .kind
-                        })
-                        .unwrap_or_else(|| self.lower_void_block(expr.span).kind),
-                    Some(ComptimeIfSelection::None) => self.lower_void_block(expr.span).kind,
-                    None => TypedExprKind::Error,
-                }
-            }
             ExprKind::Switch(switch) => TypedExprKind::Switch(Box::new(self.lower_switch(switch))),
         };
         TypedExpr {
@@ -1148,20 +1119,6 @@ impl<'a> BodyChecker<'a> {
                 ty,
                 kind: TypedExprKind::Error,
             },
-        }
-    }
-
-    fn lower_void_block(&self, span: Span) -> TypedExpr {
-        TypedExpr {
-            span,
-            ty: self.void(),
-            kind: TypedExprKind::Block(TypedBody {
-                span,
-                locals: Vec::new(),
-                stmts: Vec::new(),
-                tail: None,
-                ty: self.void(),
-            }),
         }
     }
 

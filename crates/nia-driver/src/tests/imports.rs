@@ -705,7 +705,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub comptime let LIMIT: usize = if @builtin().target.pointer_width == 64 {
+    pub comptime let LIMIT: usize = if 64usize == 64 {
         18446744073709551615usize
     } else {
         4294967295usize

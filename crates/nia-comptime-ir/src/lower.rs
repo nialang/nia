@@ -329,9 +329,6 @@ fn lower_expr_internal(
         nia_ast::ExprKind::IfPattern(if_pattern) => EarlyComptimeExprKind::Switch(Box::new(
             lower_if_pattern_as_switch(expr.span, if_pattern, context)?,
         )),
-        nia_ast::ExprKind::ComptimeIf(comptime_if) => {
-            lower_comptime_if_with_context(comptime_if, context)?
-        }
         nia_ast::ExprKind::Switch(switch) => EarlyComptimeExprKind::Switch(Box::new(
             lower_switch_with_context(expr.span, switch, context)?,
         )),
@@ -517,22 +514,6 @@ fn lower_slice_range_with_context(
         start: range.start,
         end: range.end,
         inclusive: range.inclusive,
-    })
-}
-
-fn lower_comptime_if_with_context(
-    comptime_if: &nia_ast::ComptimeIfExpr,
-    context: &dyn ComptimeLowerContext,
-) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
-    Ok(EarlyComptimeExprKind::If {
-        cond: Box::new(lower_expr_internal(&comptime_if.cond, context)?),
-        then_branch: lower_block_with_context(&comptime_if.then_branch, context)?,
-        else_branch: comptime_if
-            .else_branch
-            .as_deref()
-            .map(|else_branch| lower_expr_internal(else_branch, context))
-            .transpose()?
-            .map(Box::new),
     })
 }
 

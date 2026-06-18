@@ -29,6 +29,147 @@ impl Parser {
         ))
     }
 
+    pub(super) fn parse_condition_expr_until(
+        &mut self,
+        stops: &[TokenKind],
+    ) -> Option<ConditionExpr> {
+        self.parse_condition_or_until(stops)
+    }
+
+    fn parse_condition_or_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
+        let mut lhs = self.parse_condition_and_until(stops)?;
+        while !stops.iter().any(|kind| self.at(kind.clone())) && self.eat(TokenKind::Or).is_some() {
+            let rhs = self.parse_condition_and_until(stops)?;
+            let span = Span::new(lhs.span.start, rhs.span.end);
+            lhs = ConditionExpr {
+                span,
+                kind: ConditionExprKind::Binary {
+                    lhs: Box::new(lhs),
+                    op: ConditionBinaryOp::Or,
+                    rhs: Box::new(rhs),
+                },
+            };
+        }
+        Some(lhs)
+    }
+
+    fn parse_condition_and_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
+        let mut lhs = self.parse_condition_equality_until(stops)?;
+        while !stops.iter().any(|kind| self.at(kind.clone())) && self.eat(TokenKind::And).is_some()
+        {
+            let rhs = self.parse_condition_equality_until(stops)?;
+            let span = Span::new(lhs.span.start, rhs.span.end);
+            lhs = ConditionExpr {
+                span,
+                kind: ConditionExprKind::Binary {
+                    lhs: Box::new(lhs),
+                    op: ConditionBinaryOp::And,
+                    rhs: Box::new(rhs),
+                },
+            };
+        }
+        Some(lhs)
+    }
+
+    fn parse_condition_equality_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
+        let mut lhs = self.parse_condition_unary_until(stops)?;
+        while !stops.iter().any(|kind| self.at(kind.clone())) {
+            let op = if self.eat(TokenKind::EqEq).is_some() {
+                ConditionBinaryOp::Eq
+            } else if self.eat(TokenKind::BangEq).is_some() {
+                ConditionBinaryOp::Ne
+            } else {
+                break;
+            };
+            let rhs = self.parse_condition_unary_until(stops)?;
+            let span = Span::new(lhs.span.start, rhs.span.end);
+            lhs = ConditionExpr {
+                span,
+                kind: ConditionExprKind::Binary {
+                    lhs: Box::new(lhs),
+                    op,
+                    rhs: Box::new(rhs),
+                },
+            };
+        }
+        Some(lhs)
+    }
+
+    fn parse_condition_unary_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
+        if self.at(TokenKind::Not) {
+            let start = self.bump().span.start;
+            let expr = self.parse_condition_unary_until(stops)?;
+            return Some(ConditionExpr {
+                span: Span::new(start, expr.span.end),
+                kind: ConditionExprKind::Unary {
+                    op: ConditionUnaryOp::Not,
+                    expr: Box::new(expr),
+                },
+            });
+        }
+        self.parse_condition_primary_until(stops)
+    }
+
+    fn parse_condition_primary_until(&mut self, stops: &[TokenKind]) -> Option<ConditionExpr> {
+        if stops.iter().any(|kind| self.at(kind.clone())) {
+            self.error_here("expected condition expression");
+            return None;
+        }
+        let token = self.peek().clone();
+        match token.kind {
+            TokenKind::True => {
+                self.bump();
+                Some(ConditionExpr {
+                    span: token.span,
+                    kind: ConditionExprKind::Bool(true),
+                })
+            }
+            TokenKind::False => {
+                self.bump();
+                Some(ConditionExpr {
+                    span: token.span,
+                    kind: ConditionExprKind::Bool(false),
+                })
+            }
+            TokenKind::Integer => {
+                self.bump();
+                Some(ConditionExpr {
+                    span: token.span,
+                    kind: ConditionExprKind::Integer(self.token_text(&token).to_string()),
+                })
+            }
+            TokenKind::String => {
+                self.bump();
+                Some(ConditionExpr {
+                    span: token.span,
+                    kind: ConditionExprKind::String(self.token_text(&token).to_string()),
+                })
+            }
+            TokenKind::Ident => {
+                self.bump();
+                Some(ConditionExpr {
+                    span: token.span,
+                    kind: ConditionExprKind::Ident(self.token_text(&token).to_string()),
+                })
+            }
+            TokenKind::LParen => {
+                let start = self.bump().span.start;
+                let expr = self.parse_condition_expr_until(&[TokenKind::RParen])?;
+                let end = self
+                    .expect(TokenKind::RParen, "expected `)` after condition expression")?
+                    .end;
+                Some(ConditionExpr {
+                    span: Span::new(start, end),
+                    kind: expr.kind,
+                })
+            }
+            _ => {
+                self.error_here("expected condition expression");
+                None
+            }
+        }
+    }
+
     fn parse_range_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         if self.at(TokenKind::DotDot) || self.at(TokenKind::DotDotEq) {
             let start = self.peek().span.start;
@@ -580,7 +721,6 @@ impl Parser {
                 let block = self.parse_block()?;
                 Some(self.make_expr(block.span, ExprKind::Block(block)))
             }
-            TokenKind::Comptime if self.at_comptime_if() => self.parse_comptime_if_expr(),
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Switch => self.parse_switch_expr(),
             _ => {
@@ -707,36 +847,6 @@ impl Parser {
                 binding_mode,
                 target,
                 arms,
-                else_branch,
-            })),
-        ))
-    }
-
-    fn parse_comptime_if_expr(&mut self) -> Option<Expr> {
-        let start = self
-            .expect(TokenKind::Comptime, "expected `comptime`")?
-            .start;
-        self.expect(TokenKind::If, "expected `if` after `comptime`")?;
-        let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
-        let then_branch = self.parse_block()?;
-        let else_branch = if self.eat(TokenKind::Else).is_some() {
-            if self.at_comptime_if() {
-                Some(Box::new(self.parse_comptime_if_expr()?))
-            } else {
-                let block = self.parse_block()?;
-                Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))))
-            }
-        } else {
-            None
-        };
-        let end = else_branch
-            .as_ref()
-            .map_or(then_branch.span.end, |expr| expr.span.end);
-        Some(self.make_expr(
-            Span::new(start, end),
-            ExprKind::ComptimeIf(Box::new(ComptimeIfExpr {
-                cond: Box::new(cond),
-                then_branch,
                 else_branch,
             })),
         ))

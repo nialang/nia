@@ -175,6 +175,7 @@ fn resolved_lowering_requires_local_ids() {
         span: span(),
         stmts: vec![nia_ast::Stmt {
             span: span(),
+            attributes: Vec::new(),
             node_key: stmt_key(0),
             kind: nia_ast::StmtKind::Binding(Box::new(nia_ast::BindingStmt {
                 name: "x".to_string(),

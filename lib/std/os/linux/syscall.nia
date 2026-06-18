@@ -1,6 +1,5 @@
-comptime if @builtin().target.arch == "x86_64" {
-    using package::os::linux::x86_64::syscall as platform;
-}
+@[if arch == "x86_64"]
+using package::os::linux::x86_64::syscall as platform;
 
 pub using platform::{
     close,

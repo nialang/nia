@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ComptimeArmType, ComptimeCheck, ComptimeInput, ComptimeKey, ComptimeProgramContext,
     ComptimeValue, ComptimeValueFieldType, ComptimeValueType, TypedComptimeValue,
-    builtin_comptime_value_type, resolved_pattern_local_id,
+    resolved_pattern_local_id,
     support::{
         comptime_string_to_char_array, enum_next_value, float_literal_suffix_ty,
         int_const_in_i128_range, integer_literal_suffix_ty, integer_range, is_float_primitive,

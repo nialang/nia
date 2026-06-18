@@ -408,26 +408,26 @@ small and generic. It must not embed semantic policy.
 
 Defines the source item tree used as the first semantic-facing representation of
 module contents. It keeps AST syntax out of long-lived semantic tables while
-preserving item boundaries, item attributes, visibility, nested `comptime if`
-item branches, and source spans.
+preserving item boundaries, item attributes, visibility, conditional item
+attributes, and source spans.
 
-`nia-item-tree` does not evaluate comptime conditions and does not resolve names
-or types. It exposes a branch-resolver interface so higher-level queries can
-select an active item surface using the same tree shape whether the condition is
-a simple target expression or a full comptime value query.
+`nia-item-tree` does not evaluate conditional attributes and does not resolve
+names or types. It exposes a condition-resolver interface so higher-level
+queries can select an active item surface for a target.
 
 The loader records both the raw module item tree and the active item tree for
 the current target. Module discovery, definition collection, type-name
 resolution, type lowering, item-signature collection, value resolution, and
 local resolution consume the active item tree. These phases therefore see a
-single declaration surface selected by comptime branch queries instead of
+single declaration surface selected by conditional attributes instead of
 reinterpreting a pruned AST module. The raw tree remains available for future
-lazy comptime branch queries and source-addressable inactive-branch diagnostics.
+source-addressable inactive-code diagnostics.
 
 This boundary is the long-term replacement for phases directly interpreting
-top-level AST `comptime if` as a module declaration, definition, type, value, or local-name
-pre-pass. Inactive branches remain represented and source-addressable; they are
-not semantically checked for a target unless a query selects that branch.
+conditional source selection as a module declaration, definition, type, value,
+or local-name pre-pass. Inactive items remain represented and
+source-addressable; they are not semantically checked for a target unless a
+query selects them.
 
 Function bodies are still stored as AST body nodes inside active item-tree
 function items until body checking. Declaration-surface phases use
@@ -564,9 +564,8 @@ AST is lowered into `ComptimeModule` before execution. A `ComptimeModule`
 contains the module's comptime enums, global and local comptime initializers,
 `comptime fn` bodies, and type-level constant expressions. That keeps parser
 syntax out of the evaluator and gives the query system a cacheable module-level
-boundary for ordinary comptime values such as `@builtin()` structs, user
-comptime structs, imported `comptime fn` calls, array length expressions, and
-branch conditions.
+boundary for ordinary comptime values such as user comptime structs, imported
+`comptime fn` calls, and array length expressions.
 
 Comptime lowering consumes `SemanticUseTable` from `nia-sema-ir` for source
 positions that already have semantic identity: value uses, local definitions,
@@ -586,8 +585,8 @@ make backend decisions.
 
 Supported evaluation is intentionally small: integer, boolean, string, and
 struct literal values; identifiers resolved by a caller-provided comptime
-environment; builtin-provided struct values such as `@builtin()`; struct field
-access; casts that preserve the underlying value; boolean logic; equality over
+environment; struct field access; casts that preserve the underlying value;
+boolean logic; equality over
 matching primitive comptime values; and simple integer arithmetic and bit
 operations. It also evaluates visible `comptime fn` bodies represented as
 comptime semantic bodies. AST lowering is performed by callers such as
@@ -614,12 +613,12 @@ storage or address, while top-level `let` and `var` bindings do.
 produce a pure value such as an integer, string, array, or struct, but the
 checker records the semantic comptime type when it is known from source-level
 semantic tables or builtin declarations. Runtime Nia types are represented as
-one case of this typed comptime layer; pure compile-time structs such as
-`@builtin()` are represented structurally and do not have to be forced into the
+one case of this typed comptime layer; pure compile-time structs are represented
+structurally and do not have to be forced into the
 runtime type interner. This keeps type ownership in the semantic query layer
 instead of teaching the evaluator about Nia's type system, while still giving
-generic comptime calls, `@builtin()` structs, target data, and ordinary user
-comptime structs one shared typed representation.
+generic comptime calls and ordinary user comptime structs one shared typed
+representation.
 
 Typed comptime bindings are not limited to explicit type annotations. When a
 `comptime` binding has no source annotation, the checker derives its typed
@@ -633,8 +632,8 @@ retroactive signature data.
 Typed comptime expression inference belongs to this checker as well. It derives
 runtime types for source-shaped comptime expressions only when the type is a
 semantic consequence of the expression and available tables, such as suffixed
-integer literals, typed aggregate literals, inferable array literals,
-`@builtin()` field access, and optional constructors whose payload type is
+integer literals, typed aggregate literals, inferable array literals, structural
+field access, and optional constructors whose payload type is
 already known. Constructors that need missing context, such as `null` or
 one-sided error-union values, remain untyped until an explicit binding,
 parameter, or call context supplies the full type.
@@ -690,15 +689,14 @@ field types. Without a nominal expected type, the literal is a structural
 compile-time-only value: the checker derives each field's comptime type and
 records a `ComptimeValueType::Struct`. It does not invent anonymous runtime
 struct types from field names; structural values stay in the comptime-only
-typed surface used by values such as `@builtin()`.
+typed surface.
 
 Comptime field access consumes both sides of that typed value surface.
 Structural comptime-only structs resolve fields from their structural field
 type list, while runtime nominal struct values resolve fields from the nominal
 struct signature with generic arguments substituted into the current execution
-module. This keeps ordinary user comptime structs and `@builtin()` structs on
-the same typed expression path without forcing builtin data into the runtime
-type interner.
+module. Structural comptime data stays on the same typed expression path
+without forcing anonymous data into the runtime type interner.
 
 Consumers outside `nia-comptime-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating
@@ -707,7 +705,7 @@ rather than a second owner of comptime expression inference.
 
 The same boundary applies to function-body comptime execution. `nia-body-check`
 may execute lowered `nia-comptime-ir` expressions while checking body-local
-`comptime if`, array lengths, and local `comptime` bindings, but generic
+`if` expressions, array lengths, and local `comptime` bindings, but generic
 comptime-call instantiation is delegated back to `nia-comptime-check`'s typed
 query surface. Body checking provides a typed comptime frame containing local
 binding value types, name aliases, active comptime function type substitutions,
@@ -716,10 +714,9 @@ signature, definition, and comptime-module context available to top-level
 comptime checking. The comptime checker uses that frame and program context
 through `TypedComptimeQueryInput`, so expression type queries and comptime
 function generic instantiation share one public input surface. This lets
-function-local structural comptime values, imported `comptime fn` calls,
-imported structural comptime fields, and ordinary `@builtin()` field values
-infer generic arguments without growing a second type-inference implementation
-in body checking.
+function-local structural comptime values, imported `comptime fn` calls, and
+imported structural comptime fields infer generic arguments without growing a
+second type-inference implementation in body checking.
 
 `TypedComptimeQueryInput` borrows existing typed comptime query output instead
 of copying it into a new result table. The checker overlays those borrowed
@@ -834,9 +831,9 @@ It produces two explicit products:
 
 - `BodyFacts`, the body semantic surface: expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
-  references, local types, generic instantiations, source-node fact keys, and
-  compile-time branch selections such as body `comptime if`, plus checked
-  comptime-derived facts such as array repeat counts and switch pattern values;
+  references, local types, generic instantiations, source-node fact keys, plus
+  checked comptime-derived facts such as array repeat counts and switch pattern
+  values;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
   initializers, and the interner required to interpret those typed bodies.
 

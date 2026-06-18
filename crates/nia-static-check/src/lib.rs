@@ -194,7 +194,6 @@ impl StaticChecker<'_> {
             ExprKind::Block(_) => Some("block expressions require comptime execution"),
             ExprKind::If { .. } => Some("if expressions require comptime execution"),
             ExprKind::IfPattern(_) => Some("if pattern expressions require comptime execution"),
-            ExprKind::ComptimeIf(_) => Some("comptime if expressions require target pruning"),
             ExprKind::Switch(_) => Some("switch expressions require comptime execution"),
             ExprKind::Call { .. } => Some("function calls require comptime execution"),
             ExprKind::Assign { .. } => Some("assignment cannot initialize global storage"),

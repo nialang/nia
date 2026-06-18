@@ -2,17 +2,15 @@
 use super::*;
 
 #[test]
-fn comptime_if_prunes_unselected_function_body_branch() {
-    let root = temp_dir("comptime_if_prunes_unselected_function_body_branch");
+fn conditional_attribute_prunes_unselected_function_body_statement() {
+    let root = temp_dir("conditional_attribute_prunes_unselected_function_body_statement");
     write(
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    comptime if true {
-        1
-    } else {
-        missing_name
-    }
+    @[if false]
+    _ = missing_name;
+    1
 }
 "#,
     );
@@ -22,19 +20,15 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_if_accepts_builtin_target_fields_in_function_body() {
-    let root = temp_dir("comptime_if_accepts_builtin_target_fields_in_function_body");
+fn conditional_attribute_accepts_target_fields() {
+    let root = temp_dir("conditional_attribute_accepts_target_fields");
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
-    comptime if @builtin().target.pointer_width == 64
-        or @builtin().target.pointer_width == 32 {
-        1
-    } else {
-        missing_name
-    }
-}
+@[if pointer_width == 64 or pointer_width == 32]
+fn selected() i32 { 1 }
+
+fn main() i32 { selected() }
 "#,
     );
 
@@ -43,12 +37,13 @@ fn main() i32 {
 }
 
 #[test]
-fn builtin_target_fields_are_ordinary_comptime_values() {
-    let root = temp_dir("builtin_target_fields_are_ordinary_comptime_values");
+fn user_struct_fields_are_ordinary_comptime_values() {
+    let root = temp_dir("user_struct_fields_are_ordinary_comptime_values");
     write(
         &root.join("main.nia"),
         r#"
-comptime let bits: usize = @builtin().target.pointer_width;
+comptime let builtin = {target: {pointer_width: 64usize}};
+comptime let bits: usize = builtin.target.pointer_width;
 comptime let word_bytes: usize = bits / 8;
 
 fn main() i32 {
@@ -63,13 +58,14 @@ fn main() i32 {
 }
 
 #[test]
-fn builtin_struct_cannot_be_bound_as_runtime_value() {
-    let root = temp_dir("builtin_struct_cannot_be_bound_as_runtime_value");
+fn removed_builtin_struct_is_rejected() {
+    let root = temp_dir("removed_builtin_struct_is_rejected");
     write(
         &root.join("main.nia"),
         r#"
 fn main() i32 {
     let builtin = @builtin();
+    _ = builtin;
     0
 }
 "#,
@@ -80,22 +76,23 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("comptime-only value")),
+            .contains("unknown builtin `@builtin`")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn comptime_function_rejects_builtin_string_field_assignment_type_mismatch() {
-    let root = temp_dir("comptime_function_rejects_builtin_string_field_assignment_type_mismatch");
+fn comptime_function_rejects_structural_array_field_assignment_type_mismatch() {
+    let root =
+        temp_dir("comptime_function_rejects_structural_array_field_assignment_type_mismatch");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    comptime var builtin = @builtin();
-    builtin.target.os = true;
-    builtin.target.pointer_width
+    comptime var config = {target: {os: "linux".*, pointer_width: 64usize}};
+    config.target.os = true;
+    config.target.pointer_width
 }
 
 comptime let n: usize = width();
@@ -107,7 +104,7 @@ comptime let n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("expected string type")),
+            .contains("expected array type")),
         "{:?}",
         program.diagnostics
     );
@@ -141,13 +138,13 @@ comptime let n: usize = width();
 }
 
 #[test]
-fn comptime_if_rejects_old_target_predicate_builtins() {
-    let root = temp_dir("comptime_if_rejects_old_target_predicate_builtins");
+fn old_target_predicate_builtins_are_rejected() {
+    let root = temp_dir("old_target_predicate_builtins_are_rejected");
     write(
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    comptime if @target_os("linux") {
+    if @target_os("linux") {
         1
     } else {
         0
@@ -161,7 +158,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unsupported builtin call in comptime expression")),
+            .contains("unknown builtin `@target_os`")),
         "{:?}",
         program.diagnostics
     );

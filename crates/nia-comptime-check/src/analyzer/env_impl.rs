@@ -26,9 +26,6 @@ impl ComptimeCommonEnv for Analyzer<'_> {
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = span;
         match builtin {
-            ValueBuiltin::Builtin => {
-                Ok(nia_target_config::builtin_comptime_value(self.input.target))
-            }
             ValueBuiltin::Error => Err(ComptimeError {
                 span,
                 message: "builtin `@error` must be called with a message".to_string(),

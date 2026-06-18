@@ -165,9 +165,6 @@ pub fn filter_semantic_facts_for_reachable_functions(
             .node_trait_object_upcasts
             .extend(function_facts.node_trait_object_upcasts.clone());
         reachable_facts
-            .node_comptime_if_selections
-            .extend(function_facts.node_comptime_if_selections.clone());
-        reachable_facts
             .node_builtin_values
             .extend(function_facts.node_builtin_values.clone());
         reachable_facts

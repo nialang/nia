@@ -90,14 +90,12 @@ pub enum BuiltinTrait {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueBuiltin {
-    Builtin,
     Error,
 }
 
 impl ValueBuiltin {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "builtin" => Some(Self::Builtin),
             "error" => Some(Self::Error),
             _ => None,
         }
@@ -105,7 +103,6 @@ impl ValueBuiltin {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Builtin => "builtin",
             Self::Error => "error",
         }
     }

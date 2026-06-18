@@ -308,7 +308,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 }
             }
             ItemKind::Function(function) => self.visit_function(function),
-            ItemKind::Module(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
+            ItemKind::Module(_) | ItemKind::Using(_) => {}
         }
     }
 
@@ -508,9 +508,7 @@ impl TypeLowerer<'_> {
                 }
             }
             ItemTreeNodeKind::Function(function) => self.visit_function(function),
-            ItemTreeNodeKind::Module(_)
-            | ItemTreeNodeKind::Using(_)
-            | ItemTreeNodeKind::ComptimeIf(_) => {}
+            ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
         }
     }
 }
@@ -1854,11 +1852,10 @@ fn bad(value: Show) void {}
     fn lowers_types_from_active_item_tree_only() {
         let (module, errors) = parse_module(
             r#"
-comptime if false {
-    fn skipped(value: MissingType) void {}
-} else {
-    fn selected(value: i32) void {}
-}
+@[if false]
+fn skipped(value: MissingType) void {}
+@[if true]
+fn selected(value: i32) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1893,18 +1890,15 @@ comptime if false {
 
     struct BoolResolver(bool);
 
-    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
-        fn resolve_comptime_if(
+    impl nia_item_tree::ConditionResolver for BoolResolver {
+        fn resolve_condition(
             &mut self,
-            span: Span,
-            _cond: &nia_ast::Expr,
-        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
-            let _ = span;
-            Ok(if self.0 {
-                nia_item_tree::ComptimeBranch::Then
-            } else {
-                nia_item_tree::ComptimeBranch::Else
-            })
+            cond: &nia_ast::ConditionExpr,
+        ) -> Result<bool, nia_item_tree::ItemTreeError> {
+            match &cond.kind {
+                nia_ast::ConditionExprKind::Bool(value) => Ok(*value),
+                _ => Ok(self.0),
+            }
         }
     }
 }
