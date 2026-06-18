@@ -132,8 +132,10 @@ pub fn filter_semantic_facts_for_reachable_functions(
     facts: SemanticFacts,
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> SemanticFacts {
-    let mut reachable_facts = SemanticFacts::default();
-    reachable_facts.global_types = facts.global_types;
+    let mut reachable_facts = SemanticFacts {
+        global_types: facts.global_types,
+        ..Default::default()
+    };
     for def_id in reachable_functions {
         let Some(function_facts) = facts.function_facts.get(def_id) else {
             continue;

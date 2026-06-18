@@ -294,10 +294,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Err(self.error(span, "repeat static initializer target is not array"));
         };
         if count == 0 || is_zero_static_init(value) {
-            return Ok(self
+            return self
                 .llvm_basic_type_in(ty, span, interner, layouts)?
                 .const_zero()
-                .map_err(Self::diagnostic_from_llvm_error)?);
+                .map_err(Self::diagnostic_from_llvm_error);
         }
         if let StaticInit::Byte(byte) = value
             && let Some(TyKind::Array { elem, .. }) = interner.get(ty)

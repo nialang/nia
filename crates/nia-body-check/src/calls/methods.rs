@@ -133,9 +133,7 @@ impl<'a> BodyChecker<'a> {
         };
         let mut call_receiver_ty = receiver_ty;
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
-            if BuiltinTraitMethod::from_name(name).is_none() {
-                return None;
-            }
+            BuiltinTraitMethod::from_name(name)?;
             call_receiver_ty = self
                 .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
                 .unwrap_or(receiver_ty);
