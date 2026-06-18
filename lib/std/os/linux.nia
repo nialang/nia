@@ -1,18 +1,18 @@
-pub(package) module fd;
-pub(package) module mem;
-pub(package) module process;
-pub(package) module random;
-pub(package) module stat;
-pub(package) module syscall;
-pub(package) module types;
-pub(package) module x86_64;
+pub(pkg) module fd;
+pub(pkg) module mem;
+pub(pkg) module process;
+pub(pkg) module random;
+pub(pkg) module stat;
+pub(pkg) module syscall;
+pub(pkg) module types;
+pub(pkg) module x86_64;
 
-using package::os::linux::fd;
-using package::os::linux::mem as memory;
-using package::os::linux::process;
-using package::os::linux::random as random_impl;
-using package::os::linux::stat;
-using package::os::linux::types;
+using pkg::os::linux::fd;
+using pkg::os::linux::mem as memory;
+using pkg::os::linux::process;
+using pkg::os::linux::random as random_impl;
+using pkg::os::linux::stat;
+using pkg::os::linux::types;
 
 pub using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 

@@ -1,5 +1,5 @@
-using package::io::traits;
-using package::mem;
+using pkg::io::traits;
+using pkg::mem;
 
 using traits::{BufferError, Reader, Writer};
 

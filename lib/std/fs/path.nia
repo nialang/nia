@@ -1,5 +1,5 @@
-using package::fs::types;
-using package::unicode;
+using pkg::fs::types;
+using pkg::unicode;
 
 using types::{EncodedPath, Error, Path, PathError};
 
@@ -56,7 +56,7 @@ extend EncodedPath {
 }
 
 extend PathError {
-    pub(package) fn as_fs_error(self) Error {
+    pub(pkg) fn as_fs_error(self) Error {
         switch self {
             PathError::Invalid => Error::Invalid,
             PathError::TooLong => Error::TooLong,
@@ -66,7 +66,7 @@ extend PathError {
 }
 
 extend[T] PathError!T {
-    pub(package) fn as_fs_error(self) Error!T {
+    pub(pkg) fn as_fs_error(self) Error!T {
         if let !value = self {
             !value
         } else error! {

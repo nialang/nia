@@ -1,4 +1,4 @@
-using package::fmt;
+using pkg::fmt;
 
 pub struct CStr {
     ptr: &u8,

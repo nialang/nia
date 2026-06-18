@@ -1,4 +1,4 @@
-using package::mem;
+using pkg::mem;
 
 pub fn dangling_slice[T](len: usize) &mut [T]
 where T: Sized

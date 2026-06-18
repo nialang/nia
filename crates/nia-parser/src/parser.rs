@@ -353,7 +353,7 @@ impl Parser {
     }
 
     fn eat_namespace_segment(&mut self) -> Option<SyntaxToken> {
-        if self.at(TokenKind::Ident) || self.at(TokenKind::Package) {
+        if self.at(TokenKind::Ident) || self.at(TokenKind::Pkg) {
             Some(self.bump())
         } else {
             None
@@ -370,7 +370,7 @@ impl Parser {
     }
 
     fn at_namespace_segment(&self) -> bool {
-        self.at(TokenKind::Ident) || self.at(TokenKind::Package)
+        self.at(TokenKind::Ident) || self.at(TokenKind::Pkg)
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<SyntaxToken> {

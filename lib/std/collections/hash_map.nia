@@ -1,10 +1,10 @@
-pub(package) module context;
-pub(package) module entries;
-pub(package) module format;
-pub(package) module iterators;
-pub(package) module map;
-pub(package) module raw;
-pub(package) module types;
+pub(pkg) module context;
+pub(pkg) module entries;
+pub(pkg) module format;
+pub(pkg) module iterators;
+pub(pkg) module map;
+pub(pkg) module raw;
+pub(pkg) module types;
 
 pub using context::DefaultHashMapContext;
 pub using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};

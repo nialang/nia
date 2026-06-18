@@ -1,5 +1,5 @@
-using package::mem;
-using package::os;
+using pkg::mem;
+using pkg::os;
 
 pub comptime let ctrl_empty: u8 = 0xffu8;
 pub comptime let ctrl_deleted: u8 = 0x80u8;

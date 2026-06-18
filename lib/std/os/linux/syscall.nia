@@ -1,5 +1,5 @@
 @[if arch == "x86_64"]
-using package::os::linux::x86_64::syscall as platform;
+using pkg::os::linux::x86_64::syscall as platform;
 
 pub using platform::{
     close,

@@ -1,10 +1,10 @@
-pub(package) module arena_allocator;
-pub(package) module allocator;
-pub(package) module copy;
-pub(package) module fixed_buffer_allocator;
-pub(package) module general_purpose_allocator;
-pub(package) module page_allocator;
-pub(package) module types;
+pub(pkg) module arena_allocator;
+pub(pkg) module allocator;
+pub(pkg) module copy;
+pub(pkg) module fixed_buffer_allocator;
+pub(pkg) module general_purpose_allocator;
+pub(pkg) module page_allocator;
+pub(pkg) module types;
 
 pub using types::{Block, Error, Layout, Order};
 pub using arena_allocator::ArenaAllocator;

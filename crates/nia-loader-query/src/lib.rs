@@ -403,7 +403,7 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
             if let Err(diagnostic) = graph.intern_declared_child(
                 std_root,
                 "start",
-                nia_ast::Visibility::PublicPackage,
+                nia_ast::Visibility::PublicPkg,
                 Span::default(),
             ) {
                 let path = graph
@@ -1300,10 +1300,7 @@ module present;
             .iter()
             .find(|declaration| declaration.name == "start")
             .expect("injected std start declaration");
-        assert_eq!(
-            start_declaration.visibility,
-            nia_ast::Visibility::PublicPackage
-        );
+        assert_eq!(start_declaration.visibility, nia_ast::Visibility::PublicPkg);
     }
 
     #[test]

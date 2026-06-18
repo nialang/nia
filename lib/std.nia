@@ -16,7 +16,7 @@ pub module math;
 pub module mem;
 pub module os;
 pub module process;
-pub(package) module range;
+pub(pkg) module range;
 pub module slice;
 pub module unicode;
 

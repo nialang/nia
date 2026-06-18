@@ -1,4 +1,4 @@
-using package::os;
+using pkg::os;
 
 pub trait Io {
     type Error;

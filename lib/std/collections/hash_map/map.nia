@@ -1,10 +1,10 @@
-using package::hash;
-using package::mem;
-using package::os;
-using package::collections::hash_map::context;
-using package::collections::hash_map::entries;
-using package::collections::hash_map::raw;
-using package::collections::hash_map::types;
+using pkg::hash;
+using pkg::mem;
+using pkg::os;
+using pkg::collections::hash_map::context;
+using pkg::collections::hash_map::entries;
+using pkg::collections::hash_map::raw;
+using pkg::collections::hash_map::types;
 
 using context::DefaultHashMapContext;
 using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};

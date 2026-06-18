@@ -1,4 +1,4 @@
-using package::os::linux::syscall;
+using pkg::os::linux::syscall;
 
 pub fn exit(code: i32) void {
     _ = syscall::syscall1(syscall::exit, code as usize);

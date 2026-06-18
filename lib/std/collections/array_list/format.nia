@@ -1,5 +1,5 @@
-using package::fmt;
-using package::collections::array_list::list;
+using pkg::fmt;
+using pkg::collections::array_list::list;
 
 using list::ArrayList;
 

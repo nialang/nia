@@ -1,2 +1,2 @@
 @[if os == "linux" and arch == "x86_64"]
-pub(package) module freestanding;
+pub(pkg) module freestanding;

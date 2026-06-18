@@ -1,6 +1,6 @@
-using package::os::linux::syscall;
-using package::os::linux::stat;
-using package::os::linux::types;
+using pkg::os::linux::syscall;
+using pkg::os::linux::stat;
+using pkg::os::linux::types;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence};
 

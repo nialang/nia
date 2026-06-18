@@ -1,8 +1,8 @@
-using package::fs;
-using package::io::runtime;
-using package::io::traits;
-using package::mem;
-using package::os;
+using pkg::fs;
+using pkg::io::runtime;
+using pkg::io::traits;
+using pkg::mem;
+using pkg::os;
 
 using traits::{Reader, Writer};
 using runtime::Io;

@@ -1,7 +1,7 @@
 using root;
-using package::io;
-using package::os;
-using package::process;
+using pkg::io;
+using pkg::os;
+using pkg::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
     if let !ok = root::main(init) {

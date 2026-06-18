@@ -1,8 +1,8 @@
-using package::fs::convert;
-using package::fs::options;
-using package::fs::path;
-using package::fs::types;
-using package::os;
+using pkg::fs::convert;
+using pkg::fs::options;
+using pkg::fs::path;
+using pkg::fs::types;
+using pkg::os;
 
 using types::{
     CreateDirOptions,

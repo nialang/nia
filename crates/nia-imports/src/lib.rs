@@ -9,7 +9,7 @@ pub use nia_source::SourcePath;
 use nia_span::Span;
 
 pub const ROOT_MODULE_MAP_NAME: &str = "root";
-pub const PACKAGE_MODULE_MAP_NAME: &str = "package";
+pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
 pub const STD_MODULE_MAP_NAME: &str = "std";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -346,7 +346,7 @@ pub fn visibility_allows(
     }
     match visibility {
         Visibility::Public => true,
-        Visibility::PublicPackage => {
+        Visibility::PublicPkg => {
             let Some(defining) = graph.get(defining_module) else {
                 return false;
             };

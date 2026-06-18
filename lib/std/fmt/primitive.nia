@@ -1,4 +1,4 @@
-using package::fmt::core;
+using pkg::fmt::core;
 
 fn format_signed_spec(
     value: i128,

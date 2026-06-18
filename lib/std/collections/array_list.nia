@@ -1,5 +1,5 @@
-pub(package) module format;
-pub(package) module list;
-pub(package) module raw;
+pub(pkg) module format;
+pub(pkg) module list;
+pub(pkg) module raw;
 
 pub using list::ArrayList;

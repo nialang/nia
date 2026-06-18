@@ -77,7 +77,7 @@ pub enum Visibility {
     #[default]
     Private,
     PublicSuper,
-    PublicPackage,
+    PublicPkg,
     Public,
 }
 
