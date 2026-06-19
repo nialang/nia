@@ -49,6 +49,15 @@ impl InternedTyId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Visibility {
+    #[default]
+    Private,
+    PublicSuper,
+    PublicPkg,
+    Public,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TraitId {
     Source(GlobalDefId),

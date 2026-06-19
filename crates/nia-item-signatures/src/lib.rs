@@ -8,7 +8,7 @@ use nia_ast::{
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
+use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;
@@ -205,7 +205,7 @@ pub struct TraitImplAssociatedTypeSignature {
 pub struct TraitImplAssociatedValueSignature {
     pub def_id: DefId,
     pub name: String,
-    pub visibility: nia_ast::Visibility,
+    pub visibility: Visibility,
     pub span: Span,
 }
 
@@ -213,7 +213,7 @@ pub struct TraitImplAssociatedValueSignature {
 pub struct TraitImplMethodSignature {
     pub def_id: DefId,
     pub name: String,
-    pub visibility: nia_ast::Visibility,
+    pub visibility: Visibility,
     pub span: Span,
 }
 
@@ -1000,10 +1000,7 @@ fn add(a: i32, b: i32) i32 {
         let impl_signature = &signatures.trait_impls[0];
         assert_eq!(impl_signature.methods.len(), 1);
         assert_eq!(impl_signature.methods[0].name, "len2");
-        assert_eq!(
-            impl_signature.methods[0].visibility,
-            nia_ast::Visibility::Private
-        );
+        assert_eq!(impl_signature.methods[0].visibility, Visibility::Private);
         assert!(
             signatures
                 .functions
@@ -1013,7 +1010,7 @@ fn add(a: i32, b: i32) i32 {
         assert_eq!(impl_signature.associated_values[0].name, "Origin");
         assert_eq!(
             impl_signature.associated_values[0].visibility,
-            nia_ast::Visibility::Public
+            Visibility::Public
         );
         assert!(
             signatures

@@ -2,8 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::DefId;
-use nia_ast::Visibility;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId, Visibility};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

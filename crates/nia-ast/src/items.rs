@@ -4,7 +4,7 @@ use nia_span::Span;
 
 use crate::{Block, Expr, TypeRef, WhereClause};
 
-pub use nia_ids::ReceiverKind;
+pub use nia_ids::{ReceiverKind, Visibility};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
@@ -72,15 +72,6 @@ pub enum ConditionBinaryOp {
     Ne,
     And,
     Or,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Visibility {
-    #[default]
-    Private,
-    PublicSuper,
-    PublicPkg,
-    Public,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -6,13 +6,12 @@ use crate::function_refs::{
     collect_function_refs_from_optional_body, collect_function_refs_from_static_init,
 };
 use crate::{BackendOptimizationChange, ModuleLowerer};
-use nia_ast::Visibility;
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendTraitObjectVtable,
     BackendTraitObjectVtableFunction,
 };
 use nia_defs::DefKind;
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, Visibility};
 use nia_opt::OptimizationDepth;
 
 pub(crate) const REMOVE_UNUSED_FUNCTIONS_PASS: &str = "remove-unused-functions";

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::Visibility;
 use nia_ast::{
     ArrayLen, AssocBindingKey, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
     TypePathSegment, TypeRef,
@@ -10,7 +9,7 @@ use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
-use nia_ids::{GlobalDefId, ModuleId};
+use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
     ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
     module_declaration_visibility_allows, visibility_allows,
