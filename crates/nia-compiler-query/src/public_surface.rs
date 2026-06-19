@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{UsingGroupItem, UsingSelector, Visibility};
 use nia_defs::{
     DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PublicItem,
-    PublicNamespace, PublicSource, PublicSurfaces, UsingEntry,
+    PublicNamespace, PublicSource, PublicSurfaces, UsingEntry, UsingGroupItem, UsingName,
+    UsingPathSegment, UsingSelector, Visibility,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -414,7 +414,7 @@ fn resolve_namespace_path(
     local_modules: &HashMap<String, ModuleId>,
     surfaces: &PublicSurfaces,
     mode: UsingLookupMode,
-    path: &[nia_ast::UsingHostSegment],
+    path: &[UsingPathSegment],
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = path.first() else {
         return Err(Diagnostic::user_error_at(
@@ -696,7 +696,7 @@ fn record_unresolved_using_names(scope: &mut ModuleUsingScope, using: &ModuleUsi
 }
 
 fn collect_explicit_using_names(
-    host: &[nia_ast::UsingHostSegment],
+    host: &[UsingPathSegment],
     selector: &UsingSelector,
     names: &mut Vec<String>,
 ) {
@@ -1028,7 +1028,7 @@ fn resolve_public_namespace_path(
     accessing_module: ModuleId,
     start_module: ModuleId,
     surfaces: &PublicSurfaces,
-    host: &[nia_ast::UsingHostSegment],
+    host: &[UsingPathSegment],
     mode: UsingLookupMode,
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = host.first() else {
@@ -1083,7 +1083,7 @@ fn resolve_public_namespace_segment(
     accessing_module: ModuleId,
     module_id: ModuleId,
     surfaces: &PublicSurfaces,
-    segment: &nia_ast::UsingHostSegment,
+    segment: &UsingPathSegment,
     mode: UsingLookupMode,
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(surface) = surfaces.get(module_id) else {
@@ -1150,7 +1150,7 @@ fn resolve_module_single(
     context: &UsingExpansionContext<'_>,
     target_surface: &ModulePublicSurface,
     target_module: ModuleId,
-    name: &nia_ast::UsingName,
+    name: &UsingName,
     source: PublicSource,
 ) -> UsingExpansion {
     let local_name = name.alias.clone().unwrap_or_else(|| name.name.clone());
@@ -1237,7 +1237,7 @@ fn resolve_module_single(
 
 fn resolve_current_single(
     current: &DefCollection,
-    name: &nia_ast::UsingName,
+    name: &UsingName,
     source: PublicSource,
 ) -> UsingExpansion {
     let local_name = name.alias.clone().unwrap_or_else(|| name.name.clone());
@@ -1397,7 +1397,7 @@ fn resolve_enum_single(
     enum_id: GlobalDefId,
     target_defs: &DefCollection,
     enum_scope: &nia_defs::EnumScope,
-    name: &nia_ast::UsingName,
+    name: &UsingName,
     source: PublicSource,
 ) -> UsingExpansion {
     let local_name = name.alias.clone().unwrap_or_else(|| name.name.clone());
@@ -1431,7 +1431,7 @@ fn public_item_name_span(item: &PublicItem) -> Span {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ast::Visibility;
+    use nia_defs::Visibility;
     use nia_imports::{ModuleGraph, SourcePath};
 
     fn defs(module_id: ModuleId, source: &str) -> DefCollection {
