@@ -48,67 +48,6 @@ fn lowered_type(module: &ExtensionModuleInput<'_>, ty: &nia_ast::TypeRef) -> Opt
     module.lowering.node_type_uses.get(&ty.node_key).copied()
 }
 
-fn where_predicates(
-    module: &ExtensionModuleInput<'_>,
-    clause: &nia_ast::WhereClause,
-) -> Vec<WherePredicateSignature> {
-    clause
-        .predicates
-        .iter()
-        .map(|predicate| WherePredicateSignature {
-            ty: lowered_type(module, &predicate.ty)
-                .unwrap_or_else(|| module.lowering.interner.error()),
-            bounds: predicate
-                .bounds
-                .iter()
-                .map(|bound| WhereBoundSignature {
-                    trait_ty: lowered_type(module, bound)
-                        .unwrap_or_else(|| module.lowering.interner.error()),
-                    associated_type_bindings: associated_type_bindings(module, bound),
-                    span: bound.span,
-                })
-                .collect(),
-            span: predicate.span,
-        })
-        .collect()
-}
-
-fn associated_type_bindings(
-    module: &ExtensionModuleInput<'_>,
-    bound: &nia_ast::TypeRef,
-) -> Vec<AssociatedTypeBindingSignature> {
-    let nia_ast::TypeKind::Path { segments } = &bound.kind else {
-        return Vec::new();
-    };
-    let Some(segment) = segments.last() else {
-        return Vec::new();
-    };
-    segment
-        .args
-        .iter()
-        .filter_map(|arg| match arg {
-            nia_ast::TypeArg::AssocBinding { key, ty, span } => {
-                let name = match key {
-                    nia_ast::AssocBindingKey::Name(name) => name.clone(),
-                    nia_ast::AssocBindingKey::Projection(projection) => {
-                        let nia_ast::TypeKind::Projection { name, .. } = &projection.kind else {
-                            return None;
-                        };
-                        name.clone()
-                    }
-                };
-                Some(AssociatedTypeBindingSignature {
-                    name,
-                    ty: lowered_type(module, ty)
-                        .unwrap_or_else(|| module.lowering.interner.error()),
-                    span: *span,
-                })
-            }
-            nia_ast::TypeArg::Type(_) | nia_ast::TypeArg::Const(_) => None,
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
@@ -367,24 +306,20 @@ pub(crate) fn collect_extension_methods(
         .collect::<HashMap<_, _>>();
     let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
-        let mut impl_index = 0;
-        for item in &module.module.items.items {
-            let ItemTreeNodeKind::Extend(extend) = &item.kind else {
-                continue;
-            };
-            let Some(target_ty) = lowered_type(module, &extend.target) else {
+        for (impl_index, extend) in extension_items(module) {
+            let Some(impl_signature) = module.signatures.trait_impls.get(impl_index) else {
                 diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
                     extend.target.span,
-                    "extend target must resolve to a nominal type",
+                    "missing trait implementation signature for extend block",
                 ));
                 continue;
             };
-            let target_ty = module.normalization.normalize(target_ty);
+            let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
-                    extend.target.span,
+                    impl_signature.span,
                     "extend target must be an extendable value type",
                 ));
                 continue;
@@ -397,7 +332,7 @@ pub(crate) fn collect_extension_methods(
                 .as_ref()
                 .and_then(|trait_ref| trait_ref_ty_args(module, trait_ref, trait_id))
                 .unwrap_or_default();
-            let where_predicates = where_predicates(module, &extend.where_clause);
+            let where_predicates = impl_signature.where_predicates.clone();
             if trait_id.is_none() {
                 for associated_type in &extend.associated_types {
                     diagnostics.push(Diagnostic::user_error_at(
@@ -461,7 +396,6 @@ pub(crate) fn collect_extension_methods(
                     },
                 );
             }
-            impl_index += 1;
         }
     }
     (extensions, diagnostics)
@@ -473,24 +407,20 @@ pub(crate) fn collect_extension_associated_values(
     let mut values = ExtensionAssociatedValues::default();
     let mut diagnostics = Vec::new();
     for module in modules {
-        let mut impl_index = 0;
-        for item in &module.module.items.items {
-            let ItemTreeNodeKind::Extend(extend) = &item.kind else {
-                continue;
-            };
-            let Some(target_ty) = lowered_type(module, &extend.target) else {
+        for (impl_index, extend) in extension_items(module) {
+            let Some(impl_signature) = module.signatures.trait_impls.get(impl_index) else {
                 diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
                     extend.target.span,
-                    "extend target must resolve to a nominal type",
+                    "missing trait implementation signature for extend block",
                 ));
                 continue;
             };
-            let target_ty = module.normalization.normalize(target_ty);
+            let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
-                    extend.target.span,
+                    impl_signature.span,
                     "extend target must be an extendable value type",
                 ));
                 continue;
@@ -514,10 +444,24 @@ pub(crate) fn collect_extension_associated_values(
                     },
                 );
             }
-            impl_index += 1;
         }
     }
     (values, diagnostics)
+}
+
+fn extension_items<'a>(
+    module: &'a ExtensionModuleInput<'_>,
+) -> impl Iterator<Item = (usize, &'a nia_ast::ExtendItem)> + 'a {
+    module
+        .module
+        .items
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemTreeNodeKind::Extend(extend) => Some(extend),
+            _ => None,
+        })
+        .enumerate()
 }
 
 #[derive(Clone, Copy)]
