@@ -4,7 +4,6 @@ mod public_surface;
 mod query;
 
 use nia_abi_check::AbiCheck;
-use nia_ast::Module;
 use nia_backend_lower::BackendLowering;
 use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
@@ -74,8 +73,6 @@ pub struct LoadedModule {
     pub path: SourcePath,
     pub source_version: SourceVersion,
     pub source: String,
-    pub raw_module: Module,
-    pub module: Module,
     pub item_tree: ModuleItemTree,
     pub active_item_tree: ActiveModuleItemTree,
     pub origins: NodeOriginTable,
