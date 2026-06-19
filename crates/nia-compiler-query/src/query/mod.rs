@@ -192,9 +192,6 @@ impl CompilerDatabase {
             if module.source_version {
                 invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module.id)));
             }
-            if module.module_ast {
-                invalidation.extend(self.db.invalidate(ModuleAstQuery(module.id)));
-            }
             if module.full_item_tree {
                 invalidation.extend(self.db.invalidate(FullModuleItemTreeInputQuery(module.id)));
             }
@@ -395,12 +392,6 @@ impl CompilerContext {
         )
     }
 
-    fn module_ast(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> nia_ast::Module {
-        self.module_field(db, &ModuleAstQuery(module_id), module_id, |module| {
-            module.module.clone()
-        })
-    }
-
     fn module_origins(
         &self,
         db: &QueryDb<CompilerContext>,
@@ -546,7 +537,6 @@ struct ChangedModuleInput {
     id: ModuleId,
     path: bool,
     source_version: bool,
-    module_ast: bool,
     origins: bool,
     parse_errors: bool,
     item_tree: bool,
@@ -566,7 +556,6 @@ impl ChangedModuleInput {
                 id: module_id,
                 path: old.path != new.path,
                 source_version: old.source_version != new.source_version,
-                module_ast: old.module != new.module,
                 origins: old.origins != new.origins,
                 parse_errors: old.parse_errors != new.parse_errors,
                 item_tree: !old.item_tree.declaration_eq(&new.item_tree),
@@ -578,7 +567,6 @@ impl ChangedModuleInput {
                 id: module_id,
                 path: true,
                 source_version: true,
-                module_ast: true,
                 origins: true,
                 parse_errors: true,
                 item_tree: true,
@@ -590,7 +578,6 @@ impl ChangedModuleInput {
         };
         if changed.path
             || changed.source_version
-            || changed.module_ast
             || changed.origins
             || changed.parse_errors
             || changed.item_tree
@@ -798,7 +785,6 @@ fn main() i32 {
             invalidated.contains(&"module_source_version"),
             "{invalidated:?}"
         );
-        assert!(!invalidated.contains(&"module_ast"), "{invalidated:?}");
         assert!(
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
@@ -851,7 +837,6 @@ fn main() i32 {
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
-        assert!(!invalidated.contains(&"module_ast"), "{invalidated:?}");
         assert!(
             invalidated.contains(&"full_module_item_tree_input"),
             "{invalidated:?}"
@@ -1045,9 +1030,6 @@ fn main() i32 {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "active_module_item_tree"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods" && dependency.to.name == "module_ast"
-        }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods" && dependency.to.name == "type_lowering"
         }));
@@ -1103,9 +1085,6 @@ fn main() i32 {
             dependency.from.name == "flow_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "flow_check" && dependency.to.name == "module_ast"
-        }));
     }
 
     #[test]
@@ -1123,9 +1102,6 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "static_check"
                 && dependency.to.name == "full_active_module_item_tree"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "static_check" && dependency.to.name == "module_ast"
         }));
     }
 
@@ -1196,9 +1172,6 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime_module"
                 && dependency.to.name == "full_active_module_item_tree"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime_module" && dependency.to.name == "module_ast"
         }));
     }
 
@@ -1280,9 +1253,6 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "full_active_module_item_tree"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering" && dependency.to.name == "module_ast"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_module" && dependency.to.name == "body_check"
@@ -1373,9 +1343,6 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check" && dependency.to.name == "program_comptime_modules"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "module_ast"
         }));
         assert!(
             !trace

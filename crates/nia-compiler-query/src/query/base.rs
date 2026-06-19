@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use nia_ast::Module;
 use nia_node_id::NodeOriginTable;
 use nia_parser::ParseError;
 use std::collections::HashMap;
@@ -174,25 +173,6 @@ impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_source_version(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ModuleAstQuery(pub(super) ModuleId);
-
-impl QueryKey<CompilerContext> for ModuleAstQuery {
-    type Value = Module;
-
-    fn name() -> &'static str {
-        "module_ast"
-    }
-
-    fn description(&self) -> String {
-        format!("module_ast({:?})", self.0)
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_ast(db, self.0)
     }
 }
 
