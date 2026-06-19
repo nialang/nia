@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
-    module_diagnostics,
+    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
+    TimingMode, module_diagnostics,
     program_signatures::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
         VisibleExtensionsInput, collect_extension_associated_values, collect_extension_methods,
@@ -27,7 +27,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_query::{QueryDb, QueryError, QueryKey, QueryTrace};
+use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
@@ -35,7 +35,10 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock},
+};
 
 mod backend_lowering;
 mod base;
@@ -97,8 +100,7 @@ impl CompileRequest {
 #[derive(Clone)]
 pub struct CompilerDatabase {
     db: QueryDb<CompilerContext>,
-    graph: ModuleGraph,
-    optimization: OptimizationPolicy,
+    inputs: Arc<RwLock<CompilerInputs>>,
 }
 
 impl CompilerDatabase {
@@ -111,29 +113,105 @@ impl CompilerDatabase {
             self.db.try_query(CheckedProgramQuery)
         })) {
             Ok(Ok(checked)) => checked,
-            Ok(Err(err)) => {
-                checked_program_from_query_error(self.graph.clone(), self.optimization, err)
-            }
+            Ok(Err(err)) => checked_program_from_query_error(
+                self.current_graph(),
+                self.current_optimization(),
+                err,
+            ),
             Err(payload) => match payload.downcast::<QueryError>() {
-                Ok(err) => {
-                    checked_program_from_query_error(self.graph.clone(), self.optimization, *err)
-                }
+                Ok(err) => checked_program_from_query_error(
+                    self.current_graph(),
+                    self.current_optimization(),
+                    *err,
+                ),
                 Err(payload) => std::panic::resume_unwind(payload),
             },
         }
     }
 
+    pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
+        let new_inputs = CompilerInputs::new(request);
+        let diff = {
+            let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
+            let diff = CompilerInputDiff::between(&inputs, &new_inputs);
+            *inputs = new_inputs;
+            diff
+        };
+        self.invalidate_inputs(diff)
+    }
+
     pub fn query_trace(&self) -> QueryTrace {
         self.db.query_trace()
+    }
+
+    fn current_graph(&self) -> ModuleGraph {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .loaded
+            .graph
+            .clone()
+    }
+
+    fn current_optimization(&self) -> OptimizationPolicy {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .optimization
+    }
+
+    fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
+        let mut invalidation = CompilerInvalidation::default();
+        if diff.graph_changed {
+            invalidation.extend(self.db.invalidate(ModuleGraphQuery));
+        }
+        if diff.loaded_modules_changed {
+            invalidation.extend(self.db.invalidate(LoadedModulesQuery));
+        }
+        if diff.program_diagnostics_changed {
+            invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
+        }
+        if diff.target_changed {
+            invalidation.extend(self.db.invalidate(CompilerTargetQuery));
+        }
+        if diff.runtime_changed {
+            invalidation.extend(self.db.invalidate(CompilerRuntimeQuery));
+        }
+        if diff.optimization_changed {
+            invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
+        }
+        if diff.timings_changed {
+            invalidation.extend(self.db.invalidate(CompilerTimingsQuery));
+        }
+        for module_id in diff.changed_modules {
+            invalidation.extend(self.db.invalidate(LoadedModuleQuery(module_id)));
+        }
+        invalidation
     }
 }
 
 impl std::fmt::Debug for CompilerDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
         f.debug_struct("CompilerDatabase")
-            .field("graph", &self.graph)
-            .field("optimization", &self.optimization)
+            .field("graph", &inputs.loaded.graph)
+            .field("optimization", &inputs.optimization)
             .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CompilerInvalidation {
+    pub invalidated: Vec<QueryFrame>,
+}
+
+impl CompilerInvalidation {
+    fn extend(&mut self, invalidation: nia_query::QueryInvalidation) {
+        for frame in invalidation.invalidated {
+            if !self.invalidated.contains(&frame) {
+                self.invalidated.push(frame);
+            }
+        }
     }
 }
 
@@ -141,24 +219,12 @@ fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,
 ) -> CompilerDatabase {
-    let loaded = request.loaded;
-    let graph = loaded.graph.clone();
-    let target = loaded.target.clone();
-    let modules_by_id = index_loaded_modules(&loaded);
-    let optimization = request.optimization.policy();
+    let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let db = QueryDb::new(CompilerContext {
-        loaded,
-        modules_by_id,
-        target,
-        optimization,
-        timings: request.timings,
+        inputs: inputs.clone(),
         providers,
     });
-    CompilerDatabase {
-        db,
-        graph,
-        optimization,
-    }
+    CompilerDatabase { db, inputs }
 }
 
 fn checked_program_from_query_error(
@@ -209,25 +275,105 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 }
 
 struct CompilerContext {
-    loaded: LoadedProgram,
-    modules_by_id: HashMap<ModuleId, usize>,
-    target: TargetConfig,
-    optimization: OptimizationPolicy,
-    timings: TimingMode,
+    inputs: Arc<RwLock<CompilerInputs>>,
     providers: CompilerQueryProviders,
 }
 
+#[derive(Debug, Clone)]
+struct CompilerInputs {
+    loaded: LoadedProgram,
+    modules_by_id: HashMap<ModuleId, usize>,
+    target: TargetConfig,
+    runtime: crate::RuntimeModel,
+    optimization: OptimizationPolicy,
+    timings: TimingMode,
+}
+
+impl CompilerInputs {
+    fn new(request: CompileRequest) -> Self {
+        let loaded = request.loaded;
+        let modules_by_id = index_loaded_modules(&loaded);
+        Self {
+            target: loaded.target.clone(),
+            runtime: loaded.runtime,
+            loaded,
+            modules_by_id,
+            optimization: request.optimization.policy(),
+            timings: request.timings,
+        }
+    }
+}
+
 impl CompilerContext {
-    fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
-        self.modules_by_id
+    fn loaded_modules(&self) -> Vec<LoadedModule> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .loaded
+            .modules
+            .clone()
+    }
+
+    fn loaded_module(&self, module_id: ModuleId) -> Option<LoadedModule> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        inputs
+            .modules_by_id
             .get(&module_id)
-            .and_then(|index| self.loaded.modules.get(*index))
+            .and_then(|index| inputs.loaded.modules.get(*index))
+            .cloned()
     }
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
         self.loaded_module(module_id)
             .map(|module| module.path.clone())
             .unwrap_or_else(|| SourcePath::new("<unknown>"))
+    }
+
+    fn module_graph(&self) -> ModuleGraph {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .loaded
+            .graph
+            .clone()
+    }
+
+    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .loaded
+            .diagnostics
+            .clone()
+    }
+
+    fn target(&self) -> TargetConfig {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .target
+            .clone()
+    }
+
+    fn runtime(&self) -> crate::RuntimeModel {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .runtime
+    }
+
+    fn optimization(&self) -> OptimizationPolicy {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .optimization
+    }
+
+    fn timings(&self) -> TimingMode {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .timings
     }
 }
 
@@ -238,6 +384,58 @@ fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
         .enumerate()
         .map(|(index, module)| (module.id, index))
         .collect()
+}
+
+#[derive(Debug, Default)]
+struct CompilerInputDiff {
+    graph_changed: bool,
+    loaded_modules_changed: bool,
+    program_diagnostics_changed: bool,
+    target_changed: bool,
+    runtime_changed: bool,
+    optimization_changed: bool,
+    timings_changed: bool,
+    changed_modules: Vec<ModuleId>,
+}
+
+impl CompilerInputDiff {
+    fn between(old: &CompilerInputs, new: &CompilerInputs) -> Self {
+        let changed_modules = changed_loaded_modules(old, new);
+        Self {
+            graph_changed: old.loaded.graph != new.loaded.graph,
+            loaded_modules_changed: old.loaded.modules != new.loaded.modules,
+            program_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
+            target_changed: old.target != new.target,
+            runtime_changed: old.runtime != new.runtime,
+            optimization_changed: old.optimization != new.optimization,
+            timings_changed: old.timings != new.timings,
+            changed_modules,
+        }
+    }
+}
+
+fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ModuleId> {
+    let module_ids = old
+        .loaded
+        .modules
+        .iter()
+        .map(|module| module.id)
+        .chain(new.loaded.modules.iter().map(|module| module.id))
+        .collect::<HashSet<_>>();
+    let mut changed = module_ids
+        .into_iter()
+        .filter(|module_id| old.loaded_module(*module_id) != new.loaded_module(*module_id))
+        .collect::<Vec<_>>();
+    changed.sort_by_key(|module_id| module_id.0);
+    changed
+}
+
+impl CompilerInputs {
+    fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
+        self.modules_by_id
+            .get(&module_id)
+            .and_then(|index| self.loaded.modules.get(*index))
+    }
 }
 
 #[cfg(test)]
@@ -258,6 +456,15 @@ mod tests {
     }
 
     fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
+        loaded_module_with_revision(id, path, source, SourceRevision::INITIAL)
+    }
+
+    fn loaded_module_with_revision(
+        id: ModuleId,
+        path: &str,
+        source: &str,
+        revision: SourceRevision,
+    ) -> LoadedModule {
         let (module, parse_errors) = nia_parser::parse_module(source);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
@@ -266,7 +473,7 @@ mod tests {
             path: SourcePath::new(path),
             source_version: nia_source::SourceVersion {
                 id: SourceId(id.0),
-                revision: SourceRevision::INITIAL,
+                revision,
             },
             source: source.to_string(),
             raw_module: module.clone(),
@@ -282,14 +489,11 @@ mod tests {
     }
 
     fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
-        let target = loaded.target.clone();
-        let modules_by_id = index_loaded_modules(&loaded);
-        QueryDb::new(CompilerContext {
+        let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
             loaded,
-            modules_by_id,
-            target,
-            optimization: OptimizationPolicy::default(),
-            timings: TimingMode::Off,
+        ))));
+        QueryDb::new(CompilerContext {
+            inputs,
             providers: CompilerQueryProviders::default(),
         })
     }
@@ -358,6 +562,47 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_program" && dependency.to.name == "checked_modules"
         }));
+    }
+
+    #[test]
+    fn compiler_database_update_invalidates_changed_loaded_module_inputs() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "fn main() i32 { true }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"loaded_module"), "{invalidated:?}");
+        assert!(invalidated.contains(&"checked_program"), "{invalidated:?}");
+
+        let second = database.check_program();
+        assert!(!second.diagnostics.is_empty());
+        assert!(
+            database
+                .query_trace()
+                .dependencies
+                .iter()
+                .any(|dependency| {
+                    dependency.from.name == "parse_ok_module_ids"
+                        && dependency.to.name == "loaded_modules"
+                })
+        );
     }
 
     #[test]

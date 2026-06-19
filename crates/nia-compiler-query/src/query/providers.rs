@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::RuntimeModel;
 use nia_executable_reachability::{
     ReachableModuleInput, compute_executable_reachability,
     filter_semantic_facts_for_reachable_functions,
@@ -101,13 +100,15 @@ impl Default for CompilerQueryProviders {
 }
 
 pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
-    time_provider(db.context().timings, "checked_program", || CheckedProgram {
-        graph: db.query(ModuleGraphQuery),
-        optimization: db.context().optimization,
-        modules: checked_modules_for_codegen(db),
-        monomorphization: db.query(MonomorphizationQuery),
-        backend_lowering: db.query(BackendLoweringQuery),
-        diagnostics: db.query(ProgramDiagnosticsQuery),
+    time_provider(db.query(CompilerTimingsQuery), "checked_program", || {
+        CheckedProgram {
+            graph: db.query(ModuleGraphQuery),
+            optimization: db.query(CompilerOptimizationQuery),
+            modules: checked_modules_for_codegen(db),
+            monomorphization: db.query(MonomorphizationQuery),
+            backend_lowering: db.query(BackendLoweringQuery),
+            diagnostics: db.query(ProgramDiagnosticsQuery),
+        }
     })
 }
 
@@ -127,7 +128,7 @@ fn time_module_provider<T>(
     module_id: ModuleId,
     f: impl FnOnce() -> T,
 ) -> T {
-    let timings = db.context().timings;
+    let timings = db.query(CompilerTimingsQuery);
     if !timings.detail() {
         return f();
     }
@@ -143,13 +144,11 @@ fn time_module_provider<T>(
 }
 
 pub(super) fn provide_module_graph(db: &QueryDb<CompilerContext>) -> ModuleGraph {
-    db.context().loaded.graph.clone()
+    db.context().module_graph()
 }
 
 pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-    db.context()
-        .loaded
-        .modules
+    db.query(LoadedModulesQuery)
         .iter()
         .filter(|module| module.parse_errors.is_empty())
         .map(|module| module.id)
@@ -160,15 +159,12 @@ pub(super) fn provide_loaded_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LoadedModule {
-    db.context()
-        .loaded_module(module_id)
-        .unwrap_or_else(|| {
-            db.invalid_input(
-                &LoadedModuleQuery(module_id),
-                format!("missing loaded module {module_id:?}"),
-            )
-        })
-        .clone()
+    db.context().loaded_module(module_id).unwrap_or_else(|| {
+        db.invalid_input(
+            &LoadedModuleQuery(module_id),
+            format!("missing loaded module {module_id:?}"),
+        )
+    })
 }
 
 pub(super) fn provide_module_item_tree(
@@ -214,7 +210,7 @@ pub(super) fn provide_program_defs_by_id(db: &QueryDb<CompilerContext>) -> Progr
 }
 
 pub(super) fn provide_public_surface(db: &QueryDb<CompilerContext>) -> PublicSurfaceQueryValue {
-    time_provider(db.context().timings, "public_surface", || {
+    time_provider(db.query(CompilerTimingsQuery), "public_surface", || {
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
         let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &graph);
@@ -285,14 +281,18 @@ pub(super) fn provide_item_signatures(
 pub(super) fn provide_program_item_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramItemSignaturesById {
-    time_provider(db.context().timings, "program_item_signatures", || {
-        Arc::new(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-                .collect(),
-        )
-    })
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_item_signatures",
+        || {
+            Arc::new(
+                db.query(ParseOkModuleIdsQuery)
+                    .into_iter()
+                    .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+                    .collect(),
+            )
+        },
+    )
 }
 
 pub(super) fn provide_type_normalization(
@@ -307,31 +307,39 @@ pub(super) fn provide_type_normalization(
 pub(super) fn provide_program_type_lowerings(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramTypeLowerings {
-    time_provider(db.context().timings, "program_type_lowerings", || {
-        Arc::new(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
-                .collect(),
-        )
-    })
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_type_lowerings",
+        || {
+            Arc::new(
+                db.query(ParseOkModuleIdsQuery)
+                    .into_iter()
+                    .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
+                    .collect(),
+            )
+        },
+    )
 }
 
 pub(super) fn provide_program_type_normalizations(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramTypeNormalizations {
-    time_provider(db.context().timings, "program_type_normalizations", || {
-        Arc::new(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
-                .collect(),
-        )
-    })
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_type_normalizations",
+        || {
+            Arc::new(
+                db.query(ParseOkModuleIdsQuery)
+                    .into_iter()
+                    .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+                    .collect(),
+            )
+        },
+    )
 }
 
 pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> ProgramSignaturesValue {
-    time_provider(db.context().timings, "program_signatures", || {
+    time_provider(db.query(CompilerTimingsQuery), "program_signatures", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let type_lowerings = module_ids
             .iter()
@@ -378,7 +386,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
 }
 
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
-    time_provider(db.context().timings, "extension_methods", || {
+    time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let modules = module_ids
             .iter()
@@ -620,7 +628,7 @@ pub(super) fn provide_comptime(
                 signatures: &item_signatures,
                 interner: &type_normalization.interner,
                 normalized: &type_normalization.normalized,
-                target: &db.context().target,
+                target: &db.query(CompilerTargetQuery),
                 program: nia_comptime_check::ComptimeProgramContext {
                     modules: Some(&program_modules),
                     defs: Some(&program_defs),
@@ -636,7 +644,7 @@ pub(super) fn provide_comptime(
 }
 
 pub(super) fn provide_program_comptime(db: &QueryDb<CompilerContext>) -> ProgramComptimeById {
-    time_provider(db.context().timings, "program_comptime", || {
+    time_provider(db.query(CompilerTimingsQuery), "program_comptime", || {
         let ids = db.query(ParseOkModuleIdsQuery);
         let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
         Arc::new(ids.into_iter().zip(comptimes).collect())
@@ -732,7 +740,7 @@ pub(super) fn provide_static_check(
         comptime: &comptime,
         program_defs: &program_defs,
         program_comptime: &program_comptime,
-        target: &db.context().target,
+        target: &db.query(CompilerTargetQuery),
     })
 }
 
@@ -793,7 +801,7 @@ fn body_check_with_filter(
             lowered: &lowered,
             signatures: &signatures,
             normalization: &normalization,
-            target: &db.context().target,
+            target: &db.query(CompilerTargetQuery),
             comptime: &comptime,
             comptime_module: &comptime_module.module,
             layouts: &layouts,
@@ -814,7 +822,7 @@ fn body_check_with_filter(
             },
             filter,
         },
-        body_timing_mode(db.context().timings),
+        body_timing_mode(db.query(CompilerTimingsQuery)),
     )
 }
 
@@ -864,9 +872,9 @@ fn checked_module_with_body_check(
 }
 
 pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    time_provider(db.context().timings, "checked_modules", || {
+    time_provider(db.query(CompilerTimingsQuery), "checked_modules", || {
         time_provider(
-            db.context().timings,
+            db.query(CompilerTimingsQuery),
             "checked_modules.shared_inputs",
             || {
                 let _ = db.query(ProgramTypeLoweringsQuery);
@@ -889,25 +897,29 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
 pub(super) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<CheckedModule> {
-    time_provider(db.context().timings, "executable_checked_modules", || {
-        if db.context().loaded.runtime != RuntimeModel::FreestandingExecutable {
-            return db.query(CheckedModulesQuery);
-        }
-        time_provider(
-            db.context().timings,
-            "executable_checked_modules.shared_inputs",
-            || {
-                let _ = db.query(ProgramTypeLoweringsQuery);
-                let _ = db.query(ProgramItemSignaturesQuery);
-                let _ = db.query(ProgramTypeNormalizationsQuery);
-                let _ = db.query(ProgramSignaturesQuery);
-                let _ = db.query(ExtensionMethodsQuery);
-                let _ = db.query(ProgramComptimeModulesQuery);
-                let _ = db.query(ProgramComptimeQuery);
-            },
-        );
-        executable_checked_modules_inner(db)
-    })
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "executable_checked_modules",
+        || {
+            if db.query(CompilerRuntimeQuery) != RuntimeModel::FreestandingExecutable {
+                return db.query(CheckedModulesQuery);
+            }
+            time_provider(
+                db.query(CompilerTimingsQuery),
+                "executable_checked_modules.shared_inputs",
+                || {
+                    let _ = db.query(ProgramTypeLoweringsQuery);
+                    let _ = db.query(ProgramItemSignaturesQuery);
+                    let _ = db.query(ProgramTypeNormalizationsQuery);
+                    let _ = db.query(ProgramSignaturesQuery);
+                    let _ = db.query(ExtensionMethodsQuery);
+                    let _ = db.query(ProgramComptimeModulesQuery);
+                    let _ = db.query(ProgramComptimeQuery);
+                },
+            );
+            executable_checked_modules_inner(db)
+        },
+    )
 }
 
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
@@ -941,7 +953,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         &reachable_inputs,
     );
 
-    if db.context().timings.detail() {
+    if db.query(CompilerTimingsQuery).detail() {
         eprintln!(
             "query timing executable_checked_modules.reachable: modules={} functions={} bodies={} full_bodies={}",
             reachability.modules.len(),
@@ -980,7 +992,7 @@ fn filter_checked_module_for_codegen(
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
-    time_provider(db.context().timings, "monomorphization", || {
+    time_provider(db.query(CompilerTimingsQuery), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
         let program_signatures = db.query(ProgramSignaturesQuery);
         let function_bodies = function_bodies_from_checked_modules(&checked_modules);
@@ -1009,7 +1021,7 @@ pub(super) fn provide_monomorphization(
 }
 
 fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    if db.context().loaded.runtime == RuntimeModel::FreestandingExecutable {
+    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
         db.query(ExecutableCheckedModulesQuery)
     } else {
         db.query(CheckedModulesQuery)
@@ -1034,7 +1046,7 @@ fn function_bodies_from_checked_modules(
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
-    time_provider(db.context().timings, "backend_lowering", || {
+    time_provider(db.query(CompilerTimingsQuery), "backend_lowering", || {
         provide_backend_lowering_inner(db)
     })
 }
@@ -1045,8 +1057,10 @@ fn provide_backend_lowering_inner(
     let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
     let checked_modules = all_checked_modules;
-    let (loaded_modules, visible_extensions, extension_methods, function_bodies) =
-        time_provider(db.context().timings, "backend_lowering.inputs", || {
+    let (loaded_modules, visible_extensions, extension_methods, function_bodies) = time_provider(
+        db.query(CompilerTimingsQuery),
+        "backend_lowering.inputs",
+        || {
             let loaded_modules = checked_modules
                 .iter()
                 .map(|checked_module| db.query(LoadedModuleQuery(checked_module.id)))
@@ -1072,14 +1086,17 @@ fn provide_backend_lowering_inner(
                 extension_methods,
                 function_bodies,
             )
-        });
-    let indexes = time_provider(db.context().timings, "backend_lowering.indexes", || {
-        build_backend_lowering_indexes(&checked_modules, &visible_extensions, &function_bodies)
-    });
+        },
+    );
+    let indexes = time_provider(
+        db.query(CompilerTimingsQuery),
+        "backend_lowering.indexes",
+        || build_backend_lowering_indexes(&checked_modules, &visible_extensions, &function_bodies),
+    );
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = time_provider(
-        db.context().timings,
+        db.query(CompilerTimingsQuery),
         "backend_lowering.module_inputs",
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
@@ -1095,14 +1112,14 @@ fn provide_backend_lowering_inner(
         },
     );
     time_provider(
-        db.context().timings,
+        db.query(CompilerTimingsQuery),
         "backend_lowering.lower_backend_program",
         || {
             nia_backend_lower::lower_backend_program_with_timings(
                 &inputs,
                 &monomorphization,
-                db.context().optimization,
-                backend_timing_mode(db.context().timings),
+                db.query(CompilerOptimizationQuery),
+                backend_timing_mode(db.query(CompilerTimingsQuery)),
             )
         },
     )
@@ -1117,14 +1134,16 @@ fn backend_timing_mode(timings: TimingMode) -> nia_backend_lower::BackendTimingM
 }
 
 pub(super) fn provide_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
-    time_provider(db.context().timings, "program_diagnostics", || {
-        provide_program_diagnostics_inner(db)
-    })
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_diagnostics",
+        || provide_program_diagnostics_inner(db),
+    )
 }
 
 fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
-    let mut diagnostics = db.context().loaded.diagnostics.clone();
-    for loaded_module in &db.context().loaded.modules {
+    let mut diagnostics = db.query(ProgramLoadDiagnosticsQuery);
+    for loaded_module in db.query(LoadedModulesQuery) {
         for error in &loaded_module.parse_errors {
             diagnostics.push(ProgramDiagnostic {
                 path: loaded_module.path.clone(),
