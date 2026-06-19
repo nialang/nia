@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
+use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
@@ -9,6 +9,7 @@ use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::ItemSignatures;
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_local_resolve::{LocalResolution, LocalUse};
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
@@ -21,7 +22,7 @@ pub struct StaticCheck {
 }
 
 pub struct StaticCheckInput<'a> {
-    pub module: &'a Module,
+    pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -46,7 +47,7 @@ pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCh
         target: input.target,
         diagnostics: Vec::new(),
     };
-    checker.check_module(input.module);
+    checker.check_active_module(input.active_item_tree);
     StaticCheck {
         diagnostics: checker.diagnostics,
     }
@@ -88,9 +89,9 @@ impl StaticChecker<'_> {
             .copied()
     }
 
-    fn check_module(&mut self, module: &Module) {
-        for item in &module.items {
-            if let ItemKind::Binding(binding) = &item.kind
+    fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
+        for item in &item_tree.items {
+            if let ItemTreeNodeKind::Binding(binding) = &item.kind
                 && !binding.is_comptime
             {
                 self.check_global_binding(item.span, binding);
@@ -558,6 +559,7 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
+    use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module;
     use nia_sema_ir::SemanticUseTable;
@@ -611,8 +613,13 @@ mod tests {
             "{:?}",
             comptime.diagnostics
         );
+        let item_tree = ModuleItemTree::from_module(&module);
+        let active_item_tree = ActiveModuleItemTree::new(
+            item_tree.active_items_without_comptime(),
+            Default::default(),
+        );
         check_module_static_initializers(StaticCheckInput {
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,
