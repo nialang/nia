@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{
-    CheckRequest, Driver, EmitLlvmRequest, NiaOptimizationLevel, check_program,
-    check_program_with_options,
-};
+use crate::{CheckRequest, Driver, EmitLlvmRequest, NiaOptimizationLevel};
 use nia_ids::ModuleId;
 
 #[test]
@@ -888,6 +885,38 @@ fn main() i32 {
 
     assert_eq!(artifact.modules.len(), 1);
     assert!(artifact.modules[0].ir.contains("define i32 @"));
+}
+
+#[test]
+fn driver_checks_in_memory_sources() {
+    let driver = Driver::new();
+    driver.set_source(
+        "main.nia",
+        r#"
+fn main() i32 {
+    7
+}
+"#,
+    );
+
+    let program = driver.check(CheckRequest::new("main.nia"));
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.modules.len(), 1);
+}
+
+#[test]
+fn driver_invalidates_reused_loader_sources() {
+    let driver = Driver::new();
+    driver.set_source("main.nia", "fn main() i32 { 1 }");
+
+    let first = driver.check(CheckRequest::new("main.nia"));
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+    driver.set_source("main.nia", "fn main() i32 { true }");
+
+    let second = driver.check(CheckRequest::new("main.nia"));
+    assert!(!second.diagnostics.is_empty());
 }
 
 #[test]

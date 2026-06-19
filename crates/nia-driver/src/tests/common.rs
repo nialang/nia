@@ -5,6 +5,8 @@ use nia_function_ir::{
     FunctionCallee, FunctionExpr, FunctionExprKind, FunctionMemoryIntrinsicSource, FunctionOp,
     FunctionTerminator,
 };
+use nia_imports::ModuleMap;
+use nia_opt::NiaOptimizationLevel;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -26,6 +28,48 @@ pub(super) fn temp_dir(name: &str) -> PathBuf {
 
 pub(super) fn write(path: &Path, source: &str) {
     fs::write(path, source).expect("write source file");
+}
+
+pub(super) fn check_program(root_path: impl Into<String>) -> crate::CheckedProgram {
+    check_program_with_options(root_path, NiaOptimizationLevel::default())
+}
+
+pub(super) fn check_program_with_options(
+    root_path: impl Into<String>,
+    optimization: NiaOptimizationLevel,
+) -> crate::CheckedProgram {
+    crate::Driver::new().check(crate::CheckRequest::new(root_path).with_optimization(optimization))
+}
+
+pub(super) fn check_program_with_map(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+) -> crate::CheckedProgram {
+    crate::Driver::new().check(crate::CheckRequest::new(root_path).with_module_map(module_map))
+}
+
+pub(super) fn check_freestanding_executable_with_options(
+    root_path: impl Into<String>,
+    optimization: NiaOptimizationLevel,
+) -> crate::CheckedProgram {
+    crate::Driver::new().check(
+        crate::CheckRequest::new(root_path)
+            .with_optimization(optimization)
+            .with_runtime(crate::Runtime::Freestanding),
+    )
+}
+
+pub(super) fn check_freestanding_executable_with_map_and_options(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+) -> crate::CheckedProgram {
+    crate::Driver::new().check(
+        crate::CheckRequest::new(root_path)
+            .with_module_map(module_map)
+            .with_optimization(optimization)
+            .with_runtime(crate::Runtime::Freestanding),
+    )
 }
 
 pub(super) fn function_body_contains_builtin_eq(body: &nia_function_ir::FunctionBody) -> bool {

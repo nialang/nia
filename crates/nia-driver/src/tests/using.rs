@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
 
 #[test]
 fn using_brings_imported_function_into_scope() {

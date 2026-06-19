@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
 use nia_static_ir::StaticInit;
 use nia_ty::IntConst;
 
