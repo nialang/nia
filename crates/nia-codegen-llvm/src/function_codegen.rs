@@ -323,6 +323,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .const_int(value, false)
                     .into())
             }
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::FieldOffset { ty, field }) => {
+                let Some(offset) = self.module.field_offset(*ty, *field) else {
+                    return Err(self.error(expr.span, "field offset builtin has no known offset"));
+                };
+                Ok(self
+                    .module
+                    .context
+                    .i64_type()
+                    .const_int(offset, false)
+                    .into())
+            }
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
                 let ty = self
                     .module

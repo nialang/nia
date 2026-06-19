@@ -226,6 +226,27 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         self.resolve_layout_builtin_for_ty(span, builtin, ty_id)
     }
 
+    fn resolve_resolved_field_offset_builtin(
+        &mut self,
+        span: Span,
+        type_arg: &ResolvedComptimeTypeArg,
+        field: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let module_id = self.current_execution_module_id();
+        let ty_id = (|| {
+            self.ensure_working_interner(module_id)?;
+            self.import_ty_into_module_or_none(type_arg.ty(), module_id)
+        })()
+        .map(|ty| self.substitute_ty_generics(ty));
+        let Some(ty_id) = ty_id else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot resolve type argument for comptime builtin `@offset`".to_string(),
+            });
+        };
+        self.resolve_field_offset_builtin_for_ty(span, ty_id, field)
+    }
+
     fn call_resolved_function(
         &mut self,
         span: Span,

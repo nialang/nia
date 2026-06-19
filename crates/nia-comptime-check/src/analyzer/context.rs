@@ -456,6 +456,106 @@ impl Analyzer<'_> {
         )))
     }
 
+    pub(super) fn resolve_field_offset_builtin_for_ty(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        field: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let module_id = self.current_execution_module_id();
+        let layout_array_lengths = self.program_array_lengths_for_layout(ty);
+        if self.ensure_working_interner(module_id).is_none() {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset without module type interner".to_string(),
+            });
+        }
+        let Some(defs) = self.global_defs(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset without module definitions".to_string(),
+            });
+        };
+        let Some(signatures) = self.signatures_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset without module signatures".to_string(),
+            });
+        };
+        let Some(interner) = self.interner_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset without module type interner".to_string(),
+            });
+        };
+        let Some(normalized) = self.normalized_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset without normalized module types".to_string(),
+            });
+        };
+        let array_lengths = |id| layout_array_lengths.get(&id).copied();
+        let layout_query =
+            |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
+        let layouts = nia_layout::compute_layouts_with_program_context(
+            defs,
+            interner,
+            signatures,
+            normalized,
+            &array_lengths,
+            nia_layout::TargetDataLayout::LP64,
+            nia_layout::ProgramLayoutContext {
+                layouts: Some(&layout_query),
+                array_lengths: Some(&array_lengths),
+                ..Default::default()
+            },
+        );
+        let ty = normalized.get(&ty).copied().unwrap_or(ty);
+        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+            return Err(ComptimeError {
+                span,
+                message: "builtin `@offset` requires a struct or union type argument".to_string(),
+            });
+        };
+        let Some(field_def) = self.field_def_for_nominal(def_id, field) else {
+            return Err(ComptimeError {
+                span,
+                message: format!("type has no field `{field}` for builtin `@offset`"),
+            });
+        };
+        let offset = if def_id.module_id != module_id || ty.interner_id != module_id {
+            self.compute_program_layout(def_id.module_id, &layout_array_lengths)
+                .and_then(|layouts| layouts.field_offset(def_id, &args, field_def))
+        } else {
+            layouts.field_offset(def_id, &args, field_def)
+        };
+        let Some(offset) = offset else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute field offset for comptime builtin `@offset`".to_string(),
+            });
+        };
+        Ok(ComptimeValue::Int(IntConst::unsigned(offset as u128)))
+    }
+
+    fn field_def_for_nominal(&self, def_id: GlobalDefId, name: &str) -> Option<GlobalDefId> {
+        let defs = self.global_defs(def_id.module_id)?;
+        defs.scopes
+            .struct_members
+            .get(&def_id.def_id)
+            .and_then(|members| members.fields.get(name))
+            .or_else(|| {
+                defs.scopes
+                    .union_members
+                    .get(&def_id.def_id)
+                    .and_then(|members| members.fields.get(name))
+            })
+            .map(|field| GlobalDefId {
+                module_id: def_id.module_id,
+                def_id: field,
+            })
+    }
+
     pub(super) fn program_array_lengths_for_layout(
         &mut self,
         ty: InternedTyId,

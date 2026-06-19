@@ -86,6 +86,20 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
         type_arg: &EarlyComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError>;
 
+    fn resolve_field_offset_builtin(
+        &mut self,
+        span: Span,
+        type_arg: &EarlyComptimeTypeArg,
+        field: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = type_arg;
+        let _ = field;
+        Err(ComptimeError {
+            span,
+            message: "unsupported field offset builtin in comptime expression".to_string(),
+        })
+    }
+
     fn call_function(
         &mut self,
         span: Span,
@@ -181,6 +195,20 @@ pub trait ResolvedComptimeEnv: ComptimeCommonEnv {
         builtin: LayoutBuiltin,
         type_arg: &ResolvedComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_resolved_field_offset_builtin(
+        &mut self,
+        span: Span,
+        type_arg: &ResolvedComptimeTypeArg,
+        field: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = type_arg;
+        let _ = field;
+        Err(ComptimeError {
+            span,
+            message: "unsupported field offset builtin in resolved comptime expression".to_string(),
+        })
+    }
 
     fn call_resolved_function(
         &mut self,

@@ -35,6 +35,110 @@ fn main() usize {
 }
 
 #[test]
+fn records_field_offset_builtin_values() {
+    let checked = pipeline(
+        r#"
+extern struct Pair {
+    a: u8,
+    b: u32,
+}
+
+union Bits {
+    i: i32,
+    f: f32,
+}
+
+fn main() usize {
+    var b = @offset[Pair]("b");
+    var f = @offset[Bits]("f");
+    b + f
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .facts
+            .node_builtin_values
+            .values()
+            .any(|value| *value == BuiltinValue::Usize(4))
+    );
+    assert!(
+        checked
+            .facts
+            .node_builtin_values
+            .values()
+            .any(|value| *value == BuiltinValue::Usize(0))
+    );
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    assert!(body.stmts.iter().any(|stmt| {
+        matches!(
+            stmt.kind,
+            nia_body_ir::TypedStmtKind::Binding(nia_body_ir::TypedBinding {
+                value: Some(nia_body_ir::TypedExpr {
+                    kind: nia_body_ir::TypedExprKind::BuiltinValue(
+                        nia_body_ir::BuiltinConst::Usize(4)
+                    ),
+                    ..
+                }),
+                ..
+            })
+        )
+    }));
+}
+
+#[test]
+fn rejects_invalid_field_offset_builtins() {
+    let checked = pipeline(
+        r#"
+struct Pair {
+    a: u8,
+}
+
+fn missing() usize {
+    @offset[Pair]("b")
+}
+
+fn non_aggregate() usize {
+    @offset[u32]("x")
+}
+
+fn non_string() usize {
+    @offset[Pair](0)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("has no field `b`")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("requires a struct or union")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("field name must be a string literal")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn accepts_layout_builtins_as_array_lengths() {
     let checked = pipeline(
         r#"

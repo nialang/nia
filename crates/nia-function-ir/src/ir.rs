@@ -382,6 +382,10 @@ pub enum FunctionBuiltinValue {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
+    FieldOffset {
+        ty: InternedTyId,
+        field: nia_ids::GlobalDefId,
+    },
     Int(IntConst),
 }
 

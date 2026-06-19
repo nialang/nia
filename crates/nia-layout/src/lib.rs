@@ -128,6 +128,41 @@ impl Layouts {
                 })
         }
     }
+
+    pub fn field_offset(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        field: GlobalDefId,
+    ) -> Option<u64> {
+        self.nominal_struct_layout(def_id, args).and_then(|layout| {
+            layout
+                .fields
+                .iter()
+                .find(|candidate| candidate.def_id == field.def_id)
+                .map(|field| field.offset)
+        })
+    }
+
+    pub fn nominal_struct_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&StructLayout> {
+        if args.is_empty() {
+            self.structs
+                .get(&def_id.def_id)
+                .or_else(|| self.unions.get(&def_id.def_id))
+        } else {
+            let key = StructLayoutKey {
+                def_id: def_id.def_id,
+                args: args.to_vec(),
+            };
+            self.struct_instances
+                .get(&key)
+                .or_else(|| self.union_instances.get(&key))
+        }
+    }
 }
 
 pub fn compute_layouts(

@@ -1923,6 +1923,7 @@ Nia provides a small builtin surface:
 ```nia
 @size[T]()
 @align[T]()
+@offset[T]("field")
 @error("message")
 value.len()
 range.start()
@@ -1950,6 +1951,10 @@ slice.get_ptr()
 
 `@align[T]()` returns the ABI alignment of `T` in bytes as `usize`.
 
+`@offset[T]("field")` returns the ABI byte offset of a struct or union field
+as `usize`. The field name must be a string literal. For unions, every field
+has offset `0`.
+
 `@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
 types this predicate is compiler-proven. In generic code it must be written in
 the `where` clause:
@@ -1961,10 +1966,11 @@ where T: Sized {
 }
 ```
 
-When their type argument is concrete, `@size[T]()` and `@align[T]()` are
-compile-time known values and may appear in array lengths, static initializers,
-and ordinary expressions. In generic code they remain layout values until the
-generic function is instantiated.
+When their type argument is concrete, `@size[T]()`, `@align[T]()`, and
+`@offset[T]("field")` are compile-time known values and may appear in ordinary
+expressions. `@size[T]()` and `@align[T]()` may also appear in array lengths and
+static initializers. In generic code these builtins remain layout values until
+the generic function is instantiated.
 
 `value.len()` calls the built-in `Len` trait method. Arrays and slices have
 compiler-proven `Len` implementations; for `[N]T`, it returns `N`; for `&[T]`

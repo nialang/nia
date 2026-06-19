@@ -666,6 +666,10 @@ impl FunctionLowerer {
                 builtin: *builtin,
                 ty: *ty,
             },
+            BuiltinConst::FieldOffset { ty, field } => FunctionBuiltinValue::FieldOffset {
+                ty: *ty,
+                field: *field,
+            },
             BuiltinConst::Int(value) => FunctionBuiltinValue::Int(*value),
         }
     }

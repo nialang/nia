@@ -849,6 +849,14 @@ impl<'a> ModuleLowerer<'a> {
                     nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty }
                 }
             }
+            nia_function_ir::FunctionBuiltinValue::FieldOffset { ty, field } => {
+                let ty = self.instantiate_ty_with_id(ty, substitutions);
+                if let Some(offset) = self.field_offset(ty, field) {
+                    nia_function_ir::FunctionBuiltinValue::Usize(offset)
+                } else {
+                    nia_function_ir::FunctionBuiltinValue::FieldOffset { ty, field }
+                }
+            }
             nia_function_ir::FunctionBuiltinValue::Usize(value) => {
                 nia_function_ir::FunctionBuiltinValue::Usize(value)
             }

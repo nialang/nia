@@ -1080,6 +1080,14 @@ impl<'a> ModuleLowerer<'a> {
         self.type_context.layout_of(ty)
     }
 
+    pub(crate) fn field_offset(
+        &self,
+        ty: InternedTyId,
+        field: nia_ids::GlobalDefId,
+    ) -> Option<u64> {
+        self.type_context.field_offset(ty, field)
+    }
+
     fn error_ty(&self) -> InternedTyId {
         self.input.function_interner.error()
     }

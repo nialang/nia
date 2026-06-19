@@ -248,6 +248,10 @@ pub enum BuiltinValue {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
+    FieldOffset {
+        ty: InternedTyId,
+        field: GlobalDefId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

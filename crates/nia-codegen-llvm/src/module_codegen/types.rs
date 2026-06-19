@@ -649,6 +649,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Err(self.error(span, "missing aggregate field index"))
     }
 
+    pub(crate) fn field_offset(&self, base_ty: InternedTyId, field: GlobalDefId) -> Option<u64> {
+        let (def_id, args) = self.field_base_type(base_ty)?;
+        self.struct_layout(def_id, &args)
+            .or_else(|| self.union_layout(def_id, &args))
+            .and_then(|layout| {
+                layout
+                    .fields
+                    .iter()
+                    .find(|candidate| candidate.def_id == field.def_id)
+                    .map(|field| field.offset)
+            })
+    }
+
     fn backend_struct_field(
         &self,
         def_id: GlobalDefId,
