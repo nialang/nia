@@ -346,6 +346,7 @@ impl Analyzer<'_> {
                 .resolved_comptime_call_return_type(expr.span(), callee, type_args, args, expected)
                 .map(ComptimeValueType::Runtime),
             ResolvedComptimeExprKind::LayoutBuiltin { .. }
+            | ResolvedComptimeExprKind::FieldOffsetBuiltin { .. }
             | ResolvedComptimeExprKind::Null
             | ResolvedComptimeExprKind::Assign(_) => None,
         }

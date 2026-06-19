@@ -94,6 +94,21 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         self.input.layouts.nominal_type_layout(*def_id, args)
     }
 
+    pub(crate) fn field_offset(
+        &self,
+        ty: InternedTyId,
+        field: nia_ids::GlobalDefId,
+    ) -> Option<u64> {
+        let ty = self.input.type_normalization.normalize(ty);
+        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+            return None;
+        };
+        if def_id.module_id != self.input.module_id {
+            return None;
+        }
+        self.input.layouts.field_offset(*def_id, args, field)
+    }
+
     pub(crate) fn type_instantiation(&self, key: &TypeInstantiationKey) -> Option<InternedTyId> {
         self.type_instantiations.get(key).copied()
     }

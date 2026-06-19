@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
-use nia_ast::{Expr, TypeRef};
+use nia_ast::{Expr, ExprKind, TypeRef};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{InternedTyId, LayoutBuiltin, TraitId};
+use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
 use nia_sema_ir::BuiltinValue;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
@@ -62,7 +62,10 @@ impl<'a> BodyChecker<'a> {
         }
         if matches!(
             resolution,
-            BuiltinResolution::Extract | BuiltinResolution::Insert | BuiltinResolution::Bitmask
+            BuiltinResolution::Offset
+                | BuiltinResolution::Extract
+                | BuiltinResolution::Insert
+                | BuiltinResolution::Bitmask
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -89,6 +92,14 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::AlignOf => {
                 self.require_sized_type(type_arg.span, ty, name);
                 LayoutBuiltin::Align
+            }
+            BuiltinResolution::Offset => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "builtin `@offset` must be called with a field name",
+                ));
+                return self.error();
             }
             BuiltinResolution::Asm => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -213,6 +224,14 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.check_builtin(builtin, name, type_arg)
             }
+            BuiltinResolution::Offset => self.check_offset_builtin_call(
+                call_span,
+                builtin,
+                builtin_span,
+                name,
+                type_arg,
+                args,
+            ),
             BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
             BuiltinResolution::MemCopy => {
                 self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_arg, args)
@@ -262,6 +281,137 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Reserved => self.error(),
         }
+    }
+
+    fn check_offset_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin: &Expr,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let Some(type_arg) = type_arg else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                builtin_span,
+                format!("builtin `@{name}` requires an aggregate type argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.primitive(PrimitiveTy::Usize);
+        };
+        if args.len() != 1 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly one field name argument"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.primitive(PrimitiveTy::Usize);
+        }
+
+        let ty = self.ty_for_type(type_arg);
+        let Some(field_name) = self.offset_field_name(&args[0]) else {
+            self.check_expr(&args[0]);
+            return self.primitive(PrimitiveTy::Usize);
+        };
+        let Some((nominal, field)) = self.offset_field_def(type_arg.span, ty, &field_name) else {
+            return self.primitive(PrimitiveTy::Usize);
+        };
+        if let Some(offset) = self.field_offset_of(ty, nominal, field) {
+            self.record_builtin_node_value(builtin, BuiltinValue::Usize(offset));
+        } else {
+            self.record_builtin_node_value(builtin, BuiltinValue::FieldOffset { ty, field });
+        }
+        self.primitive(PrimitiveTy::Usize)
+    }
+
+    fn offset_field_name(&mut self, arg: &Expr) -> Option<String> {
+        let ExprKind::String(literal) = &arg.kind else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                arg.span,
+                "builtin `@offset` field name must be a string literal",
+            ));
+            return None;
+        };
+        let Some(scalars) = crate::literals::decode_string_literal(literal) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                arg.span,
+                "invalid string literal in `@offset` field name",
+            ));
+            return None;
+        };
+        let mut name = String::new();
+        for scalar in scalars {
+            let Some(ch) = char::from_u32(scalar) else {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    arg.span,
+                    "invalid string scalar in `@offset` field name",
+                ));
+                return None;
+            };
+            name.push(ch);
+        }
+        Some(name)
+    }
+
+    fn offset_field_def(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        name: &str,
+    ) -> Option<(GlobalDefId, GlobalDefId)> {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Nominal { def_id, .. }) = self
+            .interner
+            .get(ty)
+            .or_else(|| self.normalization.interner.get(ty))
+        else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                "builtin `@offset` requires a struct or union type argument",
+            ));
+            return None;
+        };
+        let Some(field) = self.field_def_for_nominal(*def_id, name) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                format!("type has no field `{name}` for builtin `@offset`"),
+            ));
+            return None;
+        };
+        Some((*def_id, field))
+    }
+
+    fn field_offset_of(
+        &self,
+        ty: InternedTyId,
+        nominal: GlobalDefId,
+        field: GlobalDefId,
+    ) -> Option<u64> {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Nominal { args, .. }) = self
+            .interner
+            .get(ty)
+            .or_else(|| self.normalization.interner.get(ty))
+        else {
+            return None;
+        };
+        if nominal.module_id == self.defs.module_id {
+            return self.layouts.field_offset(nominal, args, field);
+        }
+        let layouts = (self.program.layouts?)(nominal.module_id)?;
+        layouts.field_offset(nominal, args, field)
     }
 
     fn check_splat_builtin_call(

@@ -166,6 +166,48 @@ xs[0]
 }
 
 #[test]
+fn evaluates_field_offset_builtin_at_comptime() {
+    let fixture = check_source(
+        r#"
+extern struct Pair {
+    a: u8,
+    b: u32,
+}
+
+comptime let OFF: usize = @offset[Pair]("b");
+"#,
+    );
+    assert!(
+        fixture.comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.comptime_module.diagnostics
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    let off_def = fixture
+        .defs
+        .module_scope
+        .values
+        .get("OFF")
+        .expect("OFF def");
+    let typed = fixture
+        .checked
+        .typed_values
+        .get(&ComptimeKey::Global(GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: off_def,
+        }))
+        .expect("typed global comptime value");
+    assert_eq!(
+        typed.value,
+        nia_comptime_engine::ComptimeValue::Int(nia_ty::IntConst::unsigned(4))
+    );
+}
+
+#[test]
 fn records_enum_backing_types_for_comptime_variant_values() {
     let fixture = check_source(
         r#"

@@ -439,6 +439,31 @@ fn lower_call_with_context(
                 message: Box::new(lower_expr_internal(&args[0], context)?),
             });
         }
+        if name == "offset" {
+            let Some(type_arg) = type_arg else {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@offset` requires an aggregate type argument".to_string(),
+                });
+            };
+            let [arg] = args else {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@offset` requires exactly one field name argument"
+                        .to_string(),
+                });
+            };
+            let nia_ast::ExprKind::String(field) = &arg.kind else {
+                return Err(ComptimeLowerError {
+                    span: arg.span,
+                    message: "builtin `@offset` field name must be a string literal".to_string(),
+                });
+            };
+            return Ok(EarlyComptimeExprKind::FieldOffsetBuiltin {
+                type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
+                field: lower_string_literal(field),
+            });
+        }
         if type_arg.is_none() && ValueBuiltin::from_name(name).is_none() {
             return Err(ComptimeLowerError {
                 span: callee.span,
@@ -848,6 +873,12 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             ResolvedComptimeExprKind::LayoutBuiltin {
                 builtin,
                 type_arg: resolve_type_arg(type_arg)?,
+            }
+        }
+        EarlyComptimeExprKind::FieldOffsetBuiltin { type_arg, field } => {
+            ResolvedComptimeExprKind::FieldOffsetBuiltin {
+                type_arg: resolve_type_arg(type_arg)?,
+                field,
             }
         }
         EarlyComptimeExprKind::Call {

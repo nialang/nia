@@ -120,10 +120,11 @@ struct Pair[T] {
 
 fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
     var size = @size[Pair[i32]]();
+    var offset = @offset[Pair[i32]]("value");
     var addr = ptr as usize;
     var first = xs[0];
     var value = ptr.*;
-    { value: (addr + size) as i32 }
+    { value: (addr + size + offset) as i32 }
 }
 "#,
     );
@@ -146,21 +147,36 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
             ..
         }
     ));
-    let StmtKind::Binding(addr) = &body.stmts[1].kind else {
+    let StmtKind::Binding(offset) = &body.stmts[1].kind else {
+        panic!("expected binding");
+    };
+    let Some(ExprKind::Call { callee, args }) = offset.value.as_ref().map(|value| &value.kind)
+    else {
+        panic!("expected offset builtin call");
+    };
+    assert_eq!(args.len(), 1);
+    assert!(matches!(
+        callee.kind,
+        ExprKind::Builtin {
+            type_arg: Some(_),
+            ..
+        }
+    ));
+    let StmtKind::Binding(addr) = &body.stmts[2].kind else {
         panic!("expected binding");
     };
     assert!(matches!(
         addr.value.as_ref().map(|value| &value.kind),
         Some(ExprKind::Cast { .. })
     ));
-    let StmtKind::Binding(first) = &body.stmts[2].kind else {
+    let StmtKind::Binding(first) = &body.stmts[3].kind else {
         panic!("expected binding");
     };
     assert!(matches!(
         first.value.as_ref().map(|value| &value.kind),
         Some(ExprKind::BracketSuffix { .. })
     ));
-    let StmtKind::Binding(value) = &body.stmts[3].kind else {
+    let StmtKind::Binding(value) = &body.stmts[4].kind else {
         panic!("expected binding");
     };
     assert!(matches!(

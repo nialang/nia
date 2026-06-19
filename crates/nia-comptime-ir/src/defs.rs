@@ -876,6 +876,10 @@ pub enum ResolvedComptimeExprKind {
         builtin: LayoutBuiltin,
         type_arg: ResolvedComptimeTypeArg,
     },
+    FieldOffsetBuiltin {
+        type_arg: ResolvedComptimeTypeArg,
+        field: ComptimeStringLiteral,
+    },
     Call {
         callee: Box<ResolvedComptimeExpr>,
         type_args: Vec<ResolvedComptimeTypeArg>,
@@ -1331,6 +1335,10 @@ pub enum EarlyComptimeExprKind {
     LayoutBuiltin {
         builtin: LayoutBuiltin,
         type_arg: EarlyComptimeTypeArg,
+    },
+    FieldOffsetBuiltin {
+        type_arg: EarlyComptimeTypeArg,
+        field: ComptimeStringLiteral,
     },
     Call {
         callee: Box<EarlyComptimeExpr>,

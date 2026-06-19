@@ -245,6 +245,15 @@ fn eval_resolved_comptime_expr_flow(
         ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
         }
+        ResolvedComptimeExprKind::FieldOffsetBuiltin { type_arg, field } => {
+            let Some(field) = eval_string_literal(field) else {
+                return Err(ComptimeError {
+                    span,
+                    message: "invalid string literal in `@offset` field name".to_string(),
+                });
+            };
+            env.resolve_resolved_field_offset_builtin(span, type_arg, &field)?
+        }
         ResolvedComptimeExprKind::BuiltinValue(builtin) => {
             env.resolve_builtin_value(span, *builtin)?
         }
@@ -487,6 +496,15 @@ fn eval_comptime_expr_flow(
         }
         EarlyComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
+        }
+        EarlyComptimeExprKind::FieldOffsetBuiltin { type_arg, field } => {
+            let Some(field) = eval_string_literal(field) else {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "invalid string literal in `@offset` field name".to_string(),
+                });
+            };
+            env.resolve_field_offset_builtin(expr.span, type_arg, &field)?
         }
         EarlyComptimeExprKind::BuiltinValue(builtin) => {
             env.resolve_builtin_value(expr.span, *builtin)?

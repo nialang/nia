@@ -85,6 +85,14 @@ impl<'a> BodyChecker<'a> {
                     ));
                     StaticInit::Zero
                 }
+                Some(BuiltinValue::FieldOffset { .. }) => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        expr.span,
+                        "generic field offset builtin is not representable as static data",
+                    ));
+                    StaticInit::Zero
+                }
                 None => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0301",

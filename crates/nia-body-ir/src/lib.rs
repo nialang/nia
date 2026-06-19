@@ -356,6 +356,10 @@ pub enum BuiltinConst {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
+    FieldOffset {
+        ty: InternedTyId,
+        field: GlobalDefId,
+    },
     Int(IntConst),
 }
 

@@ -513,6 +513,19 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
             message: "layout builtins are not available in static address constants".to_string(),
         })
     }
+
+    fn resolve_resolved_field_offset_builtin(
+        &mut self,
+        span: Span,
+        _type_arg: &ResolvedComptimeTypeArg,
+        _field: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: "field offset builtins are not available in static address constants"
+                .to_string(),
+        })
+    }
 }
 
 impl StaticComptimeEnv<'_> {

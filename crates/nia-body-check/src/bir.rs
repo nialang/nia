@@ -556,6 +556,12 @@ impl<'a> BodyChecker<'a> {
                         ty: *ty,
                     })
                 }
+                Some(BuiltinValue::FieldOffset { ty, field }) => {
+                    TypedExprKind::BuiltinValue(BuiltinConst::FieldOffset {
+                        ty: *ty,
+                        field: *field,
+                    })
+                }
                 None => TypedExprKind::Error,
             },
             ExprKind::Qualified { .. } if self.builtin_value(expr).is_some() => {
@@ -570,6 +576,12 @@ impl<'a> BodyChecker<'a> {
                         TypedExprKind::BuiltinValue(BuiltinConst::Layout {
                             builtin: *builtin,
                             ty: *ty,
+                        })
+                    }
+                    Some(BuiltinValue::FieldOffset { ty, field }) => {
+                        TypedExprKind::BuiltinValue(BuiltinConst::FieldOffset {
+                            ty: *ty,
+                            field: *field,
                         })
                     }
                     None => TypedExprKind::Error,
@@ -771,6 +783,7 @@ impl<'a> BodyChecker<'a> {
                     match (name.as_str(), args.as_slice()) {
                         ("trap", []) => TypedExprKind::Trap,
                         (_, []) => self.lower_expr(callee).kind,
+                        ("offset", [_]) => self.lower_expr(callee).kind,
                         ("asm", [arg]) => self.lower_inline_asm(arg),
                         ("memcpy", [dest, source]) => {
                             TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
@@ -1194,7 +1207,7 @@ impl<'a> BodyChecker<'a> {
         self.field_def_for_nominal(base.def_id, name)
     }
 
-    fn field_def_for_nominal(
+    pub(crate) fn field_def_for_nominal(
         &self,
         def_id: nia_ids::GlobalDefId,
         name: &str,

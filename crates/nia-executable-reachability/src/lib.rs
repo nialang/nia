@@ -814,8 +814,10 @@ fn collect_function_fact_owner_modules(
         type_ids.extend([upcast.source_ty, upcast.target_ty]);
     }
     for value in facts.node_builtin_values.values() {
-        if let nia_sema_ir::BuiltinValue::Layout { ty, .. } = value {
-            type_ids.push(*ty);
+        match value {
+            nia_sema_ir::BuiltinValue::Layout { ty, .. }
+            | nia_sema_ir::BuiltinValue::FieldOffset { ty, .. } => type_ids.push(*ty),
+            _ => {}
         }
     }
     for call in facts.node_resolved_calls.values() {
