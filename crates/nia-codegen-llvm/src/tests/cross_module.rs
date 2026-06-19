@@ -27,7 +27,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -63,7 +63,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -106,7 +106,7 @@ pub fn add(a: i32, b: i32) i32 {
     )
     .expect("write math source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -149,7 +149,7 @@ pub struct Point {
     )
     .expect("write geom source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);

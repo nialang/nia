@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{NiaOptimizationLevel, check_program, check_program_with_options};
+use crate::{
+    CheckRequest, Driver, EmitLlvmRequest, NiaOptimizationLevel, check_program,
+    check_program_with_options,
+};
 use nia_ids::ModuleId;
 
 #[test]
@@ -861,6 +864,30 @@ fn main() i32 {
             "{level:?}"
         );
     }
+}
+
+#[test]
+fn driver_facade_emits_llvm_ir_from_source_request() {
+    let root = temp_dir("driver_facade_emits_llvm_ir_from_source_request");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    42
+}
+"#,
+    );
+
+    let driver = Driver::new();
+    let output = driver.emit_llvm_ir(EmitLlvmRequest::new(CheckRequest::new(
+        root.join("main.nia").to_string_lossy().into_owned(),
+    )));
+    let artifact = output
+        .result
+        .expect("driver facade should emit llvm ir without diagnostics");
+
+    assert_eq!(artifact.modules.len(), 1);
+    assert!(artifact.modules[0].ir.contains("define i32 @"));
 }
 
 #[test]

@@ -6,7 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-codegen-llvm.workspace = true
 nia-compiler-query.workspace = true
+nia-diagnostic.workspace = true
 nia-imports.workspace = true
 nia-opt.workspace = true
 nia-loader-query.workspace = true
