@@ -571,8 +571,6 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             path: self.0.clone(),
             source_version: parsed.source.version(),
             source: parsed.source.text,
-            raw_module: parsed.raw_module,
-            module: parsed.module,
             item_tree: parsed.item_tree,
             active_item_tree: parsed.active_item_tree,
             origins: parsed.origins,
@@ -612,8 +610,6 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             source: source
                 .file
                 .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
-            module: prune_result.module,
-            raw_module,
             item_tree,
             active_item_tree: prune_result.active_item_tree,
             origins,
@@ -655,10 +651,8 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 #[derive(Debug, Clone, PartialEq)]
 struct ParsedModule {
     source: SourceFile,
-    raw_module: nia_ast::Module,
     item_tree: ModuleItemTree,
     active_item_tree: ActiveModuleItemTree,
-    module: nia_ast::Module,
     origins: nia_node_id::NodeOriginTable,
     parse_errors: Vec<nia_parser::ParseError>,
     prune_diagnostics: Vec<Diagnostic>,

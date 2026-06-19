@@ -43,7 +43,6 @@ impl Default for TargetConfig {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PruneResult {
-    pub module: Module,
     pub active_item_tree: ActiveModuleItemTree,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -55,7 +54,6 @@ pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneRe
     };
     let pruned = pruner.prune_module(module);
     PruneResult {
-        module: pruned.module,
         active_item_tree: pruned.active_item_tree,
         diagnostics: pruner.diagnostics,
     }
@@ -81,7 +79,6 @@ struct Pruner<'a> {
 }
 
 struct PrunedModule {
-    module: Module,
     active_item_tree: ActiveModuleItemTree,
 }
 
@@ -107,7 +104,6 @@ impl Pruner<'_> {
         };
         let item_tree = ModuleItemTree::from_module(&module);
         PrunedModule {
-            module,
             active_item_tree: ActiveModuleItemTree::new(item_tree.items, inactive_spans),
         }
     }
@@ -709,12 +705,6 @@ fn main() i32 {
 
         let pruned = prune_module_for_target(module, &TargetConfig::host());
         assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
-
-        let ItemKind::Function(module_function) = &pruned.module.items[0].kind else {
-            panic!("expected function item");
-        };
-        let module_body = module_function.body.as_ref().expect("expected body");
-        assert!(module_body.stmts.is_empty());
 
         let active_module = pruned.active_item_tree.to_module();
         let ItemKind::Function(active_function) = &active_module.items[0].kind else {
