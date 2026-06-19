@@ -8,7 +8,9 @@ use nia_defs::{
     WhereBoundSignature, WherePredicateSignature,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind};
+use nia_ids::{
+    BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, Visibility,
+};
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
@@ -1910,7 +1912,7 @@ fn trait_id_is_visible(
         return defs_by_module
             .get(&trait_id.module_id)
             .and_then(|defs| defs.defs.get(trait_id.def_id))
-            .is_some_and(|def| def.visibility == nia_ast::Visibility::Public);
+            .is_some_and(|def| def.visibility == Visibility::Public);
     }
     public_surfaces.get(current_module).is_some_and(|surface| {
         surface.types.values().any(|item| {

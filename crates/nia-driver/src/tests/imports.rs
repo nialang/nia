@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
-use nia_ast::Visibility;
 use nia_ids::ModuleId;
-use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath};
+use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath, Visibility};
 use nia_loader_query::load_program;
 use std::fs;
 

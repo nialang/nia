@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::Visibility;
 use nia_diagnostic::Diagnostic;
-pub use nia_ids::ModuleId;
+pub use nia_ids::{ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
 use nia_span::Span;

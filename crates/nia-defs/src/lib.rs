@@ -4,13 +4,12 @@ use std::collections::{HashMap, HashSet};
 mod extensions;
 mod public_surface;
 
-pub use nia_ast::Visibility;
 use nia_ast::{
     BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
     Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
 };
 use nia_diagnostic::Diagnostic;
-pub use nia_ids::{DefId, ModuleId};
+pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;
