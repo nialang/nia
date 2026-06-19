@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{ComptimeModuleInput, ComptimeModuleLowering};
-use nia_ast::{Expr, ItemKind};
+use nia_ast::Expr;
 use nia_comptime_ir::{
     ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
     ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
@@ -9,7 +9,9 @@ use nia_comptime_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_item_tree::{ItemTreeNode, ItemTreeNodeKind};
 use nia_local_resolve::LocalKind;
+use nia_node_id::NodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
@@ -33,16 +35,16 @@ struct ComptimeModuleLowerer<'a> {
 
 impl ComptimeModuleLowerer<'_> {
     fn lower_module(&mut self) {
-        for item in &self.input.module.items {
+        for item in &self.input.active_item_tree.items {
             match &item.kind {
-                ItemKind::Enum(item_enum) => self.lower_enum(item, item_enum),
-                ItemKind::Binding(binding) if binding.is_comptime => {
+                ItemTreeNodeKind::Enum(item_enum) => self.lower_enum(item, item_enum),
+                ItemTreeNodeKind::Binding(binding) if binding.is_comptime => {
                     self.lower_global_initializer(item.span, binding)
                 }
-                ItemKind::Function(function) if function.is_comptime => {
+                ItemTreeNodeKind::Function(function) if function.is_comptime => {
                     self.lower_function(function)
                 }
-                ItemKind::Extend(extend) => {
+                ItemTreeNodeKind::Extend(extend) => {
                     for associated_value in &extend.associated_values {
                         self.lower_global_initializer(
                             associated_value.span,
@@ -76,7 +78,7 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn lower_enum(&mut self, item: &nia_ast::Item, item_enum: &nia_ast::EnumItem) {
+    fn lower_enum(&mut self, item: &ItemTreeNode, item_enum: &nia_ast::EnumItem) {
         let Some(enum_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Enum) else {
             return;
         };
@@ -427,15 +429,15 @@ impl ComptimeModuleLowerer<'_> {
 
     fn local_initializer(&self, local_id: LocalId) -> Option<(Expr, Option<InternedTyId>)> {
         self.input
-            .module
+            .active_item_tree
             .items
             .iter()
             .find_map(|item| match &item.kind {
-                ItemKind::Function(function) => function
+                ItemTreeNodeKind::Function(function) => function
                     .body
                     .as_ref()
                     .and_then(|body| self.local_initializer_in_block(local_id, body)),
-                ItemKind::Extend(extend) => extend.methods.iter().find_map(|method| {
+                ItemTreeNodeKind::Extend(extend) => extend.methods.iter().find_map(|method| {
                     method
                         .function
                         .body
@@ -489,12 +491,7 @@ impl ComptimeModuleLowerer<'_> {
         None
     }
 
-    fn def_id_for_node(
-        &self,
-        node_key: &nia_node_id::NodeKey,
-        _span: Span,
-        expected: DefKind,
-    ) -> Option<DefId> {
+    fn def_id_for_node(&self, node_key: &NodeKey, _span: Span, expected: DefKind) -> Option<DefId> {
         let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         (def.kind == expected).then_some(def_id)

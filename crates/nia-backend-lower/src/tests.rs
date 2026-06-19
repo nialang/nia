@@ -11,6 +11,7 @@ use nia_function_ir::{
 use nia_function_lower::lower_function_body;
 use nia_ids::{GlobalDefId, LocalId};
 use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
@@ -184,9 +185,10 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
+    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,
@@ -329,6 +331,14 @@ fn lower_source_with_body_check_mutation_and_optimization(
         trait_impls: &[],
     };
     lower_backend_program(&[input], &monomorphization, optimization)
+}
+
+fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
+    let item_tree = ModuleItemTree::from_module(module);
+    ActiveModuleItemTree::new(
+        item_tree.active_items_without_comptime(),
+        Default::default(),
+    )
 }
 
 fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDefId {
