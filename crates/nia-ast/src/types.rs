@@ -27,6 +27,10 @@ pub enum TypeKind {
         is_readonly: bool,
         elem: Box<TypeRef>,
     },
+    VolatilePointer {
+        is_readonly: bool,
+        elem: Box<TypeRef>,
+    },
     Slice {
         is_readonly: bool,
         elem: Box<TypeRef>,

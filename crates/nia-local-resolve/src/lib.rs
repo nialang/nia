@@ -355,6 +355,7 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_type(trait_ref);
             }
             TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePointer { elem, .. }
             | TypeKind::Slice { elem, .. }
             | TypeKind::SlicePointee { elem } => {
                 self.resolve_type(elem);

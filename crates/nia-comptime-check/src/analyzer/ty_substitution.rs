@@ -11,6 +11,10 @@ pub(super) fn substitute_ty_generics_in_interner(
             let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
             interner.intern(TyKind::Pointer { is_readonly, elem })
         }
+        Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::VolatilePointer { is_readonly, elem })
+        }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
             interner.intern(TyKind::Slice { is_readonly, elem })

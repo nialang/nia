@@ -528,6 +528,15 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem =
+                    self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
+                let instantiated = self
+                    .type_context
+                    .interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
@@ -994,6 +1003,17 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::VolatilePointer {
+                is_readonly: pattern_const,
+                elem: pattern_elem,
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::VolatilePointer { is_readonly, elem })
+                    if is_readonly == pattern_const =>
+                {
+                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
+                }
+                _ => false,
+            },
             Some(TyKind::Slice {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
@@ -1218,6 +1238,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::GenericParam(name)) => substitutions.contains_key(name),
             Some(
                 TyKind::Pointer { elem, .. }
+                | TyKind::VolatilePointer { elem, .. }
                 | TyKind::Slice { elem, .. }
                 | TyKind::SlicePointee { elem },
             ) => self.extension_pattern_generics_are_bound(*elem, substitutions),

@@ -133,6 +133,45 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_volatile_pointer_deref_and_readonly_writes() {
+    let checked = pipeline(
+        r#"
+fn read_reg(reg: ^u32) u32 {
+    reg.*
+}
+
+fn write_reg(reg: ^mut u32, value: u32) void {
+    reg.* = value;
+}
+
+fn cast_reg(addr: usize) ^mut u32 {
+    addr as ^mut u32
+}
+
+fn readonly_from_mut(reg: ^mut u32) ^u32 {
+    reg
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let bad = pipeline(
+        r#"
+fn write_readonly(reg: ^u32, value: u32) void {
+    reg.* = value;
+}
+"#,
+    );
+    assert!(
+        bad.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("pointer is read-only")),
+        "{:?}",
+        bad.diagnostics
+    );
+}
+
+#[test]
 fn accepts_explicit_return_without_tail_expression() {
     let checked = pipeline(
         r#"

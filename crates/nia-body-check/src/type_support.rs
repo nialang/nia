@@ -70,6 +70,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.normalize_projection_inner(elem, active_projections);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
@@ -474,6 +479,16 @@ impl<'a> BodyChecker<'a> {
                     elem: expected_elem,
                 }),
                 Some(TyKind::Pointer {
+                    is_readonly: false,
+                    elem: actual_elem,
+                }),
+            ) if self.types_match(expected_elem, actual_elem) => Some(expected),
+            (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: true,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::VolatilePointer {
                     is_readonly: false,
                     elem: actual_elem,
                 }),
@@ -926,6 +941,10 @@ impl<'a> BodyChecker<'a> {
                 let mut_part = if *is_readonly { "" } else { "mut " };
                 format!("&{mut_part}{}", self.ty_name(*elem))
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let mut_part = if *is_readonly { "" } else { "mut " };
+                format!("^{mut_part}{}", self.ty_name(*elem))
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let mut_part = if *is_readonly { "" } else { "mut " };
                 format!("&{mut_part}[{}]", self.ty_name(*elem))
@@ -1338,7 +1357,11 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn is_pointer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+            Some(
+                TyKind::Pointer { .. }
+                    | TyKind::VolatilePointer { .. }
+                    | TyKind::FunctionPointer { .. }
+            )
         )
     }
 

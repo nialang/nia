@@ -207,7 +207,9 @@ impl AbiChecker<'_> {
                     format!("{context_desc} cannot use `never` directly"),
                 ))
             }
-            Some(TyKind::Primitive(_)) | Some(TyKind::Pointer { .. }) => {}
+            Some(TyKind::Primitive(_))
+            | Some(TyKind::Pointer { .. })
+            | Some(TyKind::VolatilePointer { .. }) => {}
             Some(TyKind::Vector { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,

@@ -391,6 +391,20 @@ impl<'a> BodyChecker<'a> {
                 required_readonly == actual_readonly
                     && self.match_where_candidate_type(required_elem, actual_elem, substitutions)
             }
+            Some(TyKind::VolatilePointer {
+                is_readonly: required_readonly,
+                elem: required_elem,
+            }) => {
+                let Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.interner.get(actual).cloned()
+                else {
+                    return false;
+                };
+                required_readonly == actual_readonly
+                    && self.match_where_candidate_type(required_elem, actual_elem, substitutions)
+            }
             Some(TyKind::Slice {
                 is_readonly: required_readonly,
                 elem: required_elem,
@@ -457,6 +471,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
@@ -933,6 +952,7 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty).cloned() {
             Some(
                 TyKind::Pointer { elem, .. }
+                | TyKind::VolatilePointer { elem, .. }
                 | TyKind::Slice { elem, .. }
                 | TyKind::SlicePointee { elem },
             ) => {
@@ -1204,6 +1224,16 @@ impl<'a> BodyChecker<'a> {
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
+                    is_readonly: right_const,
+                    elem: right_elem,
+                }),
+            )
+            | (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::VolatilePointer {
                     is_readonly: right_const,
                     elem: right_elem,
                 }),

@@ -788,7 +788,9 @@ impl<'a> BodyChecker<'a> {
         let ty = self.normalize_aliases_in_type(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::Nominal { def_id, args }) => Some((def_id, args)),
-            Some(TyKind::Pointer { elem, .. }) => self.field_base_type(elem),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.field_base_type(elem)
+            }
             _ => None,
         }
     }

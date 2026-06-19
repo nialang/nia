@@ -111,7 +111,9 @@ impl BackendValidator<'_> {
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         match self.ty_kind(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
-            Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.field_base_type(*elem)
+            }
             _ => None,
         }
     }
@@ -129,7 +131,9 @@ impl BackendValidator<'_> {
                 self.index.globals.get(def_id).map(|item| item.ty)
             }
             nia_function_ir::FunctionPlaceBase::Deref(expr) => match self.ty_kind(expr.ty) {
-                Some(TyKind::Pointer { elem, .. }) => Some(*elem),
+                Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                    Some(*elem)
+                }
                 _ => Some(place.ty),
             },
             nia_function_ir::FunctionPlaceBase::Error => None,

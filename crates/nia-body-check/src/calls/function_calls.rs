@@ -664,6 +664,7 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(self.normalization.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. })
@@ -754,6 +755,19 @@ impl<'a> BodyChecker<'a> {
                 elem: pattern_elem,
             }) => {
                 if let Some(TyKind::Pointer {
+                    is_readonly: actual_const,
+                    elem: actual_elem,
+                }) = self.interner.get(actual).cloned()
+                    && (pattern_const == actual_const || pattern_const && !actual_const)
+                {
+                    self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
+                }
+            }
+            Some(TyKind::VolatilePointer {
+                is_readonly: pattern_const,
+                elem: pattern_elem,
+            }) => {
+                if let Some(TyKind::VolatilePointer {
                     is_readonly: actual_const,
                     elem: actual_elem,
                 }) = self.interner.get(actual).cloned()

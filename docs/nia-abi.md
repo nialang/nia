@@ -159,6 +159,8 @@ Pointers are scalar pointer-sized values:
 ```text
 &T              pointer-sized
 &mut T          pointer-sized
+^T              pointer-sized
+^mut T          pointer-sized
 &void           pointer-sized
 &mut void       pointer-sized
 ```
@@ -187,6 +189,12 @@ var q: &mut void = &mut value as &mut void;
 ```
 
 Nia does not perform implicit `&T -> &void` coercions.
+
+Volatile pointers `^T` and `^mut T` have the same ABI representation as ordinary
+thin object pointers. Volatility is an access property: loads and stores through
+these pointer types must be emitted as volatile memory operations. It does not
+change pointer size, alignment, parameter classification, or C ABI pointer
+representation.
 
 ## 8. Function Pointer Representation
 
@@ -514,6 +522,7 @@ union by value                  rejected
 Nia enum by value               rejected; use the backing integer type
 variadic function pointer       rejected
 pointer values                  allowed when the pointee boundary is meaningful
+volatile pointer values         allowed with ordinary pointer representation
 ```
 
 `extern struct` is the C-layout aggregate form. Ordinary Nia structs are not

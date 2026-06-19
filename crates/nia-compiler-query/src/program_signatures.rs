@@ -1500,6 +1500,18 @@ fn substitute_imported_type(
             );
             target_interner.intern(TyKind::Pointer { is_readonly, elem })
         }
+        Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+            let is_readonly = *is_readonly;
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
+            target_interner.intern(TyKind::VolatilePointer { is_readonly, elem })
+        }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
             let elem = substitute_imported_type(
@@ -1841,6 +1853,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             TyKind::Primitive(_)
             | TyKind::Vector { .. }
             | TyKind::Pointer { .. }
+            | TyKind::VolatilePointer { .. }
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }

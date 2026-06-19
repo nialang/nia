@@ -55,6 +55,11 @@ impl<'a> TypeNormalizer<'a> {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.normalize_ty(elem, stack);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
@@ -258,6 +263,11 @@ impl<'a> TypeNormalizer<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);

@@ -317,6 +317,9 @@ impl<'a> BodyChecker<'a> {
             Some(_) if has_deref => None,
             Some(TyKind::Pointer {
                 is_readonly: true, ..
+            })
+            | Some(TyKind::VolatilePointer {
+                is_readonly: true, ..
             }) => Some("pointer is read-only"),
             Some(_) => Some("expression does not implement Deref"),
             None => Some("pointer type is not known"),
@@ -600,6 +603,9 @@ impl<'a> BodyChecker<'a> {
             Some(_) if has_index => None,
             Some(TyKind::Pointer {
                 is_readonly: true, ..
+            })
+            | Some(TyKind::VolatilePointer {
+                is_readonly: true, ..
             }) => Some("pointer is read-only"),
             Some(TyKind::Slice {
                 is_readonly: true, ..
@@ -615,7 +621,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         );
         match self.interner.get(ty) {
-            Some(TyKind::Pointer { elem, .. })
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -661,7 +667,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         );
         match self.interner.get(ty) {
-            Some(TyKind::Pointer { elem, .. })
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(

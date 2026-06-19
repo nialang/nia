@@ -67,6 +67,34 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_volatile_pointer_load_and_store() {
+    let root = temp_dir("emits_volatile_pointer_load_and_store");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn read_reg(reg: ^u32) u32 {
+    reg.*
+}
+
+extern fn write_reg(reg: ^mut u32, value: u32) void {
+    reg.* = value;
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("load volatile i32"), "{ir}");
+    assert!(ir.contains("store volatile i32"), "{ir}");
+}
+
+#[test]
 fn emits_trap_builtin_as_llvm_trap() {
     let root = temp_dir("emits_trap_builtin_as_llvm_trap");
     let main = root.join("main.nia");

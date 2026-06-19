@@ -400,7 +400,11 @@ impl<'a> LayoutComputer<'a> {
         let layout = match self.interner.get(ty_id).cloned() {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(span, elem, lanes),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => Some(TypeLayout {
+            Some(
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::FunctionPointer { .. },
+            ) => Some(TypeLayout {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
             }),

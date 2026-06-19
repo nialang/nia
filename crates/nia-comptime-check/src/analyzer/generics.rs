@@ -48,6 +48,22 @@ impl Analyzer<'_> {
                     )?;
                 }
             }
+            TyKind::VolatilePointer { is_readonly, elem } => {
+                if let Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) = self.ty_kind(actual_ty)
+                    && is_readonly == actual_readonly
+                {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
             TyKind::Slice { is_readonly, elem } => {
                 if let Some(TyKind::Slice {
                     is_readonly: actual_readonly,

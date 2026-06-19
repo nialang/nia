@@ -13,6 +13,10 @@ pub enum TyKind {
         is_readonly: bool,
         elem: InternedTyId,
     },
+    VolatilePointer {
+        is_readonly: bool,
+        elem: InternedTyId,
+    },
     Slice {
         is_readonly: bool,
         elem: InternedTyId,
@@ -300,6 +304,13 @@ pub fn import_type_into(
                 elem,
             })
         }
+        Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::VolatilePointer {
+                is_readonly: *is_readonly,
+                elem,
+            })
+        }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Slice {
@@ -488,6 +499,16 @@ pub trait TypeEquivalence {
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
+                    is_readonly: right_const,
+                    elem: right_elem,
+                }),
+            )
+            | (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::VolatilePointer {
                     is_readonly: right_const,
                     elem: right_elem,
                 }),

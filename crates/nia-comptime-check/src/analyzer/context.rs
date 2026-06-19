@@ -500,6 +500,7 @@ impl Analyzer<'_> {
             }
             Some(TyKind::Optional { elem })
             | Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
