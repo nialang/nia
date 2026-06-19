@@ -598,7 +598,7 @@ fn module_map_rejects_compiler_reserved_roots() {
     let main = root.join("main.nia");
     std::fs::write(&main, "fn main() i32 { 0 }").expect("write main source");
 
-    for reserved in ["root", "pkg"] {
+    for reserved in ["root", "pkg", "builtin"] {
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg("check")
             .arg(&main)

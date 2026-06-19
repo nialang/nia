@@ -87,7 +87,12 @@ fn load_program_trace(
 fn effective_module_map(root_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
     module_map
         .with_compiler_root(root_path.clone())
+        .with_builtin_root(builtin_module_path())
         .with_default_std(default_std_module_path())
+}
+
+fn builtin_module_path() -> SourcePath {
+    SourcePath::new("<nia:builtin>")
 }
 
 fn default_std_module_path() -> SourcePath {
@@ -594,6 +599,16 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        if self.0 == builtin_module_path() {
+            return SourceText {
+                file: Some(
+                    db.context()
+                        .sources
+                        .set_source(self.0.clone(), builtin_module_source(&db.context().target)),
+                ),
+                diagnostic: None,
+            };
+        }
         match db.context().sources.read_source(&self.0) {
             Ok(file) => SourceText {
                 file: Some(file),
@@ -609,6 +624,48 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
             },
         }
     }
+}
+
+fn builtin_module_source(target: &TargetConfig) -> String {
+    let fields = [
+        ("arch", target.arch.as_str()),
+        ("vendor", target.vendor.as_str()),
+        ("os", target.os.as_str()),
+        ("env", target.env.as_str()),
+        ("abi", target.abi.as_str()),
+        ("endian", target.endian.as_str()),
+    ];
+    let mut source = String::new();
+    for (name, value) in fields {
+        source.push_str(&format!(
+            "pub comptime let {name}: [{}]char = {}.*;\n",
+            value.chars().count(),
+            nia_string_literal(value)
+        ));
+    }
+    source.push_str(&format!(
+        "pub comptime let pointer_width: usize = {}usize;\n",
+        target.pointer_width
+    ));
+    source
+}
+
+fn nia_string_literal(value: &str) -> String {
+    let mut literal = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => literal.push_str("\\\""),
+            '\\' => literal.push_str("\\\\"),
+            '\n' => literal.push_str("\\n"),
+            '\r' => literal.push_str("\\r"),
+            '\t' => literal.push_str("\\t"),
+            '\0' => literal.push_str("\\0"),
+            ch if ch.is_control() => literal.push_str(&format!("\\u{{{:x}}}", ch as u32)),
+            ch => literal.push(ch),
+        }
+    }
+    literal.push('"');
+    literal
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1243,6 +1300,31 @@ module present;
                 program.modules
             );
         }
+    }
+
+    #[test]
+    fn query_loader_injects_builtin_module_map() {
+        let root = temp_dir("query_loader_injects_builtin_module_map");
+        let main_path = root.join("main.nia");
+        write(&main_path, "using builtin;");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        let builtin_module = program
+            .graph
+            .get(
+                program
+                    .graph
+                    .package_root(nia_imports::BUILTIN_MODULE_MAP_NAME)
+                    .expect("builtin package root"),
+            )
+            .expect("builtin module");
+        assert_eq!(builtin_module.path.as_str(), builtin_module_path().as_str());
+        assert!(program.modules.iter().any(|module| {
+            module.path.as_str() == builtin_module_path().as_str()
+                && module.source.contains("pub comptime let pointer_width")
+        }));
     }
 
     #[test]

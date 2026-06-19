@@ -96,7 +96,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map a module root; may appear anywhere; `root` is reserved",
+                    right: "map a module root; may appear anywhere; `root`, `pkg`, and `builtin` are reserved",
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
@@ -184,7 +184,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map a module root; may appear anywhere; `root` is reserved",
+                    right: "map a module root; may appear anywhere; `root`, `pkg`, and `builtin` are reserved",
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
@@ -227,7 +227,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
     HelpRow {
         left: "-M, --module <name=path>",
-        right: "map a module root; may appear anywhere; `root` is reserved",
+        right: "map a module root; may appear anywhere; `root`, `pkg`, and `builtin` are reserved",
     },
     HelpRow {
         left: TIMINGS_OPTION_HELP,
