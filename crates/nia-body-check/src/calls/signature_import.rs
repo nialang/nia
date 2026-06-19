@@ -81,7 +81,10 @@ impl<'a> BodyChecker<'a> {
         signature.supertraits = signature
             .supertraits
             .iter()
-            .map(|supertrait| self.import_type_from(&program_signature.interner, *supertrait))
+            .map(|supertrait| nia_item_signatures::TraitSupertraitSignature {
+                ty: self.import_type_from(&program_signature.interner, supertrait.ty),
+                span: supertrait.span,
+            })
             .collect();
         signature.methods = signature
             .methods

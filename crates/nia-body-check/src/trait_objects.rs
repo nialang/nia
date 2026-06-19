@@ -617,7 +617,7 @@ impl<'a> BodyChecker<'a> {
         }
         let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
         for supertrait in &trait_signature.supertraits {
-            let supertrait = self.substitute_generics(*supertrait, &substitutions);
+            let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
@@ -955,7 +955,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let substitutions = self.generic_substitutions(&signature.generics, source_args);
                 signature.supertraits.iter().any(|supertrait| {
-                    let supertrait = self.substitute_generics(*supertrait, &substitutions);
+                    let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
                     let supertrait = self.normalization.normalize(supertrait);
                     match self.interner.get(supertrait).cloned() {
                         Some(TyKind::Nominal { def_id, args }) => self

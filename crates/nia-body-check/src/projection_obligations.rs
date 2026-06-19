@@ -825,7 +825,7 @@ impl<'a> BodyChecker<'a> {
                 let substitutions =
                     self.generic_substitutions(&trait_signature.generics, &obligation.trait_args);
                 for supertrait in &trait_signature.supertraits {
-                    let supertrait = self.substitute_generics(*supertrait, &substitutions);
+                    let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
                     let supertrait = self.normalization.normalize(supertrait);
                     let Some((trait_id, trait_args)) = (match self.interner.get(supertrait).cloned()
                     {

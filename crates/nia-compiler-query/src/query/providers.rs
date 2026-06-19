@@ -394,11 +394,6 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
-        let active_item_trees = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(ActiveModuleItemTreeQuery(module_id)))
-            .collect::<Vec<_>>();
         let defs = module_ids
             .iter()
             .copied()
@@ -417,24 +412,18 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
         let normalizations = db.query(ProgramTypeNormalizationsQuery);
         let inputs = module_ids
             .iter()
-            .zip(active_item_trees.iter())
             .zip(defs.iter())
             .zip(type_lowerings.iter())
             .zip(item_signatures.iter())
             .map(
-                |((((module_id, active_item_tree), defs), lowering), signatures)| {
-                    ExtensionModuleInput {
-                        module: ExtensionModuleItemInput {
-                            id: *module_id,
-                            items: active_item_tree,
-                        },
-                        defs,
-                        lowering,
-                        signatures,
-                        normalization: normalizations
-                            .get(module_id)
-                            .expect("missing type normalization"),
-                    }
+                |(((module_id, defs), lowering), signatures)| ExtensionModuleInput {
+                    module_id: *module_id,
+                    defs,
+                    lowering,
+                    signatures,
+                    normalization: normalizations
+                        .get(module_id)
+                        .expect("missing type normalization"),
                 },
             )
             .collect::<Vec<_>>();
