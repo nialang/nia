@@ -1014,7 +1014,7 @@ pub(super) fn provide_monomorphization(
                         .interner,
                     normalization: &module.type_normalization,
                     comptime: &module.comptime,
-                    const_exprs: &module.type_lowering.const_exprs,
+                    const_expr_summaries: &module.type_lowering.const_expr_summaries,
                     layouts: Some(&module.layouts),
                     local_enums: &module.item_signatures.enums,
                     program_enums: &program_signatures.enums,

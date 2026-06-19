@@ -424,7 +424,7 @@ where
 }
 
 fn is_zero_float_static_init(text: &str) -> bool {
-    nia_comptime_engine::eval_float_literal(text) == Ok(0.0)
+    nia_literals::eval_float_literal(text) == Ok(0.0)
 }
 
 #[cfg(test)]

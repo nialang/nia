@@ -2,11 +2,11 @@
 use nia_ast::{AssignOp, BinaryOp};
 
 pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
-    nia_comptime_engine::eval_int_literal(text).ok()
+    nia_literals::eval_int_literal(text).ok()
 }
 
 pub(super) fn parse_float_literal(text: &str) -> Option<f64> {
-    nia_comptime_engine::eval_float_literal(text).ok()
+    nia_literals::eval_float_literal(text).ok()
 }
 
 pub(super) fn decode_char_literal(text: &str) -> Option<u32> {

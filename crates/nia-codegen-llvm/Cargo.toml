@@ -16,6 +16,7 @@ nia-diagnostic.workspace = true
 nia-ice.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
+nia-literals.workspace = true
 nia-mangle.workspace = true
 nia-llvm.workspace = true
 nia-opt.workspace = true

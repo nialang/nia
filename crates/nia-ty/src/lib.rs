@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub use nia_ids::{BuiltinTrait, LayoutBuiltin, TraitId};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
+use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
@@ -191,6 +192,12 @@ pub enum ArrayLenTy {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConstExprSummary {
+    pub span: Span,
+    pub literal_array_len: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

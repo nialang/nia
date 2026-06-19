@@ -19,7 +19,8 @@ use nia_item_signatures::{
 };
 use nia_trait_solve::IntrinsicOverlap;
 use nia_ty::{
-    ArrayLenTy, PrimitiveTy, TraitId, TyInterner, TyKind, TypeEquivalence, import_type_into,
+    ArrayLenTy, ConstExprSummary, PrimitiveTy, TraitId, TyInterner, TyKind, TypeEquivalence,
+    import_type_into,
 };
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -1148,7 +1149,12 @@ fn types_equivalent(
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
 ) -> bool {
-    types_equivalent_with_const_exprs(&lowering.interner, &lowering.const_exprs, left, right)
+    types_equivalent_with_const_exprs(
+        &lowering.interner,
+        &lowering.const_expr_summaries,
+        left,
+        right,
+    )
 }
 
 fn types_equivalent_in_interner(
@@ -1161,7 +1167,7 @@ fn types_equivalent_in_interner(
 
 fn types_equivalent_with_const_exprs(
     interner: &TyInterner,
-    const_exprs: &HashMap<nia_ids::GlobalConstExprId, nia_ast::Expr>,
+    const_exprs: &HashMap<nia_ids::GlobalConstExprId, ConstExprSummary>,
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
 ) -> bool {
@@ -1177,7 +1183,7 @@ fn types_equivalent_with_const_exprs(
 
 struct SignatureTypeEquivalence<'a> {
     interner: &'a TyInterner,
-    const_exprs: &'a HashMap<nia_ids::GlobalConstExprId, nia_ast::Expr>,
+    const_exprs: &'a HashMap<nia_ids::GlobalConstExprId, ConstExprSummary>,
 }
 
 impl TypeEquivalence for SignatureTypeEquivalence<'_> {
@@ -1221,18 +1227,10 @@ impl SignatureTypeEquivalence<'_> {
             ArrayLenTy::ConstExpr(id) => self
                 .const_exprs
                 .get(id)
-                .and_then(literal_array_len_expr_value),
+                .and_then(|summary| summary.literal_array_len),
             _ => None,
         }
     }
-}
-
-fn literal_array_len_expr_value(expr: &nia_ast::Expr) -> Option<u64> {
-    let nia_ast::ExprKind::Integer(text) = &expr.kind else {
-        return None;
-    };
-    let value = nia_comptime_engine::eval_int_literal(text).ok()?;
-    u64::try_from(value).ok()
 }
 
 fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> String {

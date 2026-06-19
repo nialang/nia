@@ -6,7 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-comptime-engine.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true

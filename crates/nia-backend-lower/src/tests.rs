@@ -282,7 +282,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             interner: &body_check.ir.interner,
             normalization: &normalization,
             comptime: &comptime,
-            const_exprs: &type_lowering.const_exprs,
+            const_expr_summaries: &type_lowering.const_expr_summaries,
             layouts: Some(&layouts),
             local_enums: &signatures.enums,
             program_enums: &HashMap::new(),

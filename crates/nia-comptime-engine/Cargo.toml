@@ -9,6 +9,7 @@ license.workspace = true
 nia-comptime-ir.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-literals.workspace = true
 nia-sema.workspace = true
 nia-span.workspace = true
 nia-ty.workspace = true

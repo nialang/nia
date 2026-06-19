@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use nia_ast::Expr;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -12,7 +11,7 @@ use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
-use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, TyInterner, TyKind};
 use nia_type_normalize::TypeNormalization;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +37,7 @@ pub struct MonomorphizeModuleInput<'a> {
     pub interner: &'a TyInterner,
     pub normalization: &'a TypeNormalization,
     pub comptime: &'a ComptimeCheck,
-    pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+    pub const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
     pub layouts: Option<&'a Layouts>,
     pub local_enums: &'a HashMap<nia_ids::DefId, EnumSignature>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -64,9 +63,9 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .iter()
             .map(|input| (input.module_id, input.comptime))
             .collect(),
-        const_exprs_by_module: inputs
+        const_expr_summaries_by_module: inputs
             .iter()
-            .map(|input| (input.module_id, input.const_exprs))
+            .map(|input| (input.module_id, input.const_expr_summaries))
             .collect(),
         working_interners_by_module: inputs
             .iter()
@@ -115,7 +114,8 @@ struct MonoCollector<'a> {
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
     normalizations_by_module: HashMap<ModuleId, &'a TypeNormalization>,
     comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
-    const_exprs_by_module: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, Expr>>,
+    const_expr_summaries_by_module:
+        HashMap<ModuleId, &'a HashMap<GlobalConstExprId, ConstExprSummary>>,
     working_interners_by_module: HashMap<ModuleId, TyInterner>,
     layouts_by_module: HashMap<ModuleId, &'a Layouts>,
     local_enums_by_module: HashMap<ModuleId, &'a HashMap<nia_ids::DefId, EnumSignature>>,
@@ -1189,7 +1189,7 @@ impl MonoCollector<'_> {
         let defs_by_module = &self.defs_by_module;
         let def_names = &mut self.def_names;
         let comptime_by_module = &self.comptime_by_module;
-        let const_exprs_by_module = &self.const_exprs_by_module;
+        let const_expr_summaries_by_module = &self.const_expr_summaries_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
         let symbol = mangle_type_with(
@@ -1199,7 +1199,7 @@ impl MonoCollector<'_> {
             |id| {
                 array_len(
                     comptime_by_module,
-                    const_exprs_by_module,
+                    const_expr_summaries_by_module,
                     missing_array_len_diagnostics,
                     diagnostics,
                     id,
@@ -1213,7 +1213,10 @@ impl MonoCollector<'_> {
 
 fn array_len(
     comptime_by_module: &HashMap<ModuleId, &ComptimeCheck>,
-    const_exprs_by_module: &HashMap<ModuleId, &HashMap<GlobalConstExprId, Expr>>,
+    const_expr_summaries_by_module: &HashMap<
+        ModuleId,
+        &HashMap<GlobalConstExprId, ConstExprSummary>,
+    >,
     missing_array_len_diagnostics: &mut HashSet<GlobalConstExprId>,
     diagnostics: &mut Vec<Diagnostic>,
     id: GlobalConstExprId,
@@ -1222,10 +1225,10 @@ fn array_len(
         .get(&id.module_id)
         .and_then(|comptime| comptime.array_lengths.get(&id).copied());
     if value.is_none() && missing_array_len_diagnostics.insert(id) {
-        let span = const_exprs_by_module
+        let span = const_expr_summaries_by_module
             .get(&id.module_id)
-            .and_then(|const_exprs| const_exprs.get(&id))
-            .map(|expr| expr.span)
+            .and_then(|summaries| summaries.get(&id))
+            .map(|summary| summary.span)
             .unwrap_or_default();
         diagnostics.push(Diagnostic::user_error_at(
             "E0601",
@@ -1317,23 +1320,10 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_ids::ConstExprId;
-    use nia_node_id::{NodeChildPath, NodeKey, SyntaxKind};
     use nia_parser::parse_module;
     use nia_sema_ir::GenericInstantiation;
-    use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_span::Span;
     use nia_ty::{ArrayLenTy, PrimitiveTy};
-
-    fn expr_key(ordinal: u32) -> NodeKey {
-        NodeKey::child_path(
-            SourceVersion {
-                id: SourceId(0),
-                revision: SourceRevision::INITIAL,
-            },
-            SyntaxKind::Expr,
-            NodeChildPath::from_steps([ordinal]),
-        )
-    }
 
     fn normalization_for(interner: &TyInterner) -> TypeNormalization {
         TypeNormalization {
@@ -1348,7 +1338,7 @@ mod tests {
         interner: &'a TyInterner,
         normalization: &'a TypeNormalization,
         comptime: &'a ComptimeCheck,
-        const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+        const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
         instantiations: &'a [GenericInstantiation],
     ) -> MonomorphizeModuleInput<'a> {
         MonomorphizeModuleInput {
@@ -1357,7 +1347,7 @@ mod tests {
             interner,
             normalization,
             comptime,
-            const_exprs,
+            const_expr_summaries,
             layouts: None,
             local_enums: &EMPTY_LOCAL_ENUMS,
             program_enums: &EMPTY_PROGRAM_ENUMS,
@@ -1709,13 +1699,12 @@ fn main() i32 { 0 }
             span: Span::new(1, 2),
             source_def_id: None,
         }];
-        let mut const_exprs = HashMap::new();
-        const_exprs.insert(
+        let mut const_expr_summaries = HashMap::new();
+        const_expr_summaries.insert(
             len_id,
-            nia_ast::Expr {
+            ConstExprSummary {
                 span: Span::new(10, 12),
-                node_key: expr_key(0),
-                kind: nia_ast::ExprKind::Integer("N".to_string()),
+                literal_array_len: None,
             },
         );
 
@@ -1726,7 +1715,7 @@ fn main() i32 { 0 }
             &interner,
             &normalization,
             &comptime,
-            &const_exprs,
+            &const_expr_summaries,
             &instantiations,
         )]);
 
@@ -1863,7 +1852,7 @@ fn wrap[T](value: T) T { value }
             interners_by_module: HashMap::new(),
             normalizations_by_module: HashMap::new(),
             comptime_by_module: HashMap::new(),
-            const_exprs_by_module: HashMap::new(),
+            const_expr_summaries_by_module: HashMap::new(),
             working_interners_by_module: HashMap::new(),
             layouts_by_module: HashMap::new(),
             local_enums_by_module: HashMap::new(),
