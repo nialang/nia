@@ -20,7 +20,7 @@ mod type_support;
 
 pub use nia_ty::import_type_into;
 
-use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, Stmt, StmtKind};
+use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt, StmtKind};
 use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
@@ -33,6 +33,7 @@ use nia_item_signatures::{
     ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
     ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
 };
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable};
@@ -158,7 +159,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub origins: &'a NodeOriginTable,
-    pub module: &'a Module,
+    pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -183,7 +184,7 @@ pub struct BodyCheckInput<'a> {
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub origins: &'a NodeOriginTable,
-    pub module: &'a Module,
+    pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -242,10 +243,15 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let target = TargetConfig::host();
     let semantic_uses = semantic_use_table_for_body_input(defs.module_id, values, locals, lowered);
+    let item_tree = ModuleItemTree::from_module(module);
+    let active_item_tree = ActiveModuleItemTree::new(
+        item_tree.active_items_without_comptime(),
+        Default::default(),
+    );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
         origins: &NodeOriginTable::default(),
-        module,
+        active_item_tree: &active_item_tree,
         defs,
         values,
         locals,
@@ -300,7 +306,7 @@ pub fn check_module_bodies_with_program_signatures(
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: input.source_version,
         origins: input.origins,
-        module: input.module,
+        active_item_tree: input.active_item_tree,
         defs: input.defs,
         values: input.values,
         locals: input.locals,
@@ -402,7 +408,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input.program.type_normalizations,
     );
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
-        module: input.module,
+        active_item_tree: input.active_item_tree,
         defs: input.defs,
         program: input.program,
         values: input.values,
@@ -465,7 +471,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         checker.seed_global_types();
     });
     time_body_stage(timing, "body_check.check_module", module_id, || {
-        checker.check_module(input.module, timing, module_id);
+        checker.check_module(input.active_item_tree, timing, module_id);
     });
     time_body_stage(timing, "body_check.finish", module_id, || BodyCheck {
         ir: BodyIr {
@@ -536,7 +542,7 @@ fn time_body_stage_if_slow<T>(
 }
 
 struct BodyChecker<'a> {
-    module: &'a Module,
+    active_item_tree: &'a ActiveModuleItemTree,
     defs: &'a DefCollection,
     program: BodyProgramContext<'a>,
     values: &'a ValueResolution,
@@ -888,10 +894,15 @@ struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn check_module(&mut self, module: &Module, timing: bool, module_id: ModuleId) {
+    fn check_module(
+        &mut self,
+        active_item_tree: &ActiveModuleItemTree,
+        timing: bool,
+        module_id: ModuleId,
+    ) {
         time_body_stage(timing, "body_check.bindings", module_id, || {
-            for item in &module.items {
-                if let ItemKind::Binding(binding) = &item.kind {
+            for item in &active_item_tree.items {
+                if let ItemTreeNodeKind::Binding(binding) = &item.kind {
                     if binding.is_comptime {
                         self.check_comptime_binding(item.span, binding);
                     } else {
@@ -901,8 +912,8 @@ impl<'a> BodyChecker<'a> {
             }
         });
         time_body_stage(timing, "body_check.functions", module_id, || {
-            for item in &module.items {
-                if let ItemKind::Function(function) = &item.kind {
+            for item in &active_item_tree.items {
+                if let ItemTreeNodeKind::Function(function) = &item.kind {
                     time_body_stage_if_slow(
                         timing,
                         "body_check.function",
@@ -917,8 +928,8 @@ impl<'a> BodyChecker<'a> {
             }
         });
         time_body_stage(timing, "body_check.trait_defaults", module_id, || {
-            for item in &module.items {
-                if let ItemKind::Trait(item_trait) = &item.kind {
+            for item in &active_item_tree.items {
+                if let ItemTreeNodeKind::Trait(item_trait) = &item.kind {
                     for method in &item_trait.methods {
                         time_body_stage_if_slow(
                             timing,
@@ -938,8 +949,8 @@ impl<'a> BodyChecker<'a> {
             }
         });
         time_body_stage(timing, "body_check.extends", module_id, || {
-            for item in &module.items {
-                if let ItemKind::Extend(extend) = &item.kind {
+            for item in &active_item_tree.items {
+                if let ItemTreeNodeKind::Extend(extend) = &item.kind {
                     for associated_value in &extend.associated_values {
                         self.check_comptime_binding(
                             associated_value.span,

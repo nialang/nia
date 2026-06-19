@@ -7,6 +7,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
 };
+use nia_item_tree::ItemTreeNodeKind;
 use nia_span::Span;
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
@@ -715,8 +716,8 @@ impl<'a> BodyChecker<'a> {
         if method_id.module_id != self.defs.module_id {
             return None;
         }
-        self.module.items.iter().find_map(|item| {
-            let nia_ast::ItemKind::Extend(extend) = &item.kind else {
+        self.active_item_tree.items.iter().find_map(|item| {
+            let ItemTreeNodeKind::Extend(extend) = &item.kind else {
                 return None;
             };
             let has_method = extend.methods.iter().any(|method| {
