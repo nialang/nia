@@ -13,8 +13,8 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::{
-    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy,
-    PrimitiveTypeSpelling, RangeTyKind, TraitId, TyInterner, TyKind,
+    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, LayoutBuiltin,
+    PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind, TraitId, TyInterner, TyKind,
 };
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
@@ -23,6 +23,7 @@ pub struct TypeLowering {
     pub interner: TyInterner,
     pub node_type_uses: HashMap<NodeKey, InternedTyId>,
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
+    pub const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -115,6 +116,7 @@ fn lower_module_types_from_items(
         interner: TyInterner::new(module_id),
         node_type_uses: HashMap::new(),
         const_exprs: HashMap::new(),
+        const_expr_summaries: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
@@ -128,6 +130,7 @@ fn lower_module_types_from_items(
         interner: lowerer.interner,
         node_type_uses: lowerer.node_type_uses,
         const_exprs: lowerer.const_exprs,
+        const_expr_summaries: lowerer.const_expr_summaries,
         diagnostics: lowerer.diagnostics,
     }
 }
@@ -139,6 +142,7 @@ struct TypeLowerer<'a> {
     interner: TyInterner,
     node_type_uses: HashMap<NodeKey, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
+    const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<InternedTyId>,
@@ -1359,6 +1363,8 @@ impl<'a> TypeLowerer<'a> {
         };
         self.next_const_expr_id += 1;
         self.const_exprs.insert(id, expr.clone());
+        self.const_expr_summaries
+            .insert(id, const_expr_summary(expr));
         ArrayLenTy::ConstExpr(id)
     }
 
@@ -1455,6 +1461,21 @@ fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
         return None;
     };
     LayoutBuiltin::from_name(name).map(|builtin| (builtin, type_arg))
+}
+
+fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {
+    let ExprKind::Integer(text) = &expr.kind else {
+        return None;
+    };
+    let value = nia_literals::eval_int_literal(text).ok()?;
+    u64::try_from(value).ok()
+}
+
+fn const_expr_summary(expr: &Expr) -> ConstExprSummary {
+    ConstExprSummary {
+        span: expr.span,
+        literal_array_len: literal_array_len_expr_value(expr),
+    }
 }
 
 #[cfg(test)]

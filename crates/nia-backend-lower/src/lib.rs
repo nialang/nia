@@ -1020,7 +1020,7 @@ impl<'a> ModuleLowerer<'a> {
         args: &[InternedTyId],
     ) -> String {
         let defs = &self.input.defs.defs;
-        let const_exprs = &self.input.type_lowering.const_exprs;
+        let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let comptime = self.input.comptime;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
@@ -1048,9 +1048,9 @@ impl<'a> ModuleLowerer<'a> {
             |id| {
                 let value = comptime.array_lengths.get(&id).copied();
                 if value.is_none() && missing_array_len_diagnostics.insert(id) {
-                    let span = const_exprs
+                    let span = const_expr_summaries
                         .get(&id)
-                        .map(|expr| expr.span)
+                        .map(|summary| summary.span)
                         .unwrap_or_default();
                     diagnostics.push(Diagnostic::user_error_at(
                         "E0601",

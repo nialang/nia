@@ -13,6 +13,7 @@ use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
 use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
+use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -168,7 +169,7 @@ pub struct ComptimeModuleInput<'a> {
 pub struct ComptimeProgramContext<'a> {
     pub modules: Option<&'a HashMap<ModuleId, ResolvedComptimeModule>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
-    pub type_lowerings: Option<&'a HashMap<ModuleId, nia_type_lower::TypeLowering>>,
+    pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
     pub trait_impls: &'a [ProgramTraitImplSignature],

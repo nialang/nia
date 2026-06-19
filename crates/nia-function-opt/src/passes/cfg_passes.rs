@@ -83,7 +83,7 @@ pub(crate) fn constant_switch_target(
 
 pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
     match &expr.kind {
-        FunctionExprKind::Integer(text) => nia_comptime_engine::eval_int_literal(text)
+        FunctionExprKind::Integer(text) => nia_literals::eval_int_literal(text)
             .ok()
             .map(SwitchConstantValue::Integer),
         FunctionExprKind::Bool(value) => Some(SwitchConstantValue::Bool(*value)),

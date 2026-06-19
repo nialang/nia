@@ -7,9 +7,9 @@ license.workspace = true
 
 [dependencies]
 nia-ast.workspace = true
-nia-comptime-engine.workspace = true
 nia-function-ir.workspace = true
 nia-ids.workspace = true
+nia-literals.workspace = true
 nia-opt.workspace = true
 
 [dev-dependencies]

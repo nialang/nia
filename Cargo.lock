@@ -106,7 +106,6 @@ dependencies = [
  "nia-body-check",
  "nia-body-ir",
  "nia-comptime-check",
- "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
@@ -117,6 +116,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-item-tree",
  "nia-layout",
+ "nia-literals",
  "nia-local-resolve",
  "nia-mangle",
  "nia-monomorphize",
@@ -214,6 +214,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-layout",
+ "nia-literals",
  "nia-llvm",
  "nia-loader-query",
  "nia-mangle",
@@ -234,7 +235,6 @@ dependencies = [
  "nia-body-check",
  "nia-body-ir",
  "nia-comptime-check",
- "nia-comptime-engine",
  "nia-comptime-ir",
  "nia-defs",
  "nia-diagnostic",
@@ -302,6 +302,7 @@ dependencies = [
  "nia-comptime-ir",
  "nia-diagnostic",
  "nia-ids",
+ "nia-literals",
  "nia-parser",
  "nia-sema",
  "nia-span",
@@ -422,9 +423,9 @@ name = "nia-function-opt"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
- "nia-comptime-engine",
  "nia-function-ir",
  "nia-ids",
+ "nia-literals",
  "nia-opt",
  "nia-span",
 ]
@@ -487,7 +488,6 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-comptime-check",
- "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
@@ -510,6 +510,10 @@ version = "0.4.3"
 dependencies = [
  "nia-span",
 ]
+
+[[package]]
+name = "nia-literals"
+version = "0.4.3"
 
 [[package]]
 name = "nia-llvm"
@@ -733,6 +737,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-item-tree",
+ "nia-literals",
  "nia-node-id",
  "nia-parser",
  "nia-span",
@@ -744,7 +749,6 @@ dependencies = [
 name = "nia-type-normalize"
 version = "0.4.3"
 dependencies = [
- "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
