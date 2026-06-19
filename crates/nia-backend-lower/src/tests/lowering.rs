@@ -164,7 +164,7 @@ fn main() i32 {
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

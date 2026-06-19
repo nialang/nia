@@ -1074,13 +1074,13 @@ fn provide_backend_lowering_inner(
     let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
     let checked_modules = all_checked_modules;
-    let (module_asts, visible_extensions, extension_methods, function_bodies) = time_provider(
+    let (active_item_trees, visible_extensions, extension_methods, function_bodies) = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.inputs",
         || {
-            let module_asts = checked_modules
+            let active_item_trees = checked_modules
                 .iter()
-                .map(|checked_module| db.query(ModuleAstQuery(checked_module.id)))
+                .map(|checked_module| db.query(FullActiveModuleItemTreeQuery(checked_module.id)))
                 .collect::<Vec<_>>();
             let visible_extensions = checked_modules
                 .iter()
@@ -1098,7 +1098,7 @@ fn provide_backend_lowering_inner(
                 })
                 .collect::<Vec<_>>();
             (
-                module_asts,
+                active_item_trees,
                 visible_extensions,
                 extension_methods,
                 function_bodies,
@@ -1118,7 +1118,7 @@ fn provide_backend_lowering_inner(
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
                 checked_modules: &checked_modules,
-                module_asts: &module_asts,
+                active_item_trees: &active_item_trees,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
                 extension_methods: &extension_methods,

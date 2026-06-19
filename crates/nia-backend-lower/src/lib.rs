@@ -19,7 +19,7 @@ mod type_context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use nia_ast::{Expr, ItemKind, Module, Visibility};
+use nia_ast::{Expr, Visibility};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
@@ -34,6 +34,7 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
     WherePredicateSignature,
 };
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
@@ -97,7 +98,7 @@ impl BackendTimingMode {
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
-    pub module: &'a Module,
+    pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -508,9 +509,9 @@ impl<'a> ModuleLowerer<'a> {
         let mut worklist = ReachabilityWorklist::default();
         let mut trait_object_vtables = Vec::new();
 
-        for item in &self.input.module.items {
+        for item in &self.input.active_item_tree.items {
             match &item.kind {
-                ItemKind::Struct(item_struct) => {
+                ItemTreeNodeKind::Struct(item_struct) => {
                     if item_struct.generics.is_empty()
                         && let Some(item) =
                             self.lower_struct(&item.node_key, item.span, item_struct)
@@ -523,7 +524,7 @@ impl<'a> ModuleLowerer<'a> {
                         item_struct,
                     ));
                 }
-                ItemKind::Union(item_union) => {
+                ItemTreeNodeKind::Union(item_union) => {
                     if item_union.generics.is_empty()
                         && let Some(item) = self.lower_union(&item.node_key, item.span, item_union)
                     {
@@ -535,7 +536,7 @@ impl<'a> ModuleLowerer<'a> {
                         item_union,
                     ));
                 }
-                ItemKind::Trait(item_trait) => {
+                ItemTreeNodeKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
                         self.index_function_source(
                             method.function.span,
@@ -544,7 +545,7 @@ impl<'a> ModuleLowerer<'a> {
                         );
                     }
                 }
-                ItemKind::Extend(extend) => {
+                ItemTreeNodeKind::Extend(extend) => {
                     for method in &extend.methods {
                         let def_id = self.index_function_source(
                             method.function.span,
@@ -559,15 +560,15 @@ impl<'a> ModuleLowerer<'a> {
                         }
                     }
                 }
-                ItemKind::Enum(item_enum) => {
+                ItemTreeNodeKind::Enum(item_enum) => {
                     if let Some(item) = self.lower_enum(&item.node_key, item.span, item_enum) {
                         enums.push(item);
                     }
                 }
-                ItemKind::Function(function) => {
+                ItemTreeNodeKind::Function(function) => {
                     self.index_function_source(item.span, function, &mut worklist);
                 }
-                ItemKind::Binding(binding) => {
+                ItemTreeNodeKind::Binding(binding) => {
                     if binding.is_comptime {
                         continue;
                     }
@@ -584,7 +585,9 @@ impl<'a> ModuleLowerer<'a> {
                         globals.push(global);
                     }
                 }
-                ItemKind::Module(_) | ItemKind::Using(_) | ItemKind::TypeAlias(_) => {}
+                ItemTreeNodeKind::Module(_)
+                | ItemTreeNodeKind::Using(_)
+                | ItemTreeNodeKind::TypeAlias(_) => {}
             }
         }
 
