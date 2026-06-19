@@ -180,8 +180,11 @@ pub struct TraitImplSignature {
     pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
+    pub trait_span: Option<Span>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub associated_values: Vec<TraitImplAssociatedValueSignature>,
+    pub methods: Vec<TraitImplMethodSignature>,
     pub span: Span,
 }
 
@@ -189,6 +192,22 @@ pub struct TraitImplSignature {
 pub struct TraitImplAssociatedTypeSignature {
     pub name: String,
     pub ty: InternedTyId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplAssociatedValueSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub visibility: nia_ast::Visibility,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplMethodSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub visibility: nia_ast::Visibility,
     pub span: Span,
 }
 
@@ -414,6 +433,32 @@ impl<'a> SignatureCollector<'a> {
     }
 
     fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
+        let methods = extend
+            .methods
+            .iter()
+            .filter_map(|method| {
+                self.collect_method(signatures, &method.function)
+                    .map(|def_id| TraitImplMethodSignature {
+                        def_id,
+                        name: method.function.name.clone(),
+                        visibility: method.vis,
+                        span: method.function.span,
+                    })
+            })
+            .collect();
+        let associated_values = extend
+            .associated_values
+            .iter()
+            .filter_map(|associated_value| {
+                self.collect_associated_comptime(signatures, associated_value)
+                    .map(|def_id| TraitImplAssociatedValueSignature {
+                        def_id,
+                        name: associated_value.binding.name.clone(),
+                        visibility: associated_value.vis,
+                        span: associated_value.span,
+                    })
+            })
+            .collect();
         signatures.trait_impls.push(TraitImplSignature {
             generics: extend.generics.clone(),
             target_ty: self.ty_for_type(&extend.target),
@@ -421,6 +466,7 @@ impl<'a> SignatureCollector<'a> {
                 .trait_ref
                 .as_ref()
                 .map(|trait_ref| self.ty_for_type(trait_ref)),
+            trait_span: extend.trait_ref.as_ref().map(|trait_ref| trait_ref.span),
             where_predicates: self.where_predicate_signatures(&extend.where_clause),
             associated_types: extend
                 .associated_types
@@ -431,14 +477,10 @@ impl<'a> SignatureCollector<'a> {
                     span: associated_type.span,
                 })
                 .collect(),
+            associated_values,
+            methods,
             span: extend.target.span,
         });
-        for method in &extend.methods {
-            self.collect_method(signatures, &method.function);
-        }
-        for associated_value in &extend.associated_values {
-            self.collect_associated_comptime(signatures, associated_value);
-        }
     }
 
     fn collect_trait(
@@ -501,14 +543,19 @@ impl<'a> SignatureCollector<'a> {
         );
     }
 
-    fn collect_method(&mut self, signatures: &mut ItemSignatures, method: &FunctionItem) {
+    fn collect_method(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        method: &FunctionItem,
+    ) -> Option<DefId> {
         let Some(def_id) = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)
         else {
-            return;
+            return None;
         };
         signatures
             .functions
             .insert(def_id, self.function_signature(method));
+        Some(def_id)
     }
 
     fn collect_enum(
@@ -628,12 +675,12 @@ impl<'a> SignatureCollector<'a> {
         &mut self,
         signatures: &mut ItemSignatures,
         associated_value: &nia_ast::ExtendAssociatedValue,
-    ) {
+    ) -> Option<DefId> {
         let binding = &associated_value.binding;
         let Some(def_id) =
             self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Comptime)
         else {
-            return;
+            return None;
         };
         signatures.comptimes.insert(
             def_id,
@@ -642,6 +689,7 @@ impl<'a> SignatureCollector<'a> {
                 span: associated_value.span,
             },
         );
+        Some(def_id)
     }
 
     fn function_signature(&mut self, function: &FunctionItem) -> FunctionSignature {
@@ -894,6 +942,7 @@ struct Point {
 }
 
 extend Point {
+    pub comptime let Origin: i32 = 0;
     fn len2(&self) i32 { missing + self.x }
 }
 
@@ -937,6 +986,30 @@ fn add(a: i32, b: i32) i32 {
                 .functions
                 .values()
                 .any(|signature| signature.is_variadic)
+        );
+        assert_eq!(signatures.trait_impls.len(), 1);
+        let impl_signature = &signatures.trait_impls[0];
+        assert_eq!(impl_signature.methods.len(), 1);
+        assert_eq!(impl_signature.methods[0].name, "len2");
+        assert_eq!(
+            impl_signature.methods[0].visibility,
+            nia_ast::Visibility::Private
+        );
+        assert!(
+            signatures
+                .functions
+                .contains_key(&impl_signature.methods[0].def_id)
+        );
+        assert_eq!(impl_signature.associated_values.len(), 1);
+        assert_eq!(impl_signature.associated_values[0].name, "Origin");
+        assert_eq!(
+            impl_signature.associated_values[0].visibility,
+            nia_ast::Visibility::Public
+        );
+        assert!(
+            signatures
+                .comptimes
+                .contains_key(&impl_signature.associated_values[0].def_id)
         );
     }
 
