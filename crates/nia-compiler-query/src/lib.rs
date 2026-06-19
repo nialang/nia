@@ -72,7 +72,6 @@ pub struct LoadedModule {
     pub id: ModuleId,
     pub path: SourcePath,
     pub source_version: SourceVersion,
-    pub source: String,
     pub item_tree: ModuleItemTree,
     pub active_item_tree: ActiveModuleItemTree,
     pub origins: NodeOriginTable,

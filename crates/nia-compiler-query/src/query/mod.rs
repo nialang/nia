@@ -668,7 +668,6 @@ mod tests {
                 id: SourceId(id.0),
                 revision,
             },
-            source: source.to_string(),
             item_tree: item_tree.clone(),
             active_item_tree: ActiveModuleItemTree::new(
                 item_tree.items.clone(),

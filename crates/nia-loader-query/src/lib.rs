@@ -570,7 +570,6 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             id,
             path: self.0.clone(),
             source_version: parsed.source.version(),
-            source: parsed.source.text,
             item_tree: parsed.item_tree,
             active_item_tree: parsed.active_item_tree,
             origins: parsed.origins,
@@ -1396,9 +1395,17 @@ module present;
             )
             .expect("builtin module");
         assert_eq!(builtin_module.path.as_str(), builtin_module_path().as_str());
-        assert!(program.modules.iter().any(|module| {
-            module.path.as_str() == builtin_module_path().as_str()
-                && module.source.contains("pub comptime let pointer_width")
+        let builtin_loaded = program
+            .modules
+            .iter()
+            .find(|module| module.path.as_str() == builtin_module_path().as_str())
+            .expect("loaded builtin module");
+        assert!(builtin_loaded.item_tree.items.iter().any(|item| {
+            matches!(
+                &item.kind,
+                ItemTreeNodeKind::Binding(binding)
+                    if binding.is_comptime && binding.name == "pointer_width"
+            )
         }));
     }
 
@@ -1591,8 +1598,24 @@ fn main(value: std::fmt::Value) void {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert_eq!(program.modules.len(), 2);
-        assert_eq!(program.modules[0].source, "module defs;");
-        assert_eq!(program.modules[1].source, "pub fn value() i32 { 1 }");
+        assert!(program.modules.iter().any(|module| {
+            module.path.as_str() == "main.nia"
+                && module.item_tree.items.iter().any(|item| {
+                    matches!(
+                        &item.kind,
+                        ItemTreeNodeKind::Module(module_item) if module_item.name == "defs"
+                    )
+                })
+        }));
+        assert!(program.modules.iter().any(|module| {
+            module.path.as_str() == "defs.nia"
+                && module.item_tree.items.iter().any(|item| {
+                    matches!(
+                        &item.kind,
+                        ItemTreeNodeKind::Function(function) if function.name == "value"
+                    )
+                })
+        }));
     }
 
     #[test]
@@ -1648,7 +1671,13 @@ fn main(value: std::fmt::Value) void {
 
         let first = db.query(LoadedProgramQuery);
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        assert_eq!(first.modules[0].source, "fn main() i32 { 0 }");
+        let first_module = first
+            .modules
+            .iter()
+            .find(|module| module.path == main)
+            .expect("loaded main module");
+        let first_version = first_module.source_version;
+        let first_item_tree = first_module.item_tree.clone();
 
         sources.set_source(main.clone(), "fn main() i32 { 1 }");
         let invalidation = db.invalidate(SourceTextQuery(main.clone()));
@@ -1674,7 +1703,13 @@ fn main(value: std::fmt::Value) void {
 
         let second = db.query(LoadedProgramQuery);
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-        assert_eq!(second.modules[0].source, "fn main() i32 { 1 }");
+        let second_module = second
+            .modules
+            .iter()
+            .find(|module| module.path == main)
+            .expect("reloaded main module");
+        assert_ne!(second_module.source_version, first_version);
+        assert_ne!(second_module.item_tree, first_item_tree);
     }
 
     #[test]
