@@ -15,7 +15,6 @@ use nia_item_signatures::{
     ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
     ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_trait_solve::IntrinsicOverlap;
 use nia_ty::{
     ArrayLenTy, PrimitiveTy, TraitId, TyInterner, TyKind, TypeEquivalence, import_type_into,
@@ -31,21 +30,11 @@ pub(crate) struct ModuleSignatureInput<'a> {
 }
 
 pub(crate) struct ExtensionModuleInput<'a> {
-    pub(crate) module: ExtensionModuleItemInput<'a>,
+    pub(crate) module_id: nia_ids::ModuleId,
     pub(crate) defs: &'a DefCollection,
     pub(crate) lowering: &'a TypeLowering,
     pub(crate) signatures: &'a ItemSignatures,
     pub(crate) normalization: &'a TypeNormalization,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ExtensionModuleItemInput<'a> {
-    pub(crate) id: nia_ids::ModuleId,
-    pub(crate) items: &'a ActiveModuleItemTree,
-}
-
-fn lowered_type(module: &ExtensionModuleInput<'_>, ty: &nia_ast::TypeRef) -> Option<InternedTyId> {
-    module.lowering.node_type_uses.get(&ty.node_key).copied()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -278,7 +267,7 @@ pub(crate) fn collect_extension_methods(
     let mut diagnostics = Vec::new();
     let defs_by_module = modules
         .iter()
-        .map(|module| (module.module.id, module.defs))
+        .map(|module| (module.module_id, module.defs))
         .collect::<HashMap<_, _>>();
     for module in modules {
         validate_supertraits(module, &defs_by_module, &mut diagnostics);
@@ -293,7 +282,7 @@ pub(crate) fn collect_extension_methods(
                 .map(move |(def_id, signature)| {
                     (
                         GlobalDefId {
-                            module_id: module.module.id,
+                            module_id: module.module_id,
                             def_id: *def_id,
                         },
                         TraitSignatureRef {
@@ -362,11 +351,11 @@ pub(crate) fn collect_extension_methods(
                     impl_generics.push("Self".to_string());
                 }
                 extensions.insert(
-                    module.module.id,
+                    module.module_id,
                     ExtensionMethod {
                         name: method.name.clone(),
                         def_id: GlobalDefId {
-                            module_id: module.module.id,
+                            module_id: module.module_id,
                             def_id: method.def_id,
                         },
                         impl_index,
@@ -402,11 +391,11 @@ pub(crate) fn collect_extension_associated_values(
             }
             for associated_value in &impl_signature.associated_values {
                 values.insert(
-                    module.module.id,
+                    module.module_id,
                     ExtensionAssociatedValue {
                         name: associated_value.name.clone(),
                         def_id: GlobalDefId {
-                            module_id: module.module.id,
+                            module_id: module.module_id,
                             def_id: associated_value.def_id,
                         },
                         impl_index,
@@ -506,12 +495,15 @@ fn validate_supertraits(
     defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for item in &module.module.items.items {
-        let ItemTreeNodeKind::Trait(item_trait) = &item.kind else {
-            continue;
-        };
-        for supertrait in &item_trait.supertraits {
-            let _ = trait_ref_id(module, supertrait, defs_by_module, diagnostics);
+    for trait_signature in module.signatures.traits.values() {
+        for supertrait in &trait_signature.supertraits {
+            let _ = supertrait_id(
+                module,
+                supertrait.ty,
+                supertrait.span,
+                defs_by_module,
+                diagnostics,
+            );
         }
     }
 }
@@ -522,7 +514,7 @@ fn collect_extension_trait_impls(
     let signature_inputs = modules
         .iter()
         .map(|module| ModuleSignatureInput {
-            module_id: module.module.id,
+            module_id: module.module_id,
             defs: module.defs,
             lowering: module.lowering,
             signatures: module.signatures,
@@ -531,20 +523,13 @@ fn collect_extension_trait_impls(
     collect_program_trait_impls(&signature_inputs)
 }
 
-fn trait_ref_id(
+fn supertrait_id(
     module: &ExtensionModuleInput<'_>,
-    trait_ref: &nia_ast::TypeRef,
+    ty: InternedTyId,
+    span: nia_span::Span,
     defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<TraitId> {
-    let Some(ty) = lowered_type(module, trait_ref) else {
-        diagnostics.push(Diagnostic::user_error_at(
-            "E0201",
-            trait_ref.span,
-            "trait implementation target must resolve to a trait",
-        ));
-        return None;
-    };
     let ty = module.normalization.normalize(ty);
     match module.lowering.interner.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => {
@@ -557,7 +542,7 @@ fn trait_ref_id(
             ) {
                 diagnostics.push(Diagnostic::user_error_at(
                     "E0201",
-                    trait_ref.span,
+                    span,
                     "trait implementation target must be a trait",
                 ));
                 return None;
@@ -568,7 +553,7 @@ fn trait_ref_id(
         _ => {
             diagnostics.push(Diagnostic::user_error_at(
                 "E0201",
-                trait_ref.span,
+                span,
                 "trait implementation target must be a trait",
             ));
             None
@@ -872,7 +857,7 @@ fn builtin_trait_impl_overlaps_intrinsic(
             .interner
             .get(module.normalization.normalize(ty))
         {
-            Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module.id => {
+            Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module_id => {
                 module.signatures.enums.contains_key(&def_id.def_id)
             }
             _ => false,
@@ -1089,7 +1074,7 @@ fn validate_supertrait_impls(
             &mut comparison_interner,
             module,
             trait_signature.interner,
-            *supertrait,
+            supertrait.ty,
             &trait_signature.signature.generics,
             trait_args,
         );
@@ -1269,7 +1254,7 @@ fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> Strin
         .defs
         .defs
         .get(trait_id.def_id)
-        .filter(|_| trait_id.module_id == module.module.id)
+        .filter(|_| trait_id.module_id == module.module_id)
         .map(|def| def.name.clone())
         .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }

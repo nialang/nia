@@ -490,7 +490,7 @@ impl<'a> ModuleLowerer<'a> {
             let supertrait = nia_ty::import_type_into(
                 &mut self.type_context.interner,
                 &program_trait.interner,
-                *supertrait,
+                supertrait.ty,
             );
             let supertrait = self.instantiate_ty(supertrait, &substitutions);
             let Some(TyKind::Nominal {

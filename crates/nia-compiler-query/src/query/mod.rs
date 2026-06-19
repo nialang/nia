@@ -3,11 +3,11 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
     TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionModuleInput, ExtensionModuleItemInput, ModuleSignatureInput,
-        VisibleExtensionsForModule, VisibleExtensionsInput, collect_extension_associated_values,
-        collect_extension_methods, collect_program_comptimes, collect_program_enums,
-        collect_program_functions, collect_program_globals, collect_program_structs,
-        collect_program_traits, collect_program_unions, visible_extensions_for_module,
+        ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
+        VisibleExtensionsInput, collect_extension_associated_values, collect_extension_methods,
+        collect_program_comptimes, collect_program_enums, collect_program_functions,
+        collect_program_globals, collect_program_structs, collect_program_traits,
+        collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -1024,6 +1024,9 @@ fn main() i32 {
             dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "active_module_item_tree"
         }));
