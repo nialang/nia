@@ -241,6 +241,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_aliases_in_type(elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.normalize_aliases_in_type(elem);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
             _ => ty,
         }
     }
@@ -257,6 +262,13 @@ impl<'a> BodyChecker<'a> {
                 let elem = *elem;
                 let elem = self.substitute_generics(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let is_readonly = *is_readonly;
+                let elem = *elem;
+                let elem = self.substitute_generics(elem, substitutions);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let is_readonly = *is_readonly;

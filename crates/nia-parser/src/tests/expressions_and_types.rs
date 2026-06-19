@@ -406,6 +406,44 @@ fn take(xs: &&[u8]) {}
 }
 
 #[test]
+fn parses_volatile_pointer_types() {
+    let (module, errors) = parse_module(
+        r#"
+fn use_regs(read: ^u32, write: ^mut u32, maybe: ?^mut i32) {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::VolatilePointer {
+            is_readonly: true,
+            ..
+        })
+    ));
+    assert!(matches!(
+        function.params[1].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::VolatilePointer {
+            is_readonly: false,
+            ..
+        })
+    ));
+    let Some(TypeKind::Optional { elem }) = function.params[2].ty.as_ref().map(|ty| &ty.kind)
+    else {
+        panic!("expected optional volatile pointer");
+    };
+    assert!(matches!(
+        elem.kind,
+        TypeKind::VolatilePointer {
+            is_readonly: false,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn parses_optional_and_error_union_syntax() {
     let (module, errors) = parse_module(
         r#"

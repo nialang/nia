@@ -446,6 +446,7 @@ impl<'a> BodyChecker<'a> {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => {
                 self.check_object_safe_type(span, elem);
@@ -668,6 +669,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
@@ -826,6 +832,7 @@ impl<'a> BodyChecker<'a> {
         }
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => self.type_mentions_self(elem, self_ty),
             Some(TyKind::Array { elem, .. }) => self.type_mentions_self(elem, self_ty),

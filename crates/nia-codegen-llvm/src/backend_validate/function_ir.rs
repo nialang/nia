@@ -481,7 +481,10 @@ impl BackendValidator<'_> {
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Field(field) => {
-                    if let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(current_ty) {
+                    if let Some(
+                        TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. },
+                    ) = self.ty_kind(current_ty)
+                    {
                         current_ty = *elem;
                     }
                     if let Some(field_ty) = self.validate_aggregate_field(

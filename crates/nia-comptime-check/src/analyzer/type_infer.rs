@@ -802,6 +802,7 @@ impl Analyzer<'_> {
         match self.ty_kind(ty) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. })

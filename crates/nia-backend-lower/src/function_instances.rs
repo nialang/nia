@@ -279,6 +279,7 @@ impl<'a> ModuleLowerer<'a> {
         let next = remaining - 1;
         match kind {
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_exceeds_backend_instance_depth(*elem, next),
             TyKind::Array { elem, .. } => self.ty_exceeds_backend_instance_depth(*elem, next),
@@ -700,6 +701,7 @@ pub(crate) fn contains_generic_param(
         Some(TyKind::GenericParam(_)) => true,
         Some(
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => contains_generic_param(elem, ty_kind, cache.as_deref_mut()),
@@ -779,6 +781,7 @@ pub(crate) fn contains_unresolved_projection(
         Some(TyKind::Projection { .. }) => true,
         Some(
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => contains_unresolved_projection(elem, ty_kind),

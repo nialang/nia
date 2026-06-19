@@ -506,11 +506,14 @@ Pointer types:
 ```nia
 &T
 &mut T
+^T
+^mut T
 ```
 
 `&T` is a read-only object pointer. `&mut T` is a writable object pointer.
-Whitespace is insignificant: `& T` parses as `&T`, not as a different pointer
-kind.
+`^T` is a read-only volatile object pointer. `^mut T` is a writable volatile
+object pointer. Whitespace is insignificant: `& T` parses as `&T`, and `^ T`
+parses as `^T`, not as different pointer kinds.
 
 Pointers are ordinary values. Nia has no borrow checker. Read-only and writable
 pointers are different types. Pointer conversions must be explicit:
@@ -528,6 +531,21 @@ var p = &value;
 var mp = &mut value;
 var x = p.*;
 mp.* = 1;
+```
+
+Dereferencing `^T` or `^mut T` has the same source shape as ordinary pointer
+dereference, but the memory access is volatile. A read through a volatile
+pointer emits a volatile load. A write through `^mut T` emits a volatile store.
+`^T` cannot be written through.
+
+```nia
+fn read_reg(reg: ^u32) u32 {
+    reg.*
+}
+
+fn write_reg(reg: ^mut u32, value: u32) void {
+    reg.* = value;
+}
 ```
 
 `&place` takes a read-only pointer to a place. `&mut place` takes a writable
@@ -2007,15 +2025,16 @@ and returns the previous value. `@cmpxchg_strong[T]` and
 `@cmpxchg_weak[T]` return `null` on success or `?old_value` on failure.
 `@fence(order)` emits an atomic fence and returns `void`.
 
-The current supported atomic value types are bool, integer, enum, and pointer
-types whose width does not exceed the target pointer width. Floating point,
-slices, structs, arrays, and unions are not atomic value types. Legal ordering
-sets follow the operation kind: loads allow Unordered, Monotonic, Acquire, and
-SeqCst; stores allow Unordered, Monotonic, Release, and SeqCst; read-modify-write
-and cmpxchg success orderings allow Monotonic, Acquire, Release, AcqRel, and
-SeqCst; cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must
-not be stronger than the success ordering; fences allow Acquire, Release,
-AcqRel, and SeqCst.
+The current supported atomic value types are bool, integer, enum, and ordinary
+object pointer types whose width does not exceed the target pointer width.
+Volatile pointer types are not atomic value types. Floating point, slices,
+structs, arrays, and unions are not atomic value types. Legal ordering sets
+follow the operation kind: loads allow Unordered, Monotonic, Acquire, and SeqCst;
+stores allow Unordered, Monotonic, Release, and SeqCst; read-modify-write and
+cmpxchg success orderings allow Monotonic, Acquire, Release, AcqRel, and SeqCst;
+cmpxchg failure orderings allow Monotonic, Acquire, and SeqCst and must not be
+stronger than the success ordering; fences allow Acquire, Release, AcqRel, and
+SeqCst.
 
 `@asm({...})` is the inline assembly escape hatch for syscalls, special
 registers, port I/O, CPU instructions, and freestanding runtime glue. Its
@@ -2887,6 +2906,8 @@ Type encoding rules:
 - primitive types use their names, such as `i32`, `u8`, `bool`, `void`;
 - `&T` encodes as `ptr_read__<T>`;
 - `&mut T` encodes as `ptr__<T>`;
+- `^T` encodes as `vptr_read__<T>`;
+- `^mut T` encodes as `vptr__<T>`;
 - trait object pointers encode as `trait_obj__<trait>...` or
   `trait_obj_read__<trait>...`;
 - `[N]T` encodes as `arr__<len>__<elem>`;

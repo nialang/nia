@@ -202,7 +202,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match owner.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => Some(TypeLayout {
+            Some(
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::FunctionPointer { .. },
+            ) => Some(TypeLayout {
                 size: owner.layouts.target.pointer_size,
                 align: owner.layouts.target.pointer_align,
             }),

@@ -385,21 +385,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(());
         }
         let ptr = self.emit_typed_place_addr(place)?;
+        let is_volatile = self.place_access_is_volatile(place);
         let stored = if op == AssignOp::Assign {
             value
         } else {
+            let ty = self.module.llvm_basic_type(place.ty, place.span)?;
             let current = self
-                .builder
-                .build_load(
-                    self.module.llvm_basic_type(place.ty, place.span)?,
-                    ptr,
-                    "loadtmp",
-                )
+                .build_place_load(ty, ptr, "loadtmp", is_volatile)
                 .map_err(|_| self.error(span, "failed to load assignment target"))?;
             self.emit_compound_assignment(span, place.ty, current, op, value)?
         };
-        self.builder
-            .build_store(ptr, stored)
+        self.build_place_store(ptr, stored, is_volatile)
             .map_err(|_| self.error(span, "failed to store assignment"))?;
         Ok(())
     }
@@ -423,7 +419,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Field(field) => {
-                    if let Some(TyKind::Pointer { elem, .. }) = self.module.ty_kind(current_ty) {
+                    if let Some(
+                        TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. },
+                    ) = self.module.ty_kind(current_ty)
+                    {
                         let ptr_ty = self.module.llvm_basic_type(current_ty, place.span)?;
                         ptr = self
                             .builder
@@ -499,10 +498,49 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
             FunctionPlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
-                Some(TyKind::Pointer { elem, .. }) => *elem,
+                Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
             FunctionPlaceBase::Error => place.ty,
+        }
+    }
+
+    pub(super) fn place_access_is_volatile(&self, place: &FunctionPlace) -> bool {
+        match &place.base {
+            FunctionPlaceBase::Deref(expr) => matches!(
+                self.module.ty_kind(expr.ty),
+                Some(TyKind::VolatilePointer { .. })
+            ),
+            FunctionPlaceBase::Local(_)
+            | FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::Error => false,
+        }
+    }
+
+    pub(super) fn build_place_load<T: nia_llvm::types::AsTypeRef>(
+        &self,
+        ty: T,
+        ptr: PointerValue<'ctx>,
+        name: &str,
+        is_volatile: bool,
+    ) -> nia_llvm::LlvmResult<BasicValueEnum<'ctx>> {
+        if is_volatile {
+            self.builder.build_volatile_load(ty, ptr, name)
+        } else {
+            self.builder.build_load(ty, ptr, name)
+        }
+    }
+
+    pub(super) fn build_place_store<V: nia_llvm::values::BasicValue<'ctx>>(
+        &self,
+        ptr: PointerValue<'ctx>,
+        value: V,
+        is_volatile: bool,
+    ) -> nia_llvm::LlvmResult<nia_llvm::values::InstructionValue<'ctx>> {
+        if is_volatile {
+            self.builder.build_volatile_store(ptr, value)
+        } else {
+            self.builder.build_store(ptr, value)
         }
     }
 
@@ -529,7 +567,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .map_err(|_| self.error(span, "failed to build array element address"))
                 }
             }
-            Some(TyKind::Pointer { elem, .. }) => {
+            Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => {
                 let ptr_ty = self.module.llvm_basic_type(base_ty, span)?;
                 let ptr = self
                     .builder

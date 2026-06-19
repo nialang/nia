@@ -262,6 +262,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::TraitObject { .. }
@@ -306,6 +307,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::TraitObject { .. }
@@ -377,7 +379,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if self.layout_of(ty).is_some_and(|layout| layout.size == 0)
             && !matches!(
                 self.ty_kind(ty),
-                Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+                Some(
+                    TyKind::Pointer { .. }
+                        | TyKind::VolatilePointer { .. }
+                        | TyKind::FunctionPointer { .. }
+                )
             )
         {
             return Ok(self.context.struct_type(&[], false).into());
@@ -385,9 +391,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Vector { elem, lanes }) => self.vector_type(*elem, *lanes, span),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => {
-                Ok(self.context.ptr_type(Default::default()).into())
-            }
+            Some(
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::FunctionPointer { .. },
+            ) => Ok(self.context.ptr_type(Default::default()).into()),
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::TraitObject { .. }) => Ok(self.trait_object_type().into()),
             Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),

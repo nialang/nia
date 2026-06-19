@@ -627,6 +627,17 @@ impl<'a> BodyChecker<'a> {
                 }) if general_const == specific_const
                     && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
             ),
+            Some(TyKind::VolatilePointer {
+                is_readonly: general_const,
+                elem: general_elem,
+            }) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: specific_const,
+                    elem: specific_elem,
+                }) if general_const == specific_const
+                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
             Some(TyKind::Slice {
                 is_readonly: general_const,
                 elem: general_elem,
@@ -1000,6 +1011,17 @@ impl<'a> BodyChecker<'a> {
             }) => matches!(
                 self.interner.get(actual),
                 Some(TyKind::Pointer {
+                    is_readonly,
+                    elem
+                }) if is_readonly == pattern_const
+                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::VolatilePointer {
+                is_readonly: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.interner.get(actual),
+                Some(TyKind::VolatilePointer {
                     is_readonly,
                     elem
                 }) if is_readonly == pattern_const

@@ -377,6 +377,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 }
             }
             TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePointer { elem, .. }
             | TypeKind::Slice { elem, .. }
             | TypeKind::SlicePointee { elem } => {
                 self.visit_type(elem);

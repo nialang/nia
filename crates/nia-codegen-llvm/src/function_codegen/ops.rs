@@ -32,8 +32,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             UnaryOp::Deref => {
                 let ptr = self.emit_expr(inner)?.into_pointer_value()?;
                 let ty = self.module.llvm_basic_type(ty, span)?;
-                self.builder
-                    .build_load(ty, ptr, "deref")
+                let is_volatile = matches!(
+                    self.module.ty_kind(inner.ty),
+                    Some(nia_ty::TyKind::VolatilePointer { .. })
+                );
+                self.build_place_load(ty, ptr, "deref", is_volatile)
                     .map_err(|_| self.error(span, "failed to load dereference"))
             }
             UnaryOp::Neg => {

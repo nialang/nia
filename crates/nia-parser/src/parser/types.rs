@@ -123,6 +123,8 @@ impl Parser {
 
         let kind = if self.eat(TokenKind::Amp).is_some() {
             self.parse_type_after_amp_with_mode(start, mode)?
+        } else if self.eat(TokenKind::Caret).is_some() {
+            self.parse_volatile_pointer_type_after_caret_with_mode(start, mode)?
         } else if self.eat(TokenKind::LBracket).is_some() {
             if let Some(kind) = self.parse_projection_type_after_open() {
                 kind
@@ -320,6 +322,19 @@ impl Parser {
         }
     }
 
+    fn parse_volatile_pointer_type_after_caret_with_mode(
+        &mut self,
+        _start: usize,
+        mode: TypeParseMode,
+    ) -> Option<TypeKind> {
+        let is_readonly = self.eat(TokenKind::Mut).is_none();
+        let elem = self.parse_type_with_mode(mode)?;
+        Some(TypeKind::VolatilePointer {
+            is_readonly,
+            elem: Box::new(elem),
+        })
+    }
+
     fn parse_type_path_segments_with_mode(
         &mut self,
         mode: TypeParseMode,
@@ -470,6 +485,7 @@ impl Parser {
                 | TokenKind::Void
                 | TokenKind::Never
                 | TokenKind::Question
+                | TokenKind::Caret
                 | TokenKind::Underscore
         )
     }

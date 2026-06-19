@@ -294,6 +294,7 @@ impl MonoCollector<'_> {
         match kind {
             TyKind::GenericParam(_) => true,
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(module_id, *elem),
             TyKind::Array { elem, .. } => self.ty_contains_generic_param(module_id, *elem),
@@ -512,6 +513,7 @@ impl MonoCollector<'_> {
         let next = remaining - 1;
         match kind {
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => {
                 self.ty_exceeds_instance_depth(module_id, *elem, next)
@@ -645,6 +647,11 @@ impl MonoCollector<'_> {
                 let elem =
                     self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
                 self.intern_working_ty(module_id, TyKind::Pointer { is_readonly, elem })
+            }
+            TyKind::VolatilePointer { is_readonly, elem } => {
+                let elem =
+                    self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
+                self.intern_working_ty(module_id, TyKind::VolatilePointer { is_readonly, elem })
             }
             TyKind::Slice { is_readonly, elem } => {
                 let elem =
@@ -963,6 +970,10 @@ impl MonoCollector<'_> {
             TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
             TyKind::GenericParam(name) => TyKind::GenericParam(name),
             TyKind::Pointer { is_readonly, elem } => TyKind::Pointer {
+                is_readonly,
+                elem: self.import_ty_to_module(target_module_id, elem),
+            },
+            TyKind::VolatilePointer { is_readonly, elem } => TyKind::VolatilePointer {
                 is_readonly,
                 elem: self.import_ty_to_module(target_module_id, elem),
             },

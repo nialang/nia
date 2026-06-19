@@ -373,7 +373,11 @@ where
         matches!(
             self.interner.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_))
-                | Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+                | Some(
+                    TyKind::Pointer { .. }
+                        | TyKind::VolatilePointer { .. }
+                        | TyKind::FunctionPointer { .. },
+                )
         )
     }
 
@@ -401,7 +405,8 @@ where
     fn can_be_non_void_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.interner.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Pointer { is_readonly, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem })
+            | Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 (!mutable || !*is_readonly)
                     && !matches!(
                         self.interner.get(self.normalize(*elem)),
@@ -415,9 +420,11 @@ where
     fn can_be_array_pointer_or_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.interner.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. }) => true,
-            Some(TyKind::Pointer { is_readonly, .. } | TyKind::Slice { is_readonly, .. }) => {
-                !mutable || !*is_readonly
-            }
+            Some(
+                TyKind::Pointer { is_readonly, .. }
+                | TyKind::VolatilePointer { is_readonly, .. }
+                | TyKind::Slice { is_readonly, .. },
+            ) => !mutable || !*is_readonly,
             _ => false,
         }
     }
@@ -832,7 +839,15 @@ where
                 is_readonly: false,
                 elem,
             }) if !self.is_void(*elem) => Some(*elem),
+            Some(TyKind::VolatilePointer {
+                is_readonly: false,
+                elem,
+            }) if !self.is_void(*elem) => Some(*elem),
             Some(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            }) if !require_mutable && !self.is_void(*elem) => Some(*elem),
+            Some(TyKind::VolatilePointer {
                 is_readonly: true,
                 elem,
             }) if !require_mutable && !self.is_void(*elem) => Some(*elem),
@@ -855,11 +870,19 @@ where
                 is_readonly: false,
                 elem,
             })
+            | Some(TyKind::VolatilePointer {
+                is_readonly: false,
+                elem,
+            })
             | Some(TyKind::Slice {
                 is_readonly: false,
                 elem,
             }) => Some(*elem),
             Some(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            })
+            | Some(TyKind::VolatilePointer {
                 is_readonly: true,
                 elem,
             })
@@ -885,6 +908,10 @@ where
                 is_readonly: false,
                 elem,
             })
+            | Some(TyKind::VolatilePointer {
+                is_readonly: false,
+                elem,
+            })
             | Some(TyKind::Slice {
                 is_readonly: false,
                 elem,
@@ -893,6 +920,10 @@ where
                 elem: *elem,
             })),
             Some(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            })
+            | Some(TyKind::VolatilePointer {
                 is_readonly: true,
                 elem,
             })
@@ -1144,6 +1175,14 @@ where
                 }) if is_readonly == actual_readonly
                     && self.match_impl_pattern(elem, actual_elem, substitutions)
             ),
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => matches!(
+                self.interner.get(actual).cloned(),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) if is_readonly == actual_readonly
+                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+            ),
             Some(TyKind::Slice { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
                 Some(TyKind::Slice {
@@ -1364,6 +1403,11 @@ where
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
@@ -1629,7 +1673,11 @@ where
     fn is_pointer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.kind(ty),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+            Some(
+                TyKind::Pointer { .. }
+                    | TyKind::VolatilePointer { .. }
+                    | TyKind::FunctionPointer { .. }
+            )
         )
     }
 }

@@ -588,6 +588,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. }) => {
@@ -1179,6 +1180,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. }) => {

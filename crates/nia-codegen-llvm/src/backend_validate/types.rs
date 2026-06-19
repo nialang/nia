@@ -78,6 +78,7 @@ impl BackendValidator<'_> {
         };
         match kind {
             TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => {
                 self.validate_type(elem, span);
@@ -264,9 +265,9 @@ impl BackendValidator<'_> {
         match owner.interner.get(ty)? {
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
-            TyKind::Pointer { .. } | TyKind::FunctionPointer { .. } => {
-                Some(TypeLayout { size: 8, align: 8 })
-            }
+            TyKind::Pointer { .. }
+            | TyKind::VolatilePointer { .. }
+            | TyKind::FunctionPointer { .. } => Some(TypeLayout { size: 8, align: 8 }),
             TyKind::Slice { .. } | TyKind::TraitObject { .. } => {
                 Some(TypeLayout { size: 16, align: 8 })
             }

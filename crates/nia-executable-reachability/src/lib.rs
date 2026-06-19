@@ -966,6 +966,7 @@ fn collect_ty_owner_modules(
             type_ids.extend(args.iter().copied());
         }
         TyKind::Pointer { elem, .. }
+        | TyKind::VolatilePointer { elem, .. }
         | TyKind::Slice { elem, .. }
         | TyKind::SlicePointee { elem }
         | TyKind::Optional { elem } => {

@@ -258,6 +258,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner
+                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })

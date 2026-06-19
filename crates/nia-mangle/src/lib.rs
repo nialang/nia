@@ -93,6 +93,13 @@ where
                 mangle_type_inner(interner, *elem, nominal_name, array_len)
             )
         }
+        Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+            let prefix = if *is_readonly { "vptr_read" } else { "vptr" };
+            format!(
+                "{prefix}__{}",
+                mangle_type_inner(interner, *elem, nominal_name, array_len)
+            )
+        }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let prefix = if *is_readonly { "slice_read" } else { "slice" };
             format!(

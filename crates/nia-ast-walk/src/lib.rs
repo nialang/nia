@@ -175,6 +175,7 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
             visitor.visit_type(trait_ref);
         }
         TypeKind::Pointer { elem, .. }
+        | TypeKind::VolatilePointer { elem, .. }
         | TypeKind::Slice { elem, .. }
         | TypeKind::SlicePointee { elem } => visitor.visit_type(elem),
         TypeKind::Array { len, elem } => {

@@ -567,6 +567,13 @@ impl<'a> TypeLowerer<'a> {
                     })
                 }
             }
+            TypeKind::VolatilePointer { is_readonly, elem } => {
+                let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                self.interner.intern(TyKind::VolatilePointer {
+                    is_readonly: *is_readonly,
+                    elem,
+                })
+            }
             TypeKind::Slice { is_readonly, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.interner.intern(TyKind::Slice {

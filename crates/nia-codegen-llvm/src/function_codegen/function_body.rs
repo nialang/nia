@@ -1047,7 +1047,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let Some(ptr) = self.locals.get(&binding.local_id).copied() else {
                 return Err(self.error(span, "missing local binding storage"));
             };
-            self.emit_store_value(span, ptr, value)?;
+            self.emit_store_value(span, ptr, value, false)?;
         }
         Ok(())
     }
@@ -1068,7 +1068,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(ptr) = self.locals.get(&local_id).copied() else {
             return Err(self.error(span, "missing local binding storage"));
         };
-        self.emit_store_value(span, ptr, value)?;
+        self.emit_store_value(span, ptr, value, false)?;
         Ok(())
     }
 
@@ -1077,6 +1077,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         ptr: nia_llvm::values::PointerValue<'ctx>,
         value: &FunctionExpr,
+        is_volatile: bool,
     ) -> Result<(), Diagnostic> {
         if self.is_zero_sized(value.ty) {
             self.emit_effect_expr(value)?;
@@ -1092,8 +1093,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(());
         }
         let value = self.emit_expr(value)?;
-        self.builder
-            .build_store(ptr, value)
+        self.build_place_store(ptr, value, is_volatile)
             .map_err(|_| self.error(span, "failed to store local binding"))?;
         Ok(())
     }
@@ -1108,7 +1108,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(false);
         }
         let ptr = self.emit_typed_place_addr(place)?;
-        self.emit_store_value(span, ptr, value)?;
+        let is_volatile = self.place_access_is_volatile(place);
+        self.emit_store_value(span, ptr, value, is_volatile)?;
         Ok(true)
     }
 

@@ -148,6 +148,7 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
                 | TyKind::FunctionPointer { .. }
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Nominal { .. },
