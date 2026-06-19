@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 mod extensions;
 mod public_surface;
 
+pub use nia_ast::Visibility;
 use nia_ast::{
     BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
-    Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
+    Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
@@ -39,8 +40,84 @@ pub struct DefCollection {
 pub struct ModuleUsing {
     pub visibility: Visibility,
     pub span: Span,
-    pub host: Vec<nia_ast::UsingHostSegment>,
-    pub selector: nia_ast::UsingSelector,
+    pub host: Vec<UsingPathSegment>,
+    pub selector: UsingSelector,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsingPathSegment {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsingSelector {
+    Single(UsingName),
+    Group(Vec<UsingGroupItem>),
+    Wildcard { span: Span },
+    SelfName,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsingGroupItem {
+    Name(UsingName),
+    Nested {
+        host: Vec<UsingPathSegment>,
+        selector: Box<UsingSelector>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsingName {
+    pub name: String,
+    pub name_span: Span,
+    pub alias: Option<String>,
+    pub alias_span: Option<Span>,
+}
+
+impl UsingPathSegment {
+    fn from_ast(segment: &nia_ast::UsingHostSegment) -> Self {
+        Self {
+            name: segment.name.clone(),
+            span: segment.span,
+        }
+    }
+}
+
+impl UsingSelector {
+    fn from_ast(selector: &nia_ast::UsingSelector) -> Self {
+        match selector {
+            nia_ast::UsingSelector::Single(name) => Self::Single(UsingName::from_ast(name)),
+            nia_ast::UsingSelector::Group(items) => {
+                Self::Group(items.iter().map(UsingGroupItem::from_ast).collect())
+            }
+            nia_ast::UsingSelector::Wildcard { span } => Self::Wildcard { span: *span },
+            nia_ast::UsingSelector::SelfName => Self::SelfName,
+        }
+    }
+}
+
+impl UsingGroupItem {
+    fn from_ast(item: &nia_ast::UsingGroupItem) -> Self {
+        match item {
+            nia_ast::UsingGroupItem::Name(name) => Self::Name(UsingName::from_ast(name)),
+            nia_ast::UsingGroupItem::Nested { host, selector } => Self::Nested {
+                host: host.iter().map(UsingPathSegment::from_ast).collect(),
+                selector: Box::new(UsingSelector::from_ast(selector)),
+            },
+        }
+    }
+}
+
+impl UsingName {
+    fn from_ast(name: &nia_ast::UsingName) -> Self {
+        Self {
+            name: name.name.clone(),
+            name_span: name.name_span,
+            alias: name.alias.clone(),
+            alias_span: name.alias_span,
+        }
+    }
 }
 
 pub fn collect_module_defs(module_id: ModuleId, module: &Module) -> DefCollection {
@@ -311,8 +388,8 @@ impl Collector {
         self.module_usings.push(ModuleUsing {
             visibility: item.visibility,
             span: item.span,
-            host: using.host.clone(),
-            selector: using.selector.clone(),
+            host: using.host.iter().map(UsingPathSegment::from_ast).collect(),
+            selector: UsingSelector::from_ast(&using.selector),
         });
     }
 
