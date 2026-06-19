@@ -382,6 +382,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-item-signatures",
+ "nia-item-tree",
  "nia-parser",
  "nia-span",
  "nia-ty",

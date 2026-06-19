@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Pattern, PatternKind, Stmt,
-    StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind,
+    Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern, PatternKind, Stmt, StmtKind,
+    SwitchArmBody, SwitchPattern, SwitchPatternKind,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use std::collections::HashSet;
 
@@ -47,13 +48,24 @@ pub fn check_module_flow(
     interner: &TyInterner,
     signatures: &ItemSignatures,
 ) -> FlowCheck {
+    let item_tree = ModuleItemTree::from_module(module);
+    let active_item_tree =
+        ActiveModuleItemTree::new(item_tree.active_items_without_comptime(), HashSet::new());
+    check_active_module_flow(&active_item_tree, interner, signatures)
+}
+
+pub fn check_active_module_flow(
+    item_tree: &ActiveModuleItemTree,
+    interner: &TyInterner,
+    signatures: &ItemSignatures,
+) -> FlowCheck {
     let mut checker = FlowChecker {
         interner,
         signatures,
         diagnostics: Vec::new(),
         loop_depth: 0,
     };
-    checker.check_module(module);
+    checker.check_active_module(item_tree);
     FlowCheck {
         diagnostics: checker.diagnostics,
     }
@@ -67,27 +79,31 @@ struct FlowChecker<'a> {
 }
 
 impl FlowChecker<'_> {
-    fn check_module(&mut self, module: &Module) {
-        for item in &module.items {
+    fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
+        self.check_items(&item_tree.items);
+    }
+
+    fn check_items(&mut self, items: &[ItemTreeNode]) {
+        for item in items {
             match &item.kind {
-                ItemKind::Function(function) => self.check_function(function),
-                ItemKind::Trait(item_trait) => {
+                ItemTreeNodeKind::Function(function) => self.check_function(function),
+                ItemTreeNodeKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
                         self.check_function(&method.function);
                     }
                 }
-                ItemKind::Extend(extend) => {
+                ItemTreeNodeKind::Extend(extend) => {
                     for method in &extend.methods {
                         self.check_function(&method.function);
                     }
                 }
-                ItemKind::Module(_)
-                | ItemKind::Using(_)
-                | ItemKind::Struct(_)
-                | ItemKind::Union(_)
-                | ItemKind::Enum(_)
-                | ItemKind::TypeAlias(_)
-                | ItemKind::Binding(_) => {}
+                ItemTreeNodeKind::Module(_)
+                | ItemTreeNodeKind::Using(_)
+                | ItemTreeNodeKind::Struct(_)
+                | ItemTreeNodeKind::Union(_)
+                | ItemTreeNodeKind::Enum(_)
+                | ItemTreeNodeKind::TypeAlias(_)
+                | ItemTreeNodeKind::Binding(_) => {}
             }
         }
     }

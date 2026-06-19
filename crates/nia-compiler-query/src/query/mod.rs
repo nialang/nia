@@ -1088,6 +1088,27 @@ fn main() i32 {
     }
 
     #[test]
+    fn flow_check_uses_full_active_item_tree_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { return 1; }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(FlowCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "flow_check"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "flow_check" && dependency.to.name == "module_ast"
+        }));
+    }
+
+    #[test]
     fn visible_extensions_use_program_type_normalizations_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
