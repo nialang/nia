@@ -4,14 +4,14 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedModuleQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for CheckedModuleQuery {
+impl QueryKey<CompilerContext> for CheckedModuleQuery {
     type Value = CheckedModule;
 
     fn name() -> &'static str {
         "checked_module"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.checked_module)(db, self.0)
     }
 }
@@ -19,14 +19,14 @@ impl QueryKey<DriverContext> for CheckedModuleQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedModulesQuery;
 
-impl QueryKey<DriverContext> for CheckedModulesQuery {
+impl QueryKey<CompilerContext> for CheckedModulesQuery {
     type Value = Vec<CheckedModule>;
 
     fn name() -> &'static str {
         "checked_modules"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.checked_modules)(db)
     }
 }
@@ -34,14 +34,14 @@ impl QueryKey<DriverContext> for CheckedModulesQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableCheckedModulesQuery;
 
-impl QueryKey<DriverContext> for ExecutableCheckedModulesQuery {
+impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
     type Value = Vec<CheckedModule>;
 
     fn name() -> &'static str {
         "executable_checked_modules"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         provide_executable_checked_modules(db)
     }
 }

@@ -31,9 +31,8 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
 pub use nia_backend_lower::BackendOptimizationChange;
-pub use query::check_loaded_program;
-pub use query::check_loaded_program_with_options;
-pub use query::check_loaded_program_with_options_and_timings;
+pub use query::CompileRequest;
+pub use query::CompilerDatabase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingMode {

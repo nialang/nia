@@ -27,7 +27,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_query::{QueryDb, QueryError, QueryKey};
+use nia_query::{QueryDb, QueryError, QueryKey, QueryTrace};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
@@ -67,56 +67,97 @@ type ProgramSignaturesValue = Arc<ProgramSignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 
-pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
-    check_loaded_program_with_options(loaded, NiaOptimizationLevel::default())
+#[derive(Debug, Clone)]
+pub struct CompileRequest {
+    pub loaded: LoadedProgram,
+    pub optimization: NiaOptimizationLevel,
+    pub timings: TimingMode,
 }
 
-pub fn check_loaded_program_with_options(
-    loaded: LoadedProgram,
-    optimization: NiaOptimizationLevel,
-) -> CheckedProgram {
-    check_loaded_program_with_options_and_timings(loaded, optimization, TimingMode::Off)
+impl CompileRequest {
+    pub fn new(loaded: LoadedProgram) -> Self {
+        Self {
+            loaded,
+            optimization: NiaOptimizationLevel::default(),
+            timings: TimingMode::Off,
+        }
+    }
+
+    pub fn with_optimization(mut self, optimization: NiaOptimizationLevel) -> Self {
+        self.optimization = optimization;
+        self
+    }
+
+    pub fn with_timings(mut self, timings: TimingMode) -> Self {
+        self.timings = timings;
+        self
+    }
 }
 
-pub fn check_loaded_program_with_options_and_timings(
-    loaded: LoadedProgram,
-    optimization: NiaOptimizationLevel,
-    timings: TimingMode,
-) -> CheckedProgram {
-    check_loaded_program_with_providers(
-        loaded,
-        optimization.policy(),
-        timings,
-        CompilerQueryProviders::default(),
-    )
-}
-
-fn check_loaded_program_with_providers(
-    loaded: LoadedProgram,
+#[derive(Clone)]
+pub struct CompilerDatabase {
+    db: QueryDb<CompilerContext>,
+    graph: ModuleGraph,
     optimization: OptimizationPolicy,
-    timings: TimingMode,
+}
+
+impl CompilerDatabase {
+    pub fn new(request: CompileRequest) -> Self {
+        compiler_database_with_providers(request, CompilerQueryProviders::default())
+    }
+
+    pub fn check_program(&self) -> CheckedProgram {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.db.try_query(CheckedProgramQuery)
+        })) {
+            Ok(Ok(checked)) => checked,
+            Ok(Err(err)) => {
+                checked_program_from_query_error(self.graph.clone(), self.optimization, err)
+            }
+            Err(payload) => match payload.downcast::<QueryError>() {
+                Ok(err) => {
+                    checked_program_from_query_error(self.graph.clone(), self.optimization, *err)
+                }
+                Err(payload) => std::panic::resume_unwind(payload),
+            },
+        }
+    }
+
+    pub fn query_trace(&self) -> QueryTrace {
+        self.db.query_trace()
+    }
+}
+
+impl std::fmt::Debug for CompilerDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompilerDatabase")
+            .field("graph", &self.graph)
+            .field("optimization", &self.optimization)
+            .finish_non_exhaustive()
+    }
+}
+
+fn compiler_database_with_providers(
+    request: CompileRequest,
     providers: CompilerQueryProviders,
-) -> CheckedProgram {
+) -> CompilerDatabase {
+    let loaded = request.loaded;
     let graph = loaded.graph.clone();
     let target = loaded.target.clone();
     let modules_by_id = index_loaded_modules(&loaded);
-    let db = QueryDb::new(DriverContext {
+    let optimization = request.optimization.policy();
+    let db = QueryDb::new(CompilerContext {
         loaded,
         modules_by_id,
         target,
         optimization,
-        timings,
+        timings: request.timings,
         providers,
     });
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        db.try_query(CheckedProgramQuery)
-    })) {
-        Ok(Ok(checked)) => checked,
-        Ok(Err(err)) => checked_program_from_query_error(graph, optimization, err),
-        Err(payload) => match payload.downcast::<QueryError>() {
-            Ok(err) => checked_program_from_query_error(graph, optimization, *err),
-            Err(payload) => std::panic::resume_unwind(payload),
-        },
+    CompilerDatabase {
+        db,
+        graph,
+        optimization,
     }
 }
 
@@ -167,7 +208,7 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
     }
 }
 
-struct DriverContext {
+struct CompilerContext {
     loaded: LoadedProgram,
     modules_by_id: HashMap<ModuleId, usize>,
     target: TargetConfig,
@@ -176,7 +217,7 @@ struct DriverContext {
     providers: CompilerQueryProviders,
 }
 
-impl DriverContext {
+impl CompilerContext {
     fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
         self.modules_by_id
             .get(&module_id)
@@ -240,10 +281,10 @@ mod tests {
         }
     }
 
-    fn query_db(loaded: LoadedProgram) -> QueryDb<DriverContext> {
+    fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
         let target = loaded.target.clone();
         let modules_by_id = index_loaded_modules(&loaded);
-        QueryDb::new(DriverContext {
+        QueryDb::new(CompilerContext {
             loaded,
             modules_by_id,
             target,
@@ -263,20 +304,20 @@ mod tests {
             NiaOptimizationLevel::Os,
             NiaOptimizationLevel::Oz,
         ] {
-            let checked = check_loaded_program_with_options(
-                loaded_program_with_modules(vec![loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    r#"
+            let loaded = loaded_program_with_modules(vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                r#"
 let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     zeroes[0]
 }
 "#,
-                )]),
-                level,
-            );
+            )]);
+            let checked =
+                CompilerDatabase::new(CompileRequest::new(loaded).with_optimization(level))
+                    .check_program();
             let policy = level.policy();
 
             assert!(
@@ -304,8 +345,24 @@ fn main() i32 {
     }
 
     #[test]
+    fn compiler_database_exposes_query_trace() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            ])));
+
+        let checked = database.check_program();
+        let trace = database.query_trace();
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "checked_program" && dependency.to.name == "checked_modules"
+        }));
+    }
+
+    #[test]
     fn compiler_query_providers_can_override_query_execution() {
-        fn no_parse_ok_modules(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             Vec::new()
         }
 
@@ -313,23 +370,22 @@ fn main() i32 {
             parse_ok_module_ids: no_parse_ok_modules,
             ..CompilerQueryProviders::default()
         };
-        let checked = check_loaded_program_with_providers(
-            loaded_program_with_modules(vec![loaded_module(
+        let checked = compiler_database_with_providers(
+            CompileRequest::new(loaded_program_with_modules(vec![loaded_module(
                 ModuleId(0),
                 "main.nia",
                 "fn main() i32 { 0 }",
-            )]),
-            OptimizationPolicy::default(),
-            TimingMode::Off,
+            )])),
             providers,
-        );
+        )
+        .check_program();
 
         assert!(checked.modules.is_empty());
     }
 
     #[test]
     fn missing_loaded_module_id_becomes_query_diagnostic() {
-        fn unknown_parse_ok_module(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+        fn unknown_parse_ok_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             vec![ModuleId(99)]
         }
 
@@ -338,16 +394,16 @@ fn main() i32 {
             ..CompilerQueryProviders::default()
         };
         let policy = NiaOptimizationLevel::Oz.policy();
-        let checked = check_loaded_program_with_providers(
-            loaded_program_with_modules(vec![loaded_module(
+        let checked = compiler_database_with_providers(
+            CompileRequest::new(loaded_program_with_modules(vec![loaded_module(
                 ModuleId(0),
                 "main.nia",
                 "fn main() i32 { 0 }",
-            )]),
-            policy,
-            TimingMode::Off,
+            )]))
+            .with_optimization(NiaOptimizationLevel::Oz),
             providers,
-        );
+        )
+        .check_program();
 
         assert!(checked.modules.is_empty());
         assert_eq!(checked.optimization, policy);
@@ -547,11 +603,11 @@ fn main() i32 {
     #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { var local: i32 = 1; local }";
-        let checked = check_loaded_program(loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            source,
-        )]));
+        let checked =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(ModuleId(0), "main.nia", source),
+            ])))
+            .check_program();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let module = checked.modules.first().expect("checked module");

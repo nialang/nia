@@ -4,14 +4,14 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedProgramQuery;
 
-impl QueryKey<DriverContext> for CheckedProgramQuery {
+impl QueryKey<CompilerContext> for CheckedProgramQuery {
     type Value = CheckedProgram;
 
     fn name() -> &'static str {
         "checked_program"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.checked_program)(db)
     }
 }
@@ -19,14 +19,14 @@ impl QueryKey<DriverContext> for CheckedProgramQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleGraphQuery;
 
-impl QueryKey<DriverContext> for ModuleGraphQuery {
+impl QueryKey<CompilerContext> for ModuleGraphQuery {
     type Value = ModuleGraph;
 
     fn name() -> &'static str {
         "module_graph"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_graph)(db)
     }
 }
@@ -34,14 +34,14 @@ impl QueryKey<DriverContext> for ModuleGraphQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ParseOkModuleIdsQuery;
 
-impl QueryKey<DriverContext> for ParseOkModuleIdsQuery {
+impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
     type Value = Vec<ModuleId>;
 
     fn name() -> &'static str {
         "parse_ok_module_ids"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.parse_ok_module_ids)(db)
     }
 }
@@ -49,7 +49,7 @@ impl QueryKey<DriverContext> for ParseOkModuleIdsQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct LoadedModuleQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for LoadedModuleQuery {
+impl QueryKey<CompilerContext> for LoadedModuleQuery {
     type Value = LoadedModule;
 
     fn name() -> &'static str {
@@ -60,7 +60,7 @@ impl QueryKey<DriverContext> for LoadedModuleQuery {
         format!("loaded_module({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.loaded_module)(db, self.0)
     }
 }
@@ -74,7 +74,7 @@ pub(super) struct ModuleItemTreeQuery(pub(super) ModuleId);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ActiveModuleItemTreeQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for ModuleItemTreeQuery {
+impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
     type Value = ModuleItemTree;
 
     fn name() -> &'static str {
@@ -85,12 +85,12 @@ impl QueryKey<DriverContext> for ModuleItemTreeQuery {
         format!("module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_item_tree)(db, self.0)
     }
 }
 
-impl QueryKey<DriverContext> for ActiveModuleItemTreeQuery {
+impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
     fn name() -> &'static str {
@@ -101,12 +101,12 @@ impl QueryKey<DriverContext> for ActiveModuleItemTreeQuery {
         format!("active_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.active_module_item_tree)(db, self.0)
     }
 }
 
-impl QueryKey<DriverContext> for ModuleDefsQuery {
+impl QueryKey<CompilerContext> for ModuleDefsQuery {
     type Value = DefCollection;
 
     fn name() -> &'static str {
@@ -117,7 +117,7 @@ impl QueryKey<DriverContext> for ModuleDefsQuery {
         format!("module_defs({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_defs)(db, self.0)
     }
 }
@@ -125,14 +125,14 @@ impl QueryKey<DriverContext> for ModuleDefsQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct DefsByModuleQuery;
 
-impl QueryKey<DriverContext> for DefsByModuleQuery {
+impl QueryKey<CompilerContext> for DefsByModuleQuery {
     type Value = Vec<DefCollection>;
 
     fn name() -> &'static str {
         "defs_by_module"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.defs_by_module)(db)
     }
 }
@@ -140,14 +140,14 @@ impl QueryKey<DriverContext> for DefsByModuleQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramDefsByIdQuery;
 
-impl QueryKey<DriverContext> for ProgramDefsByIdQuery {
+impl QueryKey<CompilerContext> for ProgramDefsByIdQuery {
     type Value = ProgramDefsById;
 
     fn name() -> &'static str {
         "program_defs_by_id"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_defs_by_id)(db)
     }
 }
@@ -162,14 +162,14 @@ pub(super) struct PublicSurfaceQueryValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct PublicSurfaceQuery;
 
-impl QueryKey<DriverContext> for PublicSurfaceQuery {
+impl QueryKey<CompilerContext> for PublicSurfaceQuery {
     type Value = PublicSurfaceQueryValue;
 
     fn name() -> &'static str {
         "public_surface"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.public_surface)(db)
     }
 }
