@@ -3,7 +3,7 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
     TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionModuleAstInput, ExtensionModuleInput, ModuleSignatureInput,
+        ExtensionModuleInput, ExtensionModuleItemInput, ModuleSignatureInput,
         VisibleExtensionsForModule, VisibleExtensionsInput, collect_extension_associated_values,
         collect_extension_methods, collect_program_comptimes, collect_program_enums,
         collect_program_functions, collect_program_globals, collect_program_structs,
@@ -195,6 +195,9 @@ impl CompilerDatabase {
             if module.module_ast {
                 invalidation.extend(self.db.invalidate(ModuleAstQuery(module.id)));
             }
+            if module.full_item_tree {
+                invalidation.extend(self.db.invalidate(FullModuleItemTreeInputQuery(module.id)));
+            }
             if module.origins {
                 invalidation.extend(self.db.invalidate(ModuleOriginsQuery(module.id)));
             }
@@ -208,6 +211,12 @@ impl CompilerDatabase {
                 invalidation.extend(
                     self.db
                         .invalidate(ActiveModuleItemTreeInputQuery(module.id)),
+                );
+            }
+            if module.full_active_item_tree {
+                invalidation.extend(
+                    self.db
+                        .invalidate(FullActiveModuleItemTreeInputQuery(module.id)),
                 );
             }
         }
@@ -541,7 +550,9 @@ struct ChangedModuleInput {
     origins: bool,
     parse_errors: bool,
     item_tree: bool,
+    full_item_tree: bool,
     active_item_tree: bool,
+    full_active_item_tree: bool,
 }
 
 impl ChangedModuleInput {
@@ -559,7 +570,9 @@ impl ChangedModuleInput {
                 origins: old.origins != new.origins,
                 parse_errors: old.parse_errors != new.parse_errors,
                 item_tree: !old.item_tree.declaration_eq(&new.item_tree),
+                full_item_tree: old.item_tree != new.item_tree,
                 active_item_tree: !old.active_item_tree.declaration_eq(&new.active_item_tree),
+                full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
             (Some(_), None) | (None, Some(_)) => Self {
                 id: module_id,
@@ -569,7 +582,9 @@ impl ChangedModuleInput {
                 origins: true,
                 parse_errors: true,
                 item_tree: true,
+                full_item_tree: true,
                 active_item_tree: true,
+                full_active_item_tree: true,
             },
             (None, None) => return None,
         };
@@ -579,7 +594,9 @@ impl ChangedModuleInput {
             || changed.origins
             || changed.parse_errors
             || changed.item_tree
+            || changed.full_item_tree
             || changed.active_item_tree
+            || changed.full_active_item_tree
         {
             Some(changed)
         } else {
@@ -786,6 +803,10 @@ fn main() i32 {
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
+        assert!(
+            invalidated.contains(&"full_module_item_tree_input"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"checked_program"), "{invalidated:?}");
 
         let second = database.check_program();
@@ -831,6 +852,14 @@ fn main() i32 {
             .collect::<Vec<_>>();
 
         assert!(invalidated.contains(&"module_ast"), "{invalidated:?}");
+        assert!(
+            invalidated.contains(&"full_module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"module_item_tree_input"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(!invalidated.contains(&"loaded_modules"), "{invalidated:?}");
         assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
@@ -1013,6 +1042,13 @@ fn main() i32 {
             dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "module_ast"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods" && dependency.to.name == "type_lowering"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -1022,6 +1058,32 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_type_normalizations"
                 && dependency.to.name == "type_normalization"
+        }));
+    }
+
+    #[test]
+    fn body_sensitive_resolution_uses_full_active_item_tree_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { let value = 1; value }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ValueResolutionQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "value_resolution"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "full_active_module_item_tree"
+                && dependency.to.name == "full_module_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "full_module_item_tree"
+                && dependency.to.name == "full_module_item_tree_input"
         }));
     }
 

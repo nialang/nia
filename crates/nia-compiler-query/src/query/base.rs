@@ -273,6 +273,44 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FullModuleItemTreeInputQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
+    type Value = ModuleItemTree;
+
+    fn name() -> &'static str {
+        "full_module_item_tree_input"
+    }
+
+    fn description(&self) -> String {
+        format!("full_module_item_tree_input({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_item_tree(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FullActiveModuleItemTreeInputQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
+    type Value = ActiveModuleItemTree;
+
+    fn name() -> &'static str {
+        "full_active_module_item_tree_input"
+    }
+
+    fn description(&self) -> String {
+        format!("full_active_module_item_tree_input({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().active_module_item_tree(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleDefsQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -280,6 +318,12 @@ pub(super) struct ModuleItemTreeQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ActiveModuleItemTreeQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FullModuleItemTreeQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FullActiveModuleItemTreeQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
     type Value = ModuleItemTree;
@@ -297,6 +341,22 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
     }
 }
 
+impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
+    type Value = ModuleItemTree;
+
+    fn name() -> &'static str {
+        "full_module_item_tree"
+    }
+
+    fn description(&self) -> String {
+        format!("full_module_item_tree({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.full_module_item_tree)(db, self.0)
+    }
+}
+
 impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
@@ -310,6 +370,22 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.active_module_item_tree)(db, self.0)
+    }
+}
+
+impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
+    type Value = ActiveModuleItemTree;
+
+    fn name() -> &'static str {
+        "full_active_module_item_tree"
+    }
+
+    fn description(&self) -> String {
+        format!("full_active_module_item_tree({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.full_active_module_item_tree)(db, self.0)
     }
 }
 

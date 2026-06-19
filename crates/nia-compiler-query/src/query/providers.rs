@@ -15,6 +15,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
+    pub(super) full_module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
+    pub(super) full_active_module_item_tree:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
     pub(super) program_defs_by_id: fn(&QueryDb<CompilerContext>) -> ProgramDefsById,
@@ -62,6 +65,8 @@ impl Default for CompilerQueryProviders {
             parse_ok_module_ids: provide_parse_ok_module_ids,
             module_item_tree: provide_module_item_tree,
             active_module_item_tree: provide_active_module_item_tree,
+            full_module_item_tree: provide_full_module_item_tree,
+            full_active_module_item_tree: provide_full_active_module_item_tree,
             module_defs: provide_module_defs,
             defs_by_module: provide_defs_by_module,
             program_defs_by_id: provide_program_defs_by_id,
@@ -170,6 +175,21 @@ pub(super) fn provide_active_module_item_tree(
     db.query(ActiveModuleItemTreeInputQuery(module_id))
 }
 
+pub(super) fn provide_full_module_item_tree(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ModuleItemTree {
+    db.query(FullModuleItemTreeInputQuery(module_id))
+}
+
+pub(super) fn provide_full_active_module_item_tree(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ActiveModuleItemTree {
+    let _raw_item_tree = db.query(FullModuleItemTreeQuery(module_id));
+    db.query(FullActiveModuleItemTreeInputQuery(module_id))
+}
+
 pub(super) fn provide_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -213,7 +233,7 @@ pub(super) fn provide_type_resolution(
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "type_resolution", module_id, || {
-        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = defs_by_module_id(db);
         let graph = db.query(ModuleGraphQuery);
@@ -237,7 +257,7 @@ pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let program_defs = defs_by_module_id(db);
     nia_type_lower::lower_module_types_from_active_item_tree(
@@ -254,7 +274,7 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     nia_item_signatures::collect_item_signatures_from_active_item_tree(
@@ -374,13 +394,10 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
-        let modules = module_ids
+        let active_item_trees = module_ids
             .iter()
             .copied()
-            .map(|module_id| ExtensionModuleAstInput {
-                id: module_id,
-                ast: db.query(ModuleAstQuery(module_id)),
-            })
+            .map(|module_id| db.query(ActiveModuleItemTreeQuery(module_id)))
             .collect::<Vec<_>>();
         let defs = module_ids
             .iter()
@@ -398,21 +415,26 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
             .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
             .collect::<Vec<_>>();
         let normalizations = db.query(ProgramTypeNormalizationsQuery);
-        let inputs = modules
+        let inputs = module_ids
             .iter()
+            .zip(active_item_trees.iter())
             .zip(defs.iter())
             .zip(type_lowerings.iter())
             .zip(item_signatures.iter())
-            .zip(module_ids.iter())
             .map(
-                |((((module, defs), lowering), signatures), module_id)| ExtensionModuleInput {
-                    module,
-                    defs,
-                    lowering,
-                    signatures,
-                    normalization: normalizations
-                        .get(module_id)
-                        .expect("missing type normalization"),
+                |((((module_id, active_item_tree), defs), lowering), signatures)| {
+                    ExtensionModuleInput {
+                        module: ExtensionModuleItemInput {
+                            id: *module_id,
+                            items: active_item_tree,
+                        },
+                        defs,
+                        lowering,
+                        signatures,
+                        normalization: normalizations
+                            .get(module_id)
+                            .expect("missing type normalization"),
+                    }
                 },
             )
             .collect::<Vec<_>>();
@@ -458,7 +480,7 @@ pub(super) fn provide_value_resolution(
     module_id: ModuleId,
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
-        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = defs_by_module_id(db);
         let graph = db.query(ModuleGraphQuery);
@@ -485,7 +507,7 @@ pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LocalResolution {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins(
