@@ -1109,6 +1109,27 @@ fn main() i32 {
     }
 
     #[test]
+    fn static_check_uses_full_active_item_tree_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "var global: i32 = 1; fn main() i32 { global }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(StaticCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "static_check"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "static_check" && dependency.to.name == "module_ast"
+        }));
+    }
+
+    #[test]
     fn visible_extensions_use_program_type_normalizations_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),

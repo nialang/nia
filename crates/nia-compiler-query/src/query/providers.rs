@@ -732,7 +732,7 @@ pub(super) fn provide_static_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
-    let module = db.query(ModuleAstQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
@@ -742,7 +742,7 @@ pub(super) fn provide_static_check(
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_static_check::check_module_static_initializers(nia_static_check::StaticCheckInput {
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,
