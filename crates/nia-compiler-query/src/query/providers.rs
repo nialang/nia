@@ -12,7 +12,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
     pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> ModuleGraph,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
-    pub(super) loaded_module: fn(&QueryDb<CompilerContext>, ModuleId) -> LoadedModule,
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
@@ -61,7 +60,6 @@ impl Default for CompilerQueryProviders {
             checked_program: provide_checked_program,
             module_graph: provide_module_graph,
             parse_ok_module_ids: provide_parse_ok_module_ids,
-            loaded_module: provide_loaded_module,
             module_item_tree: provide_module_item_tree,
             active_module_item_tree: provide_active_module_item_tree,
             module_defs: provide_module_defs,
@@ -149,30 +147,19 @@ pub(super) fn provide_module_graph(db: &QueryDb<CompilerContext>) -> ModuleGraph
 
 pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     db.query(LoadedModulesQuery)
-        .iter()
-        .filter(|module| module.parse_errors.is_empty())
-        .map(|module| module.id)
+        .into_iter()
+        .filter(|module_id| {
+            let parse_errors = db.query(ModuleParseErrorsQuery(*module_id));
+            parse_errors.is_empty()
+        })
         .collect()
-}
-
-pub(super) fn provide_loaded_module(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> LoadedModule {
-    db.context().loaded_module(module_id).unwrap_or_else(|| {
-        db.invalid_input(
-            &LoadedModuleQuery(module_id),
-            format!("missing loaded module {module_id:?}"),
-        )
-    })
 }
 
 pub(super) fn provide_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleItemTree {
-    let loaded = db.query(LoadedModuleQuery(module_id));
-    loaded.item_tree
+    db.query(ModuleItemTreeInputQuery(module_id))
 }
 
 pub(super) fn provide_active_module_item_tree(
@@ -180,8 +167,7 @@ pub(super) fn provide_active_module_item_tree(
     module_id: ModuleId,
 ) -> ActiveModuleItemTree {
     let _raw_item_tree = db.query(ModuleItemTreeQuery(module_id));
-    let loaded = db.query(LoadedModuleQuery(module_id));
-    loaded.active_item_tree
+    db.query(ActiveModuleItemTreeInputQuery(module_id))
 }
 
 pub(super) fn provide_module_defs(
@@ -391,7 +377,10 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
         let modules = module_ids
             .iter()
             .copied()
-            .map(|module_id| db.query(LoadedModuleQuery(module_id)))
+            .map(|module_id| ExtensionModuleAstInput {
+                id: module_id,
+                ast: db.query(ModuleAstQuery(module_id)),
+            })
             .collect::<Vec<_>>();
         let defs = module_ids
             .iter()
@@ -572,14 +561,14 @@ pub(super) fn provide_comptime_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let module = db.query(ModuleAstQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-        module: &loaded.module,
+        module: &module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -721,7 +710,7 @@ pub(super) fn provide_static_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let module = db.query(ModuleAstQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
@@ -731,7 +720,7 @@ pub(super) fn provide_static_check(
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_static_check::check_module_static_initializers(nia_static_check::StaticCheckInput {
-        module: &loaded.module,
+        module: &module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -748,10 +737,10 @@ pub(super) fn provide_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let module = db.query(ModuleAstQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
-    nia_flow_check::check_module_flow(&loaded.module, &type_lowering.interner, &signatures)
+    nia_flow_check::check_module_flow(&module, &type_lowering.interner, &signatures)
 }
 
 pub(super) fn provide_body_check(
@@ -768,7 +757,9 @@ fn body_check_with_filter(
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
 ) -> nia_body_check::BodyCheck {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let source_version = db.query(ModuleSourceVersionQuery(module_id));
+    let origins = db.query(ModuleOriginsQuery(module_id));
+    let module = db.query(ModuleAstQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let program_defs = defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
@@ -791,9 +782,9 @@ fn body_check_with_filter(
     let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
         nia_body_check::BodyCheckInput {
-            source_version: Some(loaded.source_version),
-            origins: &loaded.origins,
-            module: &loaded.module,
+            source_version: Some(source_version),
+            origins: &origins,
+            module: &module,
             defs: &defs,
             values: &values,
             locals: &locals,
@@ -848,10 +839,10 @@ fn checked_module_with_body_check(
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
 ) -> CheckedModule {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let path = db.query(ModulePathQuery(module_id));
     CheckedModule {
-        id: loaded.id,
-        path: loaded.path,
+        id: module_id,
+        path,
         defs: db.query(ModuleDefsQuery(module_id)),
         type_resolution: db.query(TypeResolutionQuery(module_id)),
         type_lowering: db.query(TypeLoweringQuery(module_id)),
@@ -1057,13 +1048,13 @@ fn provide_backend_lowering_inner(
     let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
     let checked_modules = all_checked_modules;
-    let (loaded_modules, visible_extensions, extension_methods, function_bodies) = time_provider(
+    let (module_asts, visible_extensions, extension_methods, function_bodies) = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.inputs",
         || {
-            let loaded_modules = checked_modules
+            let module_asts = checked_modules
                 .iter()
-                .map(|checked_module| db.query(LoadedModuleQuery(checked_module.id)))
+                .map(|checked_module| db.query(ModuleAstQuery(checked_module.id)))
                 .collect::<Vec<_>>();
             let visible_extensions = checked_modules
                 .iter()
@@ -1081,7 +1072,7 @@ fn provide_backend_lowering_inner(
                 })
                 .collect::<Vec<_>>();
             (
-                loaded_modules,
+                module_asts,
                 visible_extensions,
                 extension_methods,
                 function_bodies,
@@ -1101,7 +1092,7 @@ fn provide_backend_lowering_inner(
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
                 checked_modules: &checked_modules,
-                loaded_modules: &loaded_modules,
+                module_asts: &module_asts,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
                 extension_methods: &extension_methods,
@@ -1143,10 +1134,12 @@ pub(super) fn provide_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<
 
 fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = db.query(ProgramLoadDiagnosticsQuery);
-    for loaded_module in db.query(LoadedModulesQuery) {
-        for error in &loaded_module.parse_errors {
+    for module_id in db.query(LoadedModulesQuery) {
+        let parse_errors = db.query(ModuleParseErrorsQuery(module_id));
+        let path = db.query(ModulePathQuery(module_id));
+        for error in &parse_errors {
             diagnostics.push(ProgramDiagnostic {
-                path: loaded_module.path.clone(),
+                path: path.clone(),
                 diagnostic: Diagnostic::user_error_at("E0201", error.span, error.message.clone()),
             });
         }
@@ -1154,14 +1147,14 @@ fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<Progr
     let public = db.query(PublicSurfaceQuery);
     for (module_id, diagnostic) in public.diagnostics {
         diagnostics.push(ProgramDiagnostic {
-            path: db.context().path_for_module(module_id),
+            path: db.query(ModulePathQuery(module_id)),
             diagnostic,
         });
     }
     let first_path = db
         .query(ParseOkModuleIdsQuery)
         .first()
-        .map(|module_id| db.context().path_for_module(*module_id))
+        .map(|module_id| db.query(ModulePathQuery(*module_id)))
         .unwrap_or_else(|| SourcePath::new("<unknown>"));
     diagnostics.extend(
         db.query(ExtensionMethodsQuery)

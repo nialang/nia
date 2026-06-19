@@ -3,11 +3,11 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
     TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
-        VisibleExtensionsInput, collect_extension_associated_values, collect_extension_methods,
-        collect_program_comptimes, collect_program_enums, collect_program_functions,
-        collect_program_globals, collect_program_structs, collect_program_traits,
-        collect_program_unions, visible_extensions_for_module,
+        ExtensionModuleAstInput, ExtensionModuleInput, ModuleSignatureInput,
+        VisibleExtensionsForModule, VisibleExtensionsInput, collect_extension_associated_values,
+        collect_extension_methods, collect_program_comptimes, collect_program_enums,
+        collect_program_functions, collect_program_globals, collect_program_structs,
+        collect_program_traits, collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -26,9 +26,11 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
+use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
+use nia_parser::ParseError;
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
-use nia_source::SourcePath;
+use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
@@ -183,8 +185,31 @@ impl CompilerDatabase {
         if diff.timings_changed {
             invalidation.extend(self.db.invalidate(CompilerTimingsQuery));
         }
-        for module_id in diff.changed_modules {
-            invalidation.extend(self.db.invalidate(LoadedModuleQuery(module_id)));
+        for module in diff.changed_modules {
+            if module.path {
+                invalidation.extend(self.db.invalidate(ModulePathQuery(module.id)));
+            }
+            if module.source_version {
+                invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module.id)));
+            }
+            if module.module_ast {
+                invalidation.extend(self.db.invalidate(ModuleAstQuery(module.id)));
+            }
+            if module.origins {
+                invalidation.extend(self.db.invalidate(ModuleOriginsQuery(module.id)));
+            }
+            if module.parse_errors {
+                invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module.id)));
+            }
+            if module.item_tree {
+                invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module.id)));
+            }
+            if module.active_item_tree {
+                invalidation.extend(
+                    self.db
+                        .invalidate(ActiveModuleItemTreeInputQuery(module.id)),
+                );
+            }
         }
         invalidation
     }
@@ -305,13 +330,32 @@ impl CompilerInputs {
 }
 
 impl CompilerContext {
-    fn loaded_modules(&self) -> Vec<LoadedModule> {
+    fn module_field<T, K>(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        key: &K,
+        module_id: ModuleId,
+        field: impl FnOnce(&LoadedModule) -> T,
+    ) -> T
+    where
+        K: QueryKey<CompilerContext>,
+    {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let Some(module) = inputs.loaded_module(module_id) else {
+            db.invalid_input(key, format!("missing loaded module {module_id:?}"));
+        };
+        field(module)
+    }
+
+    fn loaded_modules(&self) -> Vec<ModuleId> {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
             .loaded
             .modules
-            .clone()
+            .iter()
+            .map(|module| module.id)
+            .collect()
     }
 
     fn loaded_module(&self, module_id: ModuleId) -> Option<LoadedModule> {
@@ -321,6 +365,80 @@ impl CompilerContext {
             .get(&module_id)
             .and_then(|index| inputs.loaded.modules.get(*index))
             .cloned()
+    }
+
+    fn module_path(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> SourcePath {
+        self.module_field(db, &ModulePathQuery(module_id), module_id, |module| {
+            module.path.clone()
+        })
+    }
+
+    fn module_source_version(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> SourceVersion {
+        self.module_field(
+            db,
+            &ModuleSourceVersionQuery(module_id),
+            module_id,
+            |module| module.source_version,
+        )
+    }
+
+    fn module_ast(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> nia_ast::Module {
+        self.module_field(db, &ModuleAstQuery(module_id), module_id, |module| {
+            module.module.clone()
+        })
+    }
+
+    fn module_origins(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> NodeOriginTable {
+        self.module_field(db, &ModuleOriginsQuery(module_id), module_id, |module| {
+            module.origins.clone()
+        })
+    }
+
+    fn module_parse_errors(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> Vec<ParseError> {
+        self.module_field(
+            db,
+            &ModuleParseErrorsQuery(module_id),
+            module_id,
+            |module| module.parse_errors.clone(),
+        )
+    }
+
+    fn module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ModuleItemTree {
+        self.module_field(
+            db,
+            &ModuleItemTreeInputQuery(module_id),
+            module_id,
+            |module| module.item_tree.clone(),
+        )
+    }
+
+    fn active_module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ActiveModuleItemTree {
+        self.module_field(
+            db,
+            &ActiveModuleItemTreeInputQuery(module_id),
+            module_id,
+            |module| module.active_item_tree.clone(),
+        )
     }
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
@@ -395,7 +513,7 @@ struct CompilerInputDiff {
     runtime_changed: bool,
     optimization_changed: bool,
     timings_changed: bool,
-    changed_modules: Vec<ModuleId>,
+    changed_modules: Vec<ChangedModuleInput>,
 }
 
 impl CompilerInputDiff {
@@ -403,7 +521,7 @@ impl CompilerInputDiff {
         let changed_modules = changed_loaded_modules(old, new);
         Self {
             graph_changed: old.loaded.graph != new.loaded.graph,
-            loaded_modules_changed: old.loaded.modules != new.loaded.modules,
+            loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new),
             program_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
             target_changed: old.target != new.target,
             runtime_changed: old.runtime != new.runtime,
@@ -414,7 +532,63 @@ impl CompilerInputDiff {
     }
 }
 
-fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ModuleId> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChangedModuleInput {
+    id: ModuleId,
+    path: bool,
+    source_version: bool,
+    module_ast: bool,
+    origins: bool,
+    parse_errors: bool,
+    item_tree: bool,
+    active_item_tree: bool,
+}
+
+impl ChangedModuleInput {
+    fn between(
+        module_id: ModuleId,
+        old: Option<&LoadedModule>,
+        new: Option<&LoadedModule>,
+    ) -> Option<Self> {
+        let changed = match (old, new) {
+            (Some(old), Some(new)) => Self {
+                id: module_id,
+                path: old.path != new.path,
+                source_version: old.source_version != new.source_version,
+                module_ast: old.module != new.module,
+                origins: old.origins != new.origins,
+                parse_errors: old.parse_errors != new.parse_errors,
+                item_tree: !old.item_tree.declaration_eq(&new.item_tree),
+                active_item_tree: !old.active_item_tree.declaration_eq(&new.active_item_tree),
+            },
+            (Some(_), None) | (None, Some(_)) => Self {
+                id: module_id,
+                path: true,
+                source_version: true,
+                module_ast: true,
+                origins: true,
+                parse_errors: true,
+                item_tree: true,
+                active_item_tree: true,
+            },
+            (None, None) => return None,
+        };
+        if changed.path
+            || changed.source_version
+            || changed.module_ast
+            || changed.origins
+            || changed.parse_errors
+            || changed.item_tree
+            || changed.active_item_tree
+        {
+            Some(changed)
+        } else {
+            None
+        }
+    }
+}
+
+fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ChangedModuleInput> {
     let module_ids = old
         .loaded
         .modules
@@ -424,10 +598,25 @@ fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<Mod
         .collect::<HashSet<_>>();
     let mut changed = module_ids
         .into_iter()
-        .filter(|module_id| old.loaded_module(*module_id) != new.loaded_module(*module_id))
+        .filter_map(|module_id| {
+            ChangedModuleInput::between(
+                module_id,
+                old.loaded_module(module_id),
+                new.loaded_module(module_id),
+            )
+        })
         .collect::<Vec<_>>();
-    changed.sort_by_key(|module_id| module_id.0);
+    changed.sort_by_key(|module| module.id.0);
     changed
+}
+
+fn loaded_module_ids(inputs: &CompilerInputs) -> Vec<ModuleId> {
+    inputs
+        .loaded
+        .modules
+        .iter()
+        .map(|module| module.id)
+        .collect()
 }
 
 impl CompilerInputs {
@@ -565,7 +754,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn compiler_database_update_invalidates_changed_loaded_module_inputs() {
+    fn compiler_database_update_invalidates_changed_module_field_inputs() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
@@ -588,7 +777,15 @@ fn main() i32 {
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
-        assert!(invalidated.contains(&"loaded_module"), "{invalidated:?}");
+        assert!(
+            invalidated.contains(&"module_source_version"),
+            "{invalidated:?}"
+        );
+        assert!(invalidated.contains(&"module_ast"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"module_item_tree_input"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"checked_program"), "{invalidated:?}");
 
         let second = database.check_program();
@@ -603,6 +800,79 @@ fn main() i32 {
                         && dependency.to.name == "loaded_modules"
                 })
         );
+    }
+
+    #[test]
+    fn function_body_update_keeps_public_surface_cached() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn main() i32 { 0 }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { 1 }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_ast"), "{invalidated:?}");
+        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"loaded_modules"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    }
+
+    #[test]
+    fn path_update_invalidates_diagnostics_without_recomputing_public_surface() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn main() i32 { 0 }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "renamed.nia",
+                "pub struct S { value: i32 } fn main() i32 { 0 }",
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
+        assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules[0].path.as_str(), "renamed.nia");
     }
 
     #[test]
@@ -722,7 +992,8 @@ fn main() i32 {
                 && dependency.to.name == "module_item_tree"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "module_item_tree" && dependency.to.name == "loaded_module"
+            dependency.from.name == "module_item_tree"
+                && dependency.to.name == "module_item_tree_input"
         }));
     }
 
@@ -1010,13 +1281,17 @@ fn main() i32 {
         let db = query_db(loaded);
 
         let _ = db.query(ModuleDefsQuery(ModuleId(0)));
-        let invalidation = db.invalidate(ModuleItemTreeQuery(ModuleId(0)));
+        let invalidation = db.invalidate(ModuleItemTreeInputQuery(ModuleId(0)));
         let invalidated = invalidation
             .invalidated
             .iter()
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
+        assert!(
+            invalidated.contains(&"module_item_tree_input"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"module_item_tree"), "{invalidated:?}");
         assert!(
             invalidated.contains(&"active_module_item_tree"),

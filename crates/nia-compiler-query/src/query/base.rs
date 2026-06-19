@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_ast::Module;
+use nia_node_id::NodeOriginTable;
+use nia_parser::ParseError;
 use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedProgramQuery;
@@ -35,7 +38,7 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
 pub(super) struct LoadedModulesQuery;
 
 impl QueryKey<CompilerContext> for LoadedModulesQuery {
-    type Value = Vec<LoadedModule>;
+    type Value = Vec<ModuleId>;
 
     fn name() -> &'static str {
         "loaded_modules"
@@ -137,21 +140,135 @@ impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct LoadedModuleQuery(pub(super) ModuleId);
+pub(super) struct ModulePathQuery(pub(super) ModuleId);
 
-impl QueryKey<CompilerContext> for LoadedModuleQuery {
-    type Value = LoadedModule;
+impl QueryKey<CompilerContext> for ModulePathQuery {
+    type Value = SourcePath;
 
     fn name() -> &'static str {
-        "loaded_module"
+        "module_path"
     }
 
     fn description(&self) -> String {
-        format!("loaded_module({:?})", self.0)
+        format!("module_path({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.loaded_module)(db, self.0)
+        db.context().module_path(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleSourceVersionQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
+    type Value = SourceVersion;
+
+    fn name() -> &'static str {
+        "module_source_version"
+    }
+
+    fn description(&self) -> String {
+        format!("module_source_version({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_source_version(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleAstQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleAstQuery {
+    type Value = Module;
+
+    fn name() -> &'static str {
+        "module_ast"
+    }
+
+    fn description(&self) -> String {
+        format!("module_ast({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_ast(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleOriginsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleOriginsQuery {
+    type Value = NodeOriginTable;
+
+    fn name() -> &'static str {
+        "module_origins"
+    }
+
+    fn description(&self) -> String {
+        format!("module_origins({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_origins(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleParseErrorsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
+    type Value = Vec<ParseError>;
+
+    fn name() -> &'static str {
+        "module_parse_errors"
+    }
+
+    fn description(&self) -> String {
+        format!("module_parse_errors({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_parse_errors(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleItemTreeInputQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
+    type Value = ModuleItemTree;
+
+    fn name() -> &'static str {
+        "module_item_tree_input"
+    }
+
+    fn description(&self) -> String {
+        format!("module_item_tree_input({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_item_tree(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ActiveModuleItemTreeInputQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
+    type Value = ActiveModuleItemTree;
+
+    fn name() -> &'static str {
+        "active_module_item_tree_input"
+    }
+
+    fn description(&self) -> String {
+        format!("active_module_item_tree_input({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().active_module_item_tree(db, self.0)
     }
 }
 
