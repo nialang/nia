@@ -4,19 +4,19 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramDiagnosticsQuery;
 
-impl QueryKey<DriverContext> for ProgramDiagnosticsQuery {
+impl QueryKey<CompilerContext> for ProgramDiagnosticsQuery {
     type Value = Vec<ProgramDiagnostic>;
 
     fn name() -> &'static str {
         "program_diagnostics"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_diagnostics)(db)
     }
 }
 
-pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> ProgramDefsById {
+pub(super) fn defs_by_module_id(db: &QueryDb<CompilerContext>) -> ProgramDefsById {
     db.query(ProgramDefsByIdQuery)
 }
 

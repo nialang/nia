@@ -10,46 +10,50 @@ use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
-    pub(super) checked_program: fn(&QueryDb<DriverContext>) -> CheckedProgram,
-    pub(super) module_graph: fn(&QueryDb<DriverContext>) -> ModuleGraph,
-    pub(super) parse_ok_module_ids: fn(&QueryDb<DriverContext>) -> Vec<ModuleId>,
-    pub(super) loaded_module: fn(&QueryDb<DriverContext>, ModuleId) -> LoadedModule,
-    pub(super) module_item_tree: fn(&QueryDb<DriverContext>, ModuleId) -> ModuleItemTree,
+    pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
+    pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> ModuleGraph,
+    pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) loaded_module: fn(&QueryDb<CompilerContext>, ModuleId) -> LoadedModule,
+    pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
-        fn(&QueryDb<DriverContext>, ModuleId) -> ActiveModuleItemTree,
-    pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
-    pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
-    pub(super) program_defs_by_id: fn(&QueryDb<DriverContext>) -> ProgramDefsById,
-    pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
-    pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
-    pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
-    pub(super) program_type_lowerings: fn(&QueryDb<DriverContext>) -> ProgramTypeLowerings,
-    pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
-    pub(super) program_item_signatures: fn(&QueryDb<DriverContext>) -> ProgramItemSignaturesById,
-    pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
+    pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
+    pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
+    pub(super) program_defs_by_id: fn(&QueryDb<CompilerContext>) -> ProgramDefsById,
+    pub(super) public_surface: fn(&QueryDb<CompilerContext>) -> PublicSurfaceQueryValue,
+    pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
+    pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
+    pub(super) program_type_lowerings: fn(&QueryDb<CompilerContext>) -> ProgramTypeLowerings,
+    pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
+    pub(super) program_item_signatures: fn(&QueryDb<CompilerContext>) -> ProgramItemSignaturesById,
+    pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
-        fn(&QueryDb<DriverContext>) -> ProgramTypeNormalizations,
-    pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignaturesValue,
-    pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsValue,
-    pub(super) visible_extensions: fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsValue,
-    pub(super) value_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> ValueResolution,
-    pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
+        fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
+    pub(super) program_signatures: fn(&QueryDb<CompilerContext>) -> ProgramSignaturesValue,
+    pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
+    pub(super) visible_extensions:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
+    pub(super) value_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> ValueResolution,
+    pub(super) local_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> LocalResolution,
     pub(super) semantic_use_table:
-        fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
-    pub(super) comptime_module: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeModuleLowering,
-    pub(super) program_comptime_modules: fn(&QueryDb<DriverContext>) -> ProgramComptimeModules,
-    pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
-    pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> ProgramComptimeById,
-    pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
-    pub(super) abi_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_abi_check::AbiCheck,
-    pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
-    pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
-    pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
-    pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
-    pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
-    pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
-    pub(super) backend_lowering: fn(&QueryDb<DriverContext>) -> nia_backend_lower::BackendLowering,
-    pub(super) program_diagnostics: fn(&QueryDb<DriverContext>) -> Vec<ProgramDiagnostic>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
+    pub(super) comptime_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeModuleLowering,
+    pub(super) program_comptime_modules: fn(&QueryDb<CompilerContext>) -> ProgramComptimeModules,
+    pub(super) comptime: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeCheck,
+    pub(super) program_comptime: fn(&QueryDb<CompilerContext>) -> ProgramComptimeById,
+    pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
+    pub(super) static_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
+    pub(super) flow_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_flow_check::FlowCheck,
+    pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
+    pub(super) checked_modules: fn(&QueryDb<CompilerContext>) -> Vec<CheckedModule>,
+    pub(super) monomorphization:
+        fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
+    pub(super) backend_lowering:
+        fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
+    pub(super) program_diagnostics: fn(&QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic>,
 }
 
 impl Default for CompilerQueryProviders {
@@ -96,7 +100,7 @@ impl Default for CompilerQueryProviders {
     }
 }
 
-pub(super) fn provide_checked_program(db: &QueryDb<DriverContext>) -> CheckedProgram {
+pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
     time_provider(db.context().timings, "checked_program", || CheckedProgram {
         graph: db.query(ModuleGraphQuery),
         optimization: db.context().optimization,
@@ -118,7 +122,7 @@ fn time_provider<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T
 }
 
 fn time_module_provider<T>(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     name: &str,
     module_id: ModuleId,
     f: impl FnOnce() -> T,
@@ -138,11 +142,11 @@ fn time_module_provider<T>(
     result
 }
 
-pub(super) fn provide_module_graph(db: &QueryDb<DriverContext>) -> ModuleGraph {
+pub(super) fn provide_module_graph(db: &QueryDb<CompilerContext>) -> ModuleGraph {
     db.context().loaded.graph.clone()
 }
 
-pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     db.context()
         .loaded
         .modules
@@ -153,7 +157,7 @@ pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<DriverContext>) -> Vec<Mo
 }
 
 pub(super) fn provide_loaded_module(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LoadedModule {
     db.context()
@@ -168,7 +172,7 @@ pub(super) fn provide_loaded_module(
 }
 
 pub(super) fn provide_module_item_tree(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleItemTree {
     let loaded = db.query(LoadedModuleQuery(module_id));
@@ -176,7 +180,7 @@ pub(super) fn provide_module_item_tree(
 }
 
 pub(super) fn provide_active_module_item_tree(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ActiveModuleItemTree {
     let _raw_item_tree = db.query(ModuleItemTreeQuery(module_id));
@@ -185,14 +189,14 @@ pub(super) fn provide_active_module_item_tree(
 }
 
 pub(super) fn provide_module_defs(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> DefCollection {
     let item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
 }
 
-pub(super) fn provide_defs_by_module(db: &QueryDb<DriverContext>) -> Vec<DefCollection> {
+pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
     db.query_many(
         db.query(ParseOkModuleIdsQuery)
             .into_iter()
@@ -200,7 +204,7 @@ pub(super) fn provide_defs_by_module(db: &QueryDb<DriverContext>) -> Vec<DefColl
     )
 }
 
-pub(super) fn provide_program_defs_by_id(db: &QueryDb<DriverContext>) -> ProgramDefsById {
+pub(super) fn provide_program_defs_by_id(db: &QueryDb<CompilerContext>) -> ProgramDefsById {
     Arc::new(
         db.query(ParseOkModuleIdsQuery)
             .into_iter()
@@ -209,7 +213,7 @@ pub(super) fn provide_program_defs_by_id(db: &QueryDb<DriverContext>) -> Program
     )
 }
 
-pub(super) fn provide_public_surface(db: &QueryDb<DriverContext>) -> PublicSurfaceQueryValue {
+pub(super) fn provide_public_surface(db: &QueryDb<CompilerContext>) -> PublicSurfaceQueryValue {
     time_provider(db.context().timings, "public_surface", || {
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
@@ -223,7 +227,7 @@ pub(super) fn provide_public_surface(db: &QueryDb<DriverContext>) -> PublicSurfa
 }
 
 pub(super) fn provide_type_resolution(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "type_resolution", module_id, || {
@@ -248,7 +252,7 @@ pub(super) fn provide_type_resolution(
 }
 
 pub(super) fn provide_type_lowering(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
     let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
@@ -265,7 +269,7 @@ pub(super) fn provide_type_lowering(
 }
 
 pub(super) fn provide_item_signatures(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
     let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
@@ -279,7 +283,7 @@ pub(super) fn provide_item_signatures(
 }
 
 pub(super) fn provide_program_item_signatures(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> ProgramItemSignaturesById {
     time_provider(db.context().timings, "program_item_signatures", || {
         Arc::new(
@@ -292,7 +296,7 @@ pub(super) fn provide_program_item_signatures(
 }
 
 pub(super) fn provide_type_normalization(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
     let type_lowering = db.query(TypeLoweringQuery(module_id));
@@ -300,7 +304,9 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
-pub(super) fn provide_program_type_lowerings(db: &QueryDb<DriverContext>) -> ProgramTypeLowerings {
+pub(super) fn provide_program_type_lowerings(
+    db: &QueryDb<CompilerContext>,
+) -> ProgramTypeLowerings {
     time_provider(db.context().timings, "program_type_lowerings", || {
         Arc::new(
             db.query(ParseOkModuleIdsQuery)
@@ -312,7 +318,7 @@ pub(super) fn provide_program_type_lowerings(db: &QueryDb<DriverContext>) -> Pro
 }
 
 pub(super) fn provide_program_type_normalizations(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> ProgramTypeNormalizations {
     time_provider(db.context().timings, "program_type_normalizations", || {
         Arc::new(
@@ -324,7 +330,7 @@ pub(super) fn provide_program_type_normalizations(
     })
 }
 
-pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignaturesValue {
+pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> ProgramSignaturesValue {
     time_provider(db.context().timings, "program_signatures", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let type_lowerings = module_ids
@@ -371,7 +377,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
     })
 }
 
-pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsValue {
+pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.context().timings, "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let modules = module_ids
@@ -426,7 +432,7 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
 }
 
 pub(super) fn provide_visible_extensions(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> VisibleExtensionsValue {
     let graph = db.query(ModuleGraphQuery);
@@ -451,7 +457,7 @@ pub(super) fn provide_visible_extensions(
 }
 
 pub(super) fn provide_value_resolution(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
@@ -479,7 +485,7 @@ pub(super) fn provide_value_resolution(
 }
 
 pub(super) fn provide_local_resolution(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LocalResolution {
     let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
@@ -495,7 +501,7 @@ pub(super) fn provide_local_resolution(
 }
 
 pub(super) fn provide_semantic_use_table(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_sema_ir::SemanticUseTable {
     let values = db.query(ValueResolutionQuery(module_id));
@@ -555,7 +561,7 @@ pub(super) fn provide_semantic_use_table(
 }
 
 pub(super) fn provide_comptime_module(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
     let loaded = db.query(LoadedModuleQuery(module_id));
@@ -575,7 +581,7 @@ pub(super) fn provide_comptime_module(
 }
 
 pub(super) fn provide_program_comptime_modules(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> ProgramComptimeModules {
     let ids = db.query(ParseOkModuleIdsQuery);
     let modules = db.query_many(ids.iter().copied().map(ComptimeModuleQuery));
@@ -586,7 +592,10 @@ pub(super) fn provide_program_comptime_modules(
     )
 }
 
-pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
+pub(super) fn provide_comptime(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ComptimeCheck {
     time_module_provider(db, "comptime", module_id, || {
         let module = db.query(ComptimeModuleQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
@@ -626,7 +635,7 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
     })
 }
 
-pub(super) fn provide_program_comptime(db: &QueryDb<DriverContext>) -> ProgramComptimeById {
+pub(super) fn provide_program_comptime(db: &QueryDb<CompilerContext>) -> ProgramComptimeById {
     time_provider(db.context().timings, "program_comptime", || {
         let ids = db.query(ParseOkModuleIdsQuery);
         let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
@@ -635,7 +644,7 @@ pub(super) fn provide_program_comptime(db: &QueryDb<DriverContext>) -> ProgramCo
 }
 
 pub(super) fn provide_layouts(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "layouts", module_id, || {
@@ -666,7 +675,7 @@ pub(super) fn provide_layouts(
 }
 
 pub(super) fn provide_abi_check(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
     let defs = db.query(ModuleDefsQuery(module_id));
@@ -701,7 +710,7 @@ pub(super) fn provide_abi_check(
 }
 
 pub(super) fn provide_static_check(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
     let loaded = db.query(LoadedModuleQuery(module_id));
@@ -728,7 +737,7 @@ pub(super) fn provide_static_check(
 }
 
 pub(super) fn provide_flow_check(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
     let loaded = db.query(LoadedModuleQuery(module_id));
@@ -738,7 +747,7 @@ pub(super) fn provide_flow_check(
 }
 
 pub(super) fn provide_body_check(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_body_check::BodyCheck {
     time_module_provider(db, "body_check", module_id, || {
@@ -747,7 +756,7 @@ pub(super) fn provide_body_check(
 }
 
 fn body_check_with_filter(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
 ) -> nia_body_check::BodyCheck {
@@ -818,7 +827,7 @@ fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
 }
 
 pub(super) fn provide_checked_module(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> CheckedModule {
     time_module_provider(db, "checked_module", module_id, || {
@@ -827,7 +836,7 @@ pub(super) fn provide_checked_module(
 }
 
 fn checked_module_with_body_check(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
 ) -> CheckedModule {
@@ -854,7 +863,7 @@ fn checked_module_with_body_check(
     }
 }
 
-pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     time_provider(db.context().timings, "checked_modules", || {
         time_provider(
             db.context().timings,
@@ -878,7 +887,7 @@ pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<Checke
 }
 
 pub(super) fn provide_executable_checked_modules(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> Vec<CheckedModule> {
     time_provider(db.context().timings, "executable_checked_modules", || {
         if db.context().loaded.runtime != RuntimeModel::FreestandingExecutable {
@@ -901,7 +910,7 @@ pub(super) fn provide_executable_checked_modules(
     })
 }
 
-fn executable_checked_modules_inner(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
     let defs_by_id = defs_by_module_id(db);
@@ -969,7 +978,7 @@ fn filter_checked_module_for_codegen(
 }
 
 pub(super) fn provide_monomorphization(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
     time_provider(db.context().timings, "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
@@ -999,7 +1008,7 @@ pub(super) fn provide_monomorphization(
     })
 }
 
-fn checked_modules_for_codegen(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     if db.context().loaded.runtime == RuntimeModel::FreestandingExecutable {
         db.query(ExecutableCheckedModulesQuery)
     } else {
@@ -1023,7 +1032,7 @@ fn function_bodies_from_checked_modules(
 }
 
 pub(super) fn provide_backend_lowering(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     time_provider(db.context().timings, "backend_lowering", || {
         provide_backend_lowering_inner(db)
@@ -1031,7 +1040,7 @@ pub(super) fn provide_backend_lowering(
 }
 
 fn provide_backend_lowering_inner(
-    db: &QueryDb<DriverContext>,
+    db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
@@ -1107,13 +1116,13 @@ fn backend_timing_mode(timings: TimingMode) -> nia_backend_lower::BackendTimingM
     }
 }
 
-pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {
+pub(super) fn provide_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
     time_provider(db.context().timings, "program_diagnostics", || {
         provide_program_diagnostics_inner(db)
     })
 }
 
-fn provide_program_diagnostics_inner(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {
+fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = db.context().loaded.diagnostics.clone();
     for loaded_module in &db.context().loaded.modules {
         for error in &loaded_module.parse_errors {

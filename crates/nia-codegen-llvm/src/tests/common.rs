@@ -47,7 +47,10 @@ pub(super) fn check_program_with_options(
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgram {
     let loaded = nia_loader_query::load_program_with_map(root_path, nia_imports::ModuleMap::new());
-    nia_compiler_query::check_loaded_program_with_options(loaded, optimization)
+    nia_compiler_query::CompilerDatabase::new(
+        nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
+    )
+    .check_program()
 }
 
 pub(super) fn check_freestanding_executable_with_options(
@@ -59,7 +62,10 @@ pub(super) fn check_freestanding_executable_with_options(
         nia_imports::ModuleMap::new(),
         nia_loader_query::EntryRuntime::Freestanding,
     );
-    nia_compiler_query::check_loaded_program_with_options(loaded, optimization)
+    nia_compiler_query::CompilerDatabase::new(
+        nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
+    )
+    .check_program()
 }
 
 pub(super) struct EmitSmokeCase {

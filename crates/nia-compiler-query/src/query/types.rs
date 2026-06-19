@@ -5,14 +5,14 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeResolutionQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for TypeResolutionQuery {
+impl QueryKey<CompilerContext> for TypeResolutionQuery {
     type Value = TypeResolution;
 
     fn name() -> &'static str {
         "type_resolution"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.type_resolution)(db, self.0)
     }
 }
@@ -20,7 +20,7 @@ impl QueryKey<DriverContext> for TypeResolutionQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeLoweringQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for TypeLoweringQuery {
+impl QueryKey<CompilerContext> for TypeLoweringQuery {
     type Value = TypeLowering;
 
     fn name() -> &'static str {
@@ -31,7 +31,7 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
         format!("type_lowering({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.type_lowering)(db, self.0)
     }
 }
@@ -39,14 +39,14 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramTypeLoweringsQuery;
 
-impl QueryKey<DriverContext> for ProgramTypeLoweringsQuery {
+impl QueryKey<CompilerContext> for ProgramTypeLoweringsQuery {
     type Value = ProgramTypeLowerings;
 
     fn name() -> &'static str {
         "program_type_lowerings"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_type_lowerings)(db)
     }
 }
@@ -54,7 +54,7 @@ impl QueryKey<DriverContext> for ProgramTypeLoweringsQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ItemSignaturesQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for ItemSignaturesQuery {
+impl QueryKey<CompilerContext> for ItemSignaturesQuery {
     type Value = ItemSignatures;
 
     fn name() -> &'static str {
@@ -65,7 +65,7 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
         format!("item_signatures({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.item_signatures)(db, self.0)
     }
 }
@@ -73,14 +73,14 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramItemSignaturesQuery;
 
-impl QueryKey<DriverContext> for ProgramItemSignaturesQuery {
+impl QueryKey<CompilerContext> for ProgramItemSignaturesQuery {
     type Value = ProgramItemSignaturesById;
 
     fn name() -> &'static str {
         "program_item_signatures"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_item_signatures)(db)
     }
 }
@@ -88,14 +88,14 @@ impl QueryKey<DriverContext> for ProgramItemSignaturesQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for TypeNormalizationQuery {
+impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     type Value = TypeNormalization;
 
     fn name() -> &'static str {
         "type_normalization"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.type_normalization)(db, self.0)
     }
 }
@@ -103,14 +103,14 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramTypeNormalizationsQuery;
 
-impl QueryKey<DriverContext> for ProgramTypeNormalizationsQuery {
+impl QueryKey<CompilerContext> for ProgramTypeNormalizationsQuery {
     type Value = ProgramTypeNormalizations;
 
     fn name() -> &'static str {
         "program_type_normalizations"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_type_normalizations)(db)
     }
 }
@@ -153,14 +153,14 @@ impl ProgramSignatures {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramSignaturesQuery;
 
-impl QueryKey<DriverContext> for ProgramSignaturesQuery {
+impl QueryKey<CompilerContext> for ProgramSignaturesQuery {
     type Value = ProgramSignaturesValue;
 
     fn name() -> &'static str {
         "program_signatures"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_signatures)(db)
     }
 }
@@ -175,14 +175,14 @@ pub(super) struct ExtensionMethodsQueryValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExtensionMethodsQuery;
 
-impl QueryKey<DriverContext> for ExtensionMethodsQuery {
+impl QueryKey<CompilerContext> for ExtensionMethodsQuery {
     type Value = ExtensionMethodsValue;
 
     fn name() -> &'static str {
         "extension_methods"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_methods)(db)
     }
 }
@@ -190,14 +190,14 @@ impl QueryKey<DriverContext> for ExtensionMethodsQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct VisibleExtensionsQuery(pub(super) ModuleId);
 
-impl QueryKey<DriverContext> for VisibleExtensionsQuery {
+impl QueryKey<CompilerContext> for VisibleExtensionsQuery {
     type Value = VisibleExtensionsValue;
 
     fn name() -> &'static str {
         "visible_extensions"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.visible_extensions)(db, self.0)
     }
 }

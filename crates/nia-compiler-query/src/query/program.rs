@@ -4,14 +4,14 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct MonomorphizationQuery;
 
-impl QueryKey<DriverContext> for MonomorphizationQuery {
+impl QueryKey<CompilerContext> for MonomorphizationQuery {
     type Value = nia_monomorphize::Monomorphization;
 
     fn name() -> &'static str {
         "monomorphization"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.monomorphization)(db)
     }
 }
@@ -19,14 +19,14 @@ impl QueryKey<DriverContext> for MonomorphizationQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct BackendLoweringQuery;
 
-impl QueryKey<DriverContext> for BackendLoweringQuery {
+impl QueryKey<CompilerContext> for BackendLoweringQuery {
     type Value = nia_backend_lower::BackendLowering;
 
     fn name() -> &'static str {
         "backend_lowering"
     }
 
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.backend_lowering)(db)
     }
 }
