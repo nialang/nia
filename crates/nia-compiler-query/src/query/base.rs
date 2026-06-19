@@ -32,6 +32,96 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct LoadedModulesQuery;
+
+impl QueryKey<CompilerContext> for LoadedModulesQuery {
+    type Value = Vec<LoadedModule>;
+
+    fn name() -> &'static str {
+        "loaded_modules"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().loaded_modules()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramLoadDiagnosticsQuery;
+
+impl QueryKey<CompilerContext> for ProgramLoadDiagnosticsQuery {
+    type Value = Vec<ProgramDiagnostic>;
+
+    fn name() -> &'static str {
+        "program_load_diagnostics"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().load_diagnostics()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerTargetQuery;
+
+impl QueryKey<CompilerContext> for CompilerTargetQuery {
+    type Value = TargetConfig;
+
+    fn name() -> &'static str {
+        "compiler_target"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().target()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerRuntimeQuery;
+
+impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
+    type Value = RuntimeModel;
+
+    fn name() -> &'static str {
+        "compiler_runtime"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().runtime()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerOptimizationQuery;
+
+impl QueryKey<CompilerContext> for CompilerOptimizationQuery {
+    type Value = OptimizationPolicy;
+
+    fn name() -> &'static str {
+        "compiler_optimization"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().optimization()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerTimingsQuery;
+
+impl QueryKey<CompilerContext> for CompilerTimingsQuery {
+    type Value = TimingMode;
+
+    fn name() -> &'static str {
+        "compiler_timings"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().timings()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ParseOkModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {

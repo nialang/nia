@@ -6,11 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-ast.workspace = true
 nia-codegen-llvm.workspace = true
 nia-compiler-query.workspace = true
 nia-diagnostic.workspace = true
-nia-ids.workspace = true
 nia-imports.workspace = true
 nia-opt.workspace = true
 nia-loader-query.workspace = true
@@ -18,9 +16,11 @@ nia-source.workspace = true
 nia-target-config.workspace = true
 
 [dev-dependencies]
+nia-ast.workspace = true
 nia-backend-ir.workspace = true
 nia-body-ir.workspace = true
 nia-function-ir.workspace = true
+nia-ids.workspace = true
 nia-layout.workspace = true
 nia-static-ir.workspace = true
 nia-ty.workspace = true

@@ -8,11 +8,10 @@ use std::{
 
 use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode};
 use nia_diagnostic::Diagnostic;
-use nia_ids::ModuleId;
-use nia_imports::{ModuleMap, ModulePath};
+use nia_imports::ModuleMap;
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_source::{SourceDatabase, SourcePath, SourceVersion};
+use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
 
 use crate::{CheckedProgram, LoadedProgram};
@@ -101,25 +100,26 @@ impl Driver {
     pub fn check(&self, request: CheckRequest) -> CheckedProgram {
         let _permit = check_test_permit();
         let loaded = self.load_program(&request);
-        let key = CompilerKey::new(&loaded, request.optimization, request.timings);
+        let compile_request = CompileRequest::new(loaded)
+            .with_optimization(request.optimization)
+            .with_timings(request.timings);
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let database = match &*compiler_guard {
-            Some(compiler) if compiler.key == key => compiler.database.clone(),
+            Some(compiler) => {
+                compiler.database.update(compile_request);
+                compiler.database.clone()
+            }
             _ => {
-                let database = CompilerDatabase::new(
-                    CompileRequest::new(loaded)
-                        .with_optimization(request.optimization)
-                        .with_timings(request.timings),
-                );
+                let database = CompilerDatabase::new(compile_request);
                 *compiler_guard = Some(SessionCompiler {
-                    key,
                     database: database.clone(),
                 });
                 database
             }
         };
+        let checked = database.check_program();
         drop(compiler_guard);
-        database.check_program()
+        checked
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
@@ -364,123 +364,15 @@ impl fmt::Debug for SessionLoader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompilerKey {
-    graph: CompilerGraphKey,
-    target: TargetConfig,
-    runtime: nia_compiler_query::RuntimeModel,
-    optimization: NiaOptimizationLevel,
-    timings: TimingMode,
-    modules: Vec<CompilerModuleKey>,
-}
-
-impl CompilerKey {
-    fn new(
-        loaded: &LoadedProgram,
-        optimization: NiaOptimizationLevel,
-        timings: TimingMode,
-    ) -> Self {
-        Self {
-            graph: CompilerGraphKey::new(&loaded.graph),
-            target: loaded.target.clone(),
-            runtime: loaded.runtime,
-            optimization,
-            timings,
-            modules: loaded
-                .modules
-                .iter()
-                .map(|module| CompilerModuleKey {
-                    id: module.id,
-                    path: module.path.clone(),
-                    source_version: module.source_version,
-                })
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompilerGraphKey {
-    root: ModuleId,
-    modules: Vec<CompilerGraphModuleKey>,
-    diagnostics_len: usize,
-}
-
-impl CompilerGraphKey {
-    fn new(graph: &nia_imports::ModuleGraph) -> Self {
-        Self {
-            root: graph.root(),
-            modules: graph
-                .modules()
-                .map(|module| CompilerGraphModuleKey {
-                    id: module.id,
-                    path: module.path.clone(),
-                    module_path: module.module_path.clone(),
-                    parent: module.parent,
-                    children: sorted_children(&module.children),
-                    declarations: module
-                        .declarations
-                        .iter()
-                        .map(|declaration| CompilerGraphDeclarationKey {
-                            name: declaration.name.clone(),
-                            visibility: declaration.visibility,
-                            target: declaration.target,
-                        })
-                        .collect(),
-                })
-                .collect(),
-            diagnostics_len: graph.diagnostics().len(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompilerGraphModuleKey {
-    id: ModuleId,
-    path: SourcePath,
-    module_path: ModulePath,
-    parent: Option<ModuleId>,
-    children: Vec<(String, ModuleId)>,
-    declarations: Vec<CompilerGraphDeclarationKey>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompilerGraphDeclarationKey {
-    name: String,
-    visibility: nia_ast::Visibility,
-    target: ModuleId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompilerModuleKey {
-    id: ModuleId,
-    path: SourcePath,
-    source_version: SourceVersion,
-}
-
 #[derive(Clone)]
 struct SessionCompiler {
-    key: CompilerKey,
     database: CompilerDatabase,
 }
 
 impl fmt::Debug for SessionCompiler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SessionCompiler")
-            .field("key", &self.key)
-            .finish_non_exhaustive()
+        f.debug_struct("SessionCompiler").finish_non_exhaustive()
     }
-}
-
-fn sorted_children(
-    children: &std::collections::HashMap<String, ModuleId>,
-) -> Vec<(String, ModuleId)> {
-    let mut children = children
-        .iter()
-        .map(|(name, module_id)| (name.clone(), *module_id))
-        .collect::<Vec<_>>();
-    children.sort_by(|left, right| left.0.cmp(&right.0));
-    children
 }
 
 impl CheckRequest {
