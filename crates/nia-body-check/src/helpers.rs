@@ -2,9 +2,8 @@
 use std::collections::HashMap;
 
 use crate::{BodyChecker, ReceiverBase};
-use nia_ast::ReceiverKind;
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::TyKind;
 

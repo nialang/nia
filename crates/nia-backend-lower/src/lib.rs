@@ -973,7 +973,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn receiver_kind_for_method(
         &self,
         method_id: GlobalDefId,
-    ) -> Option<nia_ast::ReceiverKind> {
+    ) -> Option<nia_ids::ReceiverKind> {
         if method_id.module_id == self.input.module_id
             && let Some(signature) = self.input.signatures.functions.get(&method_id.def_id)
         {

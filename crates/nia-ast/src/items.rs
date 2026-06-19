@@ -4,6 +4,8 @@ use nia_span::Span;
 
 use crate::{Block, Expr, TypeRef, WhereClause};
 
+pub use nia_ids::ReceiverKind;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub items: Vec<Item>,
@@ -264,13 +266,6 @@ pub struct Param {
     pub ty: Option<TypeRef>,
     pub span: Span,
     pub node_key: NodeKey,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReceiverKind {
-    RefReadOnly,
-    Ref,
-    Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]

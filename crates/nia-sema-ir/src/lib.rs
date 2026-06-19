@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{BinaryOp, ReceiverKind, UnaryOp};
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
+use nia_ast::{BinaryOp, UnaryOp};
+use nia_ids::{
+    BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ReceiverKind,
+};
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, IntConst, PrimitiveTy, TraitId};

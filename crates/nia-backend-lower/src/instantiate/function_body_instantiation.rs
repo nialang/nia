@@ -437,7 +437,7 @@ impl<'a> ModuleLowerer<'a> {
                                                 args: target_args,
                                                 receiver_kind: self
                                                     .receiver_kind_for_method(def_id)
-                                                    .unwrap_or(nia_ast::ReceiverKind::Value),
+                                                    .unwrap_or(nia_ids::ReceiverKind::Value),
                                                 receiver,
                                             },
                                             args,

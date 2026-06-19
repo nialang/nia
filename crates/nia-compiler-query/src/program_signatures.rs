@@ -8,7 +8,7 @@ use nia_defs::{
     WhereBoundSignature, WherePredicateSignature,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId};
+use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind};
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
@@ -925,10 +925,7 @@ fn builtin_place_trait_method_signature_matches(
     let Some(receiver) = actual.params.first().and_then(|param| param.receiver) else {
         return false;
     };
-    let Some(expected_receiver) = method
-        .place_receiver_kind()
-        .map(receiver_kind_to_ast_receiver_kind)
-    else {
+    let Some(expected_receiver) = method.place_receiver_kind() else {
         return false;
     };
     if receiver != expected_receiver {
@@ -964,8 +961,7 @@ fn builtin_slice_trait_method_signature_matches(
     let Some(receiver) = actual.params.first().and_then(|param| param.receiver) else {
         return false;
     };
-    let expected_receiver = receiver_kind_to_ast_receiver_kind(method.receiver_kind());
-    if receiver != expected_receiver {
+    if receiver != method.receiver_kind() {
         return false;
     }
     let Some(range_param) = actual.params.get(1) else {
@@ -990,7 +986,7 @@ fn builtin_iterator_method_signature_matches(
     impl_signature: &TraitImplSignature,
     actual: &FunctionSignature,
 ) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(nia_ast::ReceiverKind::Ref) {
+    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::Ref) {
         return false;
     }
     let Some(item) = associated_type_ty(impl_signature, BuiltinTrait::ITEM_ASSOC_TYPE) else {
@@ -1007,9 +1003,7 @@ fn builtin_len_method_signature_matches(
     module: &ExtensionModuleInput<'_>,
     actual: &FunctionSignature,
 ) -> bool {
-    if actual.params.first().and_then(|param| param.receiver)
-        != Some(nia_ast::ReceiverKind::RefReadOnly)
-    {
+    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
         return false;
     }
     types_equivalent(
@@ -1024,23 +1018,13 @@ fn builtin_bound_method_signature_matches(
     impl_signature: &TraitImplSignature,
     actual: &FunctionSignature,
 ) -> bool {
-    if actual.params.first().and_then(|param| param.receiver)
-        != Some(nia_ast::ReceiverKind::RefReadOnly)
-    {
+    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
         return false;
     }
     let Some(output) = associated_type_ty(impl_signature, BuiltinTrait::OUTPUT_ASSOC_TYPE) else {
         return false;
     };
     types_equivalent(module.lowering, actual.return_type, output)
-}
-
-fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {
-    match kind {
-        BuiltinReceiverKind::RefReadOnly => nia_ast::ReceiverKind::RefReadOnly,
-        BuiltinReceiverKind::Ref => nia_ast::ReceiverKind::Ref,
-        BuiltinReceiverKind::Value => nia_ast::ReceiverKind::Value,
-    }
 }
 
 fn builtin_impl_trait_args(
