@@ -334,6 +334,34 @@ using root::a; fn main() {}"#,
 }
 
 #[test]
+fn builtin_module_exposes_target_comptime_values() {
+    let root = temp_dir("builtin_module_exposes_target_comptime_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+using builtin;
+
+fn main() usize {
+    if builtin::pointer_width == 64usize or builtin::pointer_width == 32usize {
+        builtin::os.len()
+    } else {
+        0usize
+    }
+}
+"#,
+    );
+
+    let checked = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .graph
+            .package_root(nia_imports::BUILTIN_MODULE_MAP_NAME)
+            .is_some()
+    );
+}
+
+#[test]
 fn child_module_can_call_public_root_items_through_root_namespace() {
     let root = temp_dir("child_module_can_call_public_root_items_through_root_namespace");
     write(

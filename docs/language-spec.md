@@ -1128,6 +1128,21 @@ Attributes are intentionally separate from builtin expressions. `@foo` remains
 reserved for builtin expression forms such as `@size[T]()` and `@error(...)`.
 AST attributes must use the bracketed `@[...]` form.
 
+The compiler also injects a reserved `builtin` module root. It is a normal
+module for name resolution and imports, but its source is generated from the
+active target rather than read from disk:
+
+```nia
+using builtin;
+
+comptime let word_bits: usize = builtin::pointer_width;
+comptime let target_os = builtin::os;
+```
+
+The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`, `abi`,
+`endian`, and `pointer_width` as public comptime values. These values share the
+same target facts used by `@[if ...]`.
+
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
 An unknown attribute is reserved and has no language-defined effect until this
 specification assigns one. Unknown attributes do not change visibility, ABI,
