@@ -798,7 +798,7 @@ fn main() i32 {
             invalidated.contains(&"module_source_version"),
             "{invalidated:?}"
         );
-        assert!(invalidated.contains(&"module_ast"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"module_ast"), "{invalidated:?}");
         assert!(
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
@@ -851,7 +851,7 @@ fn main() i32 {
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
-        assert!(invalidated.contains(&"module_ast"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"module_ast"), "{invalidated:?}");
         assert!(
             invalidated.contains(&"full_module_item_tree_input"),
             "{invalidated:?}"
@@ -1276,6 +1276,13 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering" && dependency.to.name == "checked_modules"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering" && dependency.to.name == "module_ast"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_module" && dependency.to.name == "body_check"

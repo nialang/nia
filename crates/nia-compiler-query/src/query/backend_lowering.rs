@@ -58,7 +58,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 
 pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) checked_modules: &'a [CheckedModule],
-    pub(super) module_asts: &'a [nia_ast::Module],
+    pub(super) active_item_trees: &'a [ActiveModuleItemTree],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
     pub(super) extension_methods: &'a ExtensionMethodsQueryValue,
@@ -73,15 +73,15 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
     input
         .checked_modules
         .iter()
-        .zip(input.module_asts.iter())
+        .zip(input.active_item_trees.iter())
         .zip(input.visible_extensions.iter())
         .zip(input.function_bodies.iter())
         .map(
-            |(((checked_module, module_ast), visible_extensions), function_bodies)| {
+            |(((checked_module, active_item_tree), visible_extensions), function_bodies)| {
                 BackendLowerModuleInput {
                     module_id: checked_module.id,
                     module_name: checked_module.path.as_str().to_string(),
-                    module: module_ast,
+                    active_item_tree,
                     defs: &checked_module.defs,
                     extensions: &visible_extensions.methods,
                     values: &checked_module.value_resolution,

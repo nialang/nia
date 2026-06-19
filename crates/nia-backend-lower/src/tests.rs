@@ -301,7 +301,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,
