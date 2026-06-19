@@ -759,10 +759,14 @@ pub(super) fn provide_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
-    let module = db.query(ModuleAstQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
-    nia_flow_check::check_module_flow(&module, &type_lowering.interner, &signatures)
+    nia_flow_check::check_active_module_flow(
+        &active_item_tree,
+        &type_lowering.interner,
+        &signatures,
+    )
 }
 
 pub(super) fn provide_body_check(
