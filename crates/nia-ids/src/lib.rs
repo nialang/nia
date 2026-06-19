@@ -167,7 +167,7 @@ pub enum BuiltinTraitMethod {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinReceiverKind {
+pub enum ReceiverKind {
     RefReadOnly,
     Ref,
     Value,
@@ -210,8 +210,8 @@ pub struct BuiltinTraitMethodDescriptor {
     pub name: &'static str,
     pub trait_id: BuiltinTrait,
     pub param_count: usize,
-    pub receiver_kind: BuiltinReceiverKind,
-    pub place_receiver_kind: Option<BuiltinReceiverKind>,
+    pub receiver_kind: ReceiverKind,
+    pub place_receiver_kind: Option<ReceiverKind>,
     pub is_value_operator: bool,
     pub is_place_method: bool,
 }
@@ -300,8 +300,8 @@ impl BuiltinTraitMethod {
                 "deref_read",
                 BuiltinTrait::DerefRead,
                 1,
-                BuiltinReceiverKind::RefReadOnly,
-                Some(BuiltinReceiverKind::RefReadOnly),
+                ReceiverKind::RefReadOnly,
+                Some(ReceiverKind::RefReadOnly),
             ),
         ),
         (
@@ -310,8 +310,8 @@ impl BuiltinTraitMethod {
                 "deref",
                 BuiltinTrait::Deref,
                 1,
-                BuiltinReceiverKind::Value,
-                Some(BuiltinReceiverKind::Ref),
+                ReceiverKind::Value,
+                Some(ReceiverKind::Ref),
             ),
         ),
         (
@@ -320,8 +320,8 @@ impl BuiltinTraitMethod {
                 "index_read",
                 BuiltinTrait::IndexRead,
                 2,
-                BuiltinReceiverKind::RefReadOnly,
-                Some(BuiltinReceiverKind::RefReadOnly),
+                ReceiverKind::RefReadOnly,
+                Some(ReceiverKind::RefReadOnly),
             ),
         ),
         (
@@ -330,8 +330,8 @@ impl BuiltinTraitMethod {
                 "index",
                 BuiltinTrait::Index,
                 2,
-                BuiltinReceiverKind::Value,
-                Some(BuiltinReceiverKind::Ref),
+                ReceiverKind::Value,
+                Some(ReceiverKind::Ref),
             ),
         ),
         (
@@ -340,7 +340,7 @@ impl BuiltinTraitMethod {
                 "slice_read",
                 BuiltinTrait::SliceRead,
                 2,
-                BuiltinReceiverKind::RefReadOnly,
+                ReceiverKind::RefReadOnly,
                 None,
             ),
         ),
@@ -350,7 +350,7 @@ impl BuiltinTraitMethod {
                 "slice",
                 BuiltinTrait::Slice,
                 2,
-                BuiltinReceiverKind::Ref,
+                ReceiverKind::Ref,
                 None,
             ),
         ),
@@ -360,7 +360,7 @@ impl BuiltinTraitMethod {
                 "get_ptr_read",
                 BuiltinTrait::GetPtrRead,
                 1,
-                BuiltinReceiverKind::RefReadOnly,
+                ReceiverKind::RefReadOnly,
                 None,
             ),
         ),
@@ -370,7 +370,7 @@ impl BuiltinTraitMethod {
                 "get_ptr",
                 BuiltinTrait::GetPtr,
                 1,
-                BuiltinReceiverKind::Ref,
+                ReceiverKind::Ref,
                 None,
             ),
         ),
@@ -380,7 +380,7 @@ impl BuiltinTraitMethod {
                 "len",
                 BuiltinTrait::Len,
                 1,
-                BuiltinReceiverKind::RefReadOnly,
+                ReceiverKind::RefReadOnly,
             ),
         ),
         (
@@ -389,7 +389,7 @@ impl BuiltinTraitMethod {
                 "start",
                 BuiltinTrait::Start,
                 1,
-                BuiltinReceiverKind::RefReadOnly,
+                ReceiverKind::RefReadOnly,
             ),
         ),
         (
@@ -398,7 +398,7 @@ impl BuiltinTraitMethod {
                 "end",
                 BuiltinTrait::End,
                 1,
-                BuiltinReceiverKind::RefReadOnly,
+                ReceiverKind::RefReadOnly,
             ),
         ),
         (
@@ -407,7 +407,7 @@ impl BuiltinTraitMethod {
                 "next",
                 BuiltinTrait::Iterator,
                 1,
-                BuiltinReceiverKind::Ref,
+                ReceiverKind::Ref,
                 None,
             ),
         ),
@@ -434,11 +434,11 @@ impl BuiltinTraitMethod {
         self.descriptor().param_count
     }
 
-    pub fn receiver_kind(self) -> BuiltinReceiverKind {
+    pub fn receiver_kind(self) -> ReceiverKind {
         self.descriptor().receiver_kind
     }
 
-    pub fn place_receiver_kind(self) -> Option<BuiltinReceiverKind> {
+    pub fn place_receiver_kind(self) -> Option<ReceiverKind> {
         self.descriptor().place_receiver_kind
     }
 
@@ -465,7 +465,7 @@ impl BuiltinTraitMethodDescriptor {
             name,
             trait_id,
             param_count,
-            receiver_kind: BuiltinReceiverKind::Value,
+            receiver_kind: ReceiverKind::Value,
             place_receiver_kind: None,
             is_value_operator: true,
             is_place_method: false,
@@ -476,8 +476,8 @@ impl BuiltinTraitMethodDescriptor {
         name: &'static str,
         trait_id: BuiltinTrait,
         param_count: usize,
-        receiver_kind: BuiltinReceiverKind,
-        place_receiver_kind: Option<BuiltinReceiverKind>,
+        receiver_kind: ReceiverKind,
+        place_receiver_kind: Option<ReceiverKind>,
     ) -> Self {
         Self {
             name,
@@ -494,7 +494,7 @@ impl BuiltinTraitMethodDescriptor {
         name: &'static str,
         trait_id: BuiltinTrait,
         param_count: usize,
-        receiver_kind: BuiltinReceiverKind,
+        receiver_kind: ReceiverKind,
     ) -> Self {
         Self {
             name,

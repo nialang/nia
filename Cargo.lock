@@ -69,6 +69,7 @@ dependencies = [
 name = "nia-ast"
 version = "0.4.3"
 dependencies = [
+ "nia-ids",
  "nia-node-id",
  "nia-span",
 ]

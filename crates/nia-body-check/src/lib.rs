@@ -26,7 +26,7 @@ use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_item_signatures::{
     EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
@@ -588,7 +588,7 @@ struct BodyChecker<'a> {
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
-    method_receiver_kinds: HashMap<GlobalDefId, Option<nia_ast::ReceiverKind>>,
+    method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: HashMap<String, Vec<GlobalDefId>>,
     trait_impls_by_trait: HashMap<nia_ty::TraitId, Vec<usize>>,
     diagnostics: Vec<Diagnostic>,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
-use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ast::{AssignOp, BinaryOp, UnaryOp};
+use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, IntConst, TraitId};
 

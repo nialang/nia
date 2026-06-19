@@ -130,7 +130,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id,
                         arg_module_id: self.input.module_id,
                         args: Vec::new(),
-                        receiver_kind: nia_ast::ReceiverKind::Ref,
+                        receiver_kind: nia_ids::ReceiverKind::Ref,
                         receiver,
                     };
                     changed = true;

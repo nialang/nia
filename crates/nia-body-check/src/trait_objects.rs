@@ -570,7 +570,7 @@ impl<'a> BodyChecker<'a> {
                 .signature
                 .params
                 .first()
-                .is_some_and(|param| param.receiver == Some(nia_ast::ReceiverKind::Value))
+                .is_some_and(|param| param.receiver == Some(nia_ids::ReceiverKind::Value))
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0301",

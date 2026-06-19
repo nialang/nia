@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
-use nia_ast::ReceiverKind;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
-use nia_ids::InternedTyId;
+use nia_ids::{InternedTyId, ReceiverKind};
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, TyKind, TypeEquivalence};

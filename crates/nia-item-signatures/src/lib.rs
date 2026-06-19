@@ -3,12 +3,12 @@ use std::collections::HashMap;
 
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param,
-    ReceiverKind, StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
+    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
 use nia_span::Span;

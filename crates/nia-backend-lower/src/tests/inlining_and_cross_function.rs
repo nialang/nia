@@ -888,7 +888,7 @@ fn main() i32 {
                 slot: 0,
                 params: vec![i32_ty],
                 return_type: i32_ty,
-                receiver_kind: nia_ast::ReceiverKind::Ref,
+                receiver_kind: nia_ids::ReceiverKind::Ref,
                 receiver: Box::new(FunctionExpr {
                     span,
                     ty: source_object_ty,
@@ -1067,7 +1067,7 @@ fn main() i32 {
                 slot: 0,
                 params: vec![i32_ty],
                 return_type: i32_ty,
-                receiver_kind: nia_ast::ReceiverKind::Ref,
+                receiver_kind: nia_ids::ReceiverKind::Ref,
                 receiver: Box::new(FunctionExpr {
                     span,
                     ty: source_object_ty,

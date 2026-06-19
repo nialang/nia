@@ -825,7 +825,7 @@ impl<'a> ModuleLowerer<'a> {
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ast::ReceiverKind::Value),
+                        .unwrap_or(nia_ids::ReceiverKind::Value),
                     receiver: Box::new(receiver.clone()),
                 },
                 args: Vec::new(),
@@ -867,7 +867,7 @@ impl<'a> ModuleLowerer<'a> {
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ast::ReceiverKind::Value),
+                        .unwrap_or(nia_ids::ReceiverKind::Value),
                     receiver: Box::new(lhs.clone()),
                 },
                 args: vec![rhs.clone()],
@@ -898,7 +898,7 @@ impl<'a> ModuleLowerer<'a> {
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ast::ReceiverKind::Value),
+                        .unwrap_or(nia_ids::ReceiverKind::Value),
                     receiver: Box::new(receiver),
                 },
                 args,
@@ -939,7 +939,7 @@ impl<'a> ModuleLowerer<'a> {
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ast::ReceiverKind::Value),
+                        .unwrap_or(nia_ids::ReceiverKind::Value),
                     receiver: Box::new(receiver),
                 },
                 args,

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::ModuleLowerer;
-use nia_ast::{BindingItem, FunctionItem, ReceiverKind};
+use nia_ast::{BindingItem, FunctionItem};
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionAttribute,
     BackendGlobal, BackendParam, BackendStruct, BackendUnion,
 };
 use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
+use nia_ids::ReceiverKind;
 use nia_item_signatures::FunctionAttribute;
 use nia_node_id::NodeKey;
 use nia_span::Span;

@@ -1724,7 +1724,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
                                 self_ty: i32_ty,
                                 trait_args: Vec::new(),
                                 args: Vec::new(),
-                                receiver_kind: nia_ast::ReceiverKind::Value,
+                                receiver_kind: nia_ids::ReceiverKind::Value,
                                 receiver: Box::new(FunctionExpr {
                                     span,
                                     ty: i32_ty,

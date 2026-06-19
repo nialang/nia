@@ -202,7 +202,7 @@ impl<'a> BodyChecker<'a> {
         ) else {
             return Some(self.error());
         };
-        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+        if matches!(method.receiver_kind(), ReceiverKind::Ref) {
             self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
         }
         if !self.current_context_proves_trait_obligation(
@@ -254,7 +254,7 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.check_expr_with_expected(receiver, Some(call.target_ty));
         self.expect_expr_type(receiver, call.target_ty, receiver_ty, "receiver argument");
-        if matches!(call.method.receiver_kind(), BuiltinReceiverKind::Ref) {
+        if matches!(call.method.receiver_kind(), ReceiverKind::Ref) {
             self.check_receiver_match(receiver, call.target_ty, ReceiverKind::Ref);
         }
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
@@ -307,7 +307,7 @@ impl<'a> BodyChecker<'a> {
         else {
             return Some(self.error());
         };
-        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+        if matches!(method.receiver_kind(), ReceiverKind::Ref) {
             self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
         }
         if !self.current_context_proves_trait_obligation(
@@ -361,7 +361,7 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.check_expr_with_expected(receiver, Some(call.target_ty));
         self.expect_expr_type(receiver, call.target_ty, receiver_ty, "receiver argument");
-        if matches!(call.method.receiver_kind(), BuiltinReceiverKind::Ref) {
+        if matches!(call.method.receiver_kind(), ReceiverKind::Ref) {
             self.check_receiver_match(receiver, call.target_ty, ReceiverKind::Ref);
         }
         if !self.current_context_proves_trait_obligation(

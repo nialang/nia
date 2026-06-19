@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ast::{AssignOp, BinaryOp, UnaryOp};
+use nia_ids::{
+    BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind,
+};
 pub use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue,
     FunctionReference, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,

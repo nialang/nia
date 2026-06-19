@@ -13,7 +13,7 @@ use nia_body_ir::{
     TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
     TypedSwitchPattern, TypedSwitchPatternKind, TypedWhile,
 };
-use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
+use nia_ids::{BuiltinTraitMethod, ReceiverKind, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
@@ -1812,7 +1812,7 @@ impl<'a> BodyChecker<'a> {
             .place_receiver_kind()
             .unwrap_or_else(|| method.receiver_kind());
         match receiver_kind {
-            BuiltinReceiverKind::RefReadOnly => {
+            ReceiverKind::RefReadOnly => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
                     is_readonly: true,
                     elem: receiver_ty,
@@ -1826,7 +1826,7 @@ impl<'a> BodyChecker<'a> {
                     },
                 }
             }
-            BuiltinReceiverKind::Ref => {
+            ReceiverKind::Ref => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
                     is_readonly: false,
                     elem: receiver_ty,
@@ -1840,7 +1840,7 @@ impl<'a> BodyChecker<'a> {
                     },
                 }
             }
-            BuiltinReceiverKind::Value => self.lower_expr(receiver),
+            ReceiverKind::Value => self.lower_expr(receiver),
         }
     }
 
@@ -1854,7 +1854,7 @@ impl<'a> BodyChecker<'a> {
             .place_receiver_kind()
             .unwrap_or_else(|| method.receiver_kind());
         match receiver_kind {
-            BuiltinReceiverKind::RefReadOnly => {
+            ReceiverKind::RefReadOnly => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
                     is_readonly: true,
                     elem: receiver_ty,
@@ -1868,7 +1868,7 @@ impl<'a> BodyChecker<'a> {
                     },
                 }
             }
-            BuiltinReceiverKind::Ref => {
+            ReceiverKind::Ref => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
                     is_readonly: false,
                     elem: receiver_ty,
@@ -1882,7 +1882,7 @@ impl<'a> BodyChecker<'a> {
                     },
                 }
             }
-            BuiltinReceiverKind::Value => receiver.clone(),
+            ReceiverKind::Value => receiver.clone(),
         }
     }
 }
