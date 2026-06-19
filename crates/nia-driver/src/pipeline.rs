@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fs, io,
+    env, fmt, fs, io,
     path::{Path, PathBuf},
     process::Command,
+    sync::Mutex,
 };
 
 use nia_compiler_query::TimingMode;
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
-use nia_loader_query::{EntryRuntime, load_program_with_map_and_entry_runtime};
+use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
+use nia_source::{SourceDatabase, SourcePath};
+use nia_target_config::TargetConfig;
 
-use crate::{CheckedProgram, load_program_with_map};
+use crate::{CheckedProgram, LoadedProgram};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
@@ -34,16 +37,66 @@ pub struct CheckRequest {
     pub runtime: Runtime,
 }
 
-#[derive(Debug, Default)]
-pub struct Driver;
+#[derive(Debug, Clone)]
+pub struct DriverConfig {
+    pub target: TargetConfig,
+}
+
+impl Default for DriverConfig {
+    fn default() -> Self {
+        Self {
+            target: TargetConfig::host(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Driver {
+    config: DriverConfig,
+    sources: SourceDatabase,
+    loader: std::sync::Arc<Mutex<Option<SessionLoader>>>,
+}
+
+impl Default for Driver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Driver {
     pub fn new() -> Self {
-        Self
+        Self::with_config(DriverConfig::default())
+    }
+
+    pub fn with_config(config: DriverConfig) -> Self {
+        Self {
+            config,
+            sources: SourceDatabase::new(),
+            loader: std::sync::Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn config(&self) -> &DriverConfig {
+        &self.config
+    }
+
+    pub fn sources(&self) -> &SourceDatabase {
+        &self.sources
+    }
+
+    pub fn set_source(&self, path: impl Into<String>, text: impl Into<String>) {
+        let path = path.into();
+        let loader = self.loader.lock().expect("driver loader lock poisoned");
+        if let Some(loader) = &*loader {
+            loader.database.set_source(path, text);
+        } else {
+            drop(loader);
+            self.sources.set_source(SourcePath::new(path), text);
+        }
     }
 
     pub fn check(&self, request: CheckRequest) -> CheckedProgram {
-        check_program_request_inner(request)
+        check_program_request_inner(self, request)
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
@@ -235,6 +288,57 @@ impl Driver {
             }),
         }
     }
+
+    fn load_program(&self, request: &CheckRequest) -> LoadedProgram {
+        let key = LoaderKey {
+            root_path: request.root_path.clone(),
+            module_map: request.module_map.clone(),
+            target: self.config.target.clone(),
+            entry_runtime: entry_runtime(request.runtime),
+        };
+        let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
+        let database = match &*loader_guard {
+            Some(loader) if loader.key == key => loader.database.clone(),
+            _ => {
+                let database = LoaderDatabase::new(
+                    LoadRequest::new(key.root_path.clone())
+                        .with_module_map(key.module_map.clone())
+                        .with_sources(self.sources.clone())
+                        .with_target(key.target.clone())
+                        .with_entry_runtime(key.entry_runtime),
+                );
+                *loader_guard = Some(SessionLoader {
+                    key,
+                    database: database.clone(),
+                });
+                database
+            }
+        };
+        drop(loader_guard);
+        database.load_program()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoaderKey {
+    root_path: String,
+    module_map: ModuleMap,
+    target: TargetConfig,
+    entry_runtime: EntryRuntime,
+}
+
+#[derive(Clone)]
+struct SessionLoader {
+    key: LoaderKey,
+    database: LoaderDatabase,
+}
+
+impl fmt::Debug for SessionLoader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionLoader")
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CheckRequest {
@@ -269,25 +373,21 @@ impl CheckRequest {
     }
 }
 
-pub fn check_program_request(request: CheckRequest) -> CheckedProgram {
-    Driver::new().check(request)
-}
-
-fn check_program_request_inner(request: CheckRequest) -> CheckedProgram {
+fn check_program_request_inner(driver: &Driver, request: CheckRequest) -> CheckedProgram {
     let _permit = check_test_permit();
-    let loaded = match request.runtime {
-        Runtime::Bare => load_program_with_map(request.root_path, request.module_map),
-        Runtime::Freestanding => load_program_with_map_and_entry_runtime(
-            request.root_path,
-            request.module_map,
-            EntryRuntime::Freestanding,
-        ),
-    };
+    let loaded = driver.load_program(&request);
     nia_compiler_query::check_loaded_program_with_options_and_timings(
         loaded,
         request.optimization,
         request.timings,
     )
+}
+
+fn entry_runtime(runtime: Runtime) -> EntryRuntime {
+    match runtime {
+        Runtime::Bare => EntryRuntime::None,
+        Runtime::Freestanding => EntryRuntime::Freestanding,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -502,85 +602,6 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
     }
-}
-
-pub fn check_program(root_path: impl Into<String>) -> CheckedProgram {
-    check_program_with_options(root_path, NiaOptimizationLevel::default())
-}
-
-pub fn check_program_with_options(
-    root_path: impl Into<String>,
-    optimization: NiaOptimizationLevel,
-) -> CheckedProgram {
-    check_program_request(CheckRequest::new(root_path).with_optimization(optimization))
-}
-
-pub fn check_program_with_map(
-    root_path: impl Into<String>,
-    module_map: ModuleMap,
-) -> CheckedProgram {
-    check_program_with_map_and_options(root_path, module_map, NiaOptimizationLevel::default())
-}
-
-pub fn check_program_with_map_and_options(
-    root_path: impl Into<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-) -> CheckedProgram {
-    check_program_with_map_options_and_timings(root_path, module_map, optimization, TimingMode::Off)
-}
-
-pub fn check_program_with_map_options_and_timings(
-    root_path: impl Into<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: TimingMode,
-) -> CheckedProgram {
-    check_program_request(
-        CheckRequest::new(root_path)
-            .with_module_map(module_map)
-            .with_optimization(optimization)
-            .with_timings(timings),
-    )
-}
-
-pub fn check_freestanding_executable_with_map_and_options(
-    root_path: impl Into<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-) -> CheckedProgram {
-    check_freestanding_executable_with_map_options_and_timings(
-        root_path,
-        module_map,
-        optimization,
-        TimingMode::Off,
-    )
-}
-
-pub fn check_freestanding_executable_with_map_options_and_timings(
-    root_path: impl Into<String>,
-    module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
-    timings: TimingMode,
-) -> CheckedProgram {
-    check_program_request(
-        CheckRequest::new(root_path)
-            .with_module_map(module_map)
-            .with_optimization(optimization)
-            .with_timings(timings)
-            .with_runtime(Runtime::Freestanding),
-    )
-}
-
-pub fn check_freestanding_executable_with_options(
-    root_path: impl Into<String>,
-    optimization: NiaOptimizationLevel,
-) -> CheckedProgram {
-    check_freestanding_executable_with_map_and_options(
-        root_path,
-        ModuleMap::default(),
-        optimization,
-    )
 }
 
 #[cfg(test)]

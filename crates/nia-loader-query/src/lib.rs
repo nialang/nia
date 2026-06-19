@@ -29,16 +29,102 @@ pub fn load_program_with_map_and_entry_runtime(
     module_map: ModuleMap,
     entry_runtime: EntryRuntime,
 ) -> LoadedProgram {
-    let root_path = SourcePath::new(root_path.into());
-    let module_map = effective_module_map(&root_path, module_map);
-    let db = QueryDb::new(LoaderContext {
-        root_path,
-        module_map,
-        sources: SourceDatabase::new(),
-        target: TargetConfig::host(),
-        entry_runtime,
-    });
-    db.query(LoadedProgramQuery)
+    load_program_request(
+        LoadRequest::new(root_path)
+            .with_module_map(module_map)
+            .with_entry_runtime(entry_runtime),
+    )
+}
+
+pub fn load_program_request(request: LoadRequest) -> LoadedProgram {
+    LoaderDatabase::new(request).load_program()
+}
+
+#[derive(Clone)]
+pub struct LoaderDatabase {
+    db: QueryDb<LoaderContext>,
+    sources: SourceDatabase,
+}
+
+impl LoaderDatabase {
+    pub fn new(request: LoadRequest) -> Self {
+        let root_path = SourcePath::new(request.root_path);
+        let module_map = effective_module_map(&root_path, request.module_map);
+        let sources = request.sources;
+        let db = QueryDb::new(LoaderContext {
+            root_path,
+            module_map,
+            sources: sources.clone(),
+            target: request.target,
+            entry_runtime: request.entry_runtime,
+        });
+        Self { db, sources }
+    }
+
+    pub fn load_program(&self) -> LoadedProgram {
+        self.db.query(LoadedProgramQuery)
+    }
+
+    pub fn sources(&self) -> &SourceDatabase {
+        &self.sources
+    }
+
+    pub fn set_source(&self, path: impl Into<String>, text: impl Into<String>) -> SourceFile {
+        let path = SourcePath::new(path.into());
+        let file = self.sources.set_source(path.clone(), text);
+        self.db.invalidate(SourceTextQuery(path));
+        file
+    }
+
+    pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
+        self.db
+            .invalidate(SourceTextQuery(SourcePath::new(path.into())))
+    }
+
+    pub fn query_trace(&self) -> nia_query::QueryTrace {
+        self.db.query_trace()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadRequest {
+    pub root_path: String,
+    pub module_map: ModuleMap,
+    pub sources: SourceDatabase,
+    pub target: TargetConfig,
+    pub entry_runtime: EntryRuntime,
+}
+
+impl LoadRequest {
+    pub fn new(root_path: impl Into<String>) -> Self {
+        Self {
+            root_path: root_path.into(),
+            module_map: ModuleMap::default(),
+            sources: SourceDatabase::new(),
+            target: TargetConfig::host(),
+            entry_runtime: EntryRuntime::None,
+        }
+    }
+
+    pub fn with_module_map(mut self, module_map: ModuleMap) -> Self {
+        self.module_map = module_map;
+        self
+    }
+
+    pub fn with_sources(mut self, sources: SourceDatabase) -> Self {
+        self.sources = sources;
+        self
+    }
+
+    pub fn with_target(mut self, target: TargetConfig) -> Self {
+        self.target = target;
+        self
+    }
+
+    pub fn with_entry_runtime(mut self, entry_runtime: EntryRuntime) -> Self {
+        self.entry_runtime = entry_runtime;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -54,16 +140,11 @@ fn load_program_from_sources(
     module_map: ModuleMap,
     sources: SourceDatabase,
 ) -> LoadedProgram {
-    let root_path = SourcePath::new(root_path.into());
-    let module_map = effective_module_map(&root_path, module_map);
-    let db = QueryDb::new(LoaderContext {
-        root_path,
-        module_map,
-        sources,
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-    });
-    db.query(LoadedProgramQuery)
+    load_program_request(
+        LoadRequest::new(root_path)
+            .with_module_map(module_map)
+            .with_sources(sources),
+    )
 }
 
 #[cfg(test)]

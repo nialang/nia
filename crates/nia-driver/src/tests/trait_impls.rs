@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
 
 #[test]
 fn trait_impl_methods_are_checked_against_trait_requirements() {

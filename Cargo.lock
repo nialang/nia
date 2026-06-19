@@ -352,7 +352,9 @@ dependencies = [
  "nia-layout",
  "nia-loader-query",
  "nia-opt",
+ "nia-source",
  "nia-static-ir",
+ "nia-target-config",
  "nia-ty",
 ]
 

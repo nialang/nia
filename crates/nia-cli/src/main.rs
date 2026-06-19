@@ -664,7 +664,7 @@ fn check_with_driver(
     timings: nia_driver::TimingMode,
     runtime: Runtime,
 ) -> nia_driver::CheckedProgram {
-    nia_driver::check_program_request(
+    nia_driver::Driver::new().check(
         nia_driver::CheckRequest::new(path)
             .with_module_map(module_map)
             .with_optimization(optimization)

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
 
 #[test]
 fn builtin_operator_traits_allow_constrained_generic_arithmetic() {

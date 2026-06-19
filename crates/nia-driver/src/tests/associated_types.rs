@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
 
 #[test]
 fn associated_types_resolve_explicit_projection_in_trait_methods() {

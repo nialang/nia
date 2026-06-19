@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{check_program, check_program_with_map, load_program};
 
 use nia_ast::Visibility;
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath};
+use nia_loader_query::load_program;
 use std::fs;
 
 #[test]
@@ -182,7 +182,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_options(
+    let program = check_freestanding_executable_with_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
@@ -218,7 +218,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_options(
+    let program = check_freestanding_executable_with_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
@@ -250,7 +250,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_options(
+    let program = check_freestanding_executable_with_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
@@ -287,7 +287,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_options(
+    let program = check_freestanding_executable_with_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
@@ -313,7 +313,7 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) void {
 "#,
     );
 
-    let program = crate::check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -409,7 +409,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_map_and_options(
+    let program = check_freestanding_executable_with_map_and_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         nia_imports::ModuleMap::default(),
         nia_opt::NiaOptimizationLevel::default(),
@@ -1253,7 +1253,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 "#,
     );
 
-    let program = crate::check_freestanding_executable_with_options(
+    let program = check_freestanding_executable_with_options(
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
