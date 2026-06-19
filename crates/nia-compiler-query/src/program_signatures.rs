@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::LoadedModule;
 use nia_defs::{
     AssociatedTypeBindingSignature, DefCollection, ExtensionAssociatedValue,
     ExtensionAssociatedValues, ExtensionMethod, ExtensionMethods, PublicNamespace, PublicSurfaces,
@@ -31,11 +30,17 @@ pub(crate) struct ModuleSignatureInput<'a> {
 }
 
 pub(crate) struct ExtensionModuleInput<'a> {
-    pub(crate) module: &'a LoadedModule,
+    pub(crate) module: &'a ExtensionModuleAstInput,
     pub(crate) defs: &'a DefCollection,
     pub(crate) lowering: &'a TypeLowering,
     pub(crate) signatures: &'a ItemSignatures,
     pub(crate) normalization: &'a TypeNormalization,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ExtensionModuleAstInput {
+    pub(crate) id: nia_ids::ModuleId,
+    pub(crate) ast: nia_ast::Module,
 }
 
 fn lowered_type(module: &ExtensionModuleInput<'_>, ty: &nia_ast::TypeRef) -> Option<InternedTyId> {
@@ -362,7 +367,7 @@ pub(crate) fn collect_extension_methods(
     let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
         let mut impl_index = 0;
-        for item in &module.module.module.items {
+        for item in &module.module.ast.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
@@ -468,7 +473,7 @@ pub(crate) fn collect_extension_associated_values(
     let mut diagnostics = Vec::new();
     for module in modules {
         let mut impl_index = 0;
-        for item in &module.module.module.items {
+        for item in &module.module.ast.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
@@ -525,7 +530,7 @@ fn validate_supertraits(
     defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for item in &module.module.module.items {
+    for item in &module.module.ast.items {
         let nia_ast::ItemKind::Trait(item_trait) = &item.kind else {
             continue;
         };

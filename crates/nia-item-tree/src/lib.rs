@@ -63,6 +63,10 @@ impl ModuleItemTree {
         self.items.clone()
     }
 
+    pub fn declaration_eq(&self, other: &Self) -> bool {
+        item_tree_nodes_declaration_eq(&self.items, &other.items)
+    }
+
     pub fn active_items(
         &self,
         resolver: &mut impl ConditionResolver,
@@ -89,6 +93,11 @@ impl ActiveModuleItemTree {
             items: self.items.iter().map(ItemTreeNode::to_ast_item).collect(),
         }
     }
+
+    pub fn declaration_eq(&self, other: &Self) -> bool {
+        self.inactive_spans == other.inactive_spans
+            && item_tree_nodes_declaration_eq(&self.items, &other.items)
+    }
 }
 
 impl ItemTreeNode {
@@ -112,6 +121,94 @@ impl ItemTreeNode {
             },
         }
     }
+}
+
+fn item_tree_nodes_declaration_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| item_tree_node_declaration_eq(lhs, rhs))
+}
+
+fn item_tree_node_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
+    lhs.node_key == rhs.node_key
+        && item_tree_span_declaration_eq(lhs, rhs)
+        && lhs.attributes == rhs.attributes
+        && lhs.visibility == rhs.visibility
+        && item_tree_node_kind_declaration_eq(&lhs.kind, &rhs.kind)
+}
+
+fn item_tree_node_kind_declaration_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeKind) -> bool {
+    match (lhs, rhs) {
+        (ItemTreeNodeKind::Module(lhs), ItemTreeNodeKind::Module(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Using(lhs), ItemTreeNodeKind::Using(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Struct(lhs), ItemTreeNodeKind::Struct(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Union(lhs), ItemTreeNodeKind::Union(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Trait(lhs), ItemTreeNodeKind::Trait(rhs)) => trait_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::Extend(lhs), ItemTreeNodeKind::Extend(rhs)) => extend_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::Enum(lhs), ItemTreeNodeKind::Enum(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::TypeAlias(lhs), ItemTreeNodeKind::TypeAlias(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Function(lhs), ItemTreeNodeKind::Function(rhs)) => {
+            function_decl_eq(lhs, rhs)
+        }
+        (ItemTreeNodeKind::Binding(lhs), ItemTreeNodeKind::Binding(rhs)) => lhs == rhs,
+        _ => false,
+    }
+}
+
+fn item_tree_span_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
+    if matches!(
+        (&lhs.kind, &rhs.kind),
+        (ItemTreeNodeKind::Function(_), ItemTreeNodeKind::Function(_))
+            | (ItemTreeNodeKind::Trait(_), ItemTreeNodeKind::Trait(_))
+            | (ItemTreeNodeKind::Extend(_), ItemTreeNodeKind::Extend(_))
+    ) {
+        true
+    } else {
+        lhs.span == rhs.span
+    }
+}
+
+fn trait_decl_eq(lhs: &TraitItem, rhs: &TraitItem) -> bool {
+    lhs.name == rhs.name
+        && lhs.generics == rhs.generics
+        && lhs.supertraits == rhs.supertraits
+        && lhs.where_clause == rhs.where_clause
+        && lhs.associated_types == rhs.associated_types
+        && lhs.methods.len() == rhs.methods.len()
+        && lhs
+            .methods
+            .iter()
+            .zip(rhs.methods.iter())
+            .all(|(lhs, rhs)| function_decl_eq(&lhs.function, &rhs.function))
+}
+
+fn extend_decl_eq(lhs: &ExtendItem, rhs: &ExtendItem) -> bool {
+    lhs.generics == rhs.generics
+        && lhs.target == rhs.target
+        && lhs.trait_ref == rhs.trait_ref
+        && lhs.where_clause == rhs.where_clause
+        && lhs.associated_types == rhs.associated_types
+        && lhs.associated_values == rhs.associated_values
+        && lhs.methods.len() == rhs.methods.len()
+        && lhs
+            .methods
+            .iter()
+            .zip(rhs.methods.iter())
+            .all(|(lhs, rhs)| lhs.vis == rhs.vis && function_decl_eq(&lhs.function, &rhs.function))
+}
+
+fn function_decl_eq(lhs: &FunctionItem, rhs: &FunctionItem) -> bool {
+    lhs.name == rhs.name
+        && lhs.generics == rhs.generics
+        && lhs.where_clause == rhs.where_clause
+        && lhs.params == rhs.params
+        && lhs.return_type == rhs.return_type
+        && lhs.is_extern == rhs.is_extern
+        && lhs.is_comptime == rhs.is_comptime
+        && lhs.is_variadic == rhs.is_variadic
+        && lhs.node_key == rhs.node_key
 }
 
 pub fn lower_module_items(module: &Module) -> ModuleItemTree {
@@ -241,6 +338,20 @@ fn selected() i32 { 2 }
             .collect::<Vec<_>>();
         assert_eq!(names, ["always", "selected"]);
         assert!(!active.inactive_spans.is_empty());
+    }
+
+    #[test]
+    fn function_body_changes_do_not_change_item_tree_declaration_shape() {
+        let (before, before_errors) = parse_module("pub fn main() i32 { 0 }");
+        let (after, after_errors) = parse_module("pub fn main() i32 { 1 }");
+        assert!(before_errors.is_empty(), "{before_errors:?}");
+        assert!(after_errors.is_empty(), "{after_errors:?}");
+
+        let before_tree = lower_module_items(&before);
+        let after_tree = lower_module_items(&after);
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
     }
 
     struct BoolResolver;
