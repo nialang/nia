@@ -143,7 +143,7 @@ pub(super) fn pipeline_with_values(
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         origins: &origins,
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

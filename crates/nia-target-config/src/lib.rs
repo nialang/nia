@@ -96,6 +96,7 @@ impl Pruner<'_> {
                 ActiveModuleItemTree::new(Vec::new(), Default::default())
             }
         };
+        let inactive_spans = active_item_tree.inactive_spans.clone();
         let module = Module {
             items: active_item_tree
                 .items
@@ -104,9 +105,10 @@ impl Pruner<'_> {
                 .flat_map(|item| self.prune_item(item))
                 .collect(),
         };
+        let item_tree = ModuleItemTree::from_module(&module);
         PrunedModule {
             module,
-            active_item_tree,
+            active_item_tree: ActiveModuleItemTree::new(item_tree.items, inactive_spans),
         }
     }
 
@@ -684,5 +686,66 @@ fn endian() -> &'static str {
         "little"
     } else {
         "big"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ast::{ItemKind, StmtKind};
+
+    #[test]
+    fn conditional_statement_pruning_updates_active_item_tree_bodies() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() i32 {
+    @[if false]
+    _ = missing_name;
+    1
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
+
+        let ItemKind::Function(module_function) = &pruned.module.items[0].kind else {
+            panic!("expected function item");
+        };
+        let module_body = module_function.body.as_ref().expect("expected body");
+        assert!(module_body.stmts.is_empty());
+
+        let active_module = pruned.active_item_tree.to_module();
+        let ItemKind::Function(active_function) = &active_module.items[0].kind else {
+            panic!("expected function item");
+        };
+        let active_body = active_function.body.as_ref().expect("expected body");
+        assert!(active_body.stmts.is_empty());
+    }
+
+    #[test]
+    fn selected_conditional_statement_remains_in_active_item_tree_body() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() i32 {
+    @[if true]
+    _ = 0;
+    1
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
+
+        let active_module = pruned.active_item_tree.to_module();
+        let ItemKind::Function(active_function) = &active_module.items[0].kind else {
+            panic!("expected function item");
+        };
+        let active_body = active_function.body.as_ref().expect("expected body");
+        assert_eq!(active_body.stmts.len(), 1);
+        assert!(matches!(active_body.stmts[0].kind, StmtKind::Expr(_)));
     }
 }

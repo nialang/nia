@@ -226,7 +226,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         origins: &origins,
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

@@ -788,7 +788,7 @@ impl<'a> BodyChecker<'a> {
 
     fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
-            module: self.module,
+            active_item_tree: self.active_item_tree,
             defs: self.defs,
             program: self.program,
             values: self.values,

@@ -785,7 +785,7 @@ fn body_check_with_filter(
 ) -> nia_body_check::BodyCheck {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
-    let module = db.query(ModuleAstQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let program_defs = defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
@@ -810,7 +810,7 @@ fn body_check_with_filter(
         nia_body_check::BodyCheckInput {
             source_version: Some(source_version),
             origins: &origins,
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,

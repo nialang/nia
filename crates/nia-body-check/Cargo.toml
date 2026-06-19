@@ -15,6 +15,7 @@ nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
+nia-item-tree.workspace = true
 nia-layout.workspace = true
 nia-local-resolve.workspace = true
 nia-node-id.workspace = true
@@ -31,7 +32,6 @@ nia-type-normalize.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]
-nia-item-tree.workspace = true
 nia-parser.workspace = true
 nia-syntax.workspace = true
 nia-target-config.workspace = true

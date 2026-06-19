@@ -67,7 +67,7 @@ fn main() i32 {
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         origins: &origins,
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -201,7 +201,7 @@ fn main() i32 {
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         origins: &origins,
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

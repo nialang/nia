@@ -1361,7 +1361,14 @@ fn main() i32 {
             dependency.from.name == "body_check" && dependency.to.name == "comptime_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check" && dependency.to.name == "program_comptime_modules"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "module_ast"
         }));
         assert!(
             !trace
