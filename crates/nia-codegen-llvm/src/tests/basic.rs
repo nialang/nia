@@ -45,7 +45,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -76,7 +76,7 @@ fn id(v: u8x16) u8x16 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -106,7 +106,7 @@ fn make(value: u8) u8x16 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -142,7 +142,7 @@ fn changed(v: u8x16, i: usize, x: u8) u8x16 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -180,7 +180,7 @@ fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -212,7 +212,7 @@ fn matching(v: u8x16, tag: u8) usize {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -246,7 +246,7 @@ fn scan(mask: usize) usize {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -288,7 +288,7 @@ fn low(value: u128, count: u32) u128 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);
@@ -319,7 +319,7 @@ fn main() i32 {
     )
     .expect("write plain source");
 
-    let checked = nia_driver::check_program(plain.to_string_lossy().into_owned());
+    let checked = check_program(plain.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = emit_native_objects(
         &checked.backend_lowering.program,
@@ -343,7 +343,7 @@ fn divrem(value: u128, by: u128) u128 {
     )
     .expect("write wide source");
 
-    let checked = nia_driver::check_program(wide.to_string_lossy().into_owned());
+    let checked = check_program(wide.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let output = emit_native_objects(
         &checked.backend_lowering.program,
@@ -383,7 +383,7 @@ fn load(ptr: &u8) u8x8 {
     )
     .expect("write test source");
 
-    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    let checked = check_program(main.to_string_lossy().into_owned());
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let output = emit_llvm_ir(&checked.backend_lowering.program);

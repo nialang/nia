@@ -1,19 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{
-    env, fs, io,
-    path::{Path, PathBuf},
-    process::{Command, ExitCode},
-    time::Instant,
-};
+use std::{env, fs, path::PathBuf, process::ExitCode, time::Instant};
 
 use nia_diagnostic::{Diagnostic, render_diagnostic};
+use nia_driver::Runtime;
 use nia_imports::{
     BUILTIN_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
 };
-use nia_opt::{
-    InlineThreshold, NiaOptimizationLevel, OptimizationDepth, OptimizationPolicy,
-    SpecializationPolicy,
-};
+use nia_opt::{InlineThreshold, NiaOptimizationLevel, OptimizationDepth, SpecializationPolicy};
 use nia_parser::ParseError;
 use nia_source::SourcePath;
 
@@ -94,12 +87,6 @@ enum EmitTarget {
     Llvm,
     Obj { args: Vec<String> },
     Exe { args: Vec<String> },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Runtime {
-    Bare,
-    Freestanding,
 }
 
 enum CliAction {
@@ -658,21 +645,7 @@ fn run_check(
     runtime: Runtime,
 ) -> ExitCode {
     let program = time_stage(timings, "check", || {
-        if runtime == Runtime::Freestanding {
-            nia_driver::check_freestanding_executable_with_map_options_and_timings(
-                path,
-                module_map,
-                optimization,
-                timings,
-            )
-        } else {
-            nia_driver::check_program_with_map_options_and_timings(
-                path,
-                module_map,
-                optimization,
-                timings,
-            )
-        }
+        check_with_driver(path, module_map, optimization, timings, runtime)
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -682,6 +655,22 @@ fn run_check(
         print_optimization_report(&program);
     }
     ExitCode::SUCCESS
+}
+
+fn check_with_driver(
+    path: &str,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
+    runtime: Runtime,
+) -> nia_driver::CheckedProgram {
+    nia_driver::check_program_request(
+        nia_driver::CheckRequest::new(path)
+            .with_module_map(module_map)
+            .with_optimization(optimization)
+            .with_timings(timings)
+            .with_runtime(runtime),
+    )
 }
 
 fn run_emit(
@@ -745,12 +734,7 @@ fn run_emit_checked(
     opt_report: bool,
 ) -> ExitCode {
     let program = time_stage(timings, "check", || {
-        nia_driver::check_program_with_map_options_and_timings(
-            path,
-            module_map,
-            optimization,
-            timings,
-        )
+        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -772,12 +756,7 @@ fn run_emit_backend(
     opt_report: bool,
 ) -> ExitCode {
     let program = time_stage(timings, "check", || {
-        nia_driver::check_program_with_map_options_and_timings(
-            path,
-            module_map,
-            optimization,
-            timings,
-        )
+        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -799,12 +778,7 @@ fn run_emit_llvm(
     opt_report: bool,
 ) -> ExitCode {
     let program = time_stage(timings, "check", || {
-        nia_driver::check_program_with_map_options_and_timings(
-            path,
-            module_map,
-            optimization,
-            timings,
-        )
+        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -814,22 +788,20 @@ fn run_emit_llvm(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_llvm_ir", || {
-        nia_codegen_llvm::emit_llvm_ir_with_options(
-            &program.backend_lowering.program,
-            codegen_options(program.optimization),
-        )
+        nia_driver::Driver::new().emit_llvm_ir_from_checked(&program)
     });
-    if !output.diagnostics.is_empty() {
-        eprintln!("codegen diagnostics:");
-        for diagnostic in &output.diagnostics {
-            eprintln!("{}", render_diagnostic(path, source, diagnostic));
+    match output.result {
+        Ok(artifact) => {
+            for module in artifact.modules {
+                print!("{}", module.ir);
+            }
+            ExitCode::SUCCESS
         }
-        return ExitCode::FAILURE;
+        Err(error) => {
+            print_driver_error(path, source, error);
+            ExitCode::FAILURE
+        }
     }
-    for module in output.modules {
-        print!("{}", module.ir);
-    }
-    ExitCode::SUCCESS
 }
 
 fn run_emit_obj(
@@ -849,21 +821,7 @@ fn run_emit_obj(
         }
     };
     let program = time_stage(timings, "check", || {
-        if options.runtime == Runtime::Freestanding {
-            nia_driver::check_freestanding_executable_with_map_options_and_timings(
-                path,
-                module_map,
-                optimization,
-                timings,
-            )
-        } else {
-            nia_driver::check_program_with_map_options_and_timings(
-                path,
-                module_map,
-                optimization,
-                timings,
-            )
-        }
+        check_with_driver(path, module_map, optimization, timings, options.runtime)
     });
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
@@ -873,44 +831,24 @@ fn run_emit_obj(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_native_objects", || {
-        nia_codegen_llvm::emit_native_objects(
-            &program.backend_lowering.program,
-            codegen_options(program.optimization),
-        )
+        nia_driver::Driver::new().emit_native_objects_from_checked(&program)
     });
-    if !output.diagnostics.is_empty() {
-        print_codegen_diagnostics(path, source, &output.diagnostics);
-        return ExitCode::FAILURE;
-    }
-
-    match options.output {
-        EmitObjOutput::Single(path) => {
-            if output.modules.len() != 1 {
-                eprintln!(
-                    "`-o` can only be used when the program has one codegen unit; use `--out-dir`"
-                );
-                return ExitCode::FAILURE;
-            }
-            if let Err(err) = write_output_file(&path, &output.modules[0].bytes) {
-                eprintln!("failed to write `{}`: {err}", path.display());
-                return ExitCode::FAILURE;
-            }
+    let objects = match output.result {
+        Ok(objects) => objects,
+        Err(error) => {
+            print_driver_error(path, source, error);
+            return ExitCode::FAILURE;
         }
-        EmitObjOutput::Directory(dir) => {
-            if let Err(err) = fs::create_dir_all(&dir) {
-                eprintln!("failed to create `{}`: {err}", dir.display());
-                return ExitCode::FAILURE;
-            }
-            for (index, module) in output.modules.iter().enumerate() {
-                let path = dir.join(object_file_name(index, &module.name));
-                if let Err(err) = write_output_file(&path, &module.bytes) {
-                    eprintln!("failed to write `{}`: {err}", path.display());
-                    return ExitCode::FAILURE;
-                }
-            }
+    };
+    let output = nia_driver::Driver::new()
+        .write_native_objects_from_artifact(&objects, options.output.into_driver_output());
+    match output.result {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(error) => {
+            print_driver_error(path, source, error);
+            ExitCode::FAILURE
         }
     }
-    ExitCode::SUCCESS
 }
 
 fn run_emit_exe(
@@ -930,11 +868,12 @@ fn run_emit_exe(
         }
     };
     let program = time_stage(timings, "check_exe", || {
-        nia_driver::check_freestanding_executable_with_map_options_and_timings(
+        check_with_driver(
             path,
             module_map,
             optimization,
             timings,
+            Runtime::Freestanding,
         )
     });
     if !program.diagnostics.is_empty() {
@@ -945,92 +884,30 @@ fn run_emit_exe(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_native_objects", || {
-        nia_codegen_llvm::emit_native_objects(
-            &program.backend_lowering.program,
-            codegen_options(program.optimization),
+        nia_driver::Driver::new().emit_native_objects_from_checked(&program)
+    });
+    let objects = match output.result {
+        Ok(objects) => objects,
+        Err(error) => {
+            print_driver_error(path, source, error);
+            return ExitCode::FAILURE;
+        }
+    };
+    let output = time_stage(timings, "link_executable", || {
+        nia_driver::Driver::new().link_executable_from_objects(
+            &objects,
+            options.output,
+            options.link_args,
+            nia_driver::ExecutableLinker::native(),
         )
     });
-    if !output.diagnostics.is_empty() {
-        print_codegen_diagnostics(path, source, &output.diagnostics);
-        return ExitCode::FAILURE;
-    }
-
-    let temp = TempDir::new("nia_emit_exe");
-    if let Err(err) = fs::create_dir_all(temp.path()) {
-        eprintln!("failed to create `{}`: {err}", temp.path().display());
-        return ExitCode::FAILURE;
-    }
-    let Some(object_paths) = time_stage(timings, "write_temp_objects", || {
-        let mut object_paths = Vec::new();
-        for (index, module) in output.modules.iter().enumerate() {
-            let object_path = temp.path().join(object_file_name(index, &module.name));
-            if let Err(err) = write_output_file(&object_path, &module.bytes) {
-                eprintln!("failed to write `{}`: {err}", object_path.display());
-                return None;
-            }
-            object_paths.push(object_path);
-        }
-        Some(object_paths)
-    }) else {
-        return ExitCode::FAILURE;
-    };
-    if let Some(parent) = options.output.parent()
-        && !parent.as_os_str().is_empty()
-        && let Err(err) = fs::create_dir_all(parent)
-    {
-        eprintln!("failed to create `{}`: {err}", parent.display());
-        return ExitCode::FAILURE;
-    }
-
-    let linker = executable_linker();
-    let status = time_stage(timings, "link_executable", || {
-        Command::new(&linker.program)
-            .args(&linker.args_before_objects)
-            .args(&object_paths)
-            .args(&linker.args_after_objects)
-            .args(&options.link_args)
-            .arg("-o")
-            .arg(&options.output)
-            .status()
-    });
-    match status {
-        Ok(status) if status.success() => ExitCode::SUCCESS,
-        Ok(status) => {
-            eprintln!("linker `{}` failed with status {status}", linker.program);
-            ExitCode::FAILURE
-        }
-        Err(err) => {
-            eprintln!("failed to run linker `{}`: {err}", linker.program);
+    match output.result {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(error) => {
+            print_driver_error(path, source, error);
             ExitCode::FAILURE
         }
     }
-}
-
-struct ExecutableLinker {
-    program: String,
-    args_before_objects: Vec<String>,
-    args_after_objects: Vec<String>,
-}
-
-fn executable_linker() -> ExecutableLinker {
-    if let Ok(program) = env::var("NIA_LINKER")
-        && !program.is_empty()
-    {
-        return ExecutableLinker {
-            program,
-            args_before_objects: Vec::new(),
-            args_after_objects: vec!["-e".to_string(), "_start".to_string()],
-        };
-    }
-    ExecutableLinker {
-        program: "ld".to_string(),
-        args_before_objects: Vec::new(),
-        args_after_objects: vec!["-e".to_string(), "_start".to_string()],
-    }
-}
-
-fn codegen_options(optimization: OptimizationPolicy) -> nia_codegen_llvm::LlvmCodegenOptions {
-    nia_codegen_llvm::LlvmCodegenOptions { optimization }
 }
 
 struct EmitObjOptions {
@@ -1041,6 +918,15 @@ struct EmitObjOptions {
 enum EmitObjOutput {
     Single(PathBuf),
     Directory(PathBuf),
+}
+
+impl EmitObjOutput {
+    fn into_driver_output(self) -> nia_driver::ObjectOutput {
+        match self {
+            Self::Single(path) => nia_driver::ObjectOutput::Single(path),
+            Self::Directory(path) => nia_driver::ObjectOutput::Directory(path),
+        }
+    }
 }
 
 fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOptions, String> {
@@ -1161,62 +1047,6 @@ fn default_output_path(source: &str, extension: &str) -> PathBuf {
     path
 }
 
-fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, bytes)
-}
-
-fn object_file_name(index: usize, module_name: &str) -> String {
-    let stem = Path::new(module_name)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("module");
-    let clean = stem
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    format!("{index:04}_{clean}.o")
-}
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> Self {
-        let mut path = env::temp_dir();
-        path.push(format!(
-            "{prefix}_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
-        ));
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
 fn print_parse_errors(path: &str, source: &str, errors: &[ParseError]) {
     eprintln!("parse errors:");
     for error in errors {
@@ -1238,6 +1068,33 @@ fn print_program_diagnostics(path: &str, source: &str, program: &nia_driver::Che
             "{}",
             render_diagnostic(diagnostic.path.as_str(), source, &diagnostic.diagnostic)
         );
+    }
+}
+
+fn print_driver_error(path: &str, source: &str, error: nia_driver::DriverError) {
+    match error {
+        nia_driver::DriverError::CheckDiagnostics(program) => {
+            print_program_diagnostics(path, source, &program);
+        }
+        nia_driver::DriverError::CodegenDiagnostics(diagnostics) => {
+            print_codegen_diagnostics(path, source, &diagnostics);
+        }
+        nia_driver::DriverError::InvalidArtifactRequest(message) => {
+            eprintln!("{message}");
+        }
+        nia_driver::DriverError::Io {
+            path,
+            operation: _,
+            error,
+        } => {
+            eprintln!("failed to write `{}`: {error}", path.display());
+        }
+        nia_driver::DriverError::LinkerStatus { program, status } => {
+            eprintln!("linker `{program}` failed with status {status}");
+        }
+        nia_driver::DriverError::LinkerIo { program, error } => {
+            eprintln!("failed to run linker `{program}`: {error}");
+        }
     }
 }
 

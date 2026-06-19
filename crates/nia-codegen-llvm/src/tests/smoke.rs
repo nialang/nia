@@ -6,8 +6,7 @@ fn checked_program_smoke_matrix_emits_llvm_ir() {
     for case in emit_smoke_cases() {
         let root = temp_dir(&format!("checked_program_smoke_matrix_{}", case.name));
         write_smoke_case(&root, case);
-        let checked =
-            nia_driver::check_program(root.join(case.root).to_string_lossy().into_owned());
+        let checked = check_program(root.join(case.root).to_string_lossy().into_owned());
         assert!(
             checked.diagnostics.is_empty(),
             "{} check diagnostics: {:?}",
@@ -75,15 +74,14 @@ fn main() i32 {
     .expect("write test source");
 
     for level in [
-        nia_driver::NiaOptimizationLevel::O0,
-        nia_driver::NiaOptimizationLevel::O1,
-        nia_driver::NiaOptimizationLevel::O2,
-        nia_driver::NiaOptimizationLevel::O3,
-        nia_driver::NiaOptimizationLevel::Os,
-        nia_driver::NiaOptimizationLevel::Oz,
+        NiaOptimizationLevel::O0,
+        NiaOptimizationLevel::O1,
+        NiaOptimizationLevel::O2,
+        NiaOptimizationLevel::O3,
+        NiaOptimizationLevel::Os,
+        NiaOptimizationLevel::Oz,
     ] {
-        let checked =
-            nia_driver::check_program_with_options(main.to_string_lossy().into_owned(), level);
+        let checked = check_program_with_options(main.to_string_lossy().into_owned(), level);
         assert!(
             checked.diagnostics.is_empty(),
             "{level:?} check diagnostics: {:?}",

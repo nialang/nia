@@ -21,6 +21,7 @@ pub(super) use nia_ids::{
     BuiltinTraitMethod, ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId,
 };
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
+pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
@@ -35,6 +36,30 @@ pub(super) fn has_internal_diagnostic(diagnostics: &[Diagnostic], code: &str, te
             && diagnostic.summary.contains(text)
             && diagnostic.primary_span().is_some()
     })
+}
+
+pub(super) fn check_program(root_path: impl Into<String>) -> nia_compiler_query::CheckedProgram {
+    check_program_with_options(root_path, NiaOptimizationLevel::default())
+}
+
+pub(super) fn check_program_with_options(
+    root_path: impl Into<String>,
+    optimization: NiaOptimizationLevel,
+) -> nia_compiler_query::CheckedProgram {
+    let loaded = nia_loader_query::load_program_with_map(root_path, nia_imports::ModuleMap::new());
+    nia_compiler_query::check_loaded_program_with_options(loaded, optimization)
+}
+
+pub(super) fn check_freestanding_executable_with_options(
+    root_path: impl Into<String>,
+    optimization: NiaOptimizationLevel,
+) -> nia_compiler_query::CheckedProgram {
+    let loaded = nia_loader_query::load_program_with_map_and_entry_runtime(
+        root_path,
+        nia_imports::ModuleMap::new(),
+        nia_loader_query::EntryRuntime::Freestanding,
+    );
+    nia_compiler_query::check_loaded_program_with_options(loaded, optimization)
 }
 
 pub(super) struct EmitSmokeCase {
