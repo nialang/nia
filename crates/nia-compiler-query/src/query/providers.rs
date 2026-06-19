@@ -583,14 +583,14 @@ pub(super) fn provide_comptime_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
-    let module = db.query(ModuleAstQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

@@ -1182,6 +1182,27 @@ fn main() i32 {
     }
 
     #[test]
+    fn comptime_module_uses_full_active_item_tree_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "comptime fn value() usize { 1 } let VALUE = value();",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ComptimeModuleQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime_module"
+                && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime_module" && dependency.to.name == "module_ast"
+        }));
+    }
+
+    #[test]
     fn semantic_use_table_query_combines_value_local_and_type_resolution() {
         let source = "let VALUE = 1; fn main() i32 { var local: i32 = VALUE; local }";
         let loaded =

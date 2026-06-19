@@ -6,6 +6,7 @@ use nia_comptime_ir::{EarlyComptimeExpr, EarlyComptimeExprKind, EarlyComptimeTyp
 use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
 use nia_ids::GlobalDefId;
 use nia_item_signatures::collect_item_signatures;
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::{LocalResolution, resolve_module_locals};
 use nia_parser::parse_module;
 use nia_sema_ir::SemanticUseTable;
@@ -35,8 +36,13 @@ fn check_source(source: &str) -> CheckedFixture {
     let locals = resolve_module_locals(&module, &defs, &values);
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let item_tree = ModuleItemTree::from_module(&module);
+    let active_item_tree = ActiveModuleItemTree::new(
+        item_tree.active_items_without_comptime(),
+        Default::default(),
+    );
     let comptime_module = lower_module_comptime(ComptimeModuleInput {
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -273,9 +279,14 @@ y
         .find_map(|(_, local)| (local.name == "y").then_some(local.span))
         .expect("local y span");
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
+    let item_tree = ModuleItemTree::from_module(&module);
+    let active_item_tree = ActiveModuleItemTree::new(
+        item_tree.active_items_without_comptime(),
+        Default::default(),
+    );
 
     let comptime_module = lower_module_comptime(ComptimeModuleInput {
-        module: &module,
+        active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
         locals: &locals,

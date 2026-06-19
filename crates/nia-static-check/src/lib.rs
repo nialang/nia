@@ -581,9 +581,14 @@ mod tests {
         let semantic_uses = semantic_use_table(module_id, &values, &locals, &type_lowering);
         let target = nia_target_config::TargetConfig::host();
         let normalization = normalize_module_types(module_id, &type_lowering.interner, &signatures);
+        let item_tree = ModuleItemTree::from_module(&module);
+        let active_item_tree = ActiveModuleItemTree::new(
+            item_tree.active_items_without_comptime(),
+            Default::default(),
+        );
         let comptime_module =
             nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-                module: &module,
+                active_item_tree: &active_item_tree,
                 defs: &defs,
                 values: &values,
                 locals: &locals,
@@ -612,11 +617,6 @@ mod tests {
             comptime.diagnostics.is_empty(),
             "{:?}",
             comptime.diagnostics
-        );
-        let item_tree = ModuleItemTree::from_module(&module);
-        let active_item_tree = ActiveModuleItemTree::new(
-            item_tree.active_items_without_comptime(),
-            Default::default(),
         );
         check_module_static_initializers(StaticCheckInput {
             active_item_tree: &active_item_tree,

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use nia_ast::{Expr, Module};
+use nia_ast::Expr;
 use nia_comptime_ir::{
     ResolvedComptimeModule, ResolvedComptimePattern, ResolvedComptimePatternKind,
 };
@@ -8,6 +8,7 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
+use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
 use nia_target_config::TargetConfig;
@@ -155,7 +156,7 @@ pub struct ComptimeModuleLowering {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeModuleInput<'a> {
-    pub module: &'a Module,
+    pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,

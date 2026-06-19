@@ -26,9 +26,10 @@ fn main() i32 {
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,
@@ -159,9 +160,10 @@ fn main() i32 {
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,

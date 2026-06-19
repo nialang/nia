@@ -6,6 +6,7 @@ pub(super) use nia_defs::{
 pub(super) use nia_item_signatures::{
     ProgramSignatureMaps, ProgramTraitImplSignature, collect_item_signatures,
 };
+pub(super) use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
@@ -53,9 +54,10 @@ pub(super) fn pipeline_with_values(
         signatures.diagnostics
     );
     let target = nia_target_config::TargetConfig::host();
+    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            module: &module,
+            active_item_tree: &active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,
@@ -174,6 +176,14 @@ pub(super) fn pipeline_with_values(
         },
         filter: crate::BodyCheckFilter::All,
     })
+}
+
+pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
+    let item_tree = ModuleItemTree::from_module(module);
+    ActiveModuleItemTree::new(
+        item_tree.active_items_without_comptime(),
+        Default::default(),
+    )
 }
 
 fn single_module_trait_impls(
