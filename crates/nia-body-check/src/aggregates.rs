@@ -13,7 +13,7 @@ use nia_comptime_ir::{
     ResolvedComptimeBinding, ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_local_resolve::LocalKind;
@@ -44,7 +44,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(array_ty) = expected else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "array literal requires an expected array type; add a type annotation",
             ));
@@ -58,7 +58,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Error) | None => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "array literal type is not an array",
                 ));
@@ -81,7 +81,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::ArrayElements::List(values) => {
                 let Some(anchor_index) = self.array_literal_anchor_index(values) else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         span,
                         "empty array literal requires an element type annotation",
                     ));
@@ -141,7 +141,7 @@ impl<'a> BodyChecker<'a> {
                             }
                             Err(err) => {
                                 self.diagnostics.push(Diagnostic::user_error_at(
-                                    "E0301",
+                                    codes::TYPE_CHECK,
                                     err.span,
                                     format!(
                                         "array repeat count is not a valid constant: {}",
@@ -173,7 +173,7 @@ impl<'a> BodyChecker<'a> {
                                 Some(actual),
                             ) {
                                 ArrayLiteralLenCheck::Mismatch { expected, actual } => {
-                                    self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                                    self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                                         span,
                                         format!(
                                             "array literal length mismatch: expected {expected}, got {actual}"
@@ -184,7 +184,7 @@ impl<'a> BodyChecker<'a> {
                                 | ArrayLiteralLenCheck::Unknown => {}
                             },
                             Err(err) => self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0301",
+                                codes::TYPE_CHECK,
                                 span,
                                 format!("array length is not a valid constant: {err}"),
                             )),
@@ -193,7 +193,7 @@ impl<'a> BodyChecker<'a> {
                     Ok(None) => {}
                     Err(err) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             err.span,
                             format!(
                                 "array repeat count is not a valid constant: {}",
@@ -225,7 +225,7 @@ impl<'a> BodyChecker<'a> {
             if self.in_comptime_context() {
                 return self.check_structural_comptime_struct_literal(fields);
             }
-            self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                 span,
                 "aggregate literal requires an expected struct or union type; add a type annotation",
             ));
@@ -239,7 +239,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Error) | None => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "aggregate literal type is not nominal",
                 ));
@@ -251,7 +251,7 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "struct signature not found",
             ));
@@ -285,21 +285,21 @@ impl<'a> BodyChecker<'a> {
         }
         for field in field_set.duplicate_fields {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 field.span,
                 format!("duplicate struct field `{}`", field.name),
             ));
         }
         for field in field_set.unknown_fields {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 field.span,
                 format!("unknown struct field `{}`", field.name),
             ));
         }
         for name in field_set.missing_fields {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("missing struct field `{name}`"),
             ));
@@ -327,7 +327,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "union signature not found",
             ));
@@ -335,7 +335,7 @@ impl<'a> BodyChecker<'a> {
         };
         if fields.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "union literal requires exactly one field, got {}",
@@ -357,7 +357,7 @@ impl<'a> BodyChecker<'a> {
         else {
             self.check_expr(&field.value);
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 field.span,
                 format!("unknown union field `{}`", field.name),
             ));
@@ -446,7 +446,7 @@ impl<'a> BodyChecker<'a> {
             }
             if lhs_ty != self.error() {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "field access base is not a struct or union value or pointer",
                 ));
@@ -458,7 +458,7 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "struct signature not found",
             ));
@@ -468,7 +468,7 @@ impl<'a> BodyChecker<'a> {
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| field.name == name) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("unknown struct field `{name}`"),
             ));
@@ -487,7 +487,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "union signature not found",
             ));
@@ -497,7 +497,7 @@ impl<'a> BodyChecker<'a> {
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| field.name == name) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("unknown union field `{name}`"),
             ));
@@ -666,7 +666,7 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(variants) = self.enum_variant_scope(enum_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "enum member scope not found",
             ));
@@ -677,7 +677,7 @@ impl<'a> BodyChecker<'a> {
             .any(|(variant_name, _)| variant_name == name)
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("unknown enum variant `{name}`"),
             ));
@@ -761,7 +761,7 @@ impl<'a> BodyChecker<'a> {
         };
         if resolved.signature.is_open {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "non-exhaustive open enum switch, missing `_`",
             ));
@@ -780,7 +780,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         if !missing.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "non-exhaustive enum switch, missing: {}",

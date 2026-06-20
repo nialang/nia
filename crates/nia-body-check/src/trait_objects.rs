@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::Expr;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_sema_ir::{PointerArrayToSliceCoercion, TraitObjectCoercion, TraitObjectUpcast};
 use nia_span::Span;
@@ -406,7 +406,7 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "builtin trait objects are not supported yet",
             ));
@@ -414,7 +414,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "trait object refers to unknown trait",
             ));
@@ -544,7 +544,7 @@ impl<'a> BodyChecker<'a> {
                 .is_none_or(|param| param.receiver.is_none())
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has no receiver",
@@ -556,7 +556,7 @@ impl<'a> BodyChecker<'a> {
             }
             if !method.signature.generics.is_empty() {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has method generics",
@@ -573,7 +573,7 @@ impl<'a> BodyChecker<'a> {
                 .is_some_and(|param| param.receiver == Some(nia_ids::ReceiverKind::Value))
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` takes `self` by value",
@@ -588,7 +588,7 @@ impl<'a> BodyChecker<'a> {
                 let ty = self.substitute_generics(param.ty, &substitutions);
                 let ty = self.object_safe_ty(check, ty);
                 if self.type_mentions_self(ty, check.self_ty) {
-                    self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                    self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                         check.span,
                         format!(
                             "trait `{}` is not object safe because method `{}` mentions `Self` outside the receiver",
@@ -604,7 +604,7 @@ impl<'a> BodyChecker<'a> {
             let return_type = self.object_safe_ty(check, return_type);
             if self.type_mentions_self(return_type, check.self_ty) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` returns `Self`",

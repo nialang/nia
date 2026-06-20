@@ -7,7 +7,7 @@ use nia_ast::{
     TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
@@ -791,21 +791,24 @@ impl<'a> LocalResolver<'a> {
         self.node_local_defs.insert(node_key, id);
         let Some(scope) = self.scopes.last_mut() else {
             self.diagnostics.push(
-                Diagnostic::internal_error("I0105", "local resolver has no active scope")
-                    .primary(
-                        span,
-                        "local definition reached resolver without an active scope",
-                    )
-                    .debug("name", name)
-                    .debug("kind", kind)
-                    .debug("node_key", debug_node_key)
-                    .finish(),
+                Diagnostic::internal_error(
+                    codes::LOCAL_RESOLVER_SCOPE,
+                    "local resolver has no active scope",
+                )
+                .primary(
+                    span,
+                    "local definition reached resolver without an active scope",
+                )
+                .debug("name", name)
+                .debug("kind", kind)
+                .debug("node_key", debug_node_key)
+                .finish(),
             );
             return;
         };
         if let Some(existing) = scope.get(name) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0302",
+                codes::LOCAL_RESOLUTION,
                 span,
                 format!("{duplicate_message}: `{name}`"),
             ));

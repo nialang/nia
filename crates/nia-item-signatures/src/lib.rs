@@ -7,7 +7,7 @@ use nia_ast::{
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
@@ -749,14 +749,14 @@ impl<'a> SignatureCollector<'a> {
                 [name] if name == "naked" => {
                     if !meta.args.is_empty() {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0203",
+                            codes::ITEM_SIGNATURE,
                             attribute.span,
                             "`@[naked]` does not take arguments",
                         ));
                     }
                     if !function.is_extern || function.body.is_none() {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0203",
+                            codes::ITEM_SIGNATURE,
                             attribute.span,
                             "`@[naked]` is only valid on `extern fn` definitions",
                         ));
@@ -765,7 +765,7 @@ impl<'a> SignatureCollector<'a> {
                 }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0203",
+                        codes::ITEM_SIGNATURE,
                         attribute.span,
                         format!("unknown function attribute `@[{}]`", meta.path.join(".")),
                     ));
@@ -781,7 +781,7 @@ impl<'a> SignatureCollector<'a> {
             None if param.receiver.is_some() => self.error(),
             None => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0203",
+                    codes::ITEM_SIGNATURE,
                     param.span,
                     "parameter requires an explicit type",
                 ));
@@ -861,7 +861,7 @@ impl<'a> SignatureCollector<'a> {
         let Some(def_id) = self.defs.def_nodes.get(node_key) else {
             self.diagnostics.push(
                 Diagnostic::internal_error(
-                    "I0101",
+                    codes::ITEM_SIGNATURE_DEF_NODE,
                     "missing definition id while collecting item signature",
                 )
                 .primary(diagnostic_span, "this syntax node has no definition id")
@@ -874,7 +874,7 @@ impl<'a> SignatureCollector<'a> {
         let Some(def) = self.defs.defs.get(def_id) else {
             self.diagnostics.push(
                 Diagnostic::internal_error(
-                    "I0102",
+                    codes::ITEM_SIGNATURE_DEF_MAP,
                     "definition id does not exist in definition map",
                 )
                 .primary(diagnostic_span, "definition map lookup failed here")
@@ -888,7 +888,7 @@ impl<'a> SignatureCollector<'a> {
         if def.kind != expected {
             self.diagnostics.push(
                 Diagnostic::internal_error(
-                    "I0103",
+                    codes::ITEM_SIGNATURE_DEF_KIND,
                     "definition kind mismatch while collecting item signature",
                 )
                 .primary(def.span, "definition has an unexpected kind")
@@ -909,7 +909,7 @@ impl<'a> SignatureCollector<'a> {
         } else {
             self.diagnostics.push(
                 Diagnostic::internal_error(
-                    "I0104",
+                    codes::ITEM_SIGNATURE_LOWERED_TYPE,
                     "missing lowered type while collecting item signature",
                 )
                 .primary(ty_ref.span, "this type reference was not lowered")

@@ -7,7 +7,7 @@ use crate::literals::{
 };
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{ArrayToSliceCoercion, PointerArrayToSliceCoercion};
 use nia_span::Span;
@@ -296,7 +296,7 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!(
                 "type mismatch in {context}: expected {}, got {}",
@@ -579,7 +579,7 @@ impl<'a> BodyChecker<'a> {
         };
         if value < min || value > max {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!(
                     "integer literal {value} is out of range for {} in {context}",
@@ -618,7 +618,7 @@ impl<'a> BodyChecker<'a> {
         };
         if value < min || value > max {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!(
                     "integer literal {value} is out of range for {} backing type in {context}",
@@ -646,7 +646,7 @@ impl<'a> BodyChecker<'a> {
             PrimitiveTy::F32 => {
                 if !parse_float_literal::<f32>(text) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!("float literal `{text}` is out of range for F32 in {context}"),
                     ));
@@ -656,7 +656,7 @@ impl<'a> BodyChecker<'a> {
             PrimitiveTy::F64 => {
                 if !parse_float_literal::<f64>(text) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!("float literal `{text}` is out of range for F64 in {context}"),
                     ));
@@ -674,7 +674,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn report_invalid_numeric_literal_suffix(&mut self, expr: &Expr, kind: &str) {
         let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<unknown>");
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             expr.span,
             format!("invalid {kind} literal suffix `{suffix}`"),
         ));
@@ -685,7 +685,7 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!(
                 "type mismatch in {context}: expected integer, got {}",

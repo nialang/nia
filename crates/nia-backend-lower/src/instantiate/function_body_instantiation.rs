@@ -481,7 +481,7 @@ impl<'a> ModuleLowerer<'a> {
                         }
                         self.diagnostics
                             .push(nia_diagnostic::Diagnostic::user_error_at(
-                                "E0601",
+                                nia_diagnostic::codes::LLVM_CODEGEN,
                                 receiver.span,
                                 "no visible implementation found for builtin place method call",
                             ));
@@ -678,8 +678,7 @@ impl<'a> ModuleLowerer<'a> {
                 } else {
                     if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
                         self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error(
-                                "E0601",
+                            .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
                                     "no visible implementation found for trait method call `{method_name}`"
                                 ),
@@ -747,8 +746,7 @@ impl<'a> ModuleLowerer<'a> {
                 } else {
                     if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
                         self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error(
-                                "E0601",
+                            .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
                                     "no visible implementation found for trait associated function call `{method_name}`"
                                 ),

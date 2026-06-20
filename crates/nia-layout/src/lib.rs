@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_defs::{DefCollection, DefId};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
     EnumSignature, FieldSignature, ItemSignatures, ProgramStructSignature, ProgramUnionSignature,
@@ -426,7 +426,7 @@ impl<'a> LayoutComputer<'a> {
         }
         if !self.visiting.insert(ty_id) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "recursive type layout is not supported",
             ));
@@ -501,7 +501,7 @@ impl<'a> LayoutComputer<'a> {
         let elem_layout = self.primitive_layout(elem)?;
         let Some(size) = elem_layout.size.checked_mul(lanes as u64) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "SIMD vector layout size overflowed",
             ));
@@ -523,7 +523,7 @@ impl<'a> LayoutComputer<'a> {
         let len = match len {
             ArrayLenTy::Infer => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
+                    codes::STATIC_CHECK,
                     span,
                     "array layout requires a concrete length",
                 ));
@@ -540,7 +540,7 @@ impl<'a> LayoutComputer<'a> {
                 };
                 let Some(value) = value else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0501",
+                        codes::STATIC_CHECK,
                         span,
                         "array length was not evaluated by comptime",
                     ));
@@ -551,7 +551,7 @@ impl<'a> LayoutComputer<'a> {
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0501",
+                        codes::STATIC_CHECK,
                         span,
                         format!(
                             "cannot compute layout for array length builtin `@{}`",
@@ -715,7 +715,7 @@ impl<'a> LayoutComputer<'a> {
         }
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "union requires at least one field",
             ));
@@ -760,7 +760,7 @@ impl<'a> LayoutComputer<'a> {
         }
         if !self.visiting_structs.insert(key.clone()) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "recursive struct layout is not supported",
             ));
@@ -805,7 +805,7 @@ impl<'a> LayoutComputer<'a> {
         }
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "union requires at least one field",
             ));
@@ -813,7 +813,7 @@ impl<'a> LayoutComputer<'a> {
         }
         if !self.visiting_unions.insert(key.clone()) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 span,
                 "recursive union layout is not supported",
             ));

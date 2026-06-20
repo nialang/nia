@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
@@ -128,7 +128,7 @@ impl<'a> BodyChecker<'a> {
                         let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0301",
+                                codes::TYPE_CHECK,
                                 inner.span,
                                 "reference target cannot have void or never type",
                             ));
@@ -143,7 +143,7 @@ impl<'a> BodyChecker<'a> {
                         let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0301",
+                                codes::TYPE_CHECK,
                                 inner.span,
                                 "reference target cannot have void or never type",
                             ));
@@ -176,7 +176,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_expr(rhs);
                     if !matches!(op, AssignOp::Assign) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             expr.span,
                             "`_` discard only supports plain assignment",
                         ));
@@ -227,7 +227,7 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.error())
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "qualified access is not a value expression",
                     ));
@@ -268,7 +268,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     IndexArg::Range(range) => {
                         self.check_slice_range_bounds(range);
-                        self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                        self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                             expr.span,
                             "range index expression must be taken as a slice pointer; use `&base[..]` or `&mut base[..]`",
                         ));
@@ -358,7 +358,7 @@ impl<'a> BodyChecker<'a> {
     fn check_null_expr(&mut self, span: Span, expected: Option<InternedTyId>) -> InternedTyId {
         let Some(expected) = expected.map(|ty| self.normalization.normalize(ty)) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "`null` requires an expected optional type",
             ));
@@ -368,7 +368,7 @@ impl<'a> BodyChecker<'a> {
             expected
         } else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "`null` requires an optional type, found `{}`",
@@ -438,7 +438,7 @@ impl<'a> BodyChecker<'a> {
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 inner.span,
                 "`!value` requires an expected error union type",
             ));
@@ -458,7 +458,7 @@ impl<'a> BodyChecker<'a> {
         let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 inner.span,
                 "`error!` requires an expected error union type",
             ));
@@ -482,7 +482,7 @@ impl<'a> BodyChecker<'a> {
                     Some(TyKind::Optional { .. })
                 ) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         span,
                         "optional propagation requires an optional function return type",
                     ));
@@ -493,7 +493,7 @@ impl<'a> BodyChecker<'a> {
                 match self.error_union_parts(self.current_return) {
                     Some((return_error, _)) => {
                         if !self.types_match(error, return_error) {
-                            self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                                 span,
                                 format!(
                                     "error propagation type mismatch: cannot propagate `{}` from function returning `{}`",
@@ -505,7 +505,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     None => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             span,
                             "error propagation requires an error union function return type",
                         ));
@@ -515,7 +515,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!(
                         "`.?` requires optional or error union operand, found `{}`",
@@ -565,7 +565,7 @@ impl<'a> BodyChecker<'a> {
             (false, false, false) => RangeTyKind::Full,
             (true, false, true) | (false, false, true) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "inclusive range expression requires an end bound",
                 ));
@@ -576,7 +576,7 @@ impl<'a> BodyChecker<'a> {
             && expected.kind != kind
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "range kind mismatch: expected {}, got {}",
@@ -866,7 +866,7 @@ impl<'a> BodyChecker<'a> {
             vec![lhs_ty],
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -880,7 +880,7 @@ impl<'a> BodyChecker<'a> {
         let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
         if !self.is_integer(rhs_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 rhs.span,
                 format!(
                     "shift count must be an integer type, got {}",
@@ -968,7 +968,7 @@ impl<'a> BodyChecker<'a> {
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 finish.span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -1012,7 +1012,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -1075,7 +1075,7 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!(
                 "invalid cast: cannot cast {} to {}",
@@ -1149,13 +1149,13 @@ impl<'a> BodyChecker<'a> {
         }
         if args.len() > 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "multiple bracket arguments are only valid for generic instantiation",
             ));
         } else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "generic instantiation must be used as a callee or type prefix",
             ));
@@ -1175,7 +1175,7 @@ impl<'a> BodyChecker<'a> {
             Some(LocalUse::Local(local_id)) => {
                 self.local_types.get(&local_id).copied().unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         span,
                         "local used before its type is known",
                     ));
@@ -1208,7 +1208,7 @@ impl<'a> BodyChecker<'a> {
             | Some(LocalUse::Unresolved)
             | None => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "name is unresolved",
                 ));
@@ -1224,7 +1224,7 @@ impl<'a> BodyChecker<'a> {
         match def.kind {
             DefKind::Function | DefKind::Method => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "function values are not supported in this body-check stage",
                 ));
@@ -1232,7 +1232,7 @@ impl<'a> BodyChecker<'a> {
             }
             DefKind::Global => self.global_types.get(&def_id).copied().unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "global type is not available during body check",
                 ));
@@ -1244,7 +1244,7 @@ impl<'a> BodyChecker<'a> {
                 .copied()
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         span,
                         "comptime type is not available during body check",
                     ));

@@ -7,7 +7,7 @@ use nia_ast::{
 };
 use nia_ast_walk::Visitor;
 use nia_defs::DefCollection;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
@@ -290,7 +290,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                     let ty = self.lower_type_in_context(backing_type, TypeContext::Value);
                     if !self.is_integer(ty) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             backing_type.span,
                             "enum backing type must be an integer type",
                         ));
@@ -490,7 +490,7 @@ impl TypeLowerer<'_> {
                     let ty = self.lower_type_in_context(backing_type, TypeContext::Value);
                     if !self.is_integer(ty) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             backing_type.span,
                             "enum backing type must be an integer type",
                         ));
@@ -524,8 +524,11 @@ impl<'a> TypeLowerer<'a> {
         if context == TypeContext::Value
             && let Some(message) = self.invalid_value_type_message(lowered)
         {
-            self.diagnostics
-                .push(Diagnostic::user_error_at("E0202", ty.span, message));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_NORMALIZATION,
+                ty.span,
+                message,
+            ));
         }
         lowered
     }
@@ -535,7 +538,7 @@ impl<'a> TypeLowerer<'a> {
             TypeKind::Error => self.interner.error(),
             TypeKind::Infer => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0202",
+                    codes::TYPE_NORMALIZATION,
                     ty.span,
                     "`_` type inference is not valid in this type lowering context",
                 ));
@@ -554,7 +557,7 @@ impl<'a> TypeLowerer<'a> {
             }
             TypeKind::SelfType => self.self_type_stack.last().copied().unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0202",
+                    codes::TYPE_NORMALIZATION,
                     ty.span,
                     "`Self` is only valid in traits and extend blocks",
                 ));
@@ -672,7 +675,7 @@ impl<'a> TypeLowerer<'a> {
                 let trait_ty = self.normalize_if_known(trait_ty);
                 let Some((trait_id, args)) = self.projection_trait_id(trait_ty) else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         trait_ref.span,
                         "projection trait must resolve to a trait",
                     ));
@@ -680,7 +683,7 @@ impl<'a> TypeLowerer<'a> {
                 };
                 if !self.trait_id_has_associated_type(trait_id, name) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         ty.span,
                         format!("trait does not define associated type `{name}`"),
                     ));
@@ -714,7 +717,7 @@ impl<'a> TypeLowerer<'a> {
             (None, None, false) => RangeTyKind::Full,
             (Some(_), None, true) | (None, None, true) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0202",
+                    codes::TYPE_NORMALIZATION,
                     span,
                     "inclusive range type requires an end bound",
                 ));
@@ -725,7 +728,7 @@ impl<'a> TypeLowerer<'a> {
             (Some(start_ty), Some(end_ty)) => {
                 if !self.types_equivalent(start_ty, end_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         span,
                         "range type bounds must have the same type",
                     ));
@@ -740,7 +743,7 @@ impl<'a> TypeLowerer<'a> {
             && !self.can_be_integer(bound)
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 span,
                 "range bound type must be an integer type",
             ));
@@ -768,7 +771,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Type(arg_ty) => {
                     if seen_assoc_binding {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             arg_ty.span,
                             "positional type arguments must precede associated type bindings",
                         ));
@@ -777,7 +780,7 @@ impl<'a> TypeLowerer<'a> {
                 }
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         expr.span,
                         "comptime value generic arguments are not supported",
                     ));
@@ -792,7 +795,7 @@ impl<'a> TypeLowerer<'a> {
                         self.lower_type_in_context(binding_ty, TypeContext::Value);
                         if !self.is_trait_def(def_id) {
                             self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0202",
+                                codes::TYPE_NORMALIZATION,
                                 *span,
                                 "associated type bindings require a trait bound",
                             ));
@@ -808,14 +811,14 @@ impl<'a> TypeLowerer<'a> {
                                 &[],
                             )) {
                                 self.diagnostics.push(Diagnostic::user_error_at(
-                                    "E0202",
+                                    codes::TYPE_NORMALIZATION,
                                     *span,
                                     format!("duplicate associated type binding `{name}`"),
                                 ));
                             }
                             if !self.trait_has_associated_type(def_id, name) {
                                 self.diagnostics.push(Diagnostic::user_error_at(
-                                    "E0202",
+                                    codes::TYPE_NORMALIZATION,
                                     *span,
                                     format!("trait does not define associated type `{name}`"),
                                 ));
@@ -823,7 +826,7 @@ impl<'a> TypeLowerer<'a> {
                         }
                     } else {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             *span,
                             "associated type bindings are only valid in trait bounds",
                         ));
@@ -926,7 +929,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Type(arg_ty) => {
                     if seen_assoc_binding {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             arg_ty.span,
                             "positional type arguments must precede associated type bindings",
                         ));
@@ -937,7 +940,7 @@ impl<'a> TypeLowerer<'a> {
                 }
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         expr.span,
                         "comptime value generic arguments are not supported",
                     ));
@@ -958,7 +961,7 @@ impl<'a> TypeLowerer<'a> {
                         self.assoc_binding_seen_key(name, binding_trait_id, &binding_trait_args);
                     if !seen_assoc_bindings.insert(seen_key) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             *span,
                             format!("duplicate associated type binding `{name}`"),
                         ));
@@ -966,7 +969,7 @@ impl<'a> TypeLowerer<'a> {
                     let effective_trait = binding_trait_id.unwrap_or(trait_id);
                     if !self.trait_id_has_associated_type(effective_trait, name) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             *span,
                             format!("trait does not define associated type `{name}`"),
                         ));
@@ -1000,7 +1003,7 @@ impl<'a> TypeLowerer<'a> {
                 } = &projection.kind
                 else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         projection.span,
                         "associated type binding projection key must be `[Self as Trait]::Name`",
                     ));
@@ -1008,7 +1011,7 @@ impl<'a> TypeLowerer<'a> {
                 };
                 if !matches!(ty.kind, TypeKind::SelfType) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         ty.span,
                         "associated type binding projection must project from `Self`",
                     ));
@@ -1030,7 +1033,7 @@ impl<'a> TypeLowerer<'a> {
                     }) => (trait_id, trait_args),
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             trait_ref.span,
                             "associated type binding projection trait must resolve to a trait",
                         ));
@@ -1082,7 +1085,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Type(arg_ty) => {
                     if seen_assoc_binding {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             arg_ty.span,
                             "positional type arguments must precede associated type bindings",
                         ));
@@ -1091,7 +1094,7 @@ impl<'a> TypeLowerer<'a> {
                 }
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0202",
+                        codes::TYPE_NORMALIZATION,
                         expr.span,
                         "comptime value generic arguments are not supported",
                     ));
@@ -1116,7 +1119,7 @@ impl<'a> TypeLowerer<'a> {
                         );
                         if !seen_assoc_bindings.insert(seen_key) {
                             self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0202",
+                                codes::TYPE_NORMALIZATION,
                                 *span,
                                 format!("duplicate associated type binding `{name}`"),
                             ));
@@ -1132,14 +1135,14 @@ impl<'a> TypeLowerer<'a> {
                         };
                         if !valid {
                             self.diagnostics.push(Diagnostic::user_error_at(
-                                "E0202",
+                                codes::TYPE_NORMALIZATION,
                                 *span,
                                 format!("trait does not define associated type `{name}`"),
                             ));
                         }
                     } else {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0202",
+                            codes::TYPE_NORMALIZATION,
                             *span,
                             "associated type bindings are only valid in trait bounds",
                         ));
@@ -1201,7 +1204,7 @@ impl<'a> TypeLowerer<'a> {
         let expected = def.generics.len();
         if expected != actual {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 span,
                 format!(
                     "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
@@ -1215,7 +1218,7 @@ impl<'a> TypeLowerer<'a> {
         let expected = trait_id.generic_count();
         if expected != actual {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 span,
                 format!(
                     "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
@@ -1255,7 +1258,7 @@ impl<'a> TypeLowerer<'a> {
     ) -> InternedTyId {
         if !segment.args.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 span,
                 "associated type shorthand cannot take generic arguments",
             ));
@@ -1269,7 +1272,7 @@ impl<'a> TypeLowerer<'a> {
             .cloned()
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 span,
                 format!("unknown associated type `{name}`"),
             ));

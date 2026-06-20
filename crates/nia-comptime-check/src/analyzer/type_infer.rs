@@ -1428,7 +1428,7 @@ impl Analyzer<'_> {
         let iter_ty = self.resolved_comptime_expr_type(for_in.iter(), None)?;
         let Some(binding_ty) = self.comptime_for_in_binding_type(iter_ty) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 for_in.iter().span(),
                 "comptime for-in expects an Iterator".to_string(),
             ));

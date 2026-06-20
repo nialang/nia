@@ -18,6 +18,66 @@ pub mod codes {
         "internal-resolution",
         "resolver invariant failure",
     );
+    pub const ITEM_SIGNATURE_DEF_NODE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0101",
+        DiagnosticStage::ItemSignature,
+        "item-signature-def-node",
+        "item signature definition node invariant failure",
+    );
+    pub const ITEM_SIGNATURE_DEF_MAP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0102",
+        DiagnosticStage::ItemSignature,
+        "item-signature-def-map",
+        "item signature definition map invariant failure",
+    );
+    pub const ITEM_SIGNATURE_DEF_KIND: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0103",
+        DiagnosticStage::ItemSignature,
+        "item-signature-def-kind",
+        "item signature definition kind invariant failure",
+    );
+    pub const ITEM_SIGNATURE_LOWERED_TYPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0104",
+        DiagnosticStage::ItemSignature,
+        "item-signature-lowered-type",
+        "item signature lowered type invariant failure",
+    );
+    pub const LOCAL_RESOLVER_SCOPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0105",
+        DiagnosticStage::LocalResolution,
+        "local-resolver-scope",
+        "local resolver scope stack invariant failure",
+    );
+    pub const METHOD_RESOLUTION_INVARIANT: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0106",
+        DiagnosticStage::TypeCheck,
+        "method-resolution-invariant",
+        "method resolution invariant failure",
+    );
+    pub const MODULE_GRAPH_LOOKUP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0107",
+        DiagnosticStage::Load,
+        "module-graph-lookup",
+        "module graph lookup invariant failure",
+    );
+    pub const MODULE_GRAPH_RECORDING: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0108",
+        DiagnosticStage::Load,
+        "module-graph-recording",
+        "module graph recording invariant failure",
+    );
+    pub const MODULE_GRAPH_CHILD: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0109",
+        DiagnosticStage::Load,
+        "module-graph-child",
+        "module graph child invariant failure",
+    );
+    pub const QUERY_ENGINE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0110",
+        DiagnosticStage::Compiler,
+        "query-engine",
+        "query engine invariant failure",
+    );
     pub const INTERNAL_LLVM_API: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0200",
         DiagnosticStage::Llvm,
@@ -113,6 +173,16 @@ pub mod codes {
     pub const ALL: &[DiagnosticCodeDef] = &[
         ICE,
         INTERNAL_RESOLUTION,
+        ITEM_SIGNATURE_DEF_NODE,
+        ITEM_SIGNATURE_DEF_MAP,
+        ITEM_SIGNATURE_DEF_KIND,
+        ITEM_SIGNATURE_LOWERED_TYPE,
+        LOCAL_RESOLVER_SCOPE,
+        METHOD_RESOLUTION_INVARIANT,
+        MODULE_GRAPH_LOOKUP,
+        MODULE_GRAPH_RECORDING,
+        MODULE_GRAPH_CHILD,
+        QUERY_ENGINE,
         INTERNAL_LLVM_API,
         INVALID_FUNCTION_IR,
         INVALID_BACKEND_IR,
@@ -378,16 +448,11 @@ pub trait DiagnosticReportItem {
 }
 
 impl Diagnostic {
-    pub fn build(
-        severity: Severity,
-        category: DiagnosticCategory,
-        code: impl Into<DiagnosticCode>,
-        summary: impl Into<String>,
-    ) -> DiagnosticBuilder {
+    fn build(code: codes::DiagnosticCodeDef, summary: impl Into<String>) -> DiagnosticBuilder {
         DiagnosticBuilder {
             diagnostic: Diagnostic {
-                severity,
-                category,
+                severity: code.severity,
+                category: code.category,
                 code: code.into(),
                 summary: summary.into(),
                 labels: Box::new(Vec::new()),
@@ -400,14 +465,35 @@ impl Diagnostic {
     }
 
     pub fn user_error(
-        code: impl Into<DiagnosticCode>,
+        code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
-        Self::build(Severity::Error, DiagnosticCategory::User, code, summary)
+        assert_eq!(code.category, DiagnosticCategory::User);
+        Self::build(code, summary)
+    }
+
+    #[cfg(test)]
+    fn user_error_unregistered_for_test(
+        code: impl Into<String>,
+        summary: impl Into<String>,
+    ) -> DiagnosticBuilder {
+        DiagnosticBuilder {
+            diagnostic: Diagnostic {
+                severity: Severity::Error,
+                category: DiagnosticCategory::User,
+                code: DiagnosticCode::unregistered_for_test(code),
+                summary: summary.into(),
+                labels: Box::new(Vec::new()),
+                notes: Box::new(Vec::new()),
+                help: Box::new(Vec::new()),
+                related: Box::new(Vec::new()),
+                debug: Box::new(Vec::new()),
+            },
+        }
     }
 
     pub fn user_error_at(
-        code: impl Into<DiagnosticCode>,
+        code: codes::DiagnosticCodeDef,
         span: Span,
         summary: impl Into<String>,
     ) -> Diagnostic {
@@ -418,14 +504,15 @@ impl Diagnostic {
     }
 
     pub fn internal_error(
-        code: impl Into<DiagnosticCode>,
+        code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
-        Self::build(Severity::Error, DiagnosticCategory::Internal, code, summary)
+        assert_eq!(code.category, DiagnosticCategory::Internal);
+        Self::build(code, summary)
     }
 
     pub fn internal_error_at(
-        code: impl Into<DiagnosticCode>,
+        code: codes::DiagnosticCodeDef,
         span: Span,
         summary: impl Into<String>,
     ) -> Diagnostic {
@@ -671,7 +758,8 @@ impl DiagnosticDedupeKey {
 }
 
 impl DiagnosticCode {
-    pub fn new(code: impl Into<String>) -> Self {
+    #[cfg(test)]
+    fn unregistered_for_test(code: impl Into<String>) -> Self {
         Self {
             code: code.into(),
             registered: false,
@@ -691,18 +779,6 @@ impl DiagnosticCode {
 
     pub fn is_registered(&self) -> bool {
         self.registered
-    }
-}
-
-impl From<&'static str> for DiagnosticCode {
-    fn from(value: &'static str) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<String> for DiagnosticCode {
-    fn from(value: String) -> Self {
-        Self::new(value)
     }
 }
 
@@ -968,7 +1044,7 @@ mod tests {
     #[test]
     fn diagnostics_remember_whether_code_is_registered() {
         let registered = Diagnostic::user_error(codes::PARSE, "registered").finish();
-        let raw = Diagnostic::user_error("E9999", "raw").finish();
+        let raw = Diagnostic::user_error_unregistered_for_test("E9999", "raw").finish();
 
         assert!(!registered.uses_unregistered_code());
         assert!(raw.uses_unregistered_code());

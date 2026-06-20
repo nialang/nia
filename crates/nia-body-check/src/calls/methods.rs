@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_sema_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, ResolvedCall};
@@ -181,7 +181,7 @@ impl<'a> BodyChecker<'a> {
             .map(|resolved| resolved.signature)
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "method signature not found",
             ));
@@ -193,7 +193,7 @@ impl<'a> BodyChecker<'a> {
             .filter(|param| param.receiver.is_some())
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "associated functions are not supported by receiver method call syntax",
             ));
@@ -202,13 +202,16 @@ impl<'a> BodyChecker<'a> {
 
         let Some(receiver_kind) = receiver_param.receiver else {
             self.diagnostics.push(
-                Diagnostic::internal_error("I0106", "receiver method candidate has no receiver")
-                    .primary(
-                        call.span,
-                        "method resolution selected a candidate without receiver metadata",
-                    )
-                    .debug("method_id", method_id)
-                    .finish(),
+                Diagnostic::internal_error(
+                    codes::METHOD_RESOLUTION_INVARIANT,
+                    "receiver method candidate has no receiver",
+                )
+                .primary(
+                    call.span,
+                    "method resolution selected a candidate without receiver metadata",
+                )
+                .debug("method_id", method_id)
+                .finish(),
             );
             return Some(self.error());
         };

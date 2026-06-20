@@ -179,8 +179,11 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn push_engine_error(&mut self, err: ComptimeError) {
-        self.diagnostics
-            .push(Diagnostic::user_error_at("E0401", err.span, err.message));
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::COMPTIME,
+            err.span,
+            err.message,
+        ));
     }
 
     pub(super) fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ResolvedComptimeExpr> {

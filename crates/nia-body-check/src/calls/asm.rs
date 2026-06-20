@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{ArrayElements, Expr, ExprKind, StringLiteral};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
@@ -15,7 +15,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 "builtin `@asm` requires exactly one configuration argument",
             ));
@@ -27,7 +27,7 @@ impl<'a> BodyChecker<'a> {
         let config = &args[0];
         let ExprKind::StructLiteral { fields } = &config.kind else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 config.span,
                 "builtin `@asm` expects an untyped struct literal configuration",
             ));
@@ -42,7 +42,7 @@ impl<'a> BodyChecker<'a> {
                     has_code = true;
                     if !matches!(field.value.kind, ExprKind::ByteString(_)) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             field.value.span,
                             "`@asm` field `code` must be a byte string literal",
                         ));
@@ -54,7 +54,7 @@ impl<'a> BodyChecker<'a> {
                 "options" => self.check_asm_options(&field.value),
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         field.span,
                         format!("unknown `@asm` field `{}`", field.name),
                     ));
@@ -64,7 +64,7 @@ impl<'a> BodyChecker<'a> {
         }
         if !has_code {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 "builtin `@asm` requires a `code` byte string literal",
             ));
@@ -75,7 +75,7 @@ impl<'a> BodyChecker<'a> {
     fn check_asm_inputs(&mut self, expr: &Expr) {
         let ExprKind::StructLiteral { fields } = &expr.kind else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 "`@asm` field `inputs` must be a struct literal",
             ));
@@ -91,7 +91,7 @@ impl<'a> BodyChecker<'a> {
     fn check_asm_outputs(&mut self, expr: &Expr) {
         let ExprKind::StructLiteral { fields } = &expr.kind else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 "`@asm` field `outputs` must be a struct literal",
             ));
@@ -110,7 +110,7 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot have void or never type"),
                 ));
@@ -126,21 +126,21 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::ErrorUnion { .. },
             ) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot use aggregate type directly"),
                 ));
             }
             Some(TyKind::Range { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot use range type directly"),
                 ));
             }
             Some(TyKind::Nominal { def_id, .. }) if !self.is_enum_def(*def_id) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("{context} cannot use aggregate type directly"),
                 ));
@@ -169,7 +169,7 @@ impl<'a> BodyChecker<'a> {
         } = &expr.kind
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 "`@asm` field `clobbers` must be an array literal of byte strings",
             ));
@@ -179,7 +179,7 @@ impl<'a> BodyChecker<'a> {
         for elem in elems {
             if !matches!(elem.kind, ExprKind::ByteString(_)) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     elem.span,
                     "`@asm` clobbers must be byte string literals",
                 ));
@@ -198,7 +198,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_asm_option_name(elem.span, text);
                     } else {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             elem.span,
                             "`@asm` options must be byte string literals",
                         ));
@@ -208,7 +208,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::ArrayLiteral { .. } => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "`@asm` options must be a list of byte string literals",
                 ));
@@ -216,7 +216,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "`@asm` field `options` must be a byte string literal or array literal",
                 ));
@@ -229,12 +229,12 @@ impl<'a> BodyChecker<'a> {
         match decode_asm_string(text).as_deref() {
             Some("volatile") => {}
             Some(name) => self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("unknown `@asm` option `{name}`"),
             )),
             None => self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "invalid `@asm` option byte string literal",
             )),

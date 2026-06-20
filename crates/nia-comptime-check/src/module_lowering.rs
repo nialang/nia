@@ -7,7 +7,7 @@ use nia_comptime_ir::{
     ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
 };
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_item_tree::{ItemTreeNode, ItemTreeNodeKind};
 use nia_local_resolve::LocalKind;
@@ -139,10 +139,11 @@ impl ComptimeModuleLowerer<'_> {
                 self.module
                     .insert_function(self.global_def_id(def_id), function);
             }
-            Err(err) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0401", err.span, err.message))
-            }
+            Err(err) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::COMPTIME,
+                err.span,
+                err.message,
+            )),
         }
     }
 
@@ -154,8 +155,11 @@ impl ComptimeModuleLowerer<'_> {
         match nia_comptime_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0401", err.span, err.message));
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::COMPTIME,
+                    err.span,
+                    err.message,
+                ));
                 None
             }
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, TypeRef};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
 use nia_sema_ir::BuiltinValue;
 use nia_span::Span;
@@ -46,7 +46,7 @@ impl<'a> BodyChecker<'a> {
         };
         if matches!(resolution, BuiltinResolution::ComptimeError) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "builtin `@error` must be called with a message",
             ));
@@ -54,7 +54,7 @@ impl<'a> BodyChecker<'a> {
         }
         if matches!(resolution, BuiltinResolution::Trap) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "builtin `@trap` must be called",
             ));
@@ -68,7 +68,7 @@ impl<'a> BodyChecker<'a> {
                 | BuiltinResolution::Bitmask
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("builtin `@{name}` must be called with value arguments"),
             ));
@@ -76,7 +76,7 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("builtin `@{name}` requires a type argument"),
             ));
@@ -95,7 +95,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Offset => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "builtin `@offset` must be called with a field name",
                 ));
@@ -103,7 +103,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Asm => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("builtin `@{name}` must be called with value arguments"),
                 ));
@@ -121,7 +121,7 @@ impl<'a> BodyChecker<'a> {
             | BuiltinResolution::Clz
             | BuiltinResolution::Popcount => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("builtin `@{name}` must be called with value arguments"),
                 ));
@@ -134,7 +134,7 @@ impl<'a> BodyChecker<'a> {
             | BuiltinResolution::CmpxchgWeak
             | BuiltinResolution::Fence => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("builtin `@{name}` must be called with value arguments"),
                 ));
@@ -169,14 +169,14 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::ComptimeError => {
                 if type_arg.is_some() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         builtin_span,
                         "builtin `@error` does not take a type argument",
                     ));
                 }
                 if args.len() != 1 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         call_span,
                         "builtin `@error` requires exactly one message argument",
                     ));
@@ -185,7 +185,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_expr(arg);
                 }
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     call_span,
                     "builtin `@error` can only be evaluated at comptime",
                 ));
@@ -194,14 +194,14 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Trap => {
                 if type_arg.is_some() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         builtin_span,
                         "builtin `@trap` does not take a type argument",
                     ));
                 }
                 if !args.is_empty() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         call_span,
                         "builtin `@trap` does not take value arguments",
                     ));
@@ -214,7 +214,7 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 if !args.is_empty() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         call_span,
                         format!("builtin `@{name}` does not take value arguments"),
                     ));
@@ -294,7 +294,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 format!("builtin `@{name}` requires an aggregate type argument"),
             ));
@@ -305,7 +305,7 @@ impl<'a> BodyChecker<'a> {
         };
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly one field name argument"),
             ));
@@ -334,7 +334,7 @@ impl<'a> BodyChecker<'a> {
     fn offset_field_name(&mut self, arg: &Expr) -> Option<String> {
         let ExprKind::String(literal) = &arg.kind else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 arg.span,
                 "builtin `@offset` field name must be a string literal",
             ));
@@ -342,7 +342,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(scalars) = crate::literals::decode_string_literal(literal) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 arg.span,
                 "invalid string literal in `@offset` field name",
             ));
@@ -352,7 +352,7 @@ impl<'a> BodyChecker<'a> {
         for scalar in scalars {
             let Some(ch) = char::from_u32(scalar) else {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     arg.span,
                     "invalid string scalar in `@offset` field name",
                 ));
@@ -376,7 +376,7 @@ impl<'a> BodyChecker<'a> {
             .or_else(|| self.normalization.interner.get(ty))
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "builtin `@offset` requires a struct or union type argument",
             ));
@@ -384,7 +384,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(field) = self.field_def_for_nominal(*def_id, name) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("type has no field `{name}` for builtin `@offset`"),
             ));
@@ -424,7 +424,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 format!("builtin `@{name}` requires a vector type argument"),
             ));
@@ -438,7 +438,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     type_arg.span,
                     format!(
                         "builtin `@{name}` requires a SIMD vector type, got {}",
@@ -451,7 +451,7 @@ impl<'a> BodyChecker<'a> {
         };
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly one value argument"),
             ));
@@ -476,7 +476,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly two value arguments"),
             ));
@@ -503,7 +503,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 3 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly three value arguments"),
             ));
@@ -532,7 +532,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly one value argument"),
             ));
@@ -549,7 +549,7 @@ impl<'a> BodyChecker<'a> {
             }) => {
                 if lanes > 64 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         args[0].span,
                         "builtin `@bitmask` supports at most 64 SIMD mask lanes",
                     ));
@@ -557,7 +557,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Vector { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     args[0].span,
                     format!(
                         "builtin `@{name}` requires a bool SIMD mask vector, got {}",
@@ -567,7 +567,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     args[0].span,
                     format!(
                         "builtin `@{name}` requires a SIMD vector argument, got {}",
@@ -590,7 +590,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 format!("builtin `@{name}` requires a type argument"),
             ));
@@ -603,7 +603,7 @@ impl<'a> BodyChecker<'a> {
         self.require_sized_type(type_arg.span, ty, name);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly one pointer argument"),
             ));
@@ -618,7 +618,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer { elem, .. }) if self.types_match(elem, u8_ty) => {}
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     args[0].span,
                     format!(
                         "builtin `@{name}` requires a byte pointer argument, got {}",
@@ -642,7 +642,7 @@ impl<'a> BodyChecker<'a> {
         let result_ty = self.check_integer_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly one value argument"),
             ));
@@ -664,7 +664,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 format!("builtin `@{name}` requires an integer type argument"),
             ));
@@ -675,7 +675,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Primitive(primitive)) if primitive.is_integer() => ty,
             Some(TyKind::Primitive(_)) | Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     type_arg.span,
                     format!(
                         "builtin `@{name}` requires an integer type argument, got {}",
@@ -696,7 +696,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if type_arg.is_some() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 builtin_span,
                 format!("builtin `@{name}` does not take a type argument"),
             ));
@@ -708,7 +708,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
             Some(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!(
                         "builtin `@{name}` requires a SIMD vector argument, got {}",
@@ -730,7 +730,7 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!(
                 "builtin `@{builtin_name}` requires {}: Sized",
@@ -750,7 +750,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly two arguments"),
             ));
@@ -803,7 +803,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 "builtin `@memset` requires exactly two arguments",
             ));
@@ -848,7 +848,7 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             builtin_span,
             format!("builtin `@{name}` does not take a type argument"),
         ));
@@ -869,7 +869,7 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: true, ..
             }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "memory intrinsic destination must be mutable",
                 ));
@@ -885,7 +885,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Error) => None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "memory intrinsic destination must be `&mut [T]`",
                 ));
@@ -905,7 +905,7 @@ impl<'a> BodyChecker<'a> {
         let ty = self.atomic_type_arg(builtin_span, name, type_arg);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly two arguments"),
             ));
@@ -931,7 +931,7 @@ impl<'a> BodyChecker<'a> {
         let ty = self.atomic_type_arg(builtin_span, name, type_arg);
         if args.len() != 3 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly three arguments"),
             ));
@@ -959,7 +959,7 @@ impl<'a> BodyChecker<'a> {
         let ty = self.atomic_type_arg(builtin_span, name, type_arg);
         if args.len() != 4 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly four arguments"),
             ));
@@ -989,7 +989,7 @@ impl<'a> BodyChecker<'a> {
         let optional_ty = self.interner.intern(TyKind::Optional { elem: ty });
         if args.len() != 5 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 format!("builtin `@{name}` requires exactly five arguments"),
             ));
@@ -1025,7 +1025,7 @@ impl<'a> BodyChecker<'a> {
         self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call_span,
                 "builtin `@fence` requires exactly one argument",
             ));
@@ -1046,7 +1046,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("builtin `@{name}` requires a type argument"),
             ));
@@ -1075,7 +1075,7 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: true, ..
             }) if !allow_readonly => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!("builtin `@{name}` pointer argument must be mutable"),
                 ));
@@ -1095,8 +1095,7 @@ impl<'a> BodyChecker<'a> {
         if self.atomic_value_bits(ty).is_some() {
             return;
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+        self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
             span,
             format!(
                 "builtin `@{name}` supports only bool, integer, enum, and pointer types up to the native pointer width"
@@ -1152,7 +1151,7 @@ impl<'a> BodyChecker<'a> {
             5 => CheckedAtomicOrder::SeqCst,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!("invalid atomic ordering `{value}` for builtin `@{name}`"),
                 ));
@@ -1161,7 +1160,7 @@ impl<'a> BodyChecker<'a> {
         };
         if !context.allows(order) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!(
                     "atomic ordering `{}` is invalid for {}",
@@ -1196,7 +1195,7 @@ impl<'a> BodyChecker<'a> {
             10 => CheckedAtomicRmwOp::UMin,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!("invalid atomic RMW operation `{value}` for builtin `@{name}`"),
                 ));
@@ -1218,7 +1217,7 @@ impl<'a> BodyChecker<'a> {
         ) && !self.atomic_rmw_integer_like(ty)
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!(
                     "atomic RMW operation `{}` requires an integer, bool, or enum type",
@@ -1260,7 +1259,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if failure.strength() > success.strength() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "cmpxchg failure ordering cannot be stronger than success ordering",
             ));
@@ -1283,7 +1282,7 @@ impl<'a> BodyChecker<'a> {
             Some(nia_comptime_engine::ComptimeValue::Int(value)) => value.as_i128(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!("{context} must be a compile-time integer constant"),
                 ));

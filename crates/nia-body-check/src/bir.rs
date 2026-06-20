@@ -1275,7 +1275,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.diagnostics
                     .push(nia_diagnostic::Diagnostic::user_error_at(
-                        "E0301",
+                        nia_diagnostic::codes::TYPE_CHECK,
                         span,
                         "runtime expression cannot use this comptime value",
                     ));
@@ -1288,7 +1288,7 @@ impl<'a> BodyChecker<'a> {
             None => {
                 self.diagnostics
                     .push(nia_diagnostic::Diagnostic::user_error_at(
-                        "E0301",
+                        nia_diagnostic::codes::TYPE_CHECK,
                         span,
                         "comptime value is not available during body check",
                     ));
@@ -1689,7 +1689,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.diagnostics
             .push(nia_diagnostic::Diagnostic::user_error_at(
-                "E0301",
+                nia_diagnostic::codes::TYPE_CHECK,
                 count.span,
                 "missing checked array repeat count during body IR lowering",
             ));

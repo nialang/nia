@@ -7,7 +7,7 @@ use nia_ast::{
 };
 use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
@@ -369,7 +369,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             TypeKind::SelfType => {
                 if self.self_type_stack.is_empty() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         ty.span,
                         "`Self` is only valid in traits and extend blocks",
                     ));
@@ -586,7 +586,7 @@ impl<'a> TypeResolver<'a> {
             }
             ResolvedNamespace::Type(_) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "type namespaces do not contain nested types",
                 ));
@@ -636,7 +636,7 @@ impl<'a> TypeResolver<'a> {
             }));
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             path_span,
             format!("unknown namespace `{}`", segment.name),
         ));
@@ -685,7 +685,7 @@ impl<'a> TypeResolver<'a> {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         path_span,
                         format!("module namespace `{}` is private", segment.name),
                     ));
@@ -697,7 +697,7 @@ impl<'a> TypeResolver<'a> {
                     }
                     DirectMember::Private => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             path_span,
                             format!("type `{}` is private", segment.name),
                         ));
@@ -705,7 +705,7 @@ impl<'a> TypeResolver<'a> {
                     }
                     DirectMember::Missing => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             path_span,
                             format!("unknown namespace `{}`", segment.name),
                         ));
@@ -713,7 +713,7 @@ impl<'a> TypeResolver<'a> {
                     }
                     DirectMember::Unloaded => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             path_span,
                             "module namespace refers to an unloaded module",
                         ));
@@ -749,7 +749,7 @@ impl<'a> TypeResolver<'a> {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("type `{path_text}` is private"),
                 ));
@@ -757,7 +757,7 @@ impl<'a> TypeResolver<'a> {
             }
             DirectMember::Missing => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("unknown type `{}`", segment.name),
                 ));
@@ -765,7 +765,7 @@ impl<'a> TypeResolver<'a> {
             }
             DirectMember::Unloaded => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "module namespace refers to an unloaded module",
                 ));
@@ -846,7 +846,7 @@ impl<'a> TypeResolver<'a> {
         }
         if !self.suppress_unknown_type_errors {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 span,
                 format!("unknown type `{}`", segment.name),
             ));

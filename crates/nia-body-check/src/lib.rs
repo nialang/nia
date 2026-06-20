@@ -25,7 +25,7 @@ use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_item_signatures::{
     EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
@@ -1013,7 +1013,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(value) = &binding.value else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 item_span,
                 "comptime binding requires an initializer",
             ));
@@ -1055,7 +1055,7 @@ impl<'a> BodyChecker<'a> {
                 self.global_types.insert(def_id, ty);
             } else {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     item_span,
                     "global declaration requires an explicit type",
                 ));
@@ -1268,7 +1268,7 @@ impl<'a> BodyChecker<'a> {
             let args = args.clone();
             if self.is_union_def(def_id) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     block.span,
                     "union literal requires exactly one field, got 0",
                 ));
@@ -1325,7 +1325,7 @@ impl<'a> BodyChecker<'a> {
                 let expr_ty = self.check_expr(expr);
                 if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "non-void expression result is discarded; assign it to `_` explicitly",
                     ));
@@ -1335,7 +1335,7 @@ impl<'a> BodyChecker<'a> {
                 let expr_ty = self.check_expr(expr);
                 if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "`defer` expression must have type `void`",
                     ));
@@ -1392,7 +1392,7 @@ impl<'a> BodyChecker<'a> {
             Vec::new(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 iter.span,
                 format!(
                     "for-in expects an Iterator, found `{}`",
@@ -1452,7 +1452,7 @@ impl<'a> BodyChecker<'a> {
                             "`&mut x`"
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             span,
                             format!("binding pattern {expected} does not match value type"),
                         ));
@@ -1465,7 +1465,7 @@ impl<'a> BodyChecker<'a> {
                             "mutable pointer"
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             span,
                             format!("binding pattern requires value to be a {expected}"),
                         ));
@@ -1532,7 +1532,7 @@ impl<'a> BodyChecker<'a> {
         let span = stmt.span;
         if binding.is_comptime && binding.value.is_none() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "comptime binding requires an initializer",
             ));
@@ -1541,7 +1541,7 @@ impl<'a> BodyChecker<'a> {
             && binding.value.is_none()
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 binding.pattern_span,
                 "binding pattern requires an initializer",
             ));
@@ -1605,7 +1605,7 @@ impl<'a> BodyChecker<'a> {
             }
             (None, None) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "binding declaration requires an explicit type",
                 ));
@@ -1619,7 +1619,7 @@ impl<'a> BodyChecker<'a> {
 
     fn reject_runtime_comptime_only_value(&mut self, span: Span, context: &str) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!("{context} cannot use comptime-only value"),
         ));
@@ -1643,8 +1643,7 @@ impl<'a> BodyChecker<'a> {
 
         for arm in &switch.arms {
             if coverage.catch_all.is_some() {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                     arm.span,
                     "switch arm is unreachable because a previous pattern matches all remaining values",
                 ));
@@ -1654,7 +1653,7 @@ impl<'a> BodyChecker<'a> {
                     && arm.patterns.len() != 1
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         arm.span,
                         "`_` default must be the only pattern in a switch arm",
                     ));
@@ -1677,14 +1676,14 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(self.normalization.normalize(target_ty)) {
             Some(TyKind::Optional { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "switch does not destructure optional values; use `if let` or `if var`",
                 ));
             }
             Some(TyKind::ErrorUnion { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "switch does not destructure error-union values; use `if let` or `if var`",
                 ));
@@ -1703,8 +1702,7 @@ impl<'a> BodyChecker<'a> {
         let mut result_ty = expected;
         for arm in &if_pattern.arms {
             if coverage.catch_all.is_some() {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                     arm.span,
                     "if pattern arm is unreachable because a previous pattern matches all remaining values",
                 ));
@@ -1724,7 +1722,7 @@ impl<'a> BodyChecker<'a> {
             }
             if expected.is_some_and(|expected| !self.is_void(expected)) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     if_pattern.target.span,
                     "non-exhaustive if pattern requires an `else` branch",
                 ));
@@ -1817,7 +1815,7 @@ impl<'a> BodyChecker<'a> {
                     Some(TyKind::Optional { elem }) => *elem,
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             pattern.span,
                             format!(
                                 "`?` pattern requires an optional target, found `{}`",
@@ -1844,7 +1842,7 @@ impl<'a> BodyChecker<'a> {
                     Some(TyKind::Optional { .. })
                 ) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         pattern.span,
                         format!(
                             "`null` pattern requires an optional target, found `{}`",
@@ -1864,7 +1862,7 @@ impl<'a> BodyChecker<'a> {
                     Some(TyKind::ErrorUnion { value, .. }) => *value,
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             pattern.span,
                             format!(
                                 "`!` pattern requires an error union target, found `{}`",
@@ -1890,7 +1888,7 @@ impl<'a> BodyChecker<'a> {
                     Some(TyKind::ErrorUnion { error, .. }) => *error,
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             pattern.span,
                             format!(
                                 "`pattern!` requires an error union target, found `{}`",
@@ -1942,7 +1940,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.span,
                 format!("{context} range requires an integer target"),
             ));
@@ -1955,7 +1953,7 @@ impl<'a> BodyChecker<'a> {
 
     fn report_pattern_overlap(&mut self, span: Span, previous: Span) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!("pattern overlaps previous pattern at {previous:?}"),
         ));
@@ -1973,14 +1971,14 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(self.normalization.normalize(target_ty)) {
             Some(TyKind::Optional { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "switch over optional values is not supported; use `if let` or `if var`",
                 ));
             }
             Some(TyKind::ErrorUnion { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "switch over error-union values is not supported; use `if let` or `if var`",
                 ));
@@ -2097,7 +2095,7 @@ impl<'a> BodyChecker<'a> {
         {
             if let Some(previous) = covered_enum_variants.insert(variant_id, pattern.span) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     pattern.span,
                     format!("{context} overlaps previous pattern at {previous:?}"),
                 ));
@@ -2107,7 +2105,7 @@ impl<'a> BodyChecker<'a> {
         if self.is_integer(target_ty) || self.is_bool(target_ty) {
             let Some(value) = self.switch_pattern_int_value(pattern) else {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     pattern.span,
                     format!("{context} must be a compile-time integer constant"),
                 ));
@@ -2133,7 +2131,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if !self.is_integer(target_ty) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.span,
                 format!("{context} range requires an integer target"),
             ));
@@ -2144,7 +2142,7 @@ impl<'a> BodyChecker<'a> {
         self.expect_expr_type(pattern.end, target_ty, end_ty, context);
         let Some(start_value) = self.switch_pattern_int_value(pattern.start) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.start.span,
                 format!("{context} range start must be a compile-time integer constant"),
             ));
@@ -2152,7 +2150,7 @@ impl<'a> BodyChecker<'a> {
         };
         let Some(end_value) = self.switch_pattern_int_value(pattern.end) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.end.span,
                 format!("{context} range end must be a compile-time integer constant"),
             ));
@@ -2164,7 +2162,7 @@ impl<'a> BodyChecker<'a> {
             end_value.checked_sub(1)
         }) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.span,
                 format!("{context} range endpoint is out of range"),
             ));
@@ -2172,7 +2170,7 @@ impl<'a> BodyChecker<'a> {
         };
         if start_value > end_inclusive {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 pattern.span,
                 format!("{context} range is empty"),
             ));
@@ -2222,7 +2220,7 @@ impl<'a> BodyChecker<'a> {
             .find(|previous| interval.start <= previous.end && previous.start <= interval.end)
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 interval.span,
                 format!(
                     "switch pattern overlaps previous pattern at {:?}",

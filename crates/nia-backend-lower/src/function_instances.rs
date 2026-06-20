@@ -200,8 +200,7 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>()
             .join(", ");
         self.diagnostics.push(
-            nia_diagnostic::Diagnostic::user_error(
-                "E0601",
+            nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the backend instance limit",
             )
             .primary(
@@ -233,8 +232,7 @@ impl<'a> ModuleLowerer<'a> {
             .function_instance_name(&mut HashMap::new(), def_id)
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
         self.diagnostics.push(
-            nia_diagnostic::Diagnostic::user_error(
-                "E0601",
+            nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the backend type depth limit",
             )
             .primary(
@@ -561,7 +559,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         self.diagnostics.push(
             nia_diagnostic::Diagnostic::internal_error(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 "backend function template parameter locals do not match its signature",
             )
             .primary(
@@ -584,7 +582,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         self.diagnostics.push(
             nia_diagnostic::Diagnostic::internal_error(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 "backend function template parameter local order does not match its signature",
             )
             .primary(

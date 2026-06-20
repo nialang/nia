@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::Expr;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_sema::{ArityCheck, ArityRequirement, check_call_arity};
 use nia_span::Span;
@@ -45,7 +45,7 @@ impl<'a> BodyChecker<'a> {
             ArityRequirement::AtLeast(expected) => format!("at least {expected}"),
         };
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!("argument count mismatch: expected {expected}, got {actual}"),
         ));

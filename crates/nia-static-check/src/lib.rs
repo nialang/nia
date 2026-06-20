@@ -6,7 +6,7 @@ use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -114,7 +114,7 @@ impl StaticChecker<'_> {
         };
         if let Some(reason) = self.static_init_reject_reason(value) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 value.span,
                 format!("global initializer is not static data: {reason}"),
             ));

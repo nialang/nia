@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::BracketArg;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
@@ -21,20 +21,20 @@ impl<'a> BodyChecker<'a> {
                     let expr_ty = self.check_expr(expr);
                     if let Some(TyKind::Error) = self.interner.get(expr_ty) {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             arg.span,
                             "generic arguments must be types",
                         ));
                     } else {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
+                            codes::TYPE_CHECK,
                             arg.span,
                             "generic argument resolved as a value; expected a type",
                         ));
                     }
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         arg.span,
                         "generic arguments must be types",
                     ));
