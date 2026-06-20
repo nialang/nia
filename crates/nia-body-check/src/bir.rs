@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
+use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{
     ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, SliceRange, Stmt,
     StmtKind, SwitchArmBody, UnaryOp,
@@ -18,16 +18,44 @@ use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
-use nia_ty::{BuiltinTrait, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::{
-    decode_byte_string_literal, decode_char_literal, decode_string_literal, numeric_literal_body,
+    decode_byte_string_literal, decode_char_literal, decode_string_literal,
+    float_literal_suffix_ty, integer_literal_suffix_ty, numeric_literal_body,
 };
+use std::collections::HashMap;
 
 mod asm;
 
 impl<'a> BodyChecker<'a> {
+    fn is_array_ty(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalization.normalize(ty)),
+            Some(TyKind::Array { .. })
+        )
+    }
+
+    fn materialize_forced_expr_ty(
+        &mut self,
+        expr: &Expr,
+        forced_ty: Option<nia_ids::InternedTyId>,
+    ) -> Option<nia_ids::InternedTyId> {
+        let forced_ty = forced_ty?;
+        let Some(actual) = self.expr_ty(expr) else {
+            return Some(forced_ty);
+        };
+        self.materialize_inferred_array_type(forced_ty, actual)
+            .or(Some(forced_ty))
+    }
+
+    fn numeric_literal_suffix_type(&mut self, expr: &Expr) -> Option<nia_ids::InternedTyId> {
+        integer_literal_suffix_ty(expr)
+            .map(|primitive| self.primitive(primitive))
+            .or_else(|| float_literal_suffix_ty(expr).map(|primitive| self.primitive(primitive)))
+    }
+
     pub(crate) fn lower_body(&mut self, block: &Block) -> TypedBody {
         self.lower_body_with_expected_tail(block, None)
     }
@@ -64,7 +92,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn block_terminating_never_ty(&self, block: &Block) -> Option<nia_ids::InternedTyId> {
+    fn block_terminating_never_ty(&mut self, block: &Block) -> Option<nia_ids::InternedTyId> {
         let stmt = block.stmts.last()?;
         match &stmt.kind {
             StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => Some(self.never()),
@@ -166,33 +194,26 @@ impl<'a> BodyChecker<'a> {
 
     fn lower_binding_stmt(&mut self, stmt: &Stmt, binding: &BindingStmt) -> Option<TypedBinding> {
         let local_id = self.local_def(self.binding_pattern_node_key(stmt, binding))?;
-        let ty = self.local_types.get(&local_id).copied().unwrap_or_else(|| {
-            binding.ty.as_ref().map_or_else(
-                || {
-                    binding
-                        .value
-                        .as_ref()
-                        .and_then(|value| self.expr_ty(value))
-                        .unwrap_or_else(|| self.error())
-                },
-                |ty| self.ty_for_type(ty),
-            )
-        });
+        let ty = if let Some(ty) = self.local_types.get(&local_id).copied() {
+            ty
+        } else if let Some(ty) = binding.ty.as_ref() {
+            self.ty_for_type(ty)
+        } else {
+            binding
+                .value
+                .as_ref()
+                .and_then(|value| self.expr_ty(value))
+                .unwrap_or_else(|| self.error())
+        };
         Some(TypedBinding {
             local_id,
             name: binding.name.clone(),
             pattern_kind: binding.pattern_kind,
             ty,
-            value: binding.value.as_ref().map(|value| {
-                if matches!(
-                    &value.kind,
-                    ExprKind::Block(block) if block.stmts.is_empty() && block.tail.is_none()
-                ) {
-                    self.lower_expr_with_ty(value, Some(ty))
-                } else {
-                    self.lower_expr(value)
-                }
-            }),
+            value: binding
+                .value
+                .as_ref()
+                .map(|value| self.lower_expr_with_ty(value, Some(ty))),
             is_let: binding.is_let,
         })
     }
@@ -378,10 +399,11 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
-        if let Some(upcast) = forced_ty
-            .is_none()
-            .then(|| self.node_trait_object_upcasts.get(&expr.node_key).copied())
-            .flatten()
+        if let Some(upcast) = self
+            .node_trait_object_upcasts
+            .get(&expr.node_key)
+            .copied()
+            .filter(|upcast| forced_ty.is_none_or(|forced_ty| forced_ty == upcast.target_ty))
         {
             return TypedExpr {
                 span: expr.span,
@@ -393,14 +415,11 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
-        if let Some(coercion) = forced_ty
-            .is_none()
-            .then(|| {
-                self.node_trait_object_coercions
-                    .get(&expr.node_key)
-                    .copied()
-            })
-            .flatten()
+        if let Some(coercion) = self
+            .node_trait_object_coercions
+            .get(&expr.node_key)
+            .copied()
+            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
         {
             return TypedExpr {
                 span: expr.span,
@@ -452,10 +471,13 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
+        let forced_ty = self.materialize_forced_expr_ty(expr, forced_ty);
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
         if let Some(def_id) = self.global_comptime_use(expr) {
+            let ty =
+                forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_comptime_use(def_id, ty));
             return self.lower_comptime_value_expr(
                 expr.span,
                 ty,
@@ -476,6 +498,8 @@ impl<'a> BodyChecker<'a> {
                 }
                 Some(nia_defs::DefKind::Global) => TypedExprKind::Global(def_id),
                 Some(nia_defs::DefKind::Comptime) => {
+                    let ty = forced_ty
+                        .unwrap_or_else(|| self.runtime_ty_for_global_comptime_use(def_id, ty));
                     return self.lower_comptime_value_expr(
                         expr.span,
                         ty,
@@ -502,7 +526,7 @@ impl<'a> BodyChecker<'a> {
                     ty: self.string_literal_array_type(literal),
                     kind: TypedExprKind::String(decode_string_literal(literal).unwrap_or_default()),
                 };
-                if forced_ty == Some(array.ty) {
+                if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
                     return array;
                 }
                 TypedExprKind::StaticArrayPointer {
@@ -518,7 +542,7 @@ impl<'a> BodyChecker<'a> {
                         decode_byte_string_literal(literal).unwrap_or_default(),
                     ),
                 };
-                if forced_ty == Some(array.ty) {
+                if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
                     return array;
                 }
                 TypedExprKind::StaticArrayPointer {
@@ -592,9 +616,14 @@ impl<'a> BodyChecker<'a> {
                 match self.bracket_suffix_resolution(expr) {
                     Some(BracketSuffixResolution::Index) => {
                         if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
+                            let lhs_expected = if self.expr_ty(callee).is_none() {
+                                self.index_lhs_expected_from_index_expected(forced_ty)
+                            } else {
+                                None
+                            };
                             self.lower_index_read_expr(callee, index)
                                 .unwrap_or_else(|| TypedExprKind::Index {
-                                    lhs: Box::new(self.lower_expr(callee)),
+                                    lhs: Box::new(self.lower_expr_with_ty(callee, lhs_expected)),
                                     index: Box::new(self.lower_expr(index)),
                                 })
                         } else {
@@ -627,10 +656,10 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or(TypedExprKind::Error)
             }
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
-                elems: self.lower_array_elements(elems),
+                elems: self.lower_array_elements(elems, ty),
             },
             ExprKind::TypedArrayLiteral { elems, .. } => TypedExprKind::ArrayLiteral {
-                elems: self.lower_array_elements(elems),
+                elems: self.lower_array_elements(elems, ty),
             },
             ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
                 let Some(def_id) = self.nominal_global_def(ty) else {
@@ -641,11 +670,15 @@ impl<'a> BodyChecker<'a> {
                     };
                 };
                 if self.is_union_def(def_id) {
-                    let field = fields.first().map(|field| TypedFieldInit {
-                        field: self.field_def_for_struct_ty(ty, &field.name),
-                        name: field.name.clone(),
-                        value: self.lower_expr(&field.value),
-                        span: field.span,
+                    let field = fields.first().map(|field| {
+                        let field_def = self.field_def_for_struct_ty(ty, &field.name);
+                        let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                        TypedFieldInit {
+                            field: field_def,
+                            name: field.name.clone(),
+                            value: self.lower_expr_with_ty(&field.value, field_ty),
+                            span: field.span,
+                        }
                     });
                     TypedExprKind::UnionLiteral {
                         def_id,
@@ -665,11 +698,15 @@ impl<'a> BodyChecker<'a> {
                         def_id,
                         fields: fields
                             .iter()
-                            .map(|field| TypedFieldInit {
-                                field: self.field_def_for_struct_ty(ty, &field.name),
-                                name: field.name.clone(),
-                                value: self.lower_expr(&field.value),
-                                span: field.span,
+                            .map(|field| {
+                                let field_def = self.field_def_for_struct_ty(ty, &field.name);
+                                let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
+                                TypedFieldInit {
+                                    field: field_def,
+                                    name: field.name.clone(),
+                                    value: self.lower_expr_with_ty(&field.value, field_ty),
+                                    span: field.span,
+                                }
                             })
                             .collect(),
                     }
@@ -678,15 +715,21 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Unary { op, expr: inner }
                 if let Some(trait_id) = BuiltinOperatorOp::Unary(*op).trait_id() =>
             {
+                let inner_ty = self
+                    .numeric_literal_suffix_type(expr)
+                    .or_else(|| self.expr_ty(expr))
+                    .or_else(|| self.expr_ty(inner))
+                    .or(forced_ty);
                 TypedExprKind::Call {
                     callee: TypedCallee::BuiltinOperator(BuiltinOperator {
                         trait_id,
                         op: BuiltinOperatorOp::Unary(*op),
                     }),
-                    args: vec![self.lower_expr(inner)],
+                    args: vec![self.lower_expr_with_ty(inner, inner_ty)],
                 }
             }
             ExprKind::Unary { op, expr: inner } => {
+                let inner_ty = self.expected_ref_target_from_expected(*op, forced_ty);
                 if let ExprKind::Index {
                     lhs,
                     index: IndexArg::Range(range),
@@ -712,6 +755,17 @@ impl<'a> BodyChecker<'a> {
                         op: *op,
                         expr: Box::new(pointer),
                     }
+                } else if matches!(op, UnaryOp::Deref) {
+                    let inner_ty = self.pointer_to_deref_expected(forced_ty);
+                    TypedExprKind::Unary {
+                        op: *op,
+                        expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                    }
+                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly) {
+                    TypedExprKind::Unary {
+                        op: *op,
+                        expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                    }
                 } else {
                     TypedExprKind::Unary {
                         op: *op,
@@ -722,7 +776,11 @@ impl<'a> BodyChecker<'a> {
             ExprKind::OptionalSome { expr: inner } => {
                 let inner_ty = self.optional_elem_ty(ty).or_else(|| self.expr_ty(inner));
                 TypedExprKind::OptionalSome {
-                    expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                    expr: Box::new(if matches!(inner.kind, ExprKind::Try { .. }) {
+                        self.lower_expr_with_checked_ty(inner)
+                    } else {
+                        self.lower_expr_with_ty(inner, inner_ty)
+                    }),
                 }
             }
             ExprKind::ErrorOk { expr: inner } => {
@@ -744,17 +802,22 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Try { expr: inner } => TypedExprKind::Try {
-                expr: Box::new(self.lower_expr(inner)),
+                expr: Box::new(self.lower_expr_with_checked_ty(inner)),
             },
             ExprKind::Binary { lhs, op, rhs }
                 if let Some(trait_id) = BuiltinOperatorOp::Binary(*op).trait_id() =>
             {
+                let lhs_expr = self.lower_expr(lhs);
+                let rhs_ty = self.expr_ty(rhs).or_else(|| {
+                    self.can_expected_type_drive_builtin_operator(lhs_expr.ty, *op)
+                        .then_some(lhs_expr.ty)
+                });
                 TypedExprKind::Call {
                     callee: TypedCallee::BuiltinOperator(BuiltinOperator {
                         trait_id,
                         op: BuiltinOperatorOp::Binary(*op),
                     }),
-                    args: vec![self.lower_expr(lhs), self.lower_expr(rhs)],
+                    args: vec![lhs_expr, self.lower_expr_with_ty(rhs, rhs_ty)],
                 }
             }
             ExprKind::Binary { lhs, op, rhs } => TypedExprKind::Binary {
@@ -774,10 +837,15 @@ impl<'a> BodyChecker<'a> {
                 op: *op,
                 rhs: Box::new(self.lower_expr(rhs)),
             },
-            ExprKind::Cast { expr: inner, ty } => TypedExprKind::Cast {
-                expr: Box::new(self.lower_expr(inner)),
-                ty: self.ty_for_type(ty),
-            },
+            ExprKind::Cast { expr: inner, ty } => {
+                let inner_ty = self
+                    .numeric_literal_suffix_type(inner)
+                    .or_else(|| self.expr_ty(inner));
+                TypedExprKind::Cast {
+                    expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                    ty: self.ty_for_type(ty),
+                }
+            }
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Builtin { name, .. } = &callee.kind {
                     match (name.as_str(), args.as_slice()) {
@@ -895,7 +963,7 @@ impl<'a> BodyChecker<'a> {
                         }),
                         _ => TypedExprKind::Call {
                             callee: self.lower_callee(expr, callee),
-                            args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                            args: self.lower_call_args(expr, callee, args),
                         },
                     }
                 } else if let Some(ResolvedCall::BuiltinPlaceMethod {
@@ -935,10 +1003,12 @@ impl<'a> BodyChecker<'a> {
                 {
                     let lowered_args = if let Some(receiver) = self.lower_receiver_expr(callee) {
                         std::iter::once(receiver)
-                            .chain(args.iter().map(|arg| self.lower_expr(arg)))
+                            .chain(args.iter().map(|arg| self.lower_expr_with_checked_ty(arg)))
                             .collect()
                     } else {
-                        args.iter().map(|arg| self.lower_expr(arg)).collect()
+                        args.iter()
+                            .map(|arg| self.lower_expr_with_checked_ty(arg))
+                            .collect()
                     };
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op }),
@@ -947,7 +1017,7 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     TypedExprKind::Call {
                         callee: self.lower_callee(expr, callee),
-                        args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                        args: self.lower_call_args(expr, callee, args),
                     }
                 }
             }
@@ -969,9 +1039,14 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Expr(index) => {
+                    let lhs_expected = if self.expr_ty(lhs).is_none() {
+                        self.index_lhs_expected_from_index_expected(forced_ty)
+                    } else {
+                        None
+                    };
                     self.lower_index_read_expr(lhs, index)
                         .unwrap_or_else(|| TypedExprKind::Index {
-                            lhs: Box::new(self.lower_expr(lhs)),
+                            lhs: Box::new(self.lower_expr_with_ty(lhs, lhs_expected)),
                             index: Box::new(self.lower_expr(index)),
                         })
                 }
@@ -1041,7 +1116,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn memory_intrinsic_elem_ty(&self, expr: &Expr) -> nia_ids::InternedTyId {
+    fn memory_intrinsic_elem_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {
         let ExprKind::Call { args, .. } = &expr.kind else {
             return self.error();
         };
@@ -1057,7 +1132,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn builtin_atomic_type_arg(&self, builtin: &Expr) -> nia_ids::InternedTyId {
+    fn builtin_atomic_type_arg(&mut self, builtin: &Expr) -> nia_ids::InternedTyId {
         let ExprKind::Builtin {
             type_arg: Some(type_arg),
             ..
@@ -1115,24 +1190,94 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn runtime_ty_for_global_comptime_use(
+        &mut self,
+        def_id: nia_ids::GlobalDefId,
+        fallback: nia_ids::InternedTyId,
+    ) -> nia_ids::InternedTyId {
+        if def_id.module_id == self.defs.module_id {
+            return self
+                .typed_runtime_ty_for_current_module_comptime(def_id)
+                .or_else(|| self.comptime_types.get(&def_id.def_id).copied())
+                .unwrap_or(fallback);
+        }
+        if fallback != self.error() {
+            return fallback;
+        }
+        self.qualified_program_comptime_type(def_id)
+            .unwrap_or(fallback)
+    }
+
+    fn typed_runtime_ty_for_current_module_comptime(
+        &mut self,
+        def_id: nia_ids::GlobalDefId,
+    ) -> Option<nia_ids::InternedTyId> {
+        let typed = self
+            .comptime
+            .typed_values
+            .get(&nia_comptime_check::ComptimeKey::Global(def_id))?
+            .clone();
+        let nia_comptime_check::ComptimeValueType::Runtime(ty) = typed.ty else {
+            return None;
+        };
+        let imported = nia_ty::import_type_into(&mut self.interner, &self.comptime.interner, ty);
+        Some(imported)
+    }
+
+    pub(crate) fn expr_runtime_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {
+        let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+        if let Some(def_id) = self.global_comptime_use(expr) {
+            return self.runtime_ty_for_global_comptime_use(def_id, ty);
+        }
+        if let Some(def_id) = self.qualified_value(expr)
+            && matches!(
+                self.global_def_kind(def_id),
+                Some(nia_defs::DefKind::Comptime)
+            )
+        {
+            return self.runtime_ty_for_global_comptime_use(def_id, ty);
+        }
+        ty
+    }
+
     fn lower_comptime_value_expr(
         &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
         value: Option<nia_comptime_check::ComptimeValue>,
     ) -> TypedExpr {
+        if ty == self.error() {
+            return TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Error,
+            };
+        }
         match value {
             Some(nia_comptime_check::ComptimeValue::Int(value)) => TypedExpr {
                 span,
                 ty,
                 kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(value)),
             },
-            Some(_) => {
+            Some(nia_comptime_check::ComptimeValue::Float(value)) => TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Float(value.to_string()),
+            },
+            Some(nia_comptime_check::ComptimeValue::Bool(value)) => TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Bool(value),
+            },
+            Some(value) => {
+                if let Some(expr) = self.materialize_comptime_value_expr(span, ty, &value) {
+                    return expr;
+                }
                 self.diagnostics
                     .push(nia_diagnostic::Diagnostic::user_error_at(
                         "E0301",
                         span,
-                        "runtime expression cannot use non-integer comptime value",
+                        "runtime expression cannot use this comptime value",
                     ));
                 TypedExpr {
                     span,
@@ -1153,6 +1298,134 @@ impl<'a> BodyChecker<'a> {
                     kind: TypedExprKind::Error,
                 }
             }
+        }
+    }
+
+    fn materialize_comptime_value_expr(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        value: &nia_comptime_check::ComptimeValue,
+    ) -> Option<TypedExpr> {
+        let normalized_ty = self.normalization.normalize(ty);
+        match self.interner.get(normalized_ty).cloned()? {
+            TyKind::Pointer { is_readonly, elem } => {
+                if !is_readonly {
+                    return None;
+                }
+                let array =
+                    self.materialize_comptime_array_expr(span, elem, pointer_pointee(value)?)?;
+                let ty = if array.ty == elem {
+                    ty
+                } else {
+                    self.interner.intern(TyKind::Pointer {
+                        is_readonly: true,
+                        elem: array.ty,
+                    })
+                };
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::StaticArrayPointer {
+                        array: Box::new(array),
+                        is_readonly: true,
+                    },
+                })
+            }
+            TyKind::Slice { is_readonly, elem } => {
+                if !is_readonly {
+                    return None;
+                }
+                let array_ty = self.comptime_array_ty_for_slice_value(elem, value)?;
+                let pointer_ty = self.interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: array_ty,
+                });
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Slice {
+                        lhs: Box::new(
+                            self.materialize_comptime_value_expr(span, pointer_ty, value)?,
+                        ),
+                        range: TypedSliceRange {
+                            start: None,
+                            end: None,
+                            inclusive: false,
+                        },
+                        is_readonly: true,
+                    },
+                })
+            }
+            TyKind::Array { .. } => self.materialize_comptime_array_expr(span, ty, value),
+            _ => None,
+        }
+    }
+
+    fn comptime_array_ty_for_slice_value(
+        &mut self,
+        elem: nia_ids::InternedTyId,
+        value: &nia_comptime_check::ComptimeValue,
+    ) -> Option<nia_ids::InternedTyId> {
+        let values = pointer_pointee(value).and_then(comptime_array_values)?;
+        Some(self.interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstValue(values.len() as u64),
+            elem,
+        }))
+    }
+
+    fn materialize_comptime_array_expr(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        value: &nia_comptime_check::ComptimeValue,
+    ) -> Option<TypedExpr> {
+        let normalized_ty = self.normalization.normalize(ty);
+        let TyKind::Array { len, elem } = self.interner.get(normalized_ty).cloned()? else {
+            return None;
+        };
+        let nia_comptime_check::ComptimeValue::Array(values) = value else {
+            return None;
+        };
+        let ty = match len {
+            ArrayLenTy::ConstValue(expected_len) => {
+                if expected_len != values.len() as u64 {
+                    return None;
+                }
+                ty
+            }
+            ArrayLenTy::Infer => self.interner.intern(TyKind::Array {
+                len: ArrayLenTy::ConstValue(values.len() as u64),
+                elem,
+            }),
+            ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => return None,
+        };
+        let elem = self.normalization.normalize(elem);
+        match self.interner.get(elem) {
+            Some(TyKind::Primitive(PrimitiveTy::U8)) => {
+                let bytes = comptime_ints_to_u8(values)?;
+                Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::ByteString(bytes),
+                })
+            }
+            Some(TyKind::Primitive(PrimitiveTy::Char)) => {
+                let scalars = comptime_ints_to_u32(values)?;
+                if scalars
+                    .iter()
+                    .all(|scalar| char::from_u32(*scalar).is_some())
+                {
+                    Some(TypedExpr {
+                        span,
+                        ty,
+                        kind: TypedExprKind::String(scalars),
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1189,14 +1462,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_deref_read_pointer(&mut self, expr: &Expr) -> Option<TypedExpr> {
-        let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+        let ty = self.expr_runtime_ty(expr);
         self.lower_builtin_deref_method_call(expr, ty, false)
     }
 
     fn lower_index_read_expr(&mut self, lhs: &Expr, index: &Expr) -> Option<TypedExprKind> {
-        let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
+        let lhs_ty = self.expr_runtime_ty(lhs);
         let index_ty = self.expr_ty(index).unwrap_or_else(|| self.error());
-        let pointer = self.lower_builtin_index_method_call(lhs, index, lhs_ty, index_ty, false)?;
+        let pointer =
+            self.lower_non_intrinsic_builtin_index_method_call(lhs, index, lhs_ty, index_ty)?;
         Some(TypedExprKind::Unary {
             op: UnaryOp::Deref,
             expr: Box::new(pointer),
@@ -1217,6 +1491,25 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<nia_ids::GlobalDefId> {
         let def_id = self.nominal_global_def(ty)?;
         self.field_def_for_nominal(def_id, name)
+    }
+
+    fn field_ty_for_struct_ty(
+        &mut self,
+        ty: nia_ids::InternedTyId,
+        name: &str,
+    ) -> Option<nia_ids::InternedTyId> {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Nominal { def_id, args }) = self.interner.get(ty).cloned() else {
+            return None;
+        };
+        let resolved = self.resolved_struct_signature(def_id)?;
+        let substitutions = self.generic_substitutions(&resolved.signature.generics, &args);
+        let field = resolved
+            .signature
+            .fields
+            .iter()
+            .find(|field| field.name == name)?;
+        Some(self.substitute_generics(field.ty, &substitutions))
     }
 
     pub(crate) fn field_def_for_base_ty(
@@ -1359,20 +1652,39 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_array_elements(&mut self, elems: &ArrayElements) -> TypedArrayElements {
+    fn lower_array_elements(
+        &mut self,
+        elems: &ArrayElements,
+        array_ty: nia_ids::InternedTyId,
+    ) -> TypedArrayElements {
+        let elem_ty = self.array_elem_ty(array_ty);
         match elems {
-            ArrayElements::List(elems) => {
-                TypedArrayElements::List(elems.iter().map(|elem| self.lower_expr(elem)).collect())
-            }
+            ArrayElements::List(elems) => TypedArrayElements::List(
+                elems
+                    .iter()
+                    .map(|elem| self.lower_expr_with_ty(elem, elem_ty))
+                    .collect(),
+            ),
             ArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
-                value: Box::new(self.lower_expr(value)),
+                value: Box::new(self.lower_expr_with_ty(value, elem_ty)),
                 count: self.lower_array_repeat_count(count),
             },
         }
     }
 
+    fn array_elem_ty(&self, array_ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
+        match self.interner.get(self.normalization.normalize(array_ty)) {
+            Some(TyKind::Array { elem, .. }) => Some(*elem),
+            _ => None,
+        }
+    }
+
     pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
         if let Some(value) = self.node_array_repeat_counts.get(&count.node_key).copied() {
+            return value;
+        }
+        if let Ok(value) = self.eval_array_repeat_count(count) {
+            self.record_array_repeat_count(count, value);
             return value;
         }
         self.diagnostics
@@ -1388,7 +1700,137 @@ impl<'a> BodyChecker<'a> {
         if let Some(resolved) = self.resolved_call(call) {
             return self.lower_resolved_callee(callee, resolved);
         }
+        if let Some(reference) = self.function_reference(callee) {
+            if reference.args.is_empty() {
+                return TypedCallee::Function(reference.def_id);
+            }
+            return TypedCallee::FunctionInstance {
+                def_id: reference.def_id,
+                arg_module_id: reference.arg_module_id,
+                args: reference.args.clone(),
+            };
+        }
+        if let Some(def_id) = self.qualified_value(callee)
+            && matches!(
+                self.global_def_kind(def_id),
+                Some(nia_defs::DefKind::Function | nia_defs::DefKind::Method)
+            )
+        {
+            return TypedCallee::Function(def_id);
+        }
+        if matches!(callee.kind, ExprKind::BracketSuffix { .. })
+            && matches!(
+                self.bracket_suffix_resolution(callee),
+                Some(BracketSuffixResolution::GenericCall)
+            )
+        {
+            return TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)));
+        }
+        if let ExprKind::Ident(_) = generic_inst_base(callee).kind
+            && let Some(ValueNameResolution::Def(def_id)) =
+                self.value_name(generic_inst_base(callee))
+        {
+            let def_id = self.global_def_id(def_id);
+            if matches!(
+                self.global_def_kind(def_id),
+                Some(nia_defs::DefKind::Function | nia_defs::DefKind::Method)
+            ) {
+                return TypedCallee::Function(def_id);
+            }
+        }
         TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
+    }
+
+    fn lower_call_args(&mut self, call: &Expr, callee: &Expr, args: &[Expr]) -> Vec<TypedExpr> {
+        let param_tys = self
+            .resolved_call(call)
+            .and_then(|resolved| self.lowered_call_param_tys(resolved))
+            .or_else(|| self.lowered_call_param_tys_from_callee(callee));
+        let Some(param_tys) = param_tys else {
+            return args
+                .iter()
+                .map(|arg| self.lower_expr_with_checked_ty(arg))
+                .collect();
+        };
+        args.iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let expected = param_tys.get(index).copied().or_else(|| {
+                    self.node_pointer_array_to_slice_coercions
+                        .get(&arg.node_key)
+                        .map(|coercion| coercion.slice_ty)
+                });
+                self.lower_expr_with_ty(arg, expected)
+            })
+            .collect()
+    }
+
+    fn lowered_call_param_tys_from_callee(
+        &mut self,
+        callee: &Expr,
+    ) -> Option<Vec<nia_ids::InternedTyId>> {
+        self.qualified_callee_signature(callee)
+            .or_else(|| self.direct_callee_signature(callee))
+            .map(|resolved| {
+                resolved
+                    .signature
+                    .params
+                    .into_iter()
+                    .map(|param| param.ty)
+                    .collect()
+            })
+    }
+
+    fn lower_expr_with_checked_ty(&mut self, expr: &Expr) -> TypedExpr {
+        if self.global_comptime_use(expr).is_some()
+            || self.qualified_value(expr).is_some_and(|def_id| {
+                matches!(
+                    self.global_def_kind(def_id),
+                    Some(nia_defs::DefKind::Comptime)
+                )
+            })
+        {
+            let ty = self.expr_ty(expr);
+            return self.lower_expr_with_ty(expr, ty);
+        }
+        self.lower_expr(expr)
+    }
+
+    fn lowered_call_param_tys(
+        &mut self,
+        resolved: ResolvedCall,
+    ) -> Option<Vec<nia_ids::InternedTyId>> {
+        match resolved {
+            ResolvedCall::Function(def_id) => Some(
+                self.resolved_function_signature(def_id)?
+                    .signature
+                    .params
+                    .into_iter()
+                    .map(|param| param.ty)
+                    .collect(),
+            ),
+            ResolvedCall::FunctionInstance {
+                def_id,
+                arg_module_id: _,
+                args,
+            } => {
+                let signature = self.resolved_function_signature(def_id)?.signature;
+                let substitutions = signature
+                    .generics
+                    .iter()
+                    .cloned()
+                    .zip(args)
+                    .collect::<HashMap<_, _>>();
+                Some(
+                    signature
+                        .params
+                        .into_iter()
+                        .map(|param| self.substitute_generics(param.ty, &substitutions))
+                        .collect(),
+                )
+            }
+            _ => None,
+        }
     }
 
     fn lower_resolved_callee(&mut self, callee: &Expr, resolved: ResolvedCall) -> TypedCallee {
@@ -1544,13 +1986,17 @@ impl<'a> BodyChecker<'a> {
         if let Some(receiver) = self.lower_receiver_expr(callee) {
             return (
                 receiver,
-                args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                args.iter()
+                    .map(|arg| self.lower_expr_with_checked_ty(arg))
+                    .collect(),
             );
         }
         if let Some((receiver, args)) = args.split_first() {
             return (
-                self.lower_expr(receiver),
-                args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                self.lower_expr_with_checked_ty(receiver),
+                args.iter()
+                    .map(|arg| self.lower_expr_with_checked_ty(arg))
+                    .collect(),
             );
         }
         (self.lower_expr(callee), Vec::new())
@@ -1577,14 +2023,24 @@ impl<'a> BodyChecker<'a> {
         if self.variant_enum(expr).is_some() {
             return PlaceBase::Error;
         }
-        if let Some(def_id) = self.qualified_value(expr) {
+        if let Some(def_id) = self.qualified_value(expr)
+            && !matches!(
+                self.global_def_kind(def_id),
+                Some(nia_defs::DefKind::Comptime)
+            )
+        {
             return PlaceBase::Global(def_id);
         }
         match &expr.kind {
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::Local(local)) => PlaceBase::Local(local),
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
-                    Some(ValueNameResolution::Def(def_id)) => {
+                    Some(ValueNameResolution::Def(def_id))
+                        if !matches!(
+                            self.defs.defs.get(def_id).map(|def| def.kind),
+                            Some(nia_defs::DefKind::Comptime)
+                        ) =>
+                    {
                         PlaceBase::Global(self.global_def_id(def_id))
                     }
                     _ => PlaceBase::Error,
@@ -1595,11 +2051,11 @@ impl<'a> BodyChecker<'a> {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
             } => {
-                let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+                let ty = self.expr_runtime_ty(expr);
                 if let Some(pointer) = self.lower_builtin_deref_method_call(expr, ty, mutable) {
                     PlaceBase::Deref(Box::new(pointer))
                 } else {
-                    PlaceBase::Deref(Box::new(self.lower_expr(expr)))
+                    PlaceBase::Deref(Box::new(self.lower_expr_with_ty(expr, Some(ty))))
                 }
             }
             ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
@@ -1614,7 +2070,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Index { lhs, index } => {
                 if let IndexArg::Expr(index) = index {
-                    let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
+                    let lhs_ty = self.expr_runtime_ty(lhs);
                     let index_ty = self.expr_ty(index).unwrap_or_else(|| self.error());
                     if let Some(pointer) =
                         self.lower_builtin_index_method_call(lhs, index, lhs_ty, index_ty, mutable)
@@ -1702,6 +2158,56 @@ impl<'a> BodyChecker<'a> {
                     )),
                 }),
                 args: Vec::new(),
+            },
+        })
+    }
+
+    fn lower_non_intrinsic_builtin_index_method_call(
+        &mut self,
+        receiver: &Expr,
+        index: &Expr,
+        receiver_ty: nia_ids::InternedTyId,
+        index_ty: nia_ids::InternedTyId,
+    ) -> Option<TypedExpr> {
+        let trait_args = vec![index_ty];
+        let resolution = self.current_context_resolve_trait_obligation(
+            receiver_ty,
+            TraitId::Builtin(BuiltinTrait::IndexRead),
+            trait_args.clone(),
+        );
+        if !matches!(
+            resolution,
+            TraitResolution::User(_) | TraitResolution::Assumed(_)
+        ) {
+            return None;
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: receiver_ty,
+            trait_id: TraitId::Builtin(BuiltinTrait::IndexRead),
+            trait_args: trait_args.clone(),
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        let output = self.normalize_projection(output);
+        let pointer_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: output,
+        });
+        Some(TypedExpr {
+            span: receiver.span,
+            ty: pointer_ty,
+            kind: TypedExprKind::Call {
+                callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                    trait_id: BuiltinTrait::IndexRead,
+                    method: BuiltinTraitMethod::IndexRead,
+                    self_ty: receiver_ty,
+                    trait_args,
+                    receiver: Box::new(self.lower_builtin_place_method_receiver(
+                        receiver,
+                        receiver_ty,
+                        BuiltinTraitMethod::IndexRead,
+                    )),
+                }),
+                args: vec![self.lower_expr_with_ty(index, Some(index_ty))],
             },
         })
     }
@@ -1843,7 +2349,7 @@ impl<'a> BodyChecker<'a> {
                     ty: pointer_ty,
                     kind: TypedExprKind::Unary {
                         op: UnaryOp::RefReadOnly,
-                        expr: Box::new(self.lower_expr(receiver)),
+                        expr: Box::new(self.lower_expr_with_ty(receiver, Some(receiver_ty))),
                     },
                 }
             }
@@ -1857,11 +2363,11 @@ impl<'a> BodyChecker<'a> {
                     ty: pointer_ty,
                     kind: TypedExprKind::Unary {
                         op: UnaryOp::Ref,
-                        expr: Box::new(self.lower_expr(receiver)),
+                        expr: Box::new(self.lower_expr_with_ty(receiver, Some(receiver_ty))),
                     },
                 }
             }
-            ReceiverKind::Value => self.lower_expr(receiver),
+            ReceiverKind::Value => self.lower_expr_with_ty(receiver, Some(receiver_ty)),
         }
     }
 
@@ -1906,4 +2412,46 @@ impl<'a> BodyChecker<'a> {
             ReceiverKind::Value => receiver.clone(),
         }
     }
+}
+
+fn pointer_pointee(
+    value: &nia_comptime_check::ComptimeValue,
+) -> Option<&nia_comptime_check::ComptimeValue> {
+    match value {
+        nia_comptime_check::ComptimeValue::Pointer(pointee) => Some(pointee),
+        _ => None,
+    }
+}
+
+fn comptime_array_values(
+    value: &nia_comptime_check::ComptimeValue,
+) -> Option<&[nia_comptime_check::ComptimeValue]> {
+    match value {
+        nia_comptime_check::ComptimeValue::Array(values) => Some(values),
+        _ => None,
+    }
+}
+
+fn comptime_ints_to_u8(values: &[nia_comptime_check::ComptimeValue]) -> Option<Vec<u8>> {
+    values
+        .iter()
+        .map(|value| {
+            let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                return None;
+            };
+            u8::try_from(value.bits()).ok()
+        })
+        .collect()
+}
+
+fn comptime_ints_to_u32(values: &[nia_comptime_check::ComptimeValue]) -> Option<Vec<u32>> {
+    values
+        .iter()
+        .map(|value| {
+            let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                return None;
+            };
+            u32::try_from(value.bits()).ok()
+        })
+        .collect()
 }

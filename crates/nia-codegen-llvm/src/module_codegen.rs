@@ -344,6 +344,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {
         for function in &self.source.functions {
+            if !function.generics.is_empty() {
+                continue;
+            }
             let Some(function_body) = &function.function_body else {
                 if !function.is_extern {
                     return Err(self.error(function.span, "missing function body"));

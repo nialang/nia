@@ -148,7 +148,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
             Some(TyKind::Slice { elem, .. }) => {
-                let slice = self.emit_expr(lhs)?.into_struct_value()?;
+                let slice = self
+                    .emit_expr(lhs)?
+                    .into_struct_value()
+                    .map_err(|_| self.error(span, "index base slice value is not a struct"))?;
                 let base_ptr = self.extract_slice_ptr(span, slice)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
@@ -210,7 +213,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok((ptr, one, *elem))
             }
             Some(TyKind::Slice { elem, .. }) => {
-                let slice = self.emit_expr(lhs)?.into_struct_value()?;
+                let slice = self
+                    .emit_expr(lhs)?
+                    .into_struct_value()
+                    .map_err(|_| self.error(span, "slice base value is not a struct"))?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
                 let len = self.extract_slice_len(span, slice)?;
                 Ok((ptr, len, *elem))
@@ -344,7 +350,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_insert_value(undef, ptr, 0, "slice.ptr")
             .map_err(|_| self.error(Span::default(), "failed to insert slice pointer"))?
-            .into_struct_value()?;
+            .into_struct_value()
+            .map_err(|_| self.error(Span::default(), "slice value is not a struct"))?;
         self.builder
             .build_insert_value(value, len, 1, "slice.len")
             .map_err(|_| self.error(Span::default(), "failed to insert slice length"))
@@ -587,7 +594,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .builder
                     .build_load(slice_ty, base_ptr, "loadslice")
                     .map_err(|_| self.error(span, "failed to load slice base"))?
-                    .into_struct_value()?;
+                    .into_struct_value()
+                    .map_err(|_| self.error(span, "loaded slice base is not a struct"))?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {

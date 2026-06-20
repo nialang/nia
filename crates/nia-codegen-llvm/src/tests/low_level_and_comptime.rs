@@ -185,6 +185,41 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_runtime_storage_for_comptime_string_values() {
+    let root = temp_dir("emits_runtime_storage_for_comptime_string_values");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+comptime let bytes = b"paw\0";
+comptime let text = "nia";
+
+fn first_byte(xs: &[u8]) i32 {
+    xs[0] as i32
+}
+
+fn main() i32 {
+    var byte_ptr: &u8 = &bytes.*[1];
+    var byte_slice: &[u8] = bytes;
+    var char_slice: &[char] = text;
+    first_byte(bytes) + byte_ptr.* as i32 + byte_slice.len() as i32 + char_slice.len() as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("[4 x i8] c\"paw\\00\""), "{ir}");
+    assert!(ir.contains("[3 x i32] [i32 110, i32 105, i32 97]"), "{ir}");
+    assert!(!ir.contains("cannot emit erroneous expression"), "{ir}");
+}
+
+#[test]
 fn emits_arrays_sized_by_imported_comptime_values() {
     let root = temp_dir("emits_arrays_sized_by_imported_comptime_values");
     let main = root.join("main.nia");

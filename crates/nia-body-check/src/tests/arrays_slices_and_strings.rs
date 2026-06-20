@@ -160,27 +160,136 @@ fn main() u8 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        !body_ir_contains_error_expr(&checked.ir),
+        "{:#?}",
+        checked.ir
+    );
 }
 
 #[test]
-fn rejects_runtime_use_of_comptime_byte_string_values() {
+fn materializes_runtime_uses_of_comptime_string_values() {
+    let checked = pipeline(
+        r#"
+comptime let default_value = b"default\0";
+comptime let text_value = "nia";
+
+fn take_bytes(xs: &[u8]) usize {
+    xs.len()
+}
+
+fn main() usize {
+    var selected: &u8 = &default_value.*[0];
+    var bytes: &[u8] = default_value;
+    var chars: &[char] = text_value;
+    (selected as usize) + take_bytes(default_value) + bytes.len() + chars.len()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+fn body_ir_contains_error_expr(ir: &nia_body_ir::BodyIr) -> bool {
+    ir.function_bodies
+        .values()
+        .any(typed_body_contains_error_expr)
+}
+
+fn typed_body_contains_error_expr(body: &nia_body_ir::TypedBody) -> bool {
+    body.stmts.iter().any(typed_stmt_contains_error_expr)
+        || body
+            .tail
+            .as_deref()
+            .is_some_and(typed_expr_contains_error_expr)
+}
+
+fn typed_stmt_contains_error_expr(stmt: &nia_body_ir::TypedStmt) -> bool {
+    match &stmt.kind {
+        nia_body_ir::TypedStmtKind::Binding(binding) => binding
+            .value
+            .as_ref()
+            .is_some_and(typed_expr_contains_error_expr),
+        nia_body_ir::TypedStmtKind::Expr(expr)
+        | nia_body_ir::TypedStmtKind::Defer(expr)
+        | nia_body_ir::TypedStmtKind::Return(Some(expr)) => typed_expr_contains_error_expr(expr),
+        nia_body_ir::TypedStmtKind::ForIn(for_in) => {
+            typed_expr_contains_error_expr(&for_in.iter)
+                || typed_body_contains_error_expr(&for_in.body)
+        }
+        nia_body_ir::TypedStmtKind::While(while_stmt) => {
+            typed_expr_contains_error_expr(&while_stmt.cond)
+                || typed_body_contains_error_expr(&while_stmt.body)
+        }
+        nia_body_ir::TypedStmtKind::Loop(loop_stmt) => {
+            typed_body_contains_error_expr(&loop_stmt.body)
+        }
+        nia_body_ir::TypedStmtKind::Return(None)
+        | nia_body_ir::TypedStmtKind::Break
+        | nia_body_ir::TypedStmtKind::Continue => false,
+    }
+}
+
+fn typed_expr_contains_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
+    match &expr.kind {
+        nia_body_ir::TypedExprKind::Error => true,
+        nia_body_ir::TypedExprKind::StaticArrayPointer { array, .. }
+        | nia_body_ir::TypedExprKind::Unary { expr: array, .. }
+        | nia_body_ir::TypedExprKind::Cast { expr: array, .. }
+        | nia_body_ir::TypedExprKind::Discard(array)
+        | nia_body_ir::TypedExprKind::TraitObjectUpcast { expr: array, .. }
+        | nia_body_ir::TypedExprKind::TraitObjectCoercion { expr: array, .. } => {
+            typed_expr_contains_error_expr(array)
+        }
+        nia_body_ir::TypedExprKind::Binary { lhs, rhs, .. }
+        | nia_body_ir::TypedExprKind::Index { lhs, index: rhs } => {
+            typed_expr_contains_error_expr(lhs) || typed_expr_contains_error_expr(rhs)
+        }
+        nia_body_ir::TypedExprKind::Call { args, .. } => {
+            args.iter().any(typed_expr_contains_error_expr)
+        }
+        nia_body_ir::TypedExprKind::Slice { lhs, range, .. } => {
+            typed_expr_contains_error_expr(lhs)
+                || range
+                    .start
+                    .as_deref()
+                    .is_some_and(typed_expr_contains_error_expr)
+                || range
+                    .end
+                    .as_deref()
+                    .is_some_and(typed_expr_contains_error_expr)
+        }
+        nia_body_ir::TypedExprKind::Block(body) => typed_body_contains_error_expr(body),
+        nia_body_ir::TypedExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            typed_expr_contains_error_expr(cond)
+                || typed_body_contains_error_expr(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(typed_expr_contains_error_expr)
+        }
+        _ => false,
+    }
+}
+
+#[test]
+fn materializes_comptime_byte_string_call_arguments() {
     let checked = pipeline(
         r#"
 comptime let default_value = b"default\0";
 
+fn take_bytes(xs: &[u8]) usize {
+    xs.len()
+}
+
 fn main() usize {
-    var selected: &u8 = &default_value.*[0];
-    selected as usize
+    take_bytes(default_value)
 }
 "#,
     );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("runtime expression cannot use non-integer comptime value")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

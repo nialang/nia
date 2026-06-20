@@ -436,7 +436,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_blocks,
             outer_blocks,
         } = input;
-        let aggregate = self.emit_expr(value)?.into_struct_value()?;
+        let aggregate = self.emit_tagged_union_value(span, value)?;
         let tag = self
             .builder
             .build_extract_value(aggregate, 0, "defer.try.tag")
@@ -508,7 +508,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             success_target,
             llvm_blocks,
         } = input;
-        let aggregate = self.emit_expr(value)?.into_struct_value()?;
+        let aggregate = self.emit_tagged_union_value(span, value)?;
         let tag = self
             .builder
             .build_extract_value(aggregate, 0, "try.tag")
@@ -593,6 +593,40 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_load(return_llvm_ty, return_ptr, "try.return.value")
             .map_err(|_| self.error(span, "failed to load propagation return"))?;
         self.emit_return_value(span, value)
+    }
+
+    pub(super) fn emit_tagged_union_value(
+        &mut self,
+        span: Span,
+        value: &FunctionExpr,
+    ) -> Result<nia_llvm::values::StructValue<'ctx>, Diagnostic> {
+        if matches!(
+            self.module.classify_function_return(value.ty),
+            crate::module_codegen::AbiReturn::IndirectOut(_)
+        ) {
+            let value_ty = self.module.llvm_basic_type(value.ty, value.span)?;
+            let ptr = self
+                .builder
+                .build_alloca(value_ty, "tagged.union.tmp")
+                .map_err(|_| self.error(span, "failed to allocate tagged union value"))?;
+            if !self.emit_aggregate_literal_into(ptr, value)?
+                && !self.emit_aggregate_call_result_into(ptr, value)?
+            {
+                let emitted = self.emit_expr(value)?;
+                self.builder
+                    .build_store(ptr, emitted)
+                    .map_err(|_| self.error(span, "failed to store tagged union value"))?;
+            }
+            return self
+                .builder
+                .build_load(value_ty, ptr, "tagged.union")
+                .map_err(|_| self.error(span, "failed to load tagged union value"))?
+                .into_struct_value()
+                .map_err(|_| self.error(span, "tagged union value is not a struct"));
+        }
+        self.emit_expr(value)?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "tagged union value is not a struct"))
     }
 
     fn emit_try_failure_return_payload(

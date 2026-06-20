@@ -157,6 +157,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_functions(&mut self) -> Result<(), Diagnostic> {
         for function in self.program.functions.values() {
+            if !function.generics.is_empty() {
+                continue;
+            }
             let Some(owner) = self.program.module(function.def_id.module_id) else {
                 return Err(self.error(function.span, "missing function owner module"));
             };
