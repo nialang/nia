@@ -589,6 +589,73 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_error_type_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let error_ty = interner.error();
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "take".to_string(),
+                generics: Vec::new(),
+                params: vec![BackendParam {
+                    local_id: None,
+                    name: Some("value".to_string()),
+                    receiver: None,
+                    passing_ty: error_ty,
+                    local_ty: error_ty,
+                    span,
+                }],
+                return_type: i32_ty,
+                is_extern: true,
+                is_variadic: false,
+                attributes: Vec::new(),
+                function_body: None,
+                span,
+            }],
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("is error")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
