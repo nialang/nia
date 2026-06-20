@@ -118,6 +118,7 @@ pub struct SpawnOptions {
     stdin: StdIo,
     stdout: StdIo,
     stderr: StdIo,
+    cwd: ?&u8,
 }
 
 extend Errno {
@@ -252,6 +253,7 @@ extend SpawnOptions {
             stdin: StdIo::Inherit,
             stdout: StdIo::Inherit,
             stderr: StdIo::Inherit,
+            cwd: null,
         }
     }
 
@@ -267,6 +269,10 @@ extend SpawnOptions {
         self.stderr
     }
 
+    pub fn cwd(&self) ?&u8 {
+        self.cwd
+    }
+
     pub fn set_stdin(&mut self, behavior: StdIo) void {
         self.stdin = behavior;
     }
@@ -277,6 +283,10 @@ extend SpawnOptions {
 
     pub fn set_stderr(&mut self, behavior: StdIo) void {
         self.stderr = behavior;
+    }
+
+    pub fn set_cwd(&mut self, path: &u8) void {
+        self.cwd = ?path;
     }
 }
 

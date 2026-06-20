@@ -934,6 +934,72 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_command_can_set_cwd() {
+    let root = temp_dir("emit_exe_std_process_command_can_set_cwd");
+    let child_dir = root.join("child-cwd");
+    std::fs::create_dir(&child_dir).expect("create child cwd");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let cwd_literal = format!("{}\0", child_dir.display());
+    std::fs::write(
+        &main,
+        format!(
+            r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {{
+    let path_bytes = b"/bin/sh\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {{
+        value
+    }} else null {{
+        return process::exit(1)!;
+    }};
+    let cwd_bytes = b"{cwd_literal}";
+    let cwd = if let ?value = std::CStr::from_bytes(cwd_bytes) {{
+        value
+    }} else null {{
+        return process::exit(2)!;
+    }};
+    let flag = b"-c\0";
+    let script = b"test \"$(basename \"$PWD\")\" = child-cwd\0";
+    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_cwd(cwd);
+    let term = if let !value = command.run() {{
+        value
+    }} else error! {{
+        return process::exit(3)!;
+    }};
+    if not term.exited_success() {{
+        return process::exit(4)!;
+    }}
+    !{{}}
+}}
+"#,
+            cwd_literal = cwd_literal
+        ),
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process cwd");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe).output_timeout("run emitted std process cwd executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_discards_indirect_return_call_in_loop() {
     let root = temp_dir("emit_exe_discards_indirect_return_call_in_loop");
     let main = root.join("main.nia");

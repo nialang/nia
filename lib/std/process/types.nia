@@ -32,6 +32,7 @@ pub struct Command {
     stdin: StdIo,
     stdout: StdIo,
     stderr: StdIo,
+    cwd: ?cstr::CStr,
 }
 
 pub struct Args {

@@ -13,6 +13,7 @@ extend Command {
             stdin: StdIo::Inherit,
             stdout: StdIo::Inherit,
             stderr: StdIo::Inherit,
+            cwd: null,
         }
     }
 
@@ -40,6 +41,10 @@ extend Command {
         self.stderr
     }
 
+    pub fn cwd(&self) ?cstr::CStr {
+        self.cwd
+    }
+
     pub fn set_stdin(&mut self, behavior: StdIo) void {
         self.stdin = behavior;
     }
@@ -52,11 +57,18 @@ extend Command {
         self.stderr = behavior;
     }
 
+    pub fn set_cwd(&mut self, cwd: cstr::CStr) void {
+        self.cwd = ?cwd;
+    }
+
     pub fn spawn(&self) os::Error!Child {
         var options = os::SpawnOptions::init();
         options.set_stdin(self.stdin.as_os_stdio());
         options.set_stdout(self.stdout.as_os_stdio());
         options.set_stderr(self.stderr.as_os_stdio());
+        if let ?cwd = self.cwd {
+            options.set_cwd(cwd.raw_ptr());
+        } else null {}
         spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
     }
 
