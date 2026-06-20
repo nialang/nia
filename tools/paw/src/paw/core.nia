@@ -1,0 +1,133 @@
+using std::fs;
+using std::io;
+using std::process;
+
+pub enum Error: i32 {
+    Io = 1,
+    InvalidInput = 2,
+    _,
+}
+
+pub struct PackageOptions {
+    name: &[char],
+    version: &[char],
+}
+
+pub struct ExecutableOptions {
+    name: &[char],
+    root: &[char],
+}
+
+pub struct Build {
+    writer: io::FileWriter,
+    file: fs::File,
+}
+
+extend PackageOptions {
+    pub fn name(&self) &[char] {
+        self.name
+    }
+
+    pub fn version(&self) &[char] {
+        self.version
+    }
+}
+
+extend ExecutableOptions {
+    pub fn name(&self) &[char] {
+        self.name
+    }
+
+    pub fn root(&self) &[char] {
+        self.root
+    }
+}
+
+extend Build {
+    pub fn init(init: process::Init, graph_path: &[char], buffer: &mut [u8]) Error!Build {
+        let file = if let !value = fs::File::create(fs::Path::init(graph_path), fs::CreateOptions::init()) {
+            value
+        } else error! {
+            return Error::Io!;
+        };
+        !{
+            writer: file.writer(init.io(), buffer),
+            file: file,
+        }
+    }
+
+    pub fn package(&mut self, options: PackageOptions) Error!void {
+        let name = options.name();
+        let version = options.version();
+        if name.len() == 0usize {
+            return Error::InvalidInput!;
+        }
+        self.write_bytes(b"package\t").?;
+        self.write_chars(name).?;
+        self.write_bytes(b"\t").?;
+        self.write_chars(version).?;
+        self.write_bytes(b"\n").?;
+        !{}
+    }
+
+    pub fn executable(&mut self, options: ExecutableOptions) Error!void {
+        let name = options.name();
+        let root = options.root();
+        if name.len() == 0usize or root.len() == 0usize {
+            return Error::InvalidInput!;
+        }
+        self.write_bytes(b"executable\t").?;
+        self.write_chars(name).?;
+        self.write_bytes(b"\t").?;
+        self.write_chars(root).?;
+        self.write_bytes(b"\n").?;
+        !{}
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) Error!void {
+        if let !ok = self.writer.write_all(bytes) {
+            _ = ok;
+        } else error! {
+            return Error::Io!;
+        }
+        !{}
+    }
+
+    fn write_chars(&mut self, chars: &[char]) Error!void {
+        var index = 0usize;
+        while index < chars.len() {
+            let ch = chars[index] as u32;
+            if ch == 0u32 or ch > 127u32 {
+                return Error::InvalidInput!;
+            }
+            var byte: [1]u8 = [ch as u8];
+            self.write_bytes(&byte[..]).?;
+            index += 1usize;
+        }
+        !{}
+    }
+
+    pub fn finish(&mut self) Error!void {
+        if let !ok = self.writer.flush() {
+            _ = ok;
+        } else error! {
+            return Error::Io!;
+        }
+        if let !ok = self.file.close() {
+            _ = ok;
+        } else error! {
+            return Error::Io!;
+        }
+        !{}
+    }
+}
+
+extend Error {
+    pub fn exit_code(self) process::ExitCode {
+        switch self {
+            Error::Io => process::exit(5),
+            Error::InvalidInput => process::exit(22),
+            _ => process::exit(255),
+        }
+    }
+}
