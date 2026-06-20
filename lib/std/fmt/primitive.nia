@@ -50,6 +50,20 @@ fn format_text_spec(
     formatter.write_padding_after(content_width, spec)
 }
 
+fn format_bytes_spec(
+    formatter: &mut core::Formatter,
+    bytes: &[u8],
+    spec: core::FormatSpec,
+) core::Error!void {
+    if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+        return core::Error::InvalidTemplate!;
+    }
+    let content_width = formatter.precision_width(bytes.len(), spec);
+    formatter.write_padding_before(content_width, spec).?;
+    formatter.write_bytes(&bytes[0..content_width]).?;
+    formatter.write_padding_after(content_width, spec)
+}
+
 extend i8 : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_signed(self.* as i128)
@@ -258,6 +272,16 @@ extend [char] : core::Format {
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
         format_text_spec(formatter, self, spec)
+    }
+}
+
+extend [u8] : core::Format {
+    fn format(&self, formatter: &mut core::Formatter) core::Error!void {
+        formatter.write_bytes(self)
+    }
+
+    fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
+        format_bytes_spec(formatter, self, spec)
     }
 }
 
