@@ -18,9 +18,9 @@ use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionErrorUnionTag,
-    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionRange,
-    FunctionScopeId,
+    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee,
+    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind,
+    FunctionRange, FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -1041,5 +1041,47 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic::user_error_at("E0601", span, message)
+    }
+}
+
+fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCallee) -> bool {
+    match callee {
+        FunctionCallee::Function(def_id) => codegen
+            .module
+            .function_item(*def_id)
+            .is_some_and(|function| function.is_extern),
+        FunctionCallee::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => codegen
+            .module
+            .function_instance_item_with_arg_module(*def_id, *arg_module_id, args)
+            .is_some_and(|function| function.is_extern),
+        FunctionCallee::Method {
+            def_id,
+            arg_module_id,
+            args,
+            ..
+        } => {
+            if args.is_empty() {
+                codegen
+                    .module
+                    .function_item(*def_id)
+                    .is_some_and(|function| function.is_extern)
+            } else {
+                codegen
+                    .module
+                    .function_instance_item_with_arg_module(*def_id, *arg_module_id, args)
+                    .is_some_and(|function| function.is_extern)
+            }
+        }
+        FunctionCallee::FunctionPointer(_) => false,
+        FunctionCallee::DynamicTraitMethod { .. } => false,
+        FunctionCallee::TraitMethod { .. }
+        | FunctionCallee::TraitAssociatedFunction { .. }
+        | FunctionCallee::BuiltinPlaceMethod { .. }
+        | FunctionCallee::BuiltinMethod { .. }
+        | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
