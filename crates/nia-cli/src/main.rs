@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{env, fs, path::PathBuf, process::ExitCode, time::Instant};
 
-use nia_diagnostic::{Diagnostic, render_diagnostic};
-use nia_driver::Runtime;
-use nia_imports::{
-    BUILTIN_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
+use nia_driver::{
+    BUILTIN_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel, PACKAGE_MODULE_MAP_NAME,
+    ROOT_MODULE_MAP_NAME, Runtime, SourcePath,
 };
-use nia_opt::{InlineThreshold, NiaOptimizationLevel, OptimizationDepth, SpecializationPolicy};
-use nia_parser::ParseError;
-use nia_source::SourcePath;
 
 mod help;
 
@@ -275,7 +271,20 @@ fn extract_global_options(
 }
 
 fn emit_target_option_takes_value(arg: &str) -> bool {
-    matches!(arg, "-o" | "--out-dir" | "--runtime" | "--link-arg")
+    matches!(
+        arg,
+        "-o" | "--out-dir"
+            | "--runtime"
+            | "--link-arg"
+            | "--dynamic-linker"
+            | "--library-path"
+            | "-L"
+            | "--library"
+            | "-l"
+            | "--rpath"
+            | "--linker"
+            | "--linker-flavor"
+    )
 }
 
 fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
@@ -476,7 +485,17 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 preserve_next = true;
                 target_args.push(arg);
             }
-            _ if arg.starts_with("--runtime=") || arg.starts_with("--link-arg=") => {
+            _ if arg.starts_with("--runtime=")
+                || arg.starts_with("--link-arg=")
+                || arg.starts_with("--dynamic-linker=")
+                || arg.starts_with("--library-path=")
+                || arg.starts_with("-L")
+                || arg.starts_with("--library=")
+                || arg.starts_with("-l")
+                || arg.starts_with("--rpath=")
+                || arg.starts_with("--linker=")
+                || arg.starts_with("--linker-flavor=") =>
+            {
                 target_args.push(arg);
             }
             _ if arg.starts_with('-') && path.is_none() => {
@@ -619,17 +638,18 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
 }
 
 fn run_lex(source: &str) -> ExitCode {
-    for token in nia_lexer::tokenize(source) {
-        println!("{:?} {}..{}", token.kind, token.span.start, token.span.end);
-    }
+    print!("{}", nia_driver::tokens_inspection(source).text);
     ExitCode::SUCCESS
 }
 
 fn run_parse(path: &str, source: &str) -> ExitCode {
-    let (module, errors) = nia_parser::parse_module(source);
-    println!("{module:#?}");
-    if !errors.is_empty() {
-        print_parse_errors(path, source, &errors);
+    let inspection = nia_driver::ast_inspection(source);
+    print!("{}", inspection.text);
+    if !inspection.parse_errors.is_empty() {
+        eprint!(
+            "{}",
+            nia_driver::render_parse_errors(path, source, &inspection.parse_errors)
+        );
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
@@ -648,7 +668,10 @@ fn run_check(
         check_with_driver(path, module_map, optimization, timings, runtime)
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -737,7 +760,10 @@ fn run_emit_checked(
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -759,7 +785,10 @@ fn run_emit_backend(
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -781,7 +810,10 @@ fn run_emit_llvm(
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -798,7 +830,10 @@ fn run_emit_llvm(
             ExitCode::SUCCESS
         }
         Err(error) => {
-            print_driver_error(path, source, error);
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
             ExitCode::FAILURE
         }
     }
@@ -824,7 +859,10 @@ fn run_emit_obj(
         check_with_driver(path, module_map, optimization, timings, options.runtime)
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -836,7 +874,10 @@ fn run_emit_obj(
     let objects = match output.result {
         Ok(objects) => objects,
         Err(error) => {
-            print_driver_error(path, source, error);
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -845,7 +886,10 @@ fn run_emit_obj(
     match output.result {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
-            print_driver_error(path, source, error);
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
             ExitCode::FAILURE
         }
     }
@@ -877,7 +921,10 @@ fn run_emit_exe(
         )
     });
     if !program.diagnostics.is_empty() {
-        print_program_diagnostics(path, source, &program);
+        eprint!(
+            "{}",
+            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
+        );
         return ExitCode::FAILURE;
     }
     if opt_report {
@@ -889,7 +936,10 @@ fn run_emit_exe(
     let objects = match output.result {
         Ok(objects) => objects,
         Err(error) => {
-            print_driver_error(path, source, error);
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -897,14 +947,16 @@ fn run_emit_exe(
         nia_driver::Driver::new().link_executable_from_objects(
             &objects,
             options.output,
-            options.link_args,
-            nia_driver::ExecutableLinker::native(),
+            options.link_options,
         )
     });
     match output.result {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
-            print_driver_error(path, source, error);
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
             ExitCode::FAILURE
         }
     }
@@ -974,12 +1026,13 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
 
 struct EmitExeOptions {
     output: PathBuf,
-    link_args: Vec<String>,
+    link_options: nia_linker::LinkOptions,
 }
 
 fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
-    let mut link_args = Vec::new();
+    let mut link_options = nia_linker::LinkOptions::default();
+    let mut explicit_linker_program = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--runtime=") {
@@ -993,7 +1046,50 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
             continue;
         }
         if let Some(value) = arg.strip_prefix("--link-arg=") {
-            link_args.push(value.to_string());
+            link_options.raw_args.push(value.to_string());
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--dynamic-linker=") {
+            link_options = link_options
+                .with_dynamic_mode()
+                .with_dynamic_linker(parse_dynamic_linker(value));
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--library-path=") {
+            link_options = link_options.add_library_path(value);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("-L")
+            && !value.is_empty()
+        {
+            link_options = link_options.add_library_path(value);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--library=") {
+            link_options = link_options.add_library(value);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("-l")
+            && !value.is_empty()
+        {
+            link_options = link_options.add_library(value);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--rpath=") {
+            link_options = link_options.add_rpath(value);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--linker=") {
+            link_options.linker.program = value.to_string();
+            explicit_linker_program = true;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--linker-flavor=") {
+            let flavor = parse_linker_flavor(value)?;
+            link_options.linker.flavor = flavor;
+            if flavor == nia_linker::LinkerFlavor::Lld && !explicit_linker_program {
+                link_options.linker = nia_linker::ExecutableLinker::lld();
+            }
             continue;
         }
         match arg.as_str() {
@@ -1020,15 +1116,82 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
                 let Some(value) = iter.next() else {
                     return Err("missing argument after `--link-arg`".to_string());
                 };
-                link_args.push(value);
+                link_options.raw_args.push(value);
+            }
+            "--dynamic-linker" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing path after `--dynamic-linker`".to_string());
+                };
+                link_options = link_options
+                    .with_dynamic_mode()
+                    .with_dynamic_linker(parse_dynamic_linker(&value));
+            }
+            "--no-dynamic-linker" => {
+                link_options = link_options
+                    .with_dynamic_mode()
+                    .with_dynamic_linker(nia_linker::DynamicLinker::None);
+            }
+            "--library-path" | "-L" => {
+                let Some(value) = iter.next() else {
+                    return Err(format!("missing path after `{arg}`"));
+                };
+                link_options = link_options.add_library_path(value);
+            }
+            "--library" | "-l" => {
+                let Some(value) = iter.next() else {
+                    return Err(format!("missing library name after `{arg}`"));
+                };
+                link_options = link_options.add_library(value);
+            }
+            "--rpath" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing path after `--rpath`".to_string());
+                };
+                link_options = link_options.add_rpath(value);
+            }
+            "--linker" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing program after `--linker`".to_string());
+                };
+                link_options.linker.program = value;
+                explicit_linker_program = true;
+            }
+            "--linker-flavor" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing flavor after `--linker-flavor`".to_string());
+                };
+                let flavor = parse_linker_flavor(&value)?;
+                link_options.linker.flavor = flavor;
+                if flavor == nia_linker::LinkerFlavor::Lld && !explicit_linker_program {
+                    link_options.linker = nia_linker::ExecutableLinker::lld();
+                }
             }
             _ => return Err(format!("unknown `nia emit --exe` option `{arg}`")),
         }
     }
     Ok(EmitExeOptions {
         output: output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)),
-        link_args,
+        link_options,
     })
+}
+
+fn parse_linker_flavor(value: &str) -> Result<nia_linker::LinkerFlavor, String> {
+    match value {
+        "gnu" => Ok(nia_linker::LinkerFlavor::Gnu),
+        "lld" => Ok(nia_linker::LinkerFlavor::Lld),
+        "self-hosted-elf" => Ok(nia_linker::LinkerFlavor::SelfHostedElf),
+        _ => Err(format!(
+            "unknown linker flavor `{value}`; expected `gnu`, `lld`, or `self-hosted-elf`"
+        )),
+    }
+}
+
+fn parse_dynamic_linker(value: &str) -> nia_linker::DynamicLinker {
+    match value {
+        "auto" => nia_linker::DynamicLinker::Auto,
+        "none" => nia_linker::DynamicLinker::None,
+        path => nia_linker::DynamicLinker::Path(path.to_string()),
+    }
 }
 
 fn parse_runtime(value: &str) -> Result<Runtime, String> {
@@ -1047,184 +1210,12 @@ fn default_output_path(source: &str, extension: &str) -> PathBuf {
     path
 }
 
-fn print_parse_errors(path: &str, source: &str, errors: &[ParseError]) {
-    eprintln!("parse errors:");
-    for error in errors {
-        let diagnostic = Diagnostic::user_error_at("E0103", error.span, error.message.clone());
-        eprintln!("{}", render_diagnostic(path, source, &diagnostic));
-    }
-}
-
-fn print_program_diagnostics(path: &str, source: &str, program: &nia_driver::CheckedProgram) {
-    eprintln!("diagnostics:");
-    for diagnostic in &program.diagnostics {
-        let loaded_source = if diagnostic.path.as_str() == path {
-            None
-        } else {
-            fs::read_to_string(diagnostic.path.as_str()).ok()
-        };
-        let source = loaded_source.as_deref().unwrap_or(source);
-        eprintln!(
-            "{}",
-            render_diagnostic(diagnostic.path.as_str(), source, &diagnostic.diagnostic)
-        );
-    }
-}
-
-fn print_driver_error(path: &str, source: &str, error: nia_driver::DriverError) {
-    match error {
-        nia_driver::DriverError::CheckDiagnostics(program) => {
-            print_program_diagnostics(path, source, &program);
-        }
-        nia_driver::DriverError::CodegenDiagnostics(diagnostics) => {
-            print_codegen_diagnostics(path, source, &diagnostics);
-        }
-        nia_driver::DriverError::InvalidArtifactRequest(message) => {
-            eprintln!("{message}");
-        }
-        nia_driver::DriverError::Io {
-            path,
-            operation: _,
-            error,
-        } => {
-            eprintln!("failed to write `{}`: {error}", path.display());
-        }
-        nia_driver::DriverError::LinkerStatus { program, status } => {
-            eprintln!("linker `{program}` failed with status {status}");
-        }
-        nia_driver::DriverError::LinkerIo { program, error } => {
-            eprintln!("failed to run linker `{program}`: {error}");
-        }
-    }
-}
-
-fn print_codegen_diagnostics(path: &str, source: &str, diagnostics: &[nia_diagnostic::Diagnostic]) {
-    eprintln!("codegen diagnostics:");
-    for diagnostic in diagnostics {
-        eprintln!("{}", render_diagnostic(path, source, diagnostic));
-    }
-}
-
 fn print_optimization_report(program: &nia_driver::CheckedProgram) {
-    print_optimization_report_with(program, |line| println!("{line}"));
+    print!("{}", nia_driver::optimization_report(program));
 }
 
 fn print_optimization_report_to_stderr(program: &nia_driver::CheckedProgram) {
-    print_optimization_report_with(program, |line| eprintln!("{line}"));
-}
-
-fn print_optimization_report_with(
-    program: &nia_driver::CheckedProgram,
-    mut print_line: impl FnMut(String),
-) {
-    let report = &program.backend_lowering.optimization_report;
-    let policy = program.optimization;
-    print_line("backend optimization report:".to_string());
-    print_line(format!(
-        "  policy level={} simplify_cfg={} const_fold={} dead_code_elim={} \
-         local_copy_prop={} inline={} specialize={} dedup_monomorphized_instances={} \
-         prefer_size={} llvm_codegen={} llvm_size={}",
-        optimization_level_name(policy.level),
-        optimization_depth_name(policy.simplify_cfg),
-        optimization_depth_name(policy.const_fold),
-        optimization_depth_name(policy.dead_code_elim),
-        optimization_depth_name(policy.local_copy_prop),
-        inline_threshold_name(policy.inline_threshold),
-        specialization_policy_name(policy.specialize_generics),
-        policy.dedup_monomorphized_instances,
-        policy.prefer_size,
-        nia_codegen_llvm::llvm_codegen_optimization_level(policy.level).name(),
-        nia_codegen_llvm::llvm_codegen_size_policy(policy.level).name()
-    ));
-    print_line(format!(
-        "  enabled_module_passes={}",
-        enabled_passes_name(&report.enabled_module_passes)
-    ));
-    print_line(format!(
-        "  enabled_function_passes={}",
-        enabled_passes_name(&report.enabled_function_passes)
-    ));
-    print_line(format!(
-        "  enabled_global_passes={}",
-        enabled_passes_name(&report.enabled_global_passes)
-    ));
-    print_line(format!("  changes={}", report.changed_passes.len()));
-    if report.changed_passes.is_empty() {
-        print_line("  no changes".to_string());
-        return;
-    }
-    for change in &report.changed_passes {
-        match change {
-            nia_driver::BackendOptimizationChange::Function {
-                function,
-                pass,
-                is_instance,
-                type_arg_count,
-                ..
-            } => {
-                let instance = if *is_instance { " instance" } else { "" };
-                print_line(format!(
-                    "  m{}::d{}{} {} type_args={}",
-                    function.module_id.0, function.def_id.0, instance, pass, type_arg_count
-                ));
-            }
-            nia_driver::BackendOptimizationChange::Global { global, pass, .. } => {
-                print_line(format!(
-                    "  m{}::d{} global {}",
-                    global.module_id.0, global.def_id.0, pass
-                ));
-            }
-        }
-    }
-}
-
-fn enabled_passes_name(passes: &[&'static str]) -> String {
-    if passes.is_empty() {
-        "none".to_string()
-    } else {
-        passes.join(",")
-    }
-}
-
-fn optimization_level_name(level: NiaOptimizationLevel) -> &'static str {
-    match level {
-        NiaOptimizationLevel::O0 => "O0",
-        NiaOptimizationLevel::O1 => "O1",
-        NiaOptimizationLevel::O2 => "O2",
-        NiaOptimizationLevel::O3 => "O3",
-        NiaOptimizationLevel::Os => "Os",
-        NiaOptimizationLevel::Oz => "Oz",
-    }
-}
-
-fn optimization_depth_name(depth: OptimizationDepth) -> &'static str {
-    match depth {
-        OptimizationDepth::Disabled => "disabled",
-        OptimizationDepth::Required => "required",
-        OptimizationDepth::Cheap => "cheap",
-        OptimizationDepth::Full => "full",
-        OptimizationDepth::Aggressive => "aggressive",
-    }
-}
-
-fn inline_threshold_name(threshold: InlineThreshold) -> &'static str {
-    match threshold {
-        InlineThreshold::Never => "never",
-        InlineThreshold::Minimal => "minimal",
-        InlineThreshold::Size => "size",
-        InlineThreshold::Small => "small",
-        InlineThreshold::Normal => "normal",
-        InlineThreshold::Aggressive => "aggressive",
-    }
-}
-
-fn specialization_policy_name(policy: SpecializationPolicy) -> &'static str {
-    match policy {
-        SpecializationPolicy::RequiredOnly => "required-only",
-        SpecializationPolicy::SizeAware => "size-aware",
-        SpecializationPolicy::Normal => "normal",
-        SpecializationPolicy::Aggressive => "aggressive",
-    }
+    eprint!("{}", nia_driver::optimization_report(program));
 }
 
 #[cfg(test)]

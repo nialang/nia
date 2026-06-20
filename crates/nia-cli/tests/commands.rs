@@ -1262,6 +1262,153 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn emit_exe_passes_structured_link_options_to_linker() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir("emit_exe_passes_structured_link_options_to_linker");
+    let main = root.join("main.nia");
+    let executable = root.join("main");
+    let linker = root.join("linker.sh");
+    let args_log = root.join("linker.args");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+    std::fs::write(
+        &linker,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n",
+            args_log.display()
+        ),
+    )
+    .expect("write linker script");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make linker executable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .env("NIA_LINKER", &linker)
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--dynamic-linker")
+        .arg("/loader")
+        .arg("--linker")
+        .arg(&linker)
+        .arg("--linker-flavor")
+        .arg("lld")
+        .arg("-L")
+        .arg("/native/lib")
+        .arg("-l")
+        .arg("nia_capi")
+        .arg("--rpath")
+        .arg("$ORIGIN")
+        .arg("-o")
+        .arg(&executable)
+        .output_timeout("run nia emit --exe with structured link options");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = std::fs::read_to_string(&args_log).expect("read linker args");
+    assert!(args.lines().any(|arg| arg == "--dynamic-linker"), "{args}");
+    assert!(args.lines().any(|arg| arg == "/loader"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-L"), "{args}");
+    assert!(args.lines().any(|arg| arg == "/native/lib"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-l"), "{args}");
+    assert!(args.lines().any(|arg| arg == "nia_capi"), "{args}");
+    assert!(args.lines().any(|arg| arg == "-rpath"), "{args}");
+    assert!(args.lines().any(|arg| arg == "$ORIGIN"), "{args}");
+}
+
+#[test]
+fn emit_exe_reports_reserved_self_hosted_linker_flavor() {
+    let root = temp_dir("emit_exe_reports_reserved_self_hosted_linker_flavor");
+    let main = root.join("main.nia");
+    let executable = root.join("main");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--linker-flavor")
+        .arg("self-hosted-elf")
+        .arg("-o")
+        .arg(&executable)
+        .output_timeout("run nia emit --exe with reserved linker flavor");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("linker flavor `SelfHostedElf` is not implemented"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn emit_exe_reports_missing_lld_when_not_found() {
+    let root = temp_dir("emit_exe_reports_missing_lld_when_not_found");
+    let main = root.join("main.nia");
+    let executable = root.join("main");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .env("PATH", "")
+        .env_remove("NIA_LLD")
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--linker-flavor")
+        .arg("lld")
+        .arg("-o")
+        .arg(&executable)
+        .output_timeout("run nia emit --exe with missing lld");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("linker `ld.lld` for flavor `Lld` was not found"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn emit_obj_accepts_each_optimization_level() {
     let root = temp_dir("emit_obj_accepts_each_optimization_level");

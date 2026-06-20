@@ -1,5 +1,5 @@
 [package]
-name = "nia-cli"
+name = "nia-capi"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,6 +10,6 @@ nia-driver.workspace = true
 nia-ice.workspace = true
 nia-linker.workspace = true
 
-[[bin]]
-name = "nia"
-path = "src/main.rs"
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]

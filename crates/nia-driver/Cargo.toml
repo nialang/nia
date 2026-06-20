@@ -10,8 +10,11 @@ nia-codegen-llvm.workspace = true
 nia-compiler-query.workspace = true
 nia-diagnostic.workspace = true
 nia-imports.workspace = true
+nia-lexer.workspace = true
+nia-linker.workspace = true
 nia-opt.workspace = true
 nia-loader-query.workspace = true
+nia-parser.workspace = true
 nia-source.workspace = true
 nia-target-config.workspace = true
 

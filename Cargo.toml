@@ -20,6 +20,7 @@ members = [
     "crates/nia-query",
     "crates/nia-compiler-query",
     "crates/nia-loader-query",
+    "crates/nia-linker",
     "crates/nia-driver",
     "crates/nia-type-resolve",
     "crates/nia-value-resolve",
@@ -53,6 +54,7 @@ members = [
     "crates/nia-flow-check",
     "crates/nia-opt",
     "crates/nia-cli",
+    "crates/nia-capi",
 ]
 
 [workspace.package]
@@ -81,6 +83,7 @@ nia-imports = { path = "crates/nia-imports" }
 nia-query = { path = "crates/nia-query" }
 nia-compiler-query = { path = "crates/nia-compiler-query" }
 nia-loader-query = { path = "crates/nia-loader-query" }
+nia-linker = { path = "crates/nia-linker" }
 nia-driver = { path = "crates/nia-driver" }
 nia-type-resolve = { path = "crates/nia-type-resolve" }
 nia-value-resolve = { path = "crates/nia-value-resolve" }
@@ -113,4 +116,5 @@ nia-layout = { path = "crates/nia-layout" }
 nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
+nia-capi = { path = "crates/nia-capi" }
 llvm-sys = { version = "221.0.1", features = ["prefer-dynamic"] }

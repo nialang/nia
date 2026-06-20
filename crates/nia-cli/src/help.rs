@@ -126,7 +126,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --backend <file.nia> [--opt-report] [options]",
                 "nia emit --llvm <file.nia> [--opt-report] [options]",
                 "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --exe <file.nia> [-o <executable>] [--runtime freestanding] [--link-arg <arg>] [--opt-report] [options]",
+                "nia emit --exe <file.nia> [-o <executable>] [--runtime freestanding] [link options] [--opt-report] [options]",
             ],
             commands: &[],
             options: &[
@@ -167,6 +167,34 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "pass an extra argument to the executable linker; may appear multiple times",
                 },
                 HelpRow {
+                    left: "--linker <program>",
+                    right: "select the executable linker program for --exe",
+                },
+                HelpRow {
+                    left: "--linker-flavor <gnu|lld|self-hosted-elf>",
+                    right: "select how Nia translates structured link options",
+                },
+                HelpRow {
+                    left: "--dynamic-linker <auto|none|path>",
+                    right: "link a dynamic executable with an ELF interpreter policy",
+                },
+                HelpRow {
+                    left: "--no-dynamic-linker",
+                    right: "link a dynamic executable without an ELF interpreter",
+                },
+                HelpRow {
+                    left: "-L, --library-path <dir>",
+                    right: "add a native library search path for --exe",
+                },
+                HelpRow {
+                    left: "-l, --library <name>",
+                    right: "link a native library by name for --exe",
+                },
+                HelpRow {
+                    left: "--rpath <path>",
+                    right: "add a runtime library search path for --exe",
+                },
+                HelpRow {
                     left: "-o <file.o>",
                     right: "write a single object file for --obj, or executable for --exe",
                 },
@@ -203,7 +231,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --obj src/main.nia --out-dir build/obj",
                 "nia emit --obj src/main.nia --runtime freestanding -o build/startup.o",
                 "nia emit --exe src/main.nia -o build/main",
-                "nia emit --exe src/main.nia --link-arg -lc -o build/main",
+                "nia emit --exe src/main.nia -L target/debug/deps -l nia_capi --rpath target/debug/deps --dynamic-linker auto -o build/main",
             ],
             notes: &[
                 "Use exactly one emit target flag.",
@@ -213,6 +241,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "Use --out-dir when --obj emits multiple codegen units.",
                 "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
+                "For --linker-flavor lld, an explicit --linker wins; otherwise NIA_LLD or PATH is used to find ld.lld.",
                 "The default executable runtime is freestanding and enters through the injected standard-library startup facade; the current implementation is Linux x86_64.",
                 "Missing parent directories for -o and --out-dir are created automatically.",
             ],
