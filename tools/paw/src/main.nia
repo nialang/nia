@@ -91,7 +91,7 @@ fn reject_extra_args(stderr: &mut io::FileWriter, args: &mut process::ArgsIter) 
 fn print_result(stderr: &mut io::FileWriter, result: &void) process::ExitCode!void {
     let message = capi::result_message(result);
     if not message.is_empty() {
-        write_bytes(stderr, message.bytes()).?;
+        stderr.print("{}", &[message.bytes()]).exit().?;
     }
     capi::free_string(message);
     !{}

@@ -312,6 +312,57 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fmt_formats_byte_slices_as_bytes() {
+    let root = temp_dir("emit_exe_std_fmt_formats_byte_slices_as_bytes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::io;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var raw: [128]u8 = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(init.io(), &mut raw);
+    let bytes: &[u8] = b"nia";
+    stdout.print("bytes={} right='{:>5}' left='{:<5}' trunc='{:.2}'\n", &[
+        bytes,
+        bytes,
+        bytes,
+        bytes,
+    ]).exit().?;
+    stdout.flush().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output_timeout("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "bytes=nia right='  nia' left='nia  ' trunc='ni'\n"
+    );
+}
+
+#[test]
 fn emit_exe_std_fmt_formats_pointers() {
     let root = temp_dir("emit_exe_std_fmt_formats_pointers");
     let main = root.join("main.nia");
