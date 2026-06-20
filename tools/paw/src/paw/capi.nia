@@ -30,8 +30,26 @@ extern fn nia_session_free(session: &void) void;
 
 extern fn nia_check_request_new(path_ptr: &u8, path_len: usize) &void;
 extern fn nia_check_request_free(request: &void) void;
+extern fn nia_check_request_add_module(
+    request: &void,
+    name_ptr: &u8,
+    name_len: usize,
+    path_ptr: &u8,
+    path_len: usize,
+) i32;
 extern fn nia_check_request_set_runtime(request: &void, runtime: i32) i32;
 extern fn nia_check_request_set_optimization(request: &void, level: i32) i32;
+
+extern fn nia_link_options_new() &void;
+extern fn nia_link_options_free(options: &void) void;
+extern fn nia_link_options_add_arg(options: &void, arg_ptr: &u8, arg_len: usize) i32;
+extern fn nia_link_options_set_linker(options: &void, program_ptr: &u8, program_len: usize) i32;
+extern fn nia_link_options_set_dynamic_linker_auto(options: &void) i32;
+extern fn nia_link_options_set_no_dynamic_linker(options: &void) i32;
+extern fn nia_link_options_set_dynamic_linker_path(options: &void, path_ptr: &u8, path_len: usize) i32;
+extern fn nia_link_options_add_library_path(options: &void, path_ptr: &u8, path_len: usize) i32;
+extern fn nia_link_options_add_rpath(options: &void, path_ptr: &u8, path_len: usize) i32;
+extern fn nia_link_options_add_library(options: &void, name_ptr: &u8, name_len: usize) i32;
 
 extern fn nia_session_check(session: &void, request: &void) &void;
 extern fn nia_session_emit_object_file(
@@ -39,6 +57,19 @@ extern fn nia_session_emit_object_file(
     request: &void,
     output_ptr: &u8,
     output_len: usize,
+) &void;
+extern fn nia_session_emit_executable(
+    session: &void,
+    request: &void,
+    output_ptr: &u8,
+    output_len: usize,
+) &void;
+extern fn nia_session_emit_executable_with_options(
+    session: &void,
+    request: &void,
+    output_ptr: &u8,
+    output_len: usize,
+    options: &void,
 ) &void;
 extern fn nia_session_emit_object_directory(
     session: &void,
@@ -79,6 +110,16 @@ pub fn check_request_free(request: &void) void {
     nia_check_request_free(request)
 }
 
+pub fn check_request_add_module(request: &void, name: &[u8], path: &[u8]) i32 {
+    nia_check_request_add_module(
+        request,
+        name.get_ptr_read(),
+        name.len(),
+        path.get_ptr_read(),
+        path.len(),
+    )
+}
+
 pub fn check_request_set_bare(request: &void) i32 {
     nia_check_request_set_runtime(request, runtime_bare)
 }
@@ -91,6 +132,46 @@ pub fn check_request_set_o0(request: &void) i32 {
     nia_check_request_set_optimization(request, opt_o0)
 }
 
+pub fn link_options_new() &void {
+    nia_link_options_new()
+}
+
+pub fn link_options_free(options: &void) void {
+    nia_link_options_free(options)
+}
+
+pub fn link_options_add_arg(options: &void, arg: &[u8]) i32 {
+    nia_link_options_add_arg(options, arg.get_ptr_read(), arg.len())
+}
+
+pub fn link_options_set_linker(options: &void, program: &[u8]) i32 {
+    nia_link_options_set_linker(options, program.get_ptr_read(), program.len())
+}
+
+pub fn link_options_set_dynamic_linker_auto(options: &void) i32 {
+    nia_link_options_set_dynamic_linker_auto(options)
+}
+
+pub fn link_options_set_no_dynamic_linker(options: &void) i32 {
+    nia_link_options_set_no_dynamic_linker(options)
+}
+
+pub fn link_options_set_dynamic_linker_path(options: &void, path: &[u8]) i32 {
+    nia_link_options_set_dynamic_linker_path(options, path.get_ptr_read(), path.len())
+}
+
+pub fn link_options_add_library_path(options: &void, path: &[u8]) i32 {
+    nia_link_options_add_library_path(options, path.get_ptr_read(), path.len())
+}
+
+pub fn link_options_add_rpath(options: &void, path: &[u8]) i32 {
+    nia_link_options_add_rpath(options, path.get_ptr_read(), path.len())
+}
+
+pub fn link_options_add_library(options: &void, name: &[u8]) i32 {
+    nia_link_options_add_library(options, name.get_ptr_read(), name.len())
+}
+
 pub fn session_check(session: &void, request: &void) &void {
     nia_session_check(session, request)
 }
@@ -101,6 +182,14 @@ pub fn session_emit_object_file(session: &void, request: &void, output: &[u8]) &
 
 pub fn session_emit_object_directory(session: &void, request: &void, output: &[u8]) &void {
     nia_session_emit_object_directory(session, request, output.get_ptr_read(), output.len())
+}
+
+pub fn session_emit_executable(session: &void, request: &void, output: &[u8]) &void {
+    nia_session_emit_executable(session, request, output.get_ptr_read(), output.len())
+}
+
+pub fn session_emit_executable_with_options(session: &void, request: &void, output: &[u8], options: &void) &void {
+    nia_session_emit_executable_with_options(session, request, output.get_ptr_read(), output.len(), options)
 }
 
 pub fn result_status(result: &void) i32 {
