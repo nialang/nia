@@ -143,12 +143,10 @@ fn package_main_path(root: process::Arg, out: &mut [u8]) process::ExitCode!&[u8]
     !&out[0..len]
 }
 
-fn package_root_path(root: process::Arg, name: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
+fn package_core_path(root: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
     var len = 0usize;
     append_bytes(out, &mut len, root.bytes()).?;
-    append_bytes(out, &mut len, b"/src/").?;
-    append_bytes(out, &mut len, name.bytes()).?;
-    append_bytes(out, &mut len, b".nia").?;
+    append_bytes(out, &mut len, b"/src/core.nia").?;
     !&out[0..len]
 }
 
@@ -172,7 +170,7 @@ fn run_check_pkg(stderr: &mut io::FileWriter, name: process::Arg, root: process:
     var main_storage: [4096]u8 = [0; 4096];
     var package_storage: [4096]u8 = [0; 4096];
     let main_path = package_main_path(root, &mut main_storage).?;
-    let package_path = package_root_path(root, name, &mut package_storage).?;
+    let package_path = package_core_path(root, &mut package_storage).?;
 
     let session = capi::session_new();
     if session as usize == 0usize {
