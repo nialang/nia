@@ -4,24 +4,204 @@ use std::cmp::Ordering;
 use std::fmt;
 
 pub mod codes {
-    pub const ICE: &str = "I0001";
-    pub const INTERNAL_RESOLUTION: &str = "I0100";
-    pub const INTERNAL_LLVM_API: &str = "I0200";
-    pub const INVALID_FUNCTION_IR: &str = "I0201";
-    pub const INVALID_BACKEND_IR: &str = "I0300";
-    pub const INVALID_BODY_IR: &str = "I0301";
+    use super::{DiagnosticCategory, DiagnosticCode, Severity};
 
-    pub const PARSE: &str = "E0101";
-    pub const LOAD: &str = "E0102";
-    pub const TARGET_CONFIG: &str = "E0103";
-    pub const NAME_RESOLUTION: &str = "E0201";
-    pub const TYPE_NORMALIZATION: &str = "E0202";
-    pub const ITEM_SIGNATURE: &str = "E0203";
-    pub const TYPE_CHECK: &str = "E0301";
-    pub const LOCAL_RESOLUTION: &str = "E0302";
-    pub const COMPTIME: &str = "E0401";
-    pub const STATIC_CHECK: &str = "E0501";
-    pub const LLVM_CODEGEN: &str = "E0601";
+    pub const ICE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0001",
+        DiagnosticStage::Compiler,
+        "ice",
+        "compiler panic or explicit internal compiler error",
+    );
+    pub const INTERNAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0100",
+        DiagnosticStage::Resolution,
+        "internal-resolution",
+        "resolver invariant failure",
+    );
+    pub const INTERNAL_LLVM_API: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0200",
+        DiagnosticStage::Llvm,
+        "llvm-api",
+        "LLVM API returned an unexpected failure",
+    );
+    pub const INVALID_FUNCTION_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0201",
+        DiagnosticStage::FunctionIr,
+        "invalid-function-ir",
+        "function IR invariant failure",
+    );
+    pub const INVALID_BACKEND_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0300",
+        DiagnosticStage::BackendIr,
+        "invalid-backend-ir",
+        "backend IR invariant failure",
+    );
+    pub const INVALID_BODY_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+        "I0301",
+        DiagnosticStage::BodyIr,
+        "invalid-body-ir",
+        "body IR invariant failure",
+    );
+
+    pub const PARSE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0101",
+        DiagnosticStage::Parse,
+        "parse",
+        "source could not be parsed into valid Nia syntax",
+    );
+    pub const LOAD: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0102",
+        DiagnosticStage::Load,
+        "load",
+        "module loading or import graph failed",
+    );
+    pub const TARGET_CONFIG: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0103",
+        DiagnosticStage::TargetConfig,
+        "target-config",
+        "target configuration is invalid",
+    );
+    pub const NAME_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0201",
+        DiagnosticStage::Resolution,
+        "name-resolution",
+        "name or item resolution failed",
+    );
+    pub const TYPE_NORMALIZATION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0202",
+        DiagnosticStage::TypeNormalization,
+        "type-normalization",
+        "type normalization failed",
+    );
+    pub const ITEM_SIGNATURE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0203",
+        DiagnosticStage::ItemSignature,
+        "item-signature",
+        "item signature collection failed",
+    );
+    pub const TYPE_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0301",
+        DiagnosticStage::TypeCheck,
+        "type-check",
+        "expression, statement, or body type checking failed",
+    );
+    pub const LOCAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0302",
+        DiagnosticStage::LocalResolution,
+        "local-resolution",
+        "local binding resolution failed",
+    );
+    pub const COMPTIME: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0401",
+        DiagnosticStage::Comptime,
+        "comptime",
+        "comptime evaluation failed",
+    );
+    pub const STATIC_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0501",
+        DiagnosticStage::StaticCheck,
+        "static-check",
+        "static layout, ABI, or initializer check failed",
+    );
+    pub const LLVM_CODEGEN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+        "E0601",
+        DiagnosticStage::Llvm,
+        "llvm-codegen",
+        "LLVM code generation failed",
+    );
+
+    pub const ALL: &[DiagnosticCodeDef] = &[
+        ICE,
+        INTERNAL_RESOLUTION,
+        INTERNAL_LLVM_API,
+        INVALID_FUNCTION_IR,
+        INVALID_BACKEND_IR,
+        INVALID_BODY_IR,
+        PARSE,
+        LOAD,
+        TARGET_CONFIG,
+        NAME_RESOLUTION,
+        TYPE_NORMALIZATION,
+        ITEM_SIGNATURE,
+        TYPE_CHECK,
+        LOCAL_RESOLUTION,
+        COMPTIME,
+        STATIC_CHECK,
+        LLVM_CODEGEN,
+    ];
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct DiagnosticCodeDef {
+        pub code: &'static str,
+        pub severity: Severity,
+        pub category: DiagnosticCategory,
+        pub stage: DiagnosticStage,
+        pub name: &'static str,
+        pub description: &'static str,
+    }
+
+    impl DiagnosticCodeDef {
+        pub const fn user(
+            code: &'static str,
+            stage: DiagnosticStage,
+            name: &'static str,
+            description: &'static str,
+        ) -> Self {
+            Self {
+                code,
+                severity: Severity::Error,
+                category: DiagnosticCategory::User,
+                stage,
+                name,
+                description,
+            }
+        }
+
+        pub const fn internal(
+            code: &'static str,
+            stage: DiagnosticStage,
+            name: &'static str,
+            description: &'static str,
+        ) -> Self {
+            Self {
+                code,
+                severity: Severity::Error,
+                category: DiagnosticCategory::Internal,
+                stage,
+                name,
+                description,
+            }
+        }
+
+        pub const fn as_str(self) -> &'static str {
+            self.code
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum DiagnosticStage {
+        Compiler,
+        Parse,
+        Load,
+        TargetConfig,
+        Resolution,
+        TypeNormalization,
+        ItemSignature,
+        LocalResolution,
+        TypeCheck,
+        BodyIr,
+        Comptime,
+        StaticCheck,
+        FunctionIr,
+        BackendIr,
+        Llvm,
+    }
+
+    impl From<DiagnosticCodeDef> for DiagnosticCode {
+        fn from(value: DiagnosticCodeDef) -> Self {
+            Self::registered(value)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,26 +217,37 @@ pub struct Diagnostic {
     pub debug: Box<Vec<DebugField>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Severity {
     Error,
     Warning,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCategory {
     User,
     Internal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DiagnosticCode(String);
+pub struct DiagnosticCode {
+    code: String,
+    registered: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticLabel {
     pub span: Span,
+    pub span_source: SpanSource,
     pub style: LabelStyle,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpanSource {
+    Source,
+    Fallback,
+    Generated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +270,65 @@ pub struct DebugField {
 
 pub struct DiagnosticBuilder {
     diagnostic: Diagnostic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticSinkConfig {
+    pub allow_user_fallback_spans: bool,
+}
+
+impl Default for DiagnosticSinkConfig {
+    fn default() -> Self {
+        Self {
+            allow_user_fallback_spans: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticSink {
+    diagnostics: Vec<Diagnostic>,
+    config: DiagnosticSinkConfig,
+}
+
+impl DiagnosticSink {
+    pub fn new(config: DiagnosticSinkConfig) -> Self {
+        Self {
+            diagnostics: Vec::new(),
+            config,
+        }
+    }
+
+    pub fn emit(&mut self, diagnostic: Diagnostic) {
+        self.validate_emit_contract(&diagnostic);
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub fn extend(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
+        for diagnostic in diagnostics {
+            self.emit(diagnostic);
+        }
+    }
+
+    pub fn finish(self) -> Vec<Diagnostic> {
+        self.diagnostics
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    fn validate_emit_contract(&self, diagnostic: &Diagnostic) {
+        if diagnostic.category == DiagnosticCategory::User
+            && !self.config.allow_user_fallback_spans
+            && diagnostic
+                .labels
+                .iter()
+                .any(|label| label.span_source == SpanSource::Fallback)
+        {
+            panic!("Nia ICE: user diagnostic emitted with fallback span");
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +449,21 @@ impl Diagnostic {
             .find(|label| label.style == LabelStyle::Primary)
             .and_then(|label| label.message.as_deref())
     }
+
+    pub fn primary_label(&self) -> Option<&DiagnosticLabel> {
+        self.labels
+            .iter()
+            .find(|label| label.style == LabelStyle::Primary)
+            .or_else(|| self.labels.first())
+    }
+
+    pub fn primary_span_source(&self) -> Option<SpanSource> {
+        self.primary_label().map(|label| label.span_source)
+    }
+
+    pub fn uses_unregistered_code(&self) -> bool {
+        !self.code.is_registered()
+    }
 }
 
 impl DiagnosticReportItem for Diagnostic {
@@ -211,6 +476,7 @@ impl DiagnosticBuilder {
     pub fn primary(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
+            span_source: SpanSource::Source,
             style: LabelStyle::Primary,
             message: Some(message.into()),
         });
@@ -220,8 +486,19 @@ impl DiagnosticBuilder {
     pub fn primary_span(mut self, span: Span) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
+            span_source: SpanSource::Source,
             style: LabelStyle::Primary,
             message: None,
+        });
+        self
+    }
+
+    pub fn primary_fallback(mut self, span: Span, message: impl Into<String>) -> Self {
+        self.diagnostic.labels.push(DiagnosticLabel {
+            span,
+            span_source: SpanSource::Fallback,
+            style: LabelStyle::Primary,
+            message: Some(message.into()),
         });
         self
     }
@@ -229,6 +506,17 @@ impl DiagnosticBuilder {
     pub fn secondary(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
+            span_source: SpanSource::Source,
+            style: LabelStyle::Secondary,
+            message: Some(message.into()),
+        });
+        self
+    }
+
+    pub fn secondary_fallback(mut self, span: Span, message: impl Into<String>) -> Self {
+        self.diagnostic.labels.push(DiagnosticLabel {
+            span,
+            span_source: SpanSource::Fallback,
             style: LabelStyle::Secondary,
             message: Some(message.into()),
         });
@@ -306,6 +594,12 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
         .then_with(|| left.report_path().cmp(&right.report_path()))
         .then_with(|| {
             left_diagnostic
+                .uses_unregistered_code()
+                .cmp(&right_diagnostic.uses_unregistered_code())
+        })
+        .then_with(|| span_source_rank(left_diagnostic).cmp(&span_source_rank(right_diagnostic)))
+        .then_with(|| {
+            left_diagnostic
                 .primary_span()
                 .unwrap_or_default()
                 .start
@@ -339,13 +633,24 @@ fn diagnostic_priority(diagnostic: &Diagnostic) -> (u8, u8) {
     (category, severity)
 }
 
+fn span_source_rank(diagnostic: &Diagnostic) -> u8 {
+    match diagnostic.primary_span_source() {
+        Some(SpanSource::Source) => 0,
+        Some(SpanSource::Generated) => 1,
+        Some(SpanSource::Fallback) => 2,
+        None => 3,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DiagnosticDedupeKey {
     path: Option<String>,
     category: DiagnosticCategory,
     severity: Severity,
     code: String,
+    registered: bool,
     span: Option<Span>,
+    span_source: Option<SpanSource>,
     summary: String,
 }
 
@@ -357,7 +662,9 @@ impl DiagnosticDedupeKey {
             category: diagnostic.category,
             severity: diagnostic.severity,
             code: diagnostic.code.as_str().to_string(),
+            registered: diagnostic.code.is_registered(),
             span: diagnostic.primary_span(),
+            span_source: diagnostic.primary_span_source(),
             summary: diagnostic.summary.clone(),
         }
     }
@@ -365,11 +672,25 @@ impl DiagnosticDedupeKey {
 
 impl DiagnosticCode {
     pub fn new(code: impl Into<String>) -> Self {
-        Self(code.into())
+        Self {
+            code: code.into(),
+            registered: false,
+        }
+    }
+
+    pub fn registered(code: codes::DiagnosticCodeDef) -> Self {
+        Self {
+            code: code.code.to_string(),
+            registered: true,
+        }
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.code
+    }
+
+    pub fn is_registered(&self) -> bool {
+        self.registered
     }
 }
 
@@ -387,7 +708,7 @@ impl From<String> for DiagnosticCode {
 
 impl fmt::Display for DiagnosticCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.code)
     }
 }
 
@@ -557,13 +878,13 @@ mod tests {
 
     #[test]
     fn renders_code_labels_notes_and_help() {
-        let diagnostic = Diagnostic::user_error("E0001", "expected `;` after binding")
+        let diagnostic = Diagnostic::user_error(codes::PARSE, "expected `;` after binding")
             .primary(Span::new(11, 16), "statement starts here")
             .note("parser was recovering after a missing token")
             .help("insert `;` before this statement")
             .finish();
         let rendered = render_diagnostic("main.nia", "var x = 1;\nprint(x);\n", &diagnostic);
-        assert!(rendered.contains("error[E0001]: expected `;` after binding"));
+        assert!(rendered.contains("error[E0101]: expected `;` after binding"));
         assert!(rendered.contains("--> main.nia:2:1"));
         assert!(rendered.contains("2 | print(x);"));
         assert!(rendered.contains("| ^^^^^ statement starts here"));
@@ -573,7 +894,7 @@ mod tests {
 
     #[test]
     fn renders_empty_spans_with_one_caret() {
-        let diagnostic = Diagnostic::user_error("E0001", "empty")
+        let diagnostic = Diagnostic::user_error(codes::PARSE, "empty")
             .primary_span(Span::new(1, 1))
             .finish();
         let rendered = render_diagnostic("main.nia", "abc", &diagnostic);
@@ -583,7 +904,7 @@ mod tests {
 
     #[test]
     fn renders_internal_debug_payload() {
-        let diagnostic = Diagnostic::internal_error("I0001", "missing definition")
+        let diagnostic = Diagnostic::internal_error(codes::ICE, "missing definition")
             .primary(Span::new(0, 1), "while collecting item signature")
             .debug("node_key", "n1")
             .finish();
@@ -595,9 +916,9 @@ mod tests {
     #[test]
     fn report_prioritizes_internal_diagnostics_and_limits_output() {
         let diagnostics = vec![
-            Diagnostic::user_error_at("E0001", Span::new(10, 11), "user error"),
-            Diagnostic::internal_error_at("I0001", Span::new(20, 21), "internal error"),
-            Diagnostic::user_error_at("E0002", Span::new(30, 31), "second user error"),
+            Diagnostic::user_error_at(codes::PARSE, Span::new(10, 11), "user error"),
+            Diagnostic::internal_error_at(codes::ICE, Span::new(20, 21), "internal error"),
+            Diagnostic::user_error_at(codes::LOAD, Span::new(30, 31), "second user error"),
         ];
 
         let report =
@@ -611,13 +932,77 @@ mod tests {
     #[test]
     fn report_deduplicates_same_diagnostic() {
         let diagnostics = vec![
-            Diagnostic::user_error_at("E0001", Span::new(10, 11), "same error"),
-            Diagnostic::user_error_at("E0001", Span::new(10, 11), "same error"),
+            Diagnostic::user_error_at(codes::PARSE, Span::new(10, 11), "same error"),
+            Diagnostic::user_error_at(codes::PARSE, Span::new(10, 11), "same error"),
         ];
 
         let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
 
         assert_eq!(report.entries().len(), 1);
         assert_eq!(report.suppressed_duplicates(), 1);
+    }
+
+    #[test]
+    fn registered_codes_are_unique_and_well_formed() {
+        let mut seen = Vec::new();
+        for code in codes::ALL {
+            assert_eq!(code.code.len(), 5, "{code:?}");
+            let mut chars = code.code.chars();
+            let prefix = chars.next().expect("code prefix");
+            assert!(matches!(prefix, 'E' | 'I'), "{code:?}");
+            assert!(chars.all(|ch| ch.is_ascii_digit()), "{code:?}");
+            assert_eq!(
+                matches!(prefix, 'I'),
+                code.category == DiagnosticCategory::Internal,
+                "{code:?}"
+            );
+            assert!(
+                seen.iter().all(|seen_code| seen_code != &code.code),
+                "duplicate diagnostic code {}",
+                code.code
+            );
+            seen.push(code.code);
+        }
+    }
+
+    #[test]
+    fn diagnostics_remember_whether_code_is_registered() {
+        let registered = Diagnostic::user_error(codes::PARSE, "registered").finish();
+        let raw = Diagnostic::user_error("E9999", "raw").finish();
+
+        assert!(!registered.uses_unregistered_code());
+        assert!(raw.uses_unregistered_code());
+    }
+
+    #[test]
+    fn labels_track_span_source() {
+        let diagnostic = Diagnostic::internal_error(codes::ICE, "fallback")
+            .primary_fallback(Span::default(), "fallback span")
+            .finish();
+
+        assert_eq!(diagnostic.primary_span_source(), Some(SpanSource::Fallback));
+    }
+
+    #[test]
+    fn diagnostic_sink_accepts_internal_fallback_spans() {
+        let diagnostic = Diagnostic::internal_error(codes::ICE, "fallback")
+            .primary_fallback(Span::default(), "fallback span")
+            .finish();
+        let mut sink = DiagnosticSink::new(DiagnosticSinkConfig::default());
+
+        sink.emit(diagnostic);
+
+        assert_eq!(sink.diagnostics().len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "user diagnostic emitted with fallback span")]
+    fn diagnostic_sink_rejects_user_fallback_spans() {
+        let diagnostic = Diagnostic::user_error(codes::PARSE, "fallback")
+            .primary_fallback(Span::default(), "fallback span")
+            .finish();
+        let mut sink = DiagnosticSink::new(DiagnosticSinkConfig::default());
+
+        sink.emit(diagnostic);
     }
 }
