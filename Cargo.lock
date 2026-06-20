@@ -365,7 +365,6 @@ dependencies = [
  "nia-source",
  "nia-static-ir",
  "nia-target-config",
- "nia-ty",
 ]
 
 [[package]]
