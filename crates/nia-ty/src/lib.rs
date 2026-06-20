@@ -292,6 +292,97 @@ impl TyInterner {
     pub fn is_empty(&self) -> bool {
         self.tys.is_empty()
     }
+
+    pub fn contains_error(&self, id: InternedTyId) -> bool {
+        let mut seen = Vec::new();
+        self.contains_error_inner(id, &mut seen)
+    }
+
+    fn contains_error_inner(&self, id: InternedTyId, seen: &mut Vec<InternedTyId>) -> bool {
+        if !seen.iter().any(|seen_id| *seen_id == id) {
+            seen.push(id);
+        } else {
+            return false;
+        }
+        match self.get(id) {
+            None | Some(TyKind::Error) => true,
+            Some(TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::GenericParam(_)) => false,
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
+            | Some(TyKind::Optional { elem }) => self.contains_error_inner(*elem, seen),
+            Some(TyKind::Array { len, elem }) => {
+                self.array_len_contains_error(len, seen) || self.contains_error_inner(*elem, seen)
+            }
+            Some(TyKind::Vector { .. }) => false,
+            Some(TyKind::Range { bound, .. }) => bound
+                .map(|bound| self.contains_error_inner(bound, seen))
+                .unwrap_or(false),
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .iter()
+                    .any(|param| self.contains_error_inner(*param, seen))
+                    || self.contains_error_inner(*return_type, seen)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.contains_error_inner(*error, seen) || self.contains_error_inner(*value, seen)
+            }
+            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => {
+                args.iter().any(|arg| self.contains_error_inner(*arg, seen))
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.contains_error_inner(*arg, seen))
+                    || associated_type_bindings
+                        .iter()
+                        .any(|binding| self.associated_type_binding_contains_error(binding, seen))
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.contains_error_inner(*self_ty, seen)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.contains_error_inner(*arg, seen))
+            }
+        }
+    }
+
+    fn array_len_contains_error(&self, len: &ArrayLenTy, seen: &mut Vec<InternedTyId>) -> bool {
+        match len {
+            ArrayLenTy::Builtin { ty, .. } => self.contains_error_inner(*ty, seen),
+            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => false,
+        }
+    }
+
+    fn associated_type_binding_contains_error(
+        &self,
+        binding: &AssociatedTypeBindingTy,
+        seen: &mut Vec<InternedTyId>,
+    ) -> bool {
+        binding
+            .trait_args
+            .iter()
+            .any(|arg| self.contains_error_inner(*arg, seen))
+            || self.contains_error_inner(binding.ty, seen)
+    }
 }
 
 pub fn import_type_into(
@@ -913,6 +1004,21 @@ mod tests {
         assert_eq!(PrimitiveTypeSpelling::from_name("charx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("voidx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("!x4"), None);
+    }
+
+    #[test]
+    fn contains_error_detects_nested_error_types() {
+        let mut interner = TyInterner::new(ModuleId(0));
+        let err = interner.error();
+        let ptr = interner.intern(TyKind::Pointer {
+            is_readonly: false,
+            elem: err,
+        });
+        let value = interner.primitive(PrimitiveTy::I32);
+        let union = interner.intern(TyKind::ErrorUnion { error: ptr, value });
+
+        assert!(interner.contains_error(union));
+        assert!(!interner.contains_error(value));
     }
 
     #[test]

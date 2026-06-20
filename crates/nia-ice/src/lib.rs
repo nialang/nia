@@ -27,7 +27,8 @@ impl Ice {
     }
 
     pub fn diagnostic(&self) -> Diagnostic {
-        let mut diagnostic = Diagnostic::internal_error("I0001", self.render_summary())
+        let mut diagnostic =
+            Diagnostic::internal_error(nia_diagnostic::codes::ICE, self.render_summary())
             .note("this is a compiler bug; please report it with the source file and command that triggered it");
         if let Some(location) = &self.location {
             diagnostic = diagnostic.debug("panic_location", location);
