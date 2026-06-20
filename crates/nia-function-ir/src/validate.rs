@@ -453,8 +453,13 @@ impl<'a> FunctionIrValidator<'a> {
                 }
             }
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic)?,
-            FunctionExprKind::Error
-            | FunctionExprKind::Integer(_)
+            FunctionExprKind::Error => {
+                return Err(FunctionIrError::new(
+                    expr.span,
+                    "error expression escaped into function IR",
+                ));
+            }
+            FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
             | FunctionExprKind::ByteString(_)
@@ -514,12 +519,24 @@ impl<'a> FunctionIrValidator<'a> {
                 self.require_local(*local_id, place.span, "place local")?
             }
             FunctionPlaceBase::Deref(expr) => self.validate_value_expr(expr)?,
-            FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
+            FunctionPlaceBase::Error => {
+                return Err(FunctionIrError::new(
+                    place.span,
+                    "error place escaped into function IR",
+                ));
+            }
+            FunctionPlaceBase::Global(_) => {}
         }
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Index(index) => self.validate_value_expr(index)?,
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Error => {
+                    return Err(FunctionIrError::new(
+                        place.span,
+                        "error place element escaped into function IR",
+                    ));
+                }
+                FunctionPlaceElem::Field(_) => {}
             }
         }
         Ok(())
@@ -750,6 +767,41 @@ mod tests {
             error
                 .message
                 .contains("effect-only expression used where a value is required"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_error_expression() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Error,
+                })],
+                terminator: FunctionTerminator::Tail { value: None, span },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        };
+
+        let error = validate_function_body(&body).expect_err("error expr should fail");
+
+        assert!(
+            error.message.contains("error expression escaped"),
             "{error:?}"
         );
     }

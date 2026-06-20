@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{BackendOptimizationChange, CheckedProgram, DriverError, NiaOptimizationLevel};
-use nia_diagnostic::{Diagnostic, render_diagnostic};
+use nia_diagnostic::{
+    Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
+    render_diagnostic,
+};
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 use std::fs;
 
@@ -79,17 +82,27 @@ pub fn render_program_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
     out.push_str("diagnostics:\n");
-    for diagnostic in &program.diagnostics {
-        let source = diagnostic_source(diagnostic.path.as_str(), primary_path, primary_source);
-        out.push_str(&render_diagnostic(
-            diagnostic.path.as_str(),
-            &source,
-            &diagnostic.diagnostic,
-        ));
+    for entry in report.entries() {
+        let source = diagnostic_source(entry.path, primary_path, primary_source);
+        out.push_str(&render_diagnostic(entry.path, &source, entry.diagnostic));
         out.push('\n');
     }
+    push_suppressed_summary(
+        &mut out,
+        report.suppressed_duplicates(),
+        report.suppressed_by_limit(),
+    );
     out
 }
 
@@ -133,26 +146,78 @@ pub fn render_codegen_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
+    let report = build_diagnostic_report(diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
     out.push_str("codegen diagnostics:\n");
     let path = primary_path.unwrap_or("<codegen>");
     let source = primary_source.unwrap_or("");
-    for diagnostic in diagnostics {
+    for diagnostic in report.entries() {
         out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
+    push_suppressed_summary(
+        &mut out,
+        report.suppressed_duplicates(),
+        report.suppressed_by_limit(),
+    );
     out
 }
 
 pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError]) -> String {
+    let diagnostics = errors
+        .iter()
+        .map(|error| {
+            Diagnostic::user_error_at(
+                nia_diagnostic::codes::PARSE,
+                error.span,
+                error.message.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
     out.push_str("parse errors:\n");
-    for error in errors {
-        let diagnostic = Diagnostic::user_error_at("E0103", error.span, error.message.clone());
-        out.push_str(&render_diagnostic(path, source, &diagnostic));
+    for diagnostic in report.entries() {
+        out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
+    push_suppressed_summary(
+        &mut out,
+        report.suppressed_duplicates(),
+        report.suppressed_by_limit(),
+    );
     out
+}
+
+struct ProgramDiagnosticReportItem<'a> {
+    path: &'a str,
+    diagnostic: &'a Diagnostic,
+}
+
+impl DiagnosticReportItem for ProgramDiagnosticReportItem<'_> {
+    fn report_diagnostic(&self) -> &Diagnostic {
+        self.diagnostic
+    }
+
+    fn report_path(&self) -> Option<&str> {
+        Some(self.path)
+    }
+}
+
+fn push_suppressed_summary(out: &mut String, duplicates: usize, by_limit: usize) {
+    if duplicates == 0 && by_limit == 0 {
+        return;
+    }
+    out.push_str(&format!(
+        "note: suppressed {total} diagnostic(s)",
+        total = duplicates + by_limit
+    ));
+    if duplicates > 0 || by_limit > 0 {
+        out.push_str(&format!(
+            " ({duplicates} duplicate(s), {by_limit} over limit)"
+        ));
+    }
+    out.push('\n');
 }
 
 fn diagnostic_source(
@@ -214,5 +279,60 @@ fn specialization_policy_name(policy: SpecializationPolicy) -> &'static str {
         SpecializationPolicy::SizeAware => "size-aware",
         SpecializationPolicy::Normal => "normal",
         SpecializationPolicy::Aggressive => "aggressive",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_span::Span;
+
+    #[test]
+    fn codegen_report_prioritizes_internal_diagnostics_and_summarizes_suppressed() {
+        let mut diagnostics = vec![Diagnostic::user_error_at(
+            "E0001",
+            Span::new(0, 1),
+            "duplicate user error",
+        )];
+        diagnostics.push(Diagnostic::user_error_at(
+            "E0001",
+            Span::new(0, 1),
+            "duplicate user error",
+        ));
+        diagnostics.push(Diagnostic::internal_error_at(
+            "I0001",
+            Span::new(2, 3),
+            "internal error",
+        ));
+        for index in 0..25 {
+            diagnostics.push(Diagnostic::user_error_at(
+                "E0002",
+                Span::new(10 + index, 11 + index),
+                format!("user error {index}"),
+            ));
+        }
+
+        let rendered = render_codegen_diagnostics(&diagnostics, Some("main.nia"), Some("abc"));
+
+        let internal = rendered
+            .find("error internal[I0001]")
+            .expect("internal diagnostic");
+        let user = rendered.find("error[E0001]").expect("user diagnostic");
+        assert!(internal < user, "{rendered}");
+        assert!(rendered.contains("note: suppressed"), "{rendered}");
+        assert!(rendered.contains("1 duplicate(s)"), "{rendered}");
+    }
+
+    #[test]
+    fn parse_report_uses_parse_error_code() {
+        let errors = vec![crate::ParseError {
+            span: Span::new(0, 1),
+            message: "bad token".to_string(),
+            node_key: None,
+        }];
+
+        let rendered = render_parse_errors("main.nia", "?", &errors);
+
+        assert!(rendered.contains("error[E0101]"), "{rendered}");
     }
 }

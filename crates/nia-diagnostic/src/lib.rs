@@ -1,6 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_span::Span;
+use std::cmp::Ordering;
 use std::fmt;
+
+pub mod codes {
+    pub const ICE: &str = "I0001";
+    pub const INTERNAL_RESOLUTION: &str = "I0100";
+    pub const INTERNAL_LLVM_API: &str = "I0200";
+    pub const INVALID_FUNCTION_IR: &str = "I0201";
+    pub const INVALID_BACKEND_IR: &str = "I0300";
+    pub const INVALID_BODY_IR: &str = "I0301";
+
+    pub const PARSE: &str = "E0101";
+    pub const LOAD: &str = "E0102";
+    pub const TARGET_CONFIG: &str = "E0103";
+    pub const NAME_RESOLUTION: &str = "E0201";
+    pub const TYPE_NORMALIZATION: &str = "E0202";
+    pub const ITEM_SIGNATURE: &str = "E0203";
+    pub const TYPE_CHECK: &str = "E0301";
+    pub const LOCAL_RESOLUTION: &str = "E0302";
+    pub const COMPTIME: &str = "E0401";
+    pub const STATIC_CHECK: &str = "E0501";
+    pub const LLVM_CODEGEN: &str = "E0601";
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -57,6 +79,52 @@ pub struct DebugField {
 
 pub struct DiagnosticBuilder {
     diagnostic: Diagnostic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticReportConfig {
+    pub max_diagnostics: usize,
+}
+
+impl Default for DiagnosticReportConfig {
+    fn default() -> Self {
+        Self {
+            max_diagnostics: 20,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticReport<'a, T> {
+    entries: Vec<&'a T>,
+    suppressed_duplicates: usize,
+    suppressed_by_limit: usize,
+}
+
+impl<'a, T> DiagnosticReport<'a, T> {
+    pub fn entries(&self) -> &[&'a T] {
+        &self.entries
+    }
+
+    pub fn suppressed_duplicates(&self) -> usize {
+        self.suppressed_duplicates
+    }
+
+    pub fn suppressed_by_limit(&self) -> usize {
+        self.suppressed_by_limit
+    }
+
+    pub fn suppressed_total(&self) -> usize {
+        self.suppressed_duplicates + self.suppressed_by_limit
+    }
+}
+
+pub trait DiagnosticReportItem {
+    fn report_diagnostic(&self) -> &Diagnostic;
+
+    fn report_path(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl Diagnostic {
@@ -133,6 +201,12 @@ impl Diagnostic {
     }
 }
 
+impl DiagnosticReportItem for Diagnostic {
+    fn report_diagnostic(&self) -> &Diagnostic {
+        self
+    }
+}
+
 impl DiagnosticBuilder {
     pub fn primary(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
@@ -189,6 +263,103 @@ impl DiagnosticBuilder {
 
     pub fn finish(self) -> Diagnostic {
         self.diagnostic
+    }
+}
+
+pub fn build_diagnostic_report<T: DiagnosticReportItem>(
+    diagnostics: &[T],
+    config: DiagnosticReportConfig,
+) -> DiagnosticReport<'_, T> {
+    let mut entries = diagnostics.iter().collect::<Vec<_>>();
+    entries.sort_by(|left, right| compare_report_items(*left, *right));
+
+    let mut selected = Vec::new();
+    let mut seen = Vec::<DiagnosticDedupeKey>::new();
+    let mut suppressed_duplicates = 0;
+    let mut suppressed_by_limit = 0;
+    for entry in entries {
+        let key = DiagnosticDedupeKey::from_item(entry);
+        if seen.iter().any(|seen| seen == &key) {
+            suppressed_duplicates += 1;
+            continue;
+        }
+        seen.push(key);
+        if selected.len() >= config.max_diagnostics {
+            suppressed_by_limit += 1;
+            continue;
+        }
+        selected.push(entry);
+    }
+
+    DiagnosticReport {
+        entries: selected,
+        suppressed_duplicates,
+        suppressed_by_limit,
+    }
+}
+
+fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Ordering {
+    let left_diagnostic = left.report_diagnostic();
+    let right_diagnostic = right.report_diagnostic();
+    diagnostic_priority(left_diagnostic)
+        .cmp(&diagnostic_priority(right_diagnostic))
+        .then_with(|| left.report_path().cmp(&right.report_path()))
+        .then_with(|| {
+            left_diagnostic
+                .primary_span()
+                .unwrap_or_default()
+                .start
+                .cmp(&right_diagnostic.primary_span().unwrap_or_default().start)
+        })
+        .then_with(|| {
+            left_diagnostic
+                .primary_span()
+                .unwrap_or_default()
+                .end
+                .cmp(&right_diagnostic.primary_span().unwrap_or_default().end)
+        })
+        .then_with(|| {
+            left_diagnostic
+                .code
+                .as_str()
+                .cmp(right_diagnostic.code.as_str())
+        })
+        .then_with(|| left_diagnostic.summary.cmp(&right_diagnostic.summary))
+}
+
+fn diagnostic_priority(diagnostic: &Diagnostic) -> (u8, u8) {
+    let category = match diagnostic.category {
+        DiagnosticCategory::Internal => 0,
+        DiagnosticCategory::User => 1,
+    };
+    let severity = match diagnostic.severity {
+        Severity::Error => 0,
+        Severity::Warning => 1,
+    };
+    (category, severity)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticDedupeKey {
+    path: Option<String>,
+    category: DiagnosticCategory,
+    severity: Severity,
+    code: String,
+    span: Option<Span>,
+    summary: String,
+}
+
+impl DiagnosticDedupeKey {
+    fn from_item<T: DiagnosticReportItem>(item: &T) -> Self {
+        let diagnostic = item.report_diagnostic();
+        Self {
+            path: item.report_path().map(str::to_string),
+            category: diagnostic.category,
+            severity: diagnostic.severity,
+            code: diagnostic.code.as_str().to_string(),
+            span: diagnostic.primary_span(),
+            summary: diagnostic.summary.clone(),
+        }
     }
 }
 
@@ -419,5 +590,34 @@ mod tests {
         let rendered = render_diagnostic("main.nia", "abc", &diagnostic);
         assert!(rendered.contains("error internal[I0001]: missing definition"));
         assert!(rendered.contains("debug: node_key = \"n1\""));
+    }
+
+    #[test]
+    fn report_prioritizes_internal_diagnostics_and_limits_output() {
+        let diagnostics = vec![
+            Diagnostic::user_error_at("E0001", Span::new(10, 11), "user error"),
+            Diagnostic::internal_error_at("I0001", Span::new(20, 21), "internal error"),
+            Diagnostic::user_error_at("E0002", Span::new(30, 31), "second user error"),
+        ];
+
+        let report =
+            build_diagnostic_report(&diagnostics, DiagnosticReportConfig { max_diagnostics: 2 });
+
+        assert_eq!(report.entries().len(), 2);
+        assert_eq!(report.entries()[0].code.as_str(), "I0001");
+        assert_eq!(report.suppressed_by_limit(), 1);
+    }
+
+    #[test]
+    fn report_deduplicates_same_diagnostic() {
+        let diagnostics = vec![
+            Diagnostic::user_error_at("E0001", Span::new(10, 11), "same error"),
+            Diagnostic::user_error_at("E0001", Span::new(10, 11), "same error"),
+        ];
+
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+
+        assert_eq!(report.entries().len(), 1);
+        assert_eq!(report.suppressed_duplicates(), 1);
     }
 }

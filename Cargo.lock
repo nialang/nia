@@ -363,8 +363,10 @@ dependencies = [
  "nia-opt",
  "nia-parser",
  "nia-source",
+ "nia-span",
  "nia-static-ir",
  "nia-target-config",
+ "nia-ty",
 ]
 
 [[package]]
