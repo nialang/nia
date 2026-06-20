@@ -163,6 +163,27 @@ fn main() u8 {
 }
 
 #[test]
+fn rejects_runtime_use_of_comptime_byte_string_values() {
+    let checked = pipeline(
+        r#"
+comptime let default_value = b"default\0";
+
+fn main() usize {
+    var selected: &u8 = &default_value.*[0];
+    selected as usize
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("runtime expression cannot use non-integer comptime value")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_slices_len_ptr_and_indexing() {
     let checked = pipeline(
         r#"

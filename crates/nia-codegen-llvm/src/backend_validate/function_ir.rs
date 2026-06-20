@@ -108,6 +108,15 @@ impl BackendValidator<'_> {
 
     fn validate_expr(&mut self, expr: &FunctionExpr) {
         if matches!(expr.kind, FunctionExprKind::Error) {
+            let context = match self.current_item.as_deref() {
+                Some(item) => format!(" in {item}"),
+                None => String::new(),
+            };
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                expr.span,
+                format!("backend IR contains erroneous expression{context}"),
+            ));
             return;
         }
         self.current_subject = Some("expr");

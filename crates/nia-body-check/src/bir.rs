@@ -1116,7 +1116,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_comptime_value_expr(
-        &self,
+        &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
         value: Option<nia_comptime_check::ComptimeValue>,
@@ -1127,11 +1127,32 @@ impl<'a> BodyChecker<'a> {
                 ty,
                 kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(value)),
             },
-            Some(_) | None => TypedExpr {
-                span,
-                ty,
-                kind: TypedExprKind::Error,
-            },
+            Some(_) => {
+                self.diagnostics
+                    .push(nia_diagnostic::Diagnostic::user_error_at(
+                        "E0301",
+                        span,
+                        "runtime expression cannot use non-integer comptime value",
+                    ));
+                TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Error,
+                }
+            }
+            None => {
+                self.diagnostics
+                    .push(nia_diagnostic::Diagnostic::user_error_at(
+                        "E0301",
+                        span,
+                        "comptime value is not available during body check",
+                    ));
+                TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Error,
+                }
+            }
         }
     }
 
