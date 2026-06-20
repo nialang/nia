@@ -9,6 +9,7 @@ use std::{
 use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
+use nia_linker::{LinkOptions, LinkTarget};
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
@@ -236,6 +237,8 @@ impl Driver {
         &self,
         request: LinkExecutableRequest,
     ) -> DriverOutput<ExecutableArtifact> {
+        let mut request = request;
+        request.link_options.target = LinkTarget::from_target_config(&self.config.target);
         let output = self.emit_native_objects(EmitObjectRequest {
             check: request.check.with_runtime(Runtime::Freestanding),
         });
@@ -243,21 +246,16 @@ impl Driver {
             Ok(objects) => objects,
             Err(error) => return DriverOutput::from_error(error),
         };
-        self.link_executable_from_objects(
-            &objects,
-            request.output,
-            request.link_args,
-            request.linker.unwrap_or_else(ExecutableLinker::native),
-        )
+        self.link_executable_from_objects(&objects, request.output, request.link_options)
     }
 
     pub fn link_executable_from_objects(
         &self,
         objects: &ObjectArtifact,
         output: PathBuf,
-        link_args: Vec<String>,
-        linker: ExecutableLinker,
+        mut link_options: LinkOptions,
     ) -> DriverOutput<ExecutableArtifact> {
+        link_options.target = LinkTarget::from_target_config(&self.config.target);
         let temp = TempDir::new("nia_emit_exe");
         if let Err(error) = fs::create_dir_all(temp.path()) {
             return DriverOutput::from_error(DriverError::Io {
@@ -289,24 +287,23 @@ impl Driver {
             });
         }
 
-        match Command::new(&linker.program)
-            .args(&linker.args_before_objects)
-            .args(&object_paths)
-            .args(&linker.args_after_objects)
-            .args(&link_args)
-            .arg("-o")
-            .arg(&output)
+        let invocation = match link_options.invocation(&object_paths, output.clone()) {
+            Ok(invocation) => invocation,
+            Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
+        };
+        match Command::new(&invocation.program)
+            .args(&invocation.args)
             .status()
         {
             Ok(status) if status.success() => {
                 DriverOutput::success(ExecutableArtifact { path: output })
             }
             Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
-                program: linker.program,
+                program: invocation.program,
                 status,
             }),
             Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
-                program: linker.program,
+                program: invocation.program,
                 error,
             }),
         }
@@ -452,8 +449,7 @@ impl WriteObjectRequest {
 pub struct LinkExecutableRequest {
     pub check: CheckRequest,
     pub output: PathBuf,
-    pub link_args: Vec<String>,
-    pub linker: Option<ExecutableLinker>,
+    pub link_options: LinkOptions,
 }
 
 impl LinkExecutableRequest {
@@ -461,19 +457,8 @@ impl LinkExecutableRequest {
         Self {
             check,
             output: output.into(),
-            link_args: Vec::new(),
-            linker: None,
+            link_options: LinkOptions::default(),
         }
-    }
-
-    pub fn with_link_args(mut self, link_args: Vec<String>) -> Self {
-        self.link_args = link_args;
-        self
-    }
-
-    pub fn with_linker(mut self, linker: ExecutableLinker) -> Self {
-        self.linker = Some(linker);
-        self
     }
 }
 
@@ -481,32 +466,6 @@ impl LinkExecutableRequest {
 pub enum ObjectOutput {
     Single(PathBuf),
     Directory(PathBuf),
-}
-
-#[derive(Debug, Clone)]
-pub struct ExecutableLinker {
-    pub program: String,
-    pub args_before_objects: Vec<String>,
-    pub args_after_objects: Vec<String>,
-}
-
-impl ExecutableLinker {
-    pub fn native() -> Self {
-        if let Ok(program) = env::var("NIA_LINKER")
-            && !program.is_empty()
-        {
-            return Self::with_program(program);
-        }
-        Self::with_program("ld")
-    }
-
-    pub fn with_program(program: impl Into<String>) -> Self {
-        Self {
-            program: program.into(),
-            args_before_objects: Vec::new(),
-            args_after_objects: vec!["-e".to_string(), "_start".to_string()],
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -566,6 +525,7 @@ pub enum DriverError {
         program: String,
         error: io::Error,
     },
+    LinkerConfig(nia_linker::LinkerConfigError),
 }
 
 fn codegen_options(optimization: OptimizationPolicy) -> nia_codegen_llvm::LlvmCodegenOptions {

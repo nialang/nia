@@ -888,6 +888,46 @@ fn main() i32 {
 }
 
 #[test]
+fn driver_facade_formats_inspection_outputs() {
+    let tokens = crate::tokens_inspection("fn main() i32 { 0 }\n");
+    assert!(tokens.text.contains("Fn"));
+    assert!(tokens.text.contains("0..2"));
+
+    let ast = crate::ast_inspection("fn main() i32 { 0 }\n");
+    assert!(ast.parse_errors.is_empty(), "{:?}", ast.parse_errors);
+    assert!(ast.text.contains("Function"));
+
+    let invalid = crate::ast_inspection("fn main(");
+    assert!(!invalid.parse_errors.is_empty());
+    let rendered = crate::render_parse_errors("main.nia", "fn main(", &invalid.parse_errors);
+    assert!(rendered.contains("parse errors:"), "{rendered}");
+    assert!(rendered.contains("main.nia"), "{rendered}");
+}
+
+#[test]
+fn driver_facade_formats_optimization_report() {
+    let root = temp_dir("driver_facade_formats_optimization_report");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    42
+}
+"#,
+    );
+
+    let program = Driver::new().check(CheckRequest::new(
+        root.join("main.nia").to_string_lossy().into_owned(),
+    ));
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let report = crate::optimization_report(&program);
+    assert!(report.contains("backend optimization report:"), "{report}");
+    assert!(report.contains("enabled_module_passes="), "{report}");
+    assert!(report.ends_with('\n'), "{report:?}");
+}
+
+#[test]
 fn driver_checks_in_memory_sources() {
     let driver = Driver::new();
     driver.set_source(
