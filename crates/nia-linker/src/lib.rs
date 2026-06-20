@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use nia_target_config::TargetConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,25 +365,108 @@ fn find_program_on_path(program: &str) -> Option<String> {
 }
 
 fn is_executable_file(path: &Path) -> bool {
-    path.is_file()
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        path.metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn native_linux_library_paths() -> Vec<String> {
     if env::consts::OS != "linux" {
         return Vec::new();
     }
-    [
+    let mut paths = Vec::new();
+    for path in [
         "/usr/local/lib64",
         "/usr/lib64",
         "/lib64",
         "/usr/local/lib",
         "/usr/lib",
         "/lib",
-    ]
-    .into_iter()
-    .filter(|path| Path::new(path).is_dir())
-    .map(str::to_string)
-    .collect()
+    ] {
+        insert_existing_library_path(&mut paths, path);
+    }
+    read_ld_so_conf(&mut paths, Path::new("/etc/ld.so.conf"), 0);
+    paths
+}
+
+fn insert_existing_library_path(paths: &mut Vec<String>, path: &str) {
+    let path = path.trim();
+    if !path.is_empty() && Path::new(path).is_dir() {
+        let path = path.to_string();
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+}
+
+fn read_ld_so_conf(paths: &mut Vec<String>, path: &Path, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let Ok(contents) = fs::read_to_string(path) else {
+        return;
+    };
+    let base = path.parent().unwrap_or_else(|| Path::new("/"));
+    for line in contents.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(pattern) = line.strip_prefix("include ") {
+            read_ld_so_conf_include(paths, base, pattern.trim(), depth + 1);
+        } else {
+            insert_existing_library_path(paths, line);
+        }
+    }
+}
+
+fn read_ld_so_conf_include(paths: &mut Vec<String>, base: &Path, pattern: &str, depth: usize) {
+    let pattern_path = Path::new(pattern);
+    let pattern_path = if pattern_path.is_absolute() {
+        pattern_path.to_path_buf()
+    } else {
+        base.join(pattern_path)
+    };
+    let Some(parent) = pattern_path.parent() else {
+        return;
+    };
+    let Some(file_pattern) = pattern_path.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if glob_file_name_matches(file_pattern, file_name) {
+            read_ld_so_conf(paths, &path, depth);
+        }
+    }
+}
+
+fn glob_file_name_matches(pattern: &str, file_name: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    let Some(star) = pattern.find('*') else {
+        return pattern == file_name;
+    };
+    let prefix = &pattern[..star];
+    let suffix = &pattern[star + 1..];
+    file_name.starts_with(prefix) && file_name.ends_with(suffix)
 }
 
 pub fn native_dynamic_linker() -> Result<Option<String>, LinkerConfigError> {
@@ -734,6 +820,7 @@ mod tests {
         fs::create_dir_all(&bin).expect("create bin dir");
         let linker = bin.join("ld.lld");
         fs::write(&linker, "").expect("write mock linker");
+        make_executable(&linker);
         let previous_path = env::var_os("PATH");
         let previous_nia_lld = env::var_os("NIA_LLD");
         unsafe {
@@ -749,6 +836,40 @@ mod tests {
             .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(invocation.program, linker.to_string_lossy());
+
+        restore_env("PATH", previous_path);
+        restore_env("NIA_LLD", previous_nia_lld);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn lld_invocation_ignores_non_executable_program_on_path() {
+        let _guard = ENV_LOCK.lock().expect("env test lock");
+        let root = env::temp_dir().join(format!(
+            "nia-linker-lld-non-executable-{}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).expect("create bin dir");
+        fs::write(bin.join("ld.lld"), "").expect("write mock linker");
+        let previous_path = env::var_os("PATH");
+        let previous_nia_lld = env::var_os("NIA_LLD");
+        unsafe {
+            env::set_var("PATH", &bin);
+            env::remove_var("NIA_LLD");
+        }
+
+        let options = LinkOptions {
+            linker: ExecutableLinker::lld(),
+            ..LinkOptions::default()
+        };
+        assert!(matches!(
+            options.invocation(&[PathBuf::from("main.o")], PathBuf::from("main")),
+            Err(LinkerConfigError::LinkerNotFound {
+                flavor: LinkerFlavor::Lld,
+                ..
+            })
+        ));
 
         restore_env("PATH", previous_path);
         restore_env("NIA_LLD", previous_nia_lld);
@@ -841,6 +962,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ld_so_conf_reader_follows_simple_include_patterns() {
+        let root = env::temp_dir().join(format!("nia-linker-ld-so-conf-{}", std::process::id()));
+        let lib = root.join("lib");
+        let conf_dir = root.join("conf.d");
+        fs::create_dir_all(&lib).expect("create lib dir");
+        fs::create_dir_all(&conf_dir).expect("create conf dir");
+        fs::write(
+            root.join("ld.so.conf"),
+            format!("include {}\n", conf_dir.join("*.conf").display()),
+        )
+        .expect("write root conf");
+        fs::write(conf_dir.join("local.conf"), format!("{}\n", lib.display()))
+            .expect("write included conf");
+
+        let mut paths = Vec::new();
+        read_ld_so_conf(&mut paths, &root.join("ld.so.conf"), 0);
+
+        assert!(
+            paths.contains(&lib.to_string_lossy().into_owned()),
+            "{paths:?}"
+        );
+    }
+
     fn target(arch: &str, os: &str, abi: &str) -> LinkTarget {
         LinkTarget {
             arch: arch.to_string(),
@@ -856,6 +1001,21 @@ mod tests {
             } else {
                 env::remove_var(name);
             }
+        }
+    }
+
+    fn make_executable(path: &Path) {
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(path)
+                .expect("mock linker metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("make mock linker executable");
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
         }
     }
 }
