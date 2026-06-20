@@ -1,0 +1,126 @@
+extern struct NiaString {
+    ptr: &u8,
+    len: usize,
+}
+
+pub comptime let status_ok: i32 = 0;
+pub comptime let status_diagnostics: i32 = 1;
+pub comptime let status_invalid_input: i32 = 2;
+pub comptime let status_internal_error: i32 = 3;
+pub comptime let status_io_error: i32 = 4;
+pub comptime let status_linker_error: i32 = 5;
+pub comptime let status_invalid_artifact_request: i32 = 6;
+
+pub comptime let runtime_bare: i32 = 0;
+pub comptime let runtime_freestanding: i32 = 1;
+
+pub comptime let opt_o0: i32 = 0;
+pub comptime let opt_o1: i32 = 1;
+pub comptime let opt_o2: i32 = 2;
+pub comptime let opt_o3: i32 = 3;
+pub comptime let opt_os: i32 = 4;
+pub comptime let opt_oz: i32 = 5;
+
+extern fn nia_capi_abi_version() u32;
+extern fn nia_version() NiaString;
+extern fn nia_string_free(value: NiaString) void;
+
+extern fn nia_session_new() &void;
+extern fn nia_session_free(session: &void) void;
+
+extern fn nia_check_request_new(path_ptr: &u8, path_len: usize) &void;
+extern fn nia_check_request_free(request: &void) void;
+extern fn nia_check_request_set_runtime(request: &void, runtime: i32) i32;
+extern fn nia_check_request_set_optimization(request: &void, level: i32) i32;
+
+extern fn nia_session_check(session: &void, request: &void) &void;
+extern fn nia_session_emit_object_file(
+    session: &void,
+    request: &void,
+    output_ptr: &u8,
+    output_len: usize,
+) &void;
+extern fn nia_session_emit_object_directory(
+    session: &void,
+    request: &void,
+    output_ptr: &u8,
+    output_len: usize,
+) &void;
+
+extern fn nia_result_status(result: &void) i32;
+extern fn nia_result_message(result: &void) NiaString;
+extern fn nia_result_free(result: &void) void;
+
+pub fn abi_version() u32 {
+    nia_capi_abi_version()
+}
+
+pub fn compiler_version() NiaString {
+    nia_version()
+}
+
+pub fn free_string(value: NiaString) void {
+    nia_string_free(value)
+}
+
+pub fn session_new() &void {
+    nia_session_new()
+}
+
+pub fn session_free(session: &void) void {
+    nia_session_free(session)
+}
+
+pub fn check_request_new(path: &[u8]) &void {
+    nia_check_request_new(path.get_ptr_read(), path.len())
+}
+
+pub fn check_request_free(request: &void) void {
+    nia_check_request_free(request)
+}
+
+pub fn check_request_set_bare(request: &void) i32 {
+    nia_check_request_set_runtime(request, runtime_bare)
+}
+
+pub fn check_request_set_freestanding(request: &void) i32 {
+    nia_check_request_set_runtime(request, runtime_freestanding)
+}
+
+pub fn check_request_set_o0(request: &void) i32 {
+    nia_check_request_set_optimization(request, opt_o0)
+}
+
+pub fn session_check(session: &void, request: &void) &void {
+    nia_session_check(session, request)
+}
+
+pub fn session_emit_object_file(session: &void, request: &void, output: &[u8]) &void {
+    nia_session_emit_object_file(session, request, output.get_ptr_read(), output.len())
+}
+
+pub fn session_emit_object_directory(session: &void, request: &void, output: &[u8]) &void {
+    nia_session_emit_object_directory(session, request, output.get_ptr_read(), output.len())
+}
+
+pub fn result_status(result: &void) i32 {
+    nia_result_status(result)
+}
+
+pub fn result_message(result: &void) NiaString {
+    nia_result_message(result)
+}
+
+pub fn result_free(result: &void) void {
+    nia_result_free(result)
+}
+
+extend NiaString {
+    pub fn bytes(&self) &[u8] {
+        &self.ptr[0..self.len]
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len == 0usize
+    }
+}

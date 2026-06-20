@@ -1,0 +1,233 @@
+using paw::capi;
+using std::io;
+using std::process;
+using process::{ExitCode, Init};
+
+fn write_bytes(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void {
+    writer.write_all(bytes).exit().?;
+    !{}
+}
+
+fn write_line(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void {
+    writer.write_all(bytes).exit().?;
+    writer.write_all(b"\n").exit().?;
+    !{}
+}
+
+fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
+    write_line(stderr, b"usage: paw check <file.nia>").?;
+    write_line(stderr, b"       paw obj <file.nia> <out.o>").?;
+    write_line(stderr, b"       paw obj-dir <file.nia> <out-dir>").?;
+    !{}
+}
+
+fn status_code(status: i32) ExitCode {
+    if status == capi::status_ok {
+        process::exit(0)
+    } else if status == capi::status_diagnostics {
+        process::exit(1)
+    } else if status == capi::status_invalid_input {
+        process::exit(2)
+    } else if status == capi::status_io_error {
+        process::exit(3)
+    } else if status == capi::status_linker_error {
+        process::exit(4)
+    } else if status == capi::status_invalid_artifact_request {
+        process::exit(5)
+    } else {
+        process::exit(255)
+    }
+}
+
+fn print_result(stderr: &mut io::FileWriter, result: &void) process::ExitCode!void {
+    let message = capi::result_message(result);
+    if not message.is_empty() {
+        write_bytes(stderr, message.bytes()).?;
+    }
+    capi::free_string(message);
+    !{}
+}
+
+fn run_check(stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!ExitCode {
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer capi::session_free(session);
+
+    let request = capi::check_request_new(path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create check request").?;
+        return process::exit(2)!;
+    }
+    defer capi::check_request_free(request);
+    _ = capi::check_request_set_bare(request);
+    _ = capi::check_request_set_o0(request);
+
+    let result = capi::session_check(session, request);
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: check returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    !status_code(status)
+}
+
+fn run_obj(stderr: &mut io::FileWriter, path: &[u8], output: &[u8]) process::ExitCode!ExitCode {
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer capi::session_free(session);
+
+    let request = capi::check_request_new(path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create check request").?;
+        return process::exit(2)!;
+    }
+    defer capi::check_request_free(request);
+    _ = capi::check_request_set_bare(request);
+    _ = capi::check_request_set_o0(request);
+
+    let result = capi::session_emit_object_file(session, request, output);
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: object emit returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    !status_code(status)
+}
+
+fn run_obj_dir(stderr: &mut io::FileWriter, path: &[u8], output: &[u8]) process::ExitCode!ExitCode {
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer capi::session_free(session);
+
+    let request = capi::check_request_new(path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create check request").?;
+        return process::exit(2)!;
+    }
+    defer capi::check_request_free(request);
+    _ = capi::check_request_set_bare(request);
+    _ = capi::check_request_set_o0(request);
+
+    let result = capi::session_emit_object_directory(session, request, output);
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: object directory emit returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    !status_code(status)
+}
+
+pub fn main(init: Init) ExitCode!void {
+    var stderr_buffer: [1024]u8 = [0; 1024];
+    var stderr = io::FileWriter::stderr(init.io(), &mut stderr_buffer);
+    let args = init.args();
+    let command = if let ?value = args.get(1usize) {
+        value
+    } else null {
+        usage(&mut stderr).?;
+        stderr.flush().exit().?;
+        return process::exit(2)!;
+    };
+
+    let command_bytes = command.bytes();
+    let code = if command_bytes.len() == 5usize
+        and command_bytes[0] == b'c'
+        and command_bytes[1] == b'h'
+        and command_bytes[2] == b'e'
+        and command_bytes[3] == b'c'
+        and command_bytes[4] == b'k'
+    {
+        let path = if let ?value = args.get(2usize) {
+            value
+        } else null {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        };
+        if args.len() != 3usize {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        }
+        run_check(&mut stderr, path.bytes()).?
+    } else if command_bytes.len() == 3usize
+        and command_bytes[0] == b'o'
+        and command_bytes[1] == b'b'
+        and command_bytes[2] == b'j'
+    {
+        let path = if let ?value = args.get(2usize) {
+            value
+        } else null {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        };
+        let output = if let ?value = args.get(3usize) {
+            value
+        } else null {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        };
+        if args.len() != 4usize {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        }
+        run_obj(&mut stderr, path.bytes(), output.bytes()).?
+    } else if command_bytes.len() == 7usize
+        and command_bytes[0] == b'o'
+        and command_bytes[1] == b'b'
+        and command_bytes[2] == b'j'
+        and command_bytes[3] == b'-'
+        and command_bytes[4] == b'd'
+        and command_bytes[5] == b'i'
+        and command_bytes[6] == b'r'
+    {
+        let path = if let ?value = args.get(2usize) {
+            value
+        } else null {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        };
+        let output = if let ?value = args.get(3usize) {
+            value
+        } else null {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        };
+        if args.len() != 4usize {
+            usage(&mut stderr).?;
+            stderr.flush().exit().?;
+            return process::exit(2)!;
+        }
+        run_obj_dir(&mut stderr, path.bytes(), output.bytes()).?
+    } else {
+        usage(&mut stderr).?;
+        stderr.flush().exit().?;
+        return process::exit(2)!;
+    };
+
+    stderr.flush().exit().?;
+    code!
+}
