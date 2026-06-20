@@ -187,7 +187,7 @@ impl BackendValidator<'_> {
         for param in params {
             let Some(local_id) = param.local_id else {
                 self.diagnostics.push(Diagnostic::internal_error_at(
-                    "I0300",
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
                     param.span,
                     "backend IR function parameter with a body is missing its local binding",
                 ));
@@ -195,7 +195,7 @@ impl BackendValidator<'_> {
             };
             let Some(local_ty) = param_locals.get(&local_id).copied() else {
                 self.diagnostics.push(Diagnostic::internal_error_at(
-                    "I0300",
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
                     param.span,
                     format!("backend IR function parameter references missing local {local_id:?}"),
                 ));
@@ -203,7 +203,7 @@ impl BackendValidator<'_> {
             };
             if !self.same_type(param.local_ty, local_ty) {
                 self.diagnostics.push(Diagnostic::internal_error_at(
-                    "I0300",
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
                     param.span,
                     "backend IR function parameter local type does not match its body local",
                 ));

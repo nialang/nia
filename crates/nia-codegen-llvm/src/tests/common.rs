@@ -11,7 +11,7 @@ pub(super) use nia_backend_ir::{
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
-pub(super) use nia_diagnostic::{Diagnostic, DiagnosticCategory};
+pub(super) use nia_diagnostic::{Diagnostic, DiagnosticCategory, codes};
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
     FunctionFieldInit, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionScope,
@@ -29,10 +29,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-pub(super) fn has_internal_diagnostic(diagnostics: &[Diagnostic], code: &str, text: &str) -> bool {
+pub(super) fn has_internal_diagnostic(
+    diagnostics: &[Diagnostic],
+    code: codes::DiagnosticCodeDef,
+    text: &str,
+) -> bool {
     diagnostics.iter().any(|diagnostic| {
         diagnostic.category == DiagnosticCategory::Internal
-            && diagnostic.code.as_str() == code
+            && diagnostic.code.as_str() == code.as_str()
             && diagnostic.summary.contains(text)
             && diagnostic.primary_span().is_some()
     })
