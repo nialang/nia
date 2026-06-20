@@ -163,7 +163,23 @@ impl BackendValidator<'_> {
                 format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
             )),
             TyKind::Vector { elem, lanes } => self.validate_vector_type(ty, span, elem, lanes),
-            TyKind::Primitive(_) | TyKind::GenericParam(_) | TyKind::Error => {}
+            TyKind::Error => {
+                let subject = self
+                    .current_subject
+                    .map(|subject| format!(" {subject}"))
+                    .unwrap_or_default();
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
+                    span,
+                    match self.current_item.as_deref() {
+                        Some(item) => {
+                            format!("backend IR type {ty:?}{subject} in {item} is error")
+                        }
+                        None => format!("backend IR type {ty:?}{subject} is error"),
+                    },
+                ));
+            }
+            TyKind::Primitive(_) | TyKind::GenericParam(_) => {}
         }
     }
 
