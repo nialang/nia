@@ -33,7 +33,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        if !expr_requires_structural_runtime_check(expr)
+        if expr_allows_expected_comptime_projection(expr)
             && let Some(ty) = expected
                 .and_then(|expected| self.expected_comptime_expr_runtime_projection(expr, expected))
         {
@@ -1255,22 +1255,23 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn expr_requires_structural_runtime_check(expr: &Expr) -> bool {
+fn expr_allows_expected_comptime_projection(expr: &Expr) -> bool {
     matches!(
         expr.kind,
-        ExprKind::BracketSuffix { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::Unary { .. }
-            | ExprKind::OptionalSome { .. }
-            | ExprKind::ErrorOk { .. }
-            | ExprKind::ErrorErr { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Assign { .. }
-            | ExprKind::Try { .. }
-            | ExprKind::Block(_)
-            | ExprKind::If { .. }
-            | ExprKind::IfPattern(_)
-            | ExprKind::Switch(_)
+        ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::Raw(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Ident(_)
+            | ExprKind::Builtin { .. }
+            | ExprKind::TypeTarget { .. }
+            | ExprKind::Underscore
+            | ExprKind::Error
     )
 }
 

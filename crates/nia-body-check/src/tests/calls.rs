@@ -216,6 +216,44 @@ fn main() i32 {
 }
 
 #[test]
+fn records_generic_calls_inside_binary_operator_operands() {
+    let checked = pipeline(
+        r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    id[i32](1) + id[i32](2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(
+        checked
+            .facts
+            .node_bracket_suffix_resolutions
+            .values()
+            .filter(|resolution| matches!(resolution, BracketSuffixResolution::GenericCall))
+            .count(),
+        2,
+        "{:?}",
+        checked.facts.node_bracket_suffix_resolutions
+    );
+    assert_eq!(
+        checked
+            .facts
+            .node_resolved_calls
+            .values()
+            .filter(|call| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. }))
+            .count(),
+        2,
+        "{:?}",
+        checked.facts.node_resolved_calls
+    );
+}
+
+#[test]
 fn checks_simd_lane_builtins() {
     let checked = pipeline(
         r#"
