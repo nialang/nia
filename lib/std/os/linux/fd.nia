@@ -2,7 +2,7 @@ using pkg::os::linux::syscall;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
 
-using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence};
+using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, Pipe, SeekWhence};
 
 comptime let linux_dirent64_reclen_offset: usize = 16usize;
 comptime let linux_dirent64_type_offset: usize = 18usize;
@@ -111,6 +111,20 @@ extend FileDescriptor {
 
 pub fn cwd() FileDescriptor {
     FileDescriptor::init(types::at_fdcwd)
+}
+
+pub fn pipe_close_on_exec() Errno!Pipe {
+    var fds: [2]i32 = [0, 0];
+    let ret = syscall::syscall2(
+        syscall::pipe2,
+        &mut fds[0] as usize,
+        types::close_on_exec as usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !Pipe::init(FileDescriptor::init(fds[0]), FileDescriptor::init(fds[1]))
+    }
 }
 
 pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {

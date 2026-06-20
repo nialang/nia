@@ -14,7 +14,21 @@ using pkg::os::linux::random as random_impl;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
 
-pub using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
+pub using types::{
+    DirectoryEntry,
+    Errno,
+    FileDescriptor,
+    FileKind,
+    FileMetadata,
+    OpenMode,
+    ProcessId,
+    SeekWhence,
+    SpawnOptions,
+    SpawnResult,
+    StdIo,
+    Timestamp,
+    WaitStatus,
+};
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
 
@@ -93,6 +107,18 @@ pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!void {
 
 pub fn random(bytes: &mut [u8]) Errno!void {
     random_impl::random(bytes)
+}
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Errno!ProcessId {
+    process::spawn_raw(path, argv, envp)
+}
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!SpawnResult {
+    process::spawn(path, argv, envp, options)
+}
+
+pub fn wait(pid: ProcessId) Errno!WaitStatus {
+    process::wait(pid)
 }
 
 pub fn exit(code: i32) void {

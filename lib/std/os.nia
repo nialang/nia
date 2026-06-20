@@ -45,6 +45,12 @@ pub enum SeekWhence: usize {
     _,
 }
 
+pub enum StdIo: i32 {
+    Inherit = 1,
+    Ignore = 2,
+    Pipe = 3,
+}
+
 pub enum FileKind: i32 {
     BlockDevice = 1,
     CharacterDevice = 2,
@@ -89,6 +95,22 @@ pub struct DirectoryReader {
 
 pub struct FileHandle {
     platform: platform::FileDescriptor,
+}
+
+pub struct ProcessId {
+    platform: platform::ProcessId,
+}
+
+pub struct WaitStatus {
+    platform: platform::WaitStatus,
+}
+
+pub struct SpawnResult {
+    platform: platform::SpawnResult,
+}
+
+pub struct SpawnOptions {
+    platform: platform::SpawnOptions,
 }
 
 pub fn page_size() usize {
@@ -182,6 +204,21 @@ pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
 
 pub fn random(bytes: &mut [u8]) Error!void {
     platform::random(bytes).as_os_error()
+}
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Error!ProcessId {
+    let pid = platform::spawn_raw(path, argv, envp).as_os_error().?;
+    !ProcessId::from_platform(pid)
+}
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Error!SpawnResult {
+    let result = platform::spawn(path, argv, envp, options.platform()).as_os_error().?;
+    !SpawnResult::from_platform(result)
+}
+
+pub fn wait(pid: ProcessId) Error!WaitStatus {
+    let status = platform::wait(pid.platform()).as_os_error().?;
+    !WaitStatus::from_platform(status)
 }
 
 pub fn exit(code: i32) void {
@@ -481,5 +518,128 @@ extend FileHandle {
 
     fn read_dir_entries(&self, buffer: &mut [u8]) Error!usize {
         self.platform().read_dir_entries(buffer).as_os_error()
+    }
+}
+
+extend ProcessId {
+    fn from_platform(platform: platform::ProcessId) ProcessId {
+        { platform: platform }
+    }
+
+    fn platform(&self) platform::ProcessId {
+        self.platform
+    }
+
+    pub fn raw(&self) i32 {
+        self.platform().raw()
+    }
+}
+
+extend WaitStatus {
+    fn from_platform(platform: platform::WaitStatus) WaitStatus {
+        { platform: platform }
+    }
+
+    fn platform(&self) platform::WaitStatus {
+        self.platform
+    }
+
+    pub fn raw(&self) i32 {
+        self.platform().raw()
+    }
+
+    pub fn exited(&self) bool {
+        self.platform().exited()
+    }
+
+    pub fn signaled(&self) bool {
+        self.platform().signaled()
+    }
+
+    pub fn stopped(&self) bool {
+        self.platform().stopped()
+    }
+
+    pub fn exit_code(&self) ?i32 {
+        self.platform().exit_code()
+    }
+
+    pub fn signal(&self) ?i32 {
+        self.platform().signal()
+    }
+
+    pub fn stop_signal(&self) ?i32 {
+        self.platform().stop_signal()
+    }
+}
+
+extend SpawnResult {
+    fn from_platform(platform: platform::SpawnResult) SpawnResult {
+        { platform: platform }
+    }
+
+    fn platform(&self) platform::SpawnResult {
+        self.platform
+    }
+
+    pub fn pid(&self) ProcessId {
+        ProcessId::from_platform(self.platform().pid())
+    }
+
+    pub fn stdin(&self) ?FileHandle {
+        if let ?handle = self.platform().stdin() {
+            ?FileHandle::from_platform(handle)
+        } else null {
+            null
+        }
+    }
+
+    pub fn stdout(&self) ?FileHandle {
+        if let ?handle = self.platform().stdout() {
+            ?FileHandle::from_platform(handle)
+        } else null {
+            null
+        }
+    }
+
+    pub fn stderr(&self) ?FileHandle {
+        if let ?handle = self.platform().stderr() {
+            ?FileHandle::from_platform(handle)
+        } else null {
+            null
+        }
+    }
+}
+
+extend StdIo {
+    fn as_platform_stdio(self) platform::StdIo {
+        switch self {
+            StdIo::Inherit => platform::StdIo::Inherit,
+            StdIo::Ignore => platform::StdIo::Ignore,
+            StdIo::Pipe => platform::StdIo::Pipe,
+            _ => platform::StdIo::Inherit,
+        }
+    }
+}
+
+extend SpawnOptions {
+    pub fn init() SpawnOptions {
+        { platform: platform::SpawnOptions::init() }
+    }
+
+    fn platform(&self) platform::SpawnOptions {
+        self.platform
+    }
+
+    pub fn set_stdin(&mut self, behavior: StdIo) void {
+        self.platform.set_stdin(behavior.as_platform_stdio());
+    }
+
+    pub fn set_stdout(&mut self, behavior: StdIo) void {
+        self.platform.set_stdout(behavior.as_platform_stdio());
+    }
+
+    pub fn set_stderr(&mut self, behavior: StdIo) void {
+        self.platform.set_stderr(behavior.as_platform_stdio());
     }
 }
