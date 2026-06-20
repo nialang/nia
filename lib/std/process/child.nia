@@ -1,0 +1,121 @@
+using pkg::os;
+using pkg::process::types;
+
+using types::{Child, Term};
+
+extend Child {
+    pub fn init(pid: os::ProcessId) Child {
+        { pid: pid, stdin: null, stdout: null, stderr: null, status: null }
+    }
+
+    pub fn from_spawn_result(result: os::SpawnResult) Child {
+        {
+            pid: result.pid(),
+            stdin: result.stdin(),
+            stdout: result.stdout(),
+            stderr: result.stderr(),
+            status: null,
+        }
+    }
+
+    pub fn pid(&self) os::ProcessId {
+        self.pid
+    }
+
+    pub fn take_stdin(&mut self) ?os::FileHandle {
+        let handle = self.stdin;
+        self.stdin = null;
+        handle
+    }
+
+    pub fn take_stdout(&mut self) ?os::FileHandle {
+        let handle = self.stdout;
+        self.stdout = null;
+        handle
+    }
+
+    pub fn take_stderr(&mut self) ?os::FileHandle {
+        let handle = self.stderr;
+        self.stderr = null;
+        handle
+    }
+
+    pub fn close_stdin(&mut self) os::Error!void {
+        if let ?handle = self.take_stdin() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_stdout(&mut self) os::Error!void {
+        if let ?handle = self.take_stdout() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_stderr(&mut self) os::Error!void {
+        if let ?handle = self.take_stderr() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_pipes(&mut self) os::Error!void {
+        self.close_stdin().?;
+        self.close_stdout().?;
+        self.close_stderr().?;
+        !{}
+    }
+
+    pub fn wait_raw(&mut self) os::Error!os::WaitStatus {
+        if let ?status = self.status {
+            return !status;
+        } else null {}
+        self.close_stdin().?;
+        let status = os::wait(self.pid).?;
+        self.status = ?status;
+        self.close_stdout().?;
+        self.close_stderr().?;
+        !status
+    }
+
+    pub fn try_wait_raw(&mut self) os::Error! ?os::WaitStatus {
+        if let ?status = self.status {
+            return !(?status);
+        } else null {}
+        let status = os::try_wait(self.pid).?;
+        if let ?value = status {
+            self.status = ?value;
+            self.close_pipes().?;
+            !(?value)
+        } else null {
+            !null
+        }
+    }
+
+    pub fn wait(&mut self) os::Error!Term {
+        let status = self.wait_raw().?;
+        !Term::from_wait_status(status)
+    }
+
+    pub fn try_wait(&mut self) os::Error! ?Term {
+        let status = self.try_wait_raw().?;
+        if let ?value = status {
+            !(?Term::from_wait_status(value))
+        } else null {
+            !null
+        }
+    }
+
+    pub fn kill(&mut self) os::Error!Term {
+        if let ?status = self.status {
+            return !Term::from_wait_status(status);
+        } else null {}
+        os::kill(self.pid).?;
+        self.wait()
+    }
+}

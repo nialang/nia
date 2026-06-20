@@ -1,0 +1,78 @@
+using pkg::cstr;
+using pkg::io;
+using pkg::os;
+
+pub enum ExitCode: i32 {
+    Success = 0,
+    _,
+}
+
+pub enum TermKind: i32 {
+    Exited = 1,
+    Signal = 2,
+    Stopped = 3,
+    Unknown = 4,
+}
+
+pub enum StdIo: i32 {
+    Inherit = 1,
+    Ignore = 2,
+    Pipe = 3,
+}
+
+pub struct Term {
+    kind: TermKind,
+    code: i32,
+}
+
+pub struct Command {
+    path: cstr::CStr,
+    argv: &&u8,
+    envp: &&u8,
+    stdin: StdIo,
+    stdout: StdIo,
+    stderr: StdIo,
+}
+
+pub struct Args {
+    len: usize,
+    ptr: &&u8,
+}
+
+pub struct ArgsIter {
+    args: Args,
+    index: usize,
+}
+
+pub struct Arg {
+    text: cstr::CStr,
+}
+
+pub struct Env {
+    ptr: &&u8,
+}
+
+pub struct EnvIter {
+    env: Env,
+    len: usize,
+    index: usize,
+}
+
+pub struct EnvVar {
+    text: cstr::CStr,
+}
+
+pub struct Child {
+    pid: os::ProcessId,
+    stdin: ?os::FileHandle,
+    stdout: ?os::FileHandle,
+    stderr: ?os::FileHandle,
+    status: ?os::WaitStatus,
+}
+
+pub struct Init {
+    argc: usize,
+    argv: &&u8,
+    envp: &&u8,
+    io: &mut io::Io[Error = os::Error],
+}

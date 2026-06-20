@@ -650,6 +650,290 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_wait_is_repeatable() {
+    let root = temp_dir("emit_exe_std_process_wait_is_repeatable");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/true\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    let first = if let !value = child.wait() {
+        value
+    } else error! {
+        return process::exit(3)!;
+    };
+    let second = if let !value = child.wait() {
+        value
+    } else error! {
+        return process::exit(4)!;
+    };
+    if not first.exited_success() or not second.exited_success() {
+        return process::exit(5)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process repeat wait");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output =
+        Command::new(&exe).output_timeout("run emitted std process repeat wait executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_process_try_wait_reports_exit() {
+    let root = temp_dir("emit_exe_std_process_try_wait_reports_exit");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/true\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    var spins = 0usize;
+    while spins < 100000usize {
+        let maybe = if let !value = child.try_wait() {
+            value
+        } else error! {
+            return process::exit(3)!;
+        };
+        if let ?term = maybe {
+            if not term.exited_success() {
+                return process::exit(4)!;
+            }
+            let again = if let !value = child.try_wait() {
+                value
+            } else error! {
+                return process::exit(5)!;
+            };
+            if let ?cached = again {
+                if not cached.exited_success() {
+                    return process::exit(6)!;
+                }
+            } else null {
+                return process::exit(7)!;
+            }
+            return !{};
+        } else null {}
+        spins += 1usize;
+    }
+    return process::exit(8)!;
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process try wait");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe).output_timeout("run emitted std process try wait executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_process_try_wait_keeps_owned_stdin_pipe_open() {
+    let root = temp_dir("emit_exe_std_process_try_wait_keeps_owned_stdin_pipe_open");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/cat\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_stdin(process::StdIo::Pipe);
+    command.set_stdout(process::StdIo::Ignore);
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    let first = if let !value = child.try_wait() {
+        value
+    } else error! {
+        return process::exit(3)!;
+    };
+    if let ?term = first {
+        _ = term;
+        return process::exit(4)!;
+    } else null {}
+    child.close_stdin().exit().?;
+    let term = if let !value = child.wait() {
+        value
+    } else error! {
+        return process::exit(5)!;
+    };
+    if not term.exited_success() {
+        return process::exit(6)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process try wait keeps stdin");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe)
+        .output_timeout("run emitted std process try wait keeps stdin executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_process_kill_terminates_child() {
+    let root = temp_dir("emit_exe_std_process_kill_terminates_child");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/sh\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    let flag = b"-c\0";
+    let script = b"while true; do sleep 1; done\0";
+    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_stdout(process::StdIo::Ignore);
+    command.set_stderr(process::StdIo::Ignore);
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    let term = if let !value = child.kill() {
+        value
+    } else error! {
+        return process::exit(3)!;
+    };
+    let signal = if let ?value = term.signal_code() {
+        value
+    } else null {
+        return process::exit(4)!;
+    };
+    if signal != 15 {
+        return process::exit(5)!;
+    }
+    let cached = if let !value = child.wait() {
+        value
+    } else error! {
+        return process::exit(6)!;
+    };
+    let cached_signal = if let ?value = cached.signal_code() {
+        value
+    } else null {
+        return process::exit(7)!;
+    };
+    if cached_signal != 15 {
+        return process::exit(8)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process kill");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe).output_timeout("run emitted std process kill executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_discards_indirect_return_call_in_loop() {
     let root = temp_dir("emit_exe_discards_indirect_return_call_in_loop");
     let main = root.join("main.nia");

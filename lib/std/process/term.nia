@@ -1,0 +1,62 @@
+using pkg::os;
+using pkg::process::types;
+
+using types::{Term, TermKind};
+
+extend Term {
+    pub fn exited(code: i32) Term {
+        { kind: TermKind::Exited, code: code }
+    }
+
+    pub fn signal(signal: i32) Term {
+        { kind: TermKind::Signal, code: signal }
+    }
+
+    pub fn stopped(signal: i32) Term {
+        { kind: TermKind::Stopped, code: signal }
+    }
+
+    pub fn unknown(raw: i32) Term {
+        { kind: TermKind::Unknown, code: raw }
+    }
+
+    pub fn from_wait_status(status: os::WaitStatus) Term {
+        if let ?code = status.exit_code() {
+            Term::exited(code)
+        } else if let ?signal = status.signal() {
+            Term::signal(signal)
+        } else if let ?signal = status.stop_signal() {
+            Term::stopped(signal)
+        } else {
+            Term::unknown(status.raw())
+        }
+    }
+
+    pub fn kind(&self) TermKind {
+        self.kind
+    }
+
+    pub fn code(&self) i32 {
+        self.code
+    }
+
+    pub fn exited_success(&self) bool {
+        self.kind == TermKind::Exited and self.code == 0
+    }
+
+    pub fn exit_code(&self) ?i32 {
+        if self.kind == TermKind::Exited {
+            ?self.code
+        } else {
+            null
+        }
+    }
+
+    pub fn signal_code(&self) ?i32 {
+        if self.kind == TermKind::Signal {
+            ?self.code
+        } else {
+            null
+        }
+    }
+}

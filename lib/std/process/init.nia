@@ -1,0 +1,35 @@
+using pkg::io;
+using pkg::os;
+using pkg::process::types;
+
+using types::{Args, Env, Init};
+
+extend Init {
+    pub fn init(argc: usize, argv: &&u8, envp: &&u8, io: &mut io::Io[Error = os::Error]) Init {
+        { argc: argc, argv: argv, envp: envp, io: io }
+    }
+
+    pub fn argc(&self) usize {
+        self.argc
+    }
+
+    pub fn args(&self) Args {
+        Args::init(self.argc, self.argv)
+    }
+
+    pub fn env(&self) Env {
+        Env::init(self.envp)
+    }
+
+    pub fn raw_argv(&self) &&u8 {
+        self.argv
+    }
+
+    pub fn raw_envp(&self) &&u8 {
+        self.envp
+    }
+
+    pub fn io(&self) &mut io::Io[Error = os::Error] {
+        self.io
+    }
+}

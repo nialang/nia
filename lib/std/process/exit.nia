@@ -1,0 +1,86 @@
+using pkg::fmt;
+using pkg::fs;
+using pkg::mem;
+using pkg::os;
+using pkg::process::types;
+
+using types::ExitCode;
+
+extend fs::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+pub fn exit(code: i32) ExitCode {
+    code as ExitCode
+}
+
+extend os::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+extend[T] os::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend[T] fs::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend fmt::Error {
+    pub fn as_exit_code(self) ExitCode {
+        switch self {
+            fmt::Error::Write => exit(5),
+            fmt::Error::InvalidTemplate => exit(22),
+            fmt::Error::MissingArgument => exit(22),
+            fmt::Error::ExtraArgument => exit(22),
+            _ => exit(255),
+        }
+    }
+}
+
+extend[T] fmt::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend mem::Error {
+    pub fn as_exit_code(self) ExitCode {
+        switch self {
+            mem::Error::Invalid => exit(22),
+            mem::Error::InvalidAlignment => exit(22),
+            mem::Error::OutOfMemory => exit(12),
+            _ => exit(255),
+        }
+    }
+}
+
+extend[T] mem::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}

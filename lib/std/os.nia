@@ -221,6 +221,19 @@ pub fn wait(pid: ProcessId) Error!WaitStatus {
     !WaitStatus::from_platform(status)
 }
 
+pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
+    let status = platform::try_wait(pid.platform()).as_os_error().?;
+    if let ?value = status {
+        !(?WaitStatus::from_platform(value))
+    } else null {
+        !null
+    }
+}
+
+pub fn kill(pid: ProcessId) Error!void {
+    platform::kill(pid.platform()).as_os_error()
+}
+
 pub fn exit(code: i32) void {
     platform::exit(code);
 }

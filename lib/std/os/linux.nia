@@ -121,6 +121,14 @@ pub fn wait(pid: ProcessId) Errno!WaitStatus {
     process::wait(pid)
 }
 
+pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
+    process::try_wait(pid)
+}
+
+pub fn kill(pid: ProcessId) Errno!void {
+    process::kill(pid)
+}
+
 pub fn exit(code: i32) void {
     process::exit(code);
 }

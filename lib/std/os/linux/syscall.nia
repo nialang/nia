@@ -12,6 +12,7 @@ pub using platform::{
     getdents64,
     getcwd,
     getrandom,
+    kill,
     fsync,
     lseek,
     mkdirat,
