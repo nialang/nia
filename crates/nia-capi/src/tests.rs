@@ -92,6 +92,52 @@ fn main() i32 {
 }
 
 #[test]
+fn session_set_source_supplies_virtual_module_map_source() {
+    let root = temp_dir("session_set_source_supplies_virtual_module_map_source");
+    let main = root.join("main.nia");
+    fs::write(
+        &main,
+        r#"
+using dep;
+
+fn main() i32 {
+    dep::answer
+}
+"#,
+    )
+    .expect("write source");
+    let main_path = main.to_string_lossy();
+
+    let session = nia_session_new();
+    assert!(!session.is_null());
+    let dep_source = b"pub comptime let answer: i32 = 7;";
+    assert_eq!(
+        nia_session_set_source(
+            session,
+            b"<dep>".as_ptr(),
+            5,
+            dep_source.as_ptr(),
+            dep_source.len(),
+        ),
+        NiaStatus::Ok
+    );
+    let request = nia_check_request_new(main_path.as_ptr(), main_path.len());
+    assert!(!request.is_null());
+    assert_eq!(
+        nia_check_request_add_module(request, b"dep".as_ptr(), 3, b"<dep>".as_ptr(), 5),
+        NiaStatus::Ok
+    );
+
+    let result = nia_session_check(session, request);
+
+    assert!(!result.is_null());
+    assert_eq!(nia_result_status(result), NiaStatus::Ok);
+    nia_result_free(result);
+    nia_check_request_free(request);
+    nia_session_free(session);
+}
+
+#[test]
 fn session_emit_object_file_writes_object() {
     let root = temp_dir("session_emit_object_file_writes_object");
     let main = root.join("main.nia");
