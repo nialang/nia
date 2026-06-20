@@ -1,0 +1,96 @@
+using pkg::cstr;
+using pkg::os;
+using pkg::process::types;
+
+using types::{Child, Command, StdIo, Term};
+
+extend Command {
+    pub fn init(path: cstr::CStr, argv: &&u8, envp: &&u8) Command {
+        {
+            path: path,
+            argv: argv,
+            envp: envp,
+            stdin: StdIo::Inherit,
+            stdout: StdIo::Inherit,
+            stderr: StdIo::Inherit,
+        }
+    }
+
+    pub fn path(&self) cstr::CStr {
+        self.path
+    }
+
+    pub fn argv(&self) &&u8 {
+        self.argv
+    }
+
+    pub fn envp(&self) &&u8 {
+        self.envp
+    }
+
+    pub fn stdin(&self) StdIo {
+        self.stdin
+    }
+
+    pub fn stdout(&self) StdIo {
+        self.stdout
+    }
+
+    pub fn stderr(&self) StdIo {
+        self.stderr
+    }
+
+    pub fn set_stdin(&mut self, behavior: StdIo) void {
+        self.stdin = behavior;
+    }
+
+    pub fn set_stdout(&mut self, behavior: StdIo) void {
+        self.stdout = behavior;
+    }
+
+    pub fn set_stderr(&mut self, behavior: StdIo) void {
+        self.stderr = behavior;
+    }
+
+    pub fn spawn(&self) os::Error!Child {
+        var options = os::SpawnOptions::init();
+        options.set_stdin(self.stdin.as_os_stdio());
+        options.set_stdout(self.stdout.as_os_stdio());
+        options.set_stderr(self.stderr.as_os_stdio());
+        spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
+    }
+
+    pub fn run(&self) os::Error!Term {
+        var child = self.spawn().?;
+        child.wait()
+    }
+}
+
+extend StdIo {
+    fn as_os_stdio(self) os::StdIo {
+        switch self {
+            StdIo::Inherit => os::StdIo::Inherit,
+            StdIo::Ignore => os::StdIo::Ignore,
+            StdIo::Pipe => os::StdIo::Pipe,
+            _ => os::StdIo::Inherit,
+        }
+    }
+}
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) os::Error!Child {
+    let pid = os::spawn_raw(path, argv, envp).?;
+    !Child::init(pid)
+}
+
+pub fn spawn_with_options(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) os::Error!Child {
+    let result = os::spawn(path, argv, envp, options).?;
+    !Child::from_spawn_result(result)
+}
+
+pub fn spawn(command: &Command) os::Error!Child {
+    command.spawn()
+}
+
+pub fn run(command: &Command) os::Error!Term {
+    command.run()
+}

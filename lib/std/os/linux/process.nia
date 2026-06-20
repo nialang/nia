@@ -231,19 +231,49 @@ fn dup_to(from: ?types::FileDescriptor, to: types::FileDescriptor) Errno!void {
 }
 
 pub fn wait(pid: ProcessId) Errno!WaitStatus {
+    wait_with_options(pid, 0usize)
+}
+
+pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
     var status: i32 = 0;
-    let ret = syscall::syscall4(
-        syscall::wait4,
-        pid.raw() as usize,
-        &mut status as usize,
-        0usize,
-        0usize,
-    );
+    let ret = wait4(pid, &mut status, types::wait_no_hang);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else if ret == 0 {
+        !null
+    } else {
+        !(?WaitStatus::init(status))
+    }
+}
+
+pub fn kill(pid: ProcessId) Errno!void {
+    let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, types::sigterm as usize);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
+fn wait_with_options(pid: ProcessId, options: usize) Errno!WaitStatus {
+    var status: i32 = 0;
+    let ret = wait4(pid, &mut status, options);
     if ret < 0 {
         ret.syscall_error()!
     } else {
         !WaitStatus::init(status)
     }
+}
+
+fn wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
+    let ret = syscall::syscall4(
+        syscall::wait4,
+        pid.raw() as usize,
+        status as usize,
+        options,
+        0usize,
+    );
+    ret
 }
 
 pub fn exit(code: i32) void {

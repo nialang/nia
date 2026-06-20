@@ -9,6 +9,7 @@ pub comptime let fork: usize = 57usize;
 pub comptime let execve: usize = 59usize;
 pub comptime let exit: usize = 60usize;
 pub comptime let wait4: usize = 61usize;
+pub comptime let kill: usize = 62usize;
 pub comptime let fsync: usize = 74usize;
 pub comptime let fdatasync: usize = 75usize;
 pub comptime let ftruncate: usize = 77usize;
