@@ -7,6 +7,7 @@ enum Command: i32 {
     Check = 1,
     Obj = 2,
     ObjDir = 3,
+    CheckPkg = 4,
 }
 
 struct PreparedCheck {
@@ -27,7 +28,7 @@ fn write_line(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void 
 
 fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
     stderr.print(
-        "usage: paw check <file.nia>\n       paw obj <file.nia> <out.o>\n       paw obj-dir <file.nia> <out-dir>\n",
+        "usage: paw check <file.nia>\n       paw check-pkg <name> <root>\n       paw obj <file.nia> <out.o>\n       paw obj-dir <file.nia> <out-dir>\n",
         &[],
     ).exit().?;
     !{}
@@ -69,6 +70,8 @@ fn is_bytes(value: process::Arg, expected: &[u8]) bool {
 fn parse_command(command: process::Arg) ?Command {
     if is_bytes(command, b"check") {
         ?Command::Check
+    } else if is_bytes(command, b"check-pkg") {
+        ?Command::CheckPkg
     } else if is_bytes(command, b"obj") {
         ?Command::Obj
     } else if is_bytes(command, b"obj-dir") {
@@ -120,11 +123,79 @@ fn finish_check(prepared: PreparedCheck) void {
     capi::session_free(prepared.session);
 }
 
+fn append_bytes(out: &mut [u8], len: &mut usize, bytes: &[u8]) process::ExitCode!void {
+    if len.* + bytes.len() > out.len() {
+        return process::exit(2)!;
+    }
+    var index = 0usize;
+    while index < bytes.len() {
+        out[len.* + index] = bytes[index];
+        index += 1usize;
+    }
+    len.* += bytes.len();
+    !{}
+}
+
+fn package_main_path(root: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
+    var len = 0usize;
+    append_bytes(out, &mut len, root.bytes()).?;
+    append_bytes(out, &mut len, b"/src/main.nia").?;
+    !&out[0..len]
+}
+
+fn package_root_path(root: process::Arg, name: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
+    var len = 0usize;
+    append_bytes(out, &mut len, root.bytes()).?;
+    append_bytes(out, &mut len, b"/src/").?;
+    append_bytes(out, &mut len, name.bytes()).?;
+    append_bytes(out, &mut len, b".nia").?;
+    !&out[0..len]
+}
+
 fn run_check(stderr: &mut io::FileWriter, path: process::Arg) process::ExitCode!ExitCode {
     let prepared = prepare_check(stderr, path).?;
     defer finish_check(prepared);
 
     let result = capi::session_check(prepared.session, prepared.request);
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: check returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    !status_code(status)
+}
+
+fn run_check_pkg(stderr: &mut io::FileWriter, name: process::Arg, root: process::Arg) process::ExitCode!ExitCode {
+    var main_storage: [4096]u8 = [0; 4096];
+    var package_storage: [4096]u8 = [0; 4096];
+    let main_path = package_main_path(root, &mut main_storage).?;
+    let package_path = package_root_path(root, name, &mut package_storage).?;
+
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer capi::session_free(session);
+
+    let request = capi::check_request_new(main_path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create check request").?;
+        return process::exit(2)!;
+    }
+    defer capi::check_request_free(request);
+    _ = capi::check_request_set_bare(request);
+    _ = capi::check_request_set_o0(request);
+    let add_status = capi::check_request_add_module(request, name.bytes(), package_path);
+    if add_status != capi::status_ok {
+        write_line(stderr, b"paw: failed to add package module").?;
+        return process::exit(2)!;
+    }
+
+    let result = capi::session_check(session, request);
     if result as usize == 0usize {
         write_line(stderr, b"paw: check returned null result").?;
         return process::exit(255)!;
@@ -220,6 +291,24 @@ pub fn main(init: Init) ExitCode!void {
             };
             reject_extra_args(&mut stderr, &mut rest).?;
             run_obj(&mut stderr, path, output).?
+        },
+        Command::CheckPkg => {
+            let name = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            let root = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            reject_extra_args(&mut stderr, &mut rest).?;
+            run_check_pkg(&mut stderr, name, root).?
         },
         Command::ObjDir => {
             let path = if let ?value = rest.next() {
