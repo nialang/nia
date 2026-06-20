@@ -200,9 +200,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
-        let Some(ty) = self.expr_ty(expr) else {
-            return Some("pointer type is not known");
-        };
+        let ty = self.expr_runtime_ty(expr);
         let has_deref_read = self.current_context_proves_trait_obligation(
             ty,
             TraitId::Builtin(BuiltinTrait::DerefRead),

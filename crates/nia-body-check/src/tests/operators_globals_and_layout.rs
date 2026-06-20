@@ -1,6 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+fn integer_literal_tys(expr: &nia_body_ir::TypedExpr, out: &mut Vec<nia_ids::InternedTyId>) {
+    match &expr.kind {
+        nia_body_ir::TypedExprKind::Integer(_) => out.push(expr.ty),
+        nia_body_ir::TypedExprKind::Call { args, .. } => {
+            for arg in args {
+                integer_literal_tys(arg, out);
+            }
+        }
+        nia_body_ir::TypedExprKind::Cast { expr, .. }
+        | nia_body_ir::TypedExprKind::Unary { expr, .. } => integer_literal_tys(expr, out),
+        _ => {}
+    }
+}
+
+fn main_tail_integer_literal_tys(checked: &BodyCheck) -> Vec<nia_ids::InternedTyId> {
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let mut out = Vec::new();
+    integer_literal_tys(body.tail.as_deref().expect("main tail"), &mut out);
+    out
+}
+
 #[test]
 fn checks_unary_operator_builtin_traits() {
     let checked = pipeline(
@@ -14,6 +40,36 @@ fn main(flag: bool, bits: u32, x: i32) bool {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn lowers_comptime_value_binary_operator_suffix_literal_types() {
+    let checked = pipeline(
+        r#"
+comptime let group_width: usize = 8usize;
+
+fn main() usize {
+    group_width - 1usize
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let usize_ty = checked.ir.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    assert_eq!(main_tail_integer_literal_tys(&checked), vec![usize_ty]);
+}
+
+#[test]
+fn lowers_negative_suffix_literal_cast_source_type() {
+    let checked = pipeline(
+        r#"
+fn main() usize {
+    (-1isize) as usize
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let isize_ty = checked.ir.interner.primitive(nia_ty::PrimitiveTy::Isize);
+    assert_eq!(main_tail_integer_literal_tys(&checked), vec![isize_ty]);
 }
 
 #[test]

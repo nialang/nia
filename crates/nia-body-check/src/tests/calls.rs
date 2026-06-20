@@ -177,6 +177,45 @@ fn main() i32 {
 }
 
 #[test]
+fn records_generic_calls_inside_defer_blocks() {
+    let checked = pipeline(
+        r#"
+extern fn log(value: i32);
+
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    defer {
+        log(id[i32](7))
+    };
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .facts
+            .node_bracket_suffix_resolutions
+            .values()
+            .any(|resolution| matches!(resolution, BracketSuffixResolution::GenericCall)),
+        "{:?}",
+        checked.facts.node_bracket_suffix_resolutions
+    );
+    assert!(
+        checked
+            .facts
+            .node_resolved_calls
+            .values()
+            .any(|call| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. })),
+        "{:?}",
+        checked.facts.node_resolved_calls
+    );
+}
+
+#[test]
 fn checks_simd_lane_builtins() {
     let checked = pipeline(
         r#"

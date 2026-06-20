@@ -33,8 +33,9 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        if let Some(ty) = expected
-            .and_then(|expected| self.expected_comptime_expr_runtime_projection(expr, expected))
+        if !expr_requires_structural_runtime_check(expr)
+            && let Some(ty) = expected
+                .and_then(|expected| self.expected_comptime_expr_runtime_projection(expr, expected))
         {
             self.record_expr_node_type(expr, ty);
             return ty;
@@ -106,7 +107,21 @@ impl<'a> BodyChecker<'a> {
                 }
                 match op {
                     UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
-                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                        let expected = if matches!(op, UnaryOp::Neg) {
+                            integer_literal_suffix_ty(expr)
+                                .map(|primitive| self.primitive(primitive))
+                                .or_else(|| {
+                                    float_literal_suffix_ty(expr)
+                                        .map(|primitive| self.primitive(primitive))
+                                })
+                                .or(expected_ref_target)
+                        } else {
+                            expected_ref_target
+                        };
+                        let inner_ty = self.check_expr_with_expected(inner, expected);
+                        if let Some(expected) = expected {
+                            self.expect_expr_type(inner, expected, inner_ty, "unary operator");
+                        }
                         self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
                     UnaryOp::RefReadOnly => {
@@ -141,7 +156,8 @@ impl<'a> BodyChecker<'a> {
                     }
                     UnaryOp::Deref => {
                         let expected = self.pointer_to_deref_expected(expected);
-                        let inner_ty = self.check_expr_with_expected(inner, expected);
+                        self.check_expr_with_expected(inner, expected);
+                        let inner_ty = self.expr_runtime_ty(inner);
                         self.deref_result_type(expr.span, inner_ty)
                     }
                 }
@@ -232,10 +248,13 @@ impl<'a> BodyChecker<'a> {
                     return ty;
                 }
                 let lhs_expected = match index {
-                    IndexArg::Expr(_) => self.index_lhs_expected_from_index_expected(expected),
-                    IndexArg::Range(_) => None,
+                    IndexArg::Expr(_) if self.expr_ty(lhs).is_none() => {
+                        self.index_lhs_expected_from_index_expected(expected)
+                    }
+                    IndexArg::Expr(_) | IndexArg::Range(_) => None,
                 };
-                let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
+                self.check_expr_with_expected(lhs, lhs_expected);
+                let lhs_ty = self.expr_runtime_ty(lhs);
                 match index {
                     IndexArg::Expr(index) => {
                         let index_ty =
@@ -309,6 +328,14 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let comptime_expr = self.lower_comptime_expr(expr).ok()?;
         match self.comptime_expr_type_for_ir_with_expected(&comptime_expr, Some(expected))? {
+            nia_comptime_check::ComptimeValueType::Runtime(actual)
+                if self.types_match(expected, actual) =>
+            {
+                Some(expected)
+            }
+            nia_comptime_check::ComptimeValueType::Runtime(actual) => {
+                self.coerce_pointer_array_to_slice(expr, expected, actual)
+            }
             nia_comptime_check::ComptimeValueType::String
                 if self.is_runtime_char_array_type(expected) =>
             {
@@ -357,7 +384,7 @@ impl<'a> BodyChecker<'a> {
         matches!(self.interner.get(expected), Some(TyKind::Array { .. })).then_some(expected)
     }
 
-    fn expected_ref_target_from_expected(
+    pub(crate) fn expected_ref_target_from_expected(
         &mut self,
         op: UnaryOp,
         expected: Option<InternedTyId>,
@@ -399,6 +426,7 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         });
         let elem = self.check_expr_with_expected(inner, expected_elem);
+        self.record_expr_node_type(inner, elem);
         self.interner.intern(TyKind::Optional { elem })
     }
 
@@ -444,12 +472,13 @@ impl<'a> BodyChecker<'a> {
 
     fn check_try_expr(&mut self, span: Span, inner: &Expr) -> InternedTyId {
         let inner_ty = self.check_expr(inner);
-        let normalized = self.normalization.normalize(inner_ty);
+        self.record_expr_node_type(inner, inner_ty);
+        let normalized = self.normalize_aliases(inner_ty);
         match self.interner.get(normalized).cloned() {
             Some(TyKind::Optional { elem }) => {
+                let current_return = self.normalize_aliases(self.current_return);
                 if !matches!(
-                    self.interner
-                        .get(self.normalization.normalize(self.current_return)),
+                    self.interner.get(current_return),
                     Some(TyKind::Optional { .. })
                 ) {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -735,7 +764,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn block_tail_materialized_type(
-        &self,
+        &mut self,
         block: &nia_ast::Block,
         fallback: InternedTyId,
     ) -> InternedTyId {
@@ -753,7 +782,7 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|tail| self.is_numeric_literal_expr(tail))
     }
 
-    fn index_lhs_expected_from_index_expected(
+    pub(crate) fn index_lhs_expected_from_index_expected(
         &mut self,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -765,7 +794,7 @@ impl<'a> BodyChecker<'a> {
         Some(array)
     }
 
-    fn pointer_to_deref_expected(
+    pub(crate) fn pointer_to_deref_expected(
         &mut self,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -1006,7 +1035,7 @@ impl<'a> BodyChecker<'a> {
         self.normalize_projection(output)
     }
 
-    fn can_expected_type_drive_builtin_operator(
+    pub(crate) fn can_expected_type_drive_builtin_operator(
         &self,
         expected: InternedTyId,
         op: BinaryOp,
@@ -1103,8 +1132,13 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(index);
                 return ty;
             }
-            let lhs_expected = self.index_lhs_expected_from_index_expected(expected);
-            let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
+            let lhs_expected = if self.expr_ty(callee).is_none() {
+                self.index_lhs_expected_from_index_expected(expected)
+            } else {
+                None
+            };
+            self.check_expr_with_expected(callee, lhs_expected);
+            let lhs_ty = self.expr_runtime_ty(callee);
             let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
             self.expect_integer(index.span, index_ty, "index");
             let index_ty = self.expr_ty(index).unwrap_or(index_ty);
@@ -1219,6 +1253,25 @@ impl<'a> BodyChecker<'a> {
             _ => self.error(),
         }
     }
+}
+
+fn expr_requires_structural_runtime_check(expr: &Expr) -> bool {
+    matches!(
+        expr.kind,
+        ExprKind::BracketSuffix { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::OptionalSome { .. }
+            | ExprKind::ErrorOk { .. }
+            | ExprKind::ErrorErr { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Try { .. }
+            | ExprKind::Block(_)
+            | ExprKind::If { .. }
+            | ExprKind::IfPattern(_)
+            | ExprKind::Switch(_)
+    )
 }
 
 #[derive(Debug, Clone, Copy)]

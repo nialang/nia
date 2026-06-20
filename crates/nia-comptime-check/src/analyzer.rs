@@ -124,6 +124,10 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
     };
     analyzer.analyze_module();
     ComptimeCheck {
+        interner: analyzer
+            .working_interners
+            .remove(&input.defs.module_id)
+            .unwrap_or_else(|| input.interner.clone()),
         values: analyzer.values,
         typed_values: analyzer.typed_values,
         enum_values: analyzer.enum_values,

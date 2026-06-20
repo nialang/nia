@@ -19,8 +19,8 @@ struct FunctionItemRef {
 }
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn direct_callee_signature(
-        &self,
+    pub(crate) fn direct_callee_signature(
+        &mut self,
         callee: &Expr,
     ) -> Option<ResolvedFunctionSignature> {
         let base = generic_inst_base(callee);
@@ -36,7 +36,7 @@ impl<'a> BodyChecker<'a> {
             .cloned()
             .map(|signature| ResolvedFunctionSignature {
                 def_id: self.global_def_id(def_id),
-                signature,
+                signature: self.import_local_function_signature(&signature),
             })
     }
 

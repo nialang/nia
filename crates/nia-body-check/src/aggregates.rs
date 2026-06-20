@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
+use crate::{
+    BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature,
+    generic_inst_base,
+};
 use nia_ast::{Expr, ExprKind};
 use nia_comptime_check::{ComptimeKey, ComptimeValueType};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
@@ -528,7 +531,10 @@ impl<'a> BodyChecker<'a> {
         Some(self.import_type_from(&program_signature.interner, ty))
     }
 
-    fn qualified_program_comptime_type(&mut self, def_id: GlobalDefId) -> Option<InternedTyId> {
+    pub(crate) fn qualified_program_comptime_type(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
         let program_signature = self.program_comptimes.get(&def_id).cloned()?;
         if let Some(typed) = self
             .program_comptime
@@ -1059,7 +1065,7 @@ impl<'a> BodyChecker<'a> {
         builder.finish()
     }
 
-    fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
+    pub(crate) fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
         self.with_comptime_context(|this| {
             this.check_expr(count);
             let count = this.lower_comptime_expr(count).map_err(|err| {
@@ -1113,31 +1119,6 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn typed_comptime_query_input(&self) -> nia_comptime_check::TypedComptimeQueryInput<'_> {
-        nia_comptime_check::TypedComptimeQueryInput {
-            module: self.comptime_module,
-            defs: self.defs,
-            values: self.values,
-            locals: self.locals,
-            semantic_uses: self.semantic_uses,
-            signatures: self.signatures,
-            interner: &self.interner,
-            normalized: &self.normalization.normalized,
-            target: self.target,
-            program: nia_comptime_check::ComptimeProgramContext {
-                modules: Some(self.program_comptime_modules),
-                defs: self.program.defs,
-                type_lowerings: self.program.type_lowerings,
-                type_normalizations: self.program.type_normalizations,
-                signatures: self.program.signatures,
-                trait_impls: self.program_trait_impls,
-            },
-            typed_values: &self.comptime.typed_values,
-            array_lengths: &self.comptime.array_lengths,
-            frames: &[],
-        }
-    }
-
     fn typed_comptime_frames(&self) -> Vec<nia_comptime_check::TypedComptimeFrame> {
         self.comptime_call_locals
             .iter()
@@ -1151,14 +1132,80 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn comptime_expr_type_for_ir_with_expected(
-        &self,
+        &mut self,
         expr: &nia_comptime_ir::ResolvedComptimeExpr,
         expected: Option<InternedTyId>,
     ) -> Option<nia_comptime_check::ComptimeValueType> {
         let frames = self.typed_comptime_frames();
-        let mut input = self.typed_comptime_query_input();
-        input.frames = &frames;
-        nia_comptime_check::infer_resolved_comptime_expr_type(input, expr, expected)
+        let mut query_interner = self.comptime.interner.clone();
+        let expected =
+            expected.map(|ty| nia_ty::import_type_into(&mut query_interner, &self.interner, ty));
+        let input = nia_comptime_check::TypedComptimeQueryInput {
+            module: self.comptime_module,
+            defs: self.defs,
+            values: self.values,
+            locals: self.locals,
+            semantic_uses: self.semantic_uses,
+            signatures: self.signatures,
+            interner: &query_interner,
+            normalized: &self.normalization.normalized,
+            target: self.target,
+            program: nia_comptime_check::ComptimeProgramContext {
+                modules: Some(self.program_comptime_modules),
+                defs: self.program.defs,
+                type_lowerings: self.program.type_lowerings,
+                type_normalizations: self.program.type_normalizations,
+                signatures: self.program.signatures,
+                trait_impls: self.program_trait_impls,
+            },
+            typed_values: &self.comptime.typed_values,
+            array_lengths: &self.comptime.array_lengths,
+            frames: &frames,
+        };
+        let ty = nia_comptime_check::infer_resolved_comptime_expr_type(input, expr, expected)?;
+        Some(self.import_current_comptime_expr_type(&query_interner, ty))
+    }
+
+    fn import_current_comptime_expr_type(
+        &mut self,
+        source: &TyInterner,
+        ty: nia_comptime_check::ComptimeValueType,
+    ) -> nia_comptime_check::ComptimeValueType {
+        match ty {
+            nia_comptime_check::ComptimeValueType::Runtime(ty) => {
+                nia_comptime_check::ComptimeValueType::Runtime(nia_ty::import_type_into(
+                    &mut self.interner,
+                    source,
+                    ty,
+                ))
+            }
+            nia_comptime_check::ComptimeValueType::Array { elem, len } => {
+                nia_comptime_check::ComptimeValueType::Array {
+                    elem: Box::new(self.import_current_comptime_expr_type(source, *elem)),
+                    len,
+                }
+            }
+            nia_comptime_check::ComptimeValueType::Struct(fields) => {
+                nia_comptime_check::ComptimeValueType::Struct(
+                    fields
+                        .into_iter()
+                        .map(|field| nia_comptime_check::ComptimeValueFieldType {
+                            name: field.name,
+                            ty: self.import_current_comptime_expr_type(source, field.ty),
+                        })
+                        .collect(),
+                )
+            }
+            nia_comptime_check::ComptimeValueType::Int => {
+                nia_comptime_check::ComptimeValueType::Int
+            }
+            nia_comptime_check::ComptimeValueType::Bool => {
+                nia_comptime_check::ComptimeValueType::Bool
+            }
+            nia_comptime_check::ComptimeValueType::String => {
+                nia_comptime_check::ComptimeValueType::String
+            }
+        }
     }
 
     fn substitute_current_comptime_generics(&mut self, ty: InternedTyId) -> InternedTyId {
@@ -1238,6 +1285,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn global_comptime_use(&self, expr: &Expr) -> Option<GlobalDefId> {
+        if !matches!(
+            generic_inst_base(expr).kind,
+            ExprKind::Ident(_) | ExprKind::Qualified { .. }
+        ) {
+            return None;
+        }
         let Some(SemanticValueUse::Global(global_id)) =
             self.semantic_uses.node_value_use(&expr.node_key)
         else {

@@ -388,7 +388,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_error_union_value(expr, FunctionErrorUnionTag::Err, inner)
             }
             FunctionExprKind::TaggedUnionTag { expr: inner } => {
-                let aggregate = self.emit_expr(inner)?.into_struct_value()?;
+                let aggregate = self.emit_tagged_union_value(expr.span, inner)?;
                 self.builder
                     .build_extract_value(aggregate, 0, "tagged.tag")
                     .map_err(|_| self.error(expr.span, "failed to extract tagged union tag"))
@@ -727,7 +727,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .builder
                 .build_insert_value(value, start, index, "range.start")
                 .map_err(|_| self.error(start_span, "failed to insert range start"))?
-                .into_struct_value()?;
+                .into_struct_value()
+                .map_err(|_| self.error(start_span, "range value is not a struct"))?;
             index += 1;
         }
         if let Some(end) = &range.end {
@@ -737,7 +738,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .builder
                 .build_insert_value(value, end, index, "range.end")
                 .map_err(|_| self.error(end_span, "failed to insert range end"))?
-                .into_struct_value()?;
+                .into_struct_value()
+                .map_err(|_| self.error(end_span, "range value is not a struct"))?;
         }
         Ok(value.into())
     }
@@ -769,7 +771,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 return Err(self.error(span, "range type does not contain requested bound"));
             }
         };
-        let range = self.emit_expr(range)?.into_struct_value()?;
+        let range = self
+            .emit_expr(range)?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "range bound base value is not a struct"))?;
         self.builder
             .build_extract_value(range, index, "range.bound")
             .map_err(|_| self.error(span, "failed to extract range bound"))
@@ -832,7 +837,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         tagged: &FunctionExpr,
         payload_ty: InternedTyId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let tagged_value = self.emit_expr(tagged)?;
+        let tagged_value = self.emit_tagged_union_value(span, tagged)?.into();
         self.load_tagged_union_payload_from_value(span, tagged_value, tagged.ty, payload_ty)
     }
 

@@ -407,6 +407,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         &mut interner,
         input.program.type_normalizations,
     );
+    let void_ty = interner.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         active_item_tree: input.active_item_tree,
         defs: input.defs,
@@ -415,6 +416,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         locals: input.locals,
         semantic_uses: input.semantic_uses,
         interner,
+        type_lowering: input.lowered,
         node_type_uses: &input.lowered.node_type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
@@ -460,7 +462,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         diagnostics: Vec::new(),
         timing,
         timing_module_id: module_id,
-        current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
+        current_return: void_ty,
         current_def_id: None,
         current_param_locals: Vec::new(),
         comptime_context_depth: 0,
@@ -549,6 +551,7 @@ struct BodyChecker<'a> {
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
+    type_lowering: &'a TypeLowering,
     node_type_uses: &'a HashMap<NodeKey, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
@@ -668,6 +671,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
+        let ty = self.import_type_to_working_interner(ty);
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
         if let Some(facts) = self.current_function_facts() {
@@ -786,9 +790,20 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn record_local_type(&mut self, local_id: LocalId, ty: InternedTyId) {
+        let ty = self.import_type_to_working_interner(ty);
         self.local_types.insert(local_id, ty);
         if let Some(facts) = self.current_function_facts() {
             facts.local_types.insert(local_id, ty);
+        }
+    }
+
+    fn import_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
+        if ty.interner_id == self.interner.interner_id() {
+            ty
+        } else if ty.interner_id == self.normalization.interner.interner_id() {
+            nia_ty::import_type_into(&mut self.interner, &self.normalization.interner, ty)
+        } else {
+            ty
         }
     }
 
@@ -797,8 +812,12 @@ impl<'a> BodyChecker<'a> {
             .map(|def_id| self.function_facts.entry(def_id).or_default())
     }
 
-    fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
-        self.node_expr_types.get(&expr.node_key).copied()
+    fn expr_ty(&mut self, expr: &Expr) -> Option<InternedTyId> {
+        if let Some(ty) = self.node_expr_types.get(&expr.node_key).copied() {
+            return Some(ty);
+        }
+        let ty = self.node_type_uses.get(&expr.node_key).copied()?;
+        Some(self.import_type_to_working_interner(ty))
     }
 
     fn bracket_suffix_resolution(&self, expr: &Expr) -> Option<BracketSuffixResolution> {
@@ -1113,9 +1132,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
-        let Some(signature) = self.signatures.functions.get(&def_id) else {
+        let Some(raw_signature) = self.signatures.functions.get(&def_id).cloned() else {
             return;
         };
+        let signature = self.import_local_function_signature(&raw_signature);
         time_body_stage_if_slow(
             self.timing,
             "body_check.function.projection_obligations",
@@ -1123,7 +1143,7 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.check_function_signature_projection_obligations(def_id, signature);
+                self.check_function_signature_projection_obligations(def_id, &signature);
             },
         );
         let previous_return = self.current_return;
@@ -1131,7 +1151,7 @@ impl<'a> BodyChecker<'a> {
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
-        let self_ty = self.method_self_type(def_id, signature);
+        let self_ty = self.method_self_type(def_id, &signature);
         time_body_stage_if_slow(
             self.timing,
             "body_check.function.object_safe",
@@ -1139,7 +1159,7 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.check_object_safe_types_in_signature(signature);
+                self.check_object_safe_types_in_signature(&signature);
             },
         );
         time_body_stage_if_slow(
@@ -1149,7 +1169,7 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.seed_param_types(signature, function, self_ty);
+                self.seed_param_types(&signature, function, self_ty);
             },
         );
         if signature.is_comptime {
@@ -1270,7 +1290,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn block_ends_with_never_stmt(&self, block: &Block) -> bool {
+    fn block_ends_with_never_stmt(&mut self, block: &Block) -> bool {
         let Some(stmt) = block.stmts.last() else {
             return false;
         };
@@ -1475,7 +1495,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn materialize_explicit_binding_pattern_ty(
-        &self,
+        &mut self,
         kind: nia_ast::BindingPatternKind,
         explicit_binding: InternedTyId,
         value_ty: InternedTyId,
@@ -1484,16 +1504,15 @@ impl<'a> BodyChecker<'a> {
             nia_ast::BindingPatternKind::Value => self
                 .materialize_inferred_array_type(explicit_binding, value_ty)
                 .unwrap_or(explicit_binding),
-            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => self
-                .interner
-                .get(self.normalization.normalize(value_ty))
-                .and_then(|ty| match ty {
-                    TyKind::Pointer { elem, .. } => {
-                        self.materialize_inferred_array_type(explicit_binding, *elem)
-                    }
+            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => {
+                let value_elem = match self.interner.get(self.normalization.normalize(value_ty)) {
+                    Some(TyKind::Pointer { elem, .. }) => Some(*elem),
                     _ => None,
-                })
-                .unwrap_or(explicit_binding),
+                };
+                value_elem
+                    .and_then(|elem| self.materialize_inferred_array_type(explicit_binding, elem))
+                    .unwrap_or(explicit_binding)
+            }
         }
     }
 

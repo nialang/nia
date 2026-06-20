@@ -172,8 +172,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             Some(TyKind::Slice { .. }) => {
                 let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
-                self.extract_slice_len(span, slice.into_struct_value()?)
-                    .map(Into::into)
+                let slice = slice
+                    .into_struct_value()
+                    .map_err(|_| self.error(span, "`len` receiver is not a slice value"))?;
+                self.extract_slice_len(span, slice).map(Into::into)
             }
             _ => Err(self.error(span, "`len` requires an array or slice")),
         }
@@ -188,8 +190,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match self.module.ty_kind(self_ty) {
             Some(TyKind::Slice { .. }) => {
                 let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
-                self.extract_slice_ptr(span, slice.into_struct_value()?)
-                    .map(Into::into)
+                let slice = slice.into_struct_value().map_err(|_| {
+                    self.error(span, "`GetPtr.get_ptr` receiver is not a slice value")
+                })?;
+                self.extract_slice_ptr(span, slice).map(Into::into)
             }
             _ => Err(self.error(span, "`GetPtr.get_ptr` requires a slice")),
         }
@@ -454,7 +458,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         call: DynamicTraitMethodCall<'_, 'ctx>,
     ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
-        let receiver_value = self.emit_expr(call.receiver)?.into_struct_value()?;
+        let receiver_value = self
+            .emit_expr(call.receiver)?
+            .into_struct_value()
+            .map_err(|_| {
+                self.error(
+                    call.expr.span,
+                    "dynamic trait receiver is not a trait object",
+                )
+            })?;
         let object_ptr = self
             .builder
             .build_extract_value(receiver_value, 0, "traitobj.ptr")

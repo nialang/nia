@@ -11,7 +11,7 @@ use nia_item_signatures::{
 use nia_ty::{TyInterner, import_type_into};
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn qualified_callee_signature(
+    pub(crate) fn qualified_callee_signature(
         &mut self,
         callee: &Expr,
     ) -> Option<ResolvedFunctionSignature> {
@@ -29,13 +29,24 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<ResolvedFunctionSignature> {
         if def_id.module_id == self.defs.module_id {
             let signature = self.signatures.functions.get(&def_id.def_id)?.clone();
-            return Some(ResolvedFunctionSignature { def_id, signature });
+            return Some(ResolvedFunctionSignature {
+                def_id,
+                signature: self.import_local_function_signature(&signature),
+            });
         }
         let program_signature = self.program_functions.get(&def_id)?.clone();
         Some(ResolvedFunctionSignature {
             def_id,
             signature: self.import_program_function_signature(&program_signature),
         })
+    }
+
+    pub(crate) fn import_local_function_signature(
+        &mut self,
+        signature: &FunctionSignature,
+    ) -> FunctionSignature {
+        let source = self.type_lowering.interner.clone();
+        self.import_function_signature_from(&source, signature)
     }
 
     pub(crate) fn import_program_function_signature(

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{
-    byte_string_literal_len, float_literal_text, has_numeric_literal_suffix, integer_literal_value,
-    integer_range, numeric_literal_suffix, parse_float_literal, string_literal_char_len,
+    byte_string_literal_len, float_literal_suffix_ty, float_literal_text,
+    has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value, integer_range,
+    numeric_literal_suffix, parse_float_literal, string_literal_char_len,
 };
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
@@ -23,8 +24,32 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn normalize_aliases(&mut self, ty: InternedTyId) -> InternedTyId {
+        if self
+            .interner
+            .get(ty)
+            .is_some_and(|kind| !matches!(kind, TyKind::Error))
+        {
+            return ty;
+        }
+        if let Some(normalized) = self
+            .normalization
+            .normalized
+            .get(&ty)
+            .copied()
+            .filter(|normalized| *normalized != ty)
+        {
+            return nia_ty::import_type_into(
+                &mut self.interner,
+                &self.normalization.interner,
+                normalized,
+            );
+        }
+        ty
+    }
+
     pub(crate) fn optional_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        match self.interner.get(self.normalization.normalize(ty)) {
+        match self.interner.get(ty) {
             Some(TyKind::Optional { elem }) => Some(*elem),
             _ => None,
         }
@@ -34,7 +59,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         ty: InternedTyId,
     ) -> Option<(InternedTyId, InternedTyId)> {
-        match self.interner.get(self.normalization.normalize(ty)) {
+        match self.interner.get(ty) {
             Some(TyKind::ErrorUnion { error, value }) => Some((*error, *value)),
             _ => None,
         }
@@ -64,7 +89,7 @@ impl<'a> BodyChecker<'a> {
         ty: InternedTyId,
         active_projections: &mut HashSet<ProjectionNormalizationKey>,
     ) -> InternedTyId {
-        let ty = self.normalization.normalize(ty);
+        let ty = self.normalize_aliases(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
@@ -288,6 +313,24 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         context: &str,
     ) {
+        if has_numeric_literal_suffix(expr) {
+            if let Some(primitive) = integer_literal_suffix_ty(expr) {
+                let suffix_ty = self.primitive(primitive);
+                self.check_integer_literal_range(expr, suffix_ty, "literal suffix");
+                if self.types_match(expected, suffix_ty) {
+                    self.materialize_literal_expr_type(expr, suffix_ty);
+                    return;
+                }
+            }
+            if let Some(primitive) = float_literal_suffix_ty(expr) {
+                let suffix_ty = self.primitive(primitive);
+                self.check_float_literal_target(expr, suffix_ty, "literal suffix");
+                if self.types_match(expected, suffix_ty) {
+                    self.materialize_literal_expr_type(expr, suffix_ty);
+                    return;
+                }
+            }
+        }
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
             self.record_expr_node_type(expr, coerced);
             return;
@@ -795,6 +838,7 @@ impl<'a> BodyChecker<'a> {
             locals: self.locals,
             semantic_uses: self.semantic_uses,
             interner: self.interner.clone(),
+            type_lowering: self.type_lowering,
             node_type_uses: self.node_type_uses,
             signatures: self.signatures,
             normalization: self.normalization,
@@ -850,11 +894,22 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn materialize_inferred_array_type(
-        &self,
+        &mut self,
         expected: InternedTyId,
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
-        match (self.interner.get(expected), self.interner.get(actual)) {
+        self.materialize_inferred_array_type_inner(expected, actual)
+    }
+
+    fn materialize_inferred_array_type_inner(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match (
+            self.interner.get(expected).cloned(),
+            self.interner.get(actual).cloned(),
+        ) {
             (
                 Some(TyKind::Array {
                     len: ArrayLenTy::Infer,
@@ -863,7 +918,64 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     elem: actual_elem, ..
                 }),
-            ) if self.types_match(*expected_elem, *actual_elem) => Some(actual),
+            ) if self.types_match(expected_elem, actual_elem) => Some(actual),
+            (
+                Some(TyKind::Pointer { is_readonly, elem }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) if is_readonly == actual_readonly => {
+                let elem = self.materialize_inferred_array_type_inner(elem, actual_elem)?;
+                Some(self.interner.intern(TyKind::Pointer { is_readonly, elem }))
+            }
+            (
+                Some(TyKind::VolatilePointer { is_readonly, elem }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) if is_readonly == actual_readonly => {
+                let elem = self.materialize_inferred_array_type_inner(elem, actual_elem)?;
+                Some(
+                    self.interner
+                        .intern(TyKind::VolatilePointer { is_readonly, elem }),
+                )
+            }
+            (
+                Some(TyKind::Slice { is_readonly, elem }),
+                Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) if is_readonly == actual_readonly => {
+                let elem = self.materialize_inferred_array_type_inner(elem, actual_elem)?;
+                Some(self.interner.intern(TyKind::Slice { is_readonly, elem }))
+            }
+            (
+                Some(TyKind::SlicePointee { elem }),
+                Some(TyKind::SlicePointee { elem: actual_elem }),
+            ) => {
+                let elem = self.materialize_inferred_array_type_inner(elem, actual_elem)?;
+                Some(self.interner.intern(TyKind::SlicePointee { elem }))
+            }
+            (
+                Some(TyKind::Range { kind, bound }),
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }),
+            ) if kind == actual_kind => match (bound, actual_bound) {
+                (Some(bound), Some(actual_bound)) => {
+                    let bound = self.materialize_inferred_array_type_inner(bound, actual_bound)?;
+                    Some(self.interner.intern(TyKind::Range {
+                        kind,
+                        bound: Some(bound),
+                    }))
+                }
+                (None, None) => Some(expected),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -883,11 +995,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn ty_for_type(&self, ty: &TypeRef) -> InternedTyId {
-        self.node_type_uses
+    pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
+        let ty = self
+            .node_type_uses
             .get(&ty.node_key)
             .copied()
-            .unwrap_or_else(|| self.error())
+            .unwrap_or_else(|| self.error());
+        self.import_type_to_working_interner(ty)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {

@@ -18,6 +18,7 @@ use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeCheck {
+    pub interner: TyInterner,
     pub values: HashMap<ComptimeKey, ComptimeValue>,
     pub typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
     pub enum_values: HashMap<DefId, ComptimeValue>,

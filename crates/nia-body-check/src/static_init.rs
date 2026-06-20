@@ -224,11 +224,10 @@ impl<'a> BodyChecker<'a> {
                     self.lower_static_byte_string_pointer_init(expr, literal)
                 }
             }
-            ExprKind::Cast { expr: inner, .. } => self.lower_static_cast_init_with_target(
-                expr,
-                inner,
-                self.expr_ty(expr).unwrap_or(ty),
-            ),
+            ExprKind::Cast { expr: inner, .. } => {
+                let cast_ty = self.expr_ty(expr).unwrap_or(ty);
+                self.lower_static_cast_init_with_target(expr, inner, cast_ty)
+            }
             _ => self.lower_static_init(expr),
         }
     }
