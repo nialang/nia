@@ -53,6 +53,12 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!Spa
             write_errno(error_pipe.write(), error);
             exit(127);
         }
+        if let !ok = apply_cwd(options) {
+            _ = ok;
+        } else error! {
+            write_errno(error_pipe.write(), error);
+            exit(127);
+        }
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
         write_errno(error_pipe.write(), exec_ret.syscall_error());
         exit(127);
@@ -197,6 +203,19 @@ fn pipe_write(pipe: ?Pipe) ?types::FileDescriptor {
         ?value.write()
     } else null {
         null
+    }
+}
+
+fn apply_cwd(options: SpawnOptions) Errno!void {
+    if let ?path = options.cwd() {
+        let ret = syscall::syscall1(syscall::chdir, path as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    } else null {
+        !{}
     }
 }
 

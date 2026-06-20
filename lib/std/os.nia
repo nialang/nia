@@ -655,4 +655,8 @@ extend SpawnOptions {
     pub fn set_stderr(&mut self, behavior: StdIo) void {
         self.platform.set_stderr(behavior.as_platform_stdio());
     }
+
+    pub fn set_cwd(&mut self, path: &u8) void {
+        self.platform.set_cwd(path);
+    }
 }

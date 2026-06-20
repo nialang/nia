@@ -2,6 +2,7 @@
 using pkg::os::linux::x86_64::syscall as platform;
 
 pub using platform::{
+    chdir,
     close,
     dup2,
     execve,

@@ -14,6 +14,7 @@ pub comptime let fsync: usize = 74usize;
 pub comptime let fdatasync: usize = 75usize;
 pub comptime let ftruncate: usize = 77usize;
 pub comptime let getcwd: usize = 79usize;
+pub comptime let chdir: usize = 80usize;
 pub comptime let getdents64: usize = 217usize;
 pub comptime let openat: usize = 257usize;
 pub comptime let mkdirat: usize = 258usize;
