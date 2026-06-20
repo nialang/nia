@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::BracketSuffixResolution;
@@ -119,7 +119,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_assignable(&mut self, expr: &Expr, context: &str) {
         if let Some(reason) = self.not_assignable_reason(expr) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!("{context} is not assignable: {reason}"),
             ));
@@ -154,7 +154,7 @@ impl<'a> BodyChecker<'a> {
                 "assignable"
             };
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!("{context} is not {property}: {reason}"),
             ));
@@ -414,7 +414,7 @@ impl<'a> BodyChecker<'a> {
             }
             if span != Span::default() {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!(
                         "trait bound not satisfied: {}: {}",
@@ -440,7 +440,7 @@ impl<'a> BodyChecker<'a> {
         }
         if span != Span::default() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -468,7 +468,7 @@ impl<'a> BodyChecker<'a> {
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -503,7 +503,7 @@ impl<'a> BodyChecker<'a> {
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -536,7 +536,7 @@ impl<'a> BodyChecker<'a> {
             }
             IndexLiteralExpectedType::Ambiguous => {
                 self.check_expr(index);
-                self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                     index.span,
                     format!(
                         "ambiguous index literal type for {}; add a literal suffix or type annotation",
@@ -623,7 +623,7 @@ impl<'a> BodyChecker<'a> {
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "cannot dereference `&void`",
                 ));
@@ -641,7 +641,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!(
                         "trait bound not satisfied: {}: {}",
@@ -669,7 +669,7 @@ impl<'a> BodyChecker<'a> {
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "cannot dereference `&void`",
                 ));

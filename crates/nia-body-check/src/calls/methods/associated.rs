@@ -104,7 +104,7 @@ impl<'a> BodyChecker<'a> {
         }
         let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("unknown associated function `{name}`"),
             ));
@@ -116,7 +116,7 @@ impl<'a> BodyChecker<'a> {
             .map(|resolved| resolved.signature)
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "associated function signature not found",
             ));
@@ -132,7 +132,7 @@ impl<'a> BodyChecker<'a> {
         };
         let method_arg_count = method_instantiation_args.len();
         if method_type_args.is_some() && signature.generics.len() != method_arg_count {
-            self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                 span,
                 format!(
                     "generic argument count mismatch for method: expected {}, got {method_arg_count}",
@@ -162,7 +162,7 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|param| param.receiver.is_some());
         if is_receiver_method && args.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!("receiver method `{name}` requires a receiver argument"),
             ));
@@ -247,7 +247,7 @@ impl<'a> BodyChecker<'a> {
             [] => return None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!("ambiguous trait associated function `{name}`"),
                 ));
@@ -261,7 +261,7 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|param| param.receiver.is_some())
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!("receiver method `{name}` requires a receiver argument"),
             ));
@@ -281,7 +281,7 @@ impl<'a> BodyChecker<'a> {
             && candidate.signature.generics.len() != method_instantiation_args.len()
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 format!(
                     "generic argument count mismatch for trait method: expected {}, got {}",
@@ -544,7 +544,7 @@ impl<'a> BodyChecker<'a> {
             .map(|def| def.name.as_str())
             .unwrap_or("<unknown>");
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0301",
+            codes::TYPE_CHECK,
             span,
             format!(
                 "generic argument count mismatch for `{name}`: expected {expected}, got {actual}"

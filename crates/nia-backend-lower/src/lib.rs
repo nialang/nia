@@ -1053,7 +1053,7 @@ impl<'a> ModuleLowerer<'a> {
                         .map(|summary| summary.span)
                         .unwrap_or_default();
                     diagnostics.push(Diagnostic::user_error_at(
-                        "E0601",
+                        nia_diagnostic::codes::LLVM_CODEGEN,
                         span,
                         format!(
                             "array length {id:?} was not evaluated before backend symbol generation"

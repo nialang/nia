@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use nia_comptime_engine::ComptimeValue;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_span::Span;
 use nia_ty::{IntConst, PrimitiveTy};
 
@@ -15,7 +15,7 @@ pub(crate) fn validate_assignment_shape(
         (ComptimeValue::Array(values), ComptimeValue::Array(previous_values)) => {
             if values.len() != previous_values.len() {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0401",
+                    codes::COMPTIME,
                     span,
                     format!(
                         "comptime array length {} does not match expected length {}",
@@ -38,7 +38,7 @@ pub(crate) fn validate_assignment_shape(
                     validate_assignment_shape(diagnostics, span, value, previous);
                 } else {
                     diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         format!("comptime struct value is missing field `{name}`"),
                     ));
@@ -47,7 +47,7 @@ pub(crate) fn validate_assignment_shape(
             for name in values.keys() {
                 if !previous_names.contains(name.as_str()) {
                     diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         format!("comptime struct value has extra field `{name}`"),
                     ));

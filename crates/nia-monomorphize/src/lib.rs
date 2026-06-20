@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
@@ -440,8 +440,7 @@ impl MonoCollector<'_> {
     fn report_instance_limit(&mut self, span: Span, key: &MonoInstanceKey) {
         let name = self.def_name(key.def_id);
         self.diagnostics.push(
-            Diagnostic::user_error(
-                "E0601",
+            Diagnostic::user_error(codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the instance limit",
             )
             .primary(
@@ -468,8 +467,7 @@ impl MonoCollector<'_> {
     fn report_instance_type_depth_limit(&mut self, span: Span, key: &MonoInstanceKey) {
         let name = self.def_name(key.def_id);
         self.diagnostics.push(
-            Diagnostic::user_error(
-                "E0601",
+            Diagnostic::user_error(codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the type depth limit",
             )
             .primary(
@@ -1231,7 +1229,7 @@ fn array_len(
             .map(|summary| summary.span)
             .unwrap_or_default();
         diagnostics.push(Diagnostic::user_error_at(
-            "E0601",
+            codes::LLVM_CODEGEN,
             span,
             format!(
                 "array length {id:?} was not evaluated before monomorphization symbol generation"

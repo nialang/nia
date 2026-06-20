@@ -4,7 +4,7 @@ use nia_ast::{
 };
 use nia_ast_walk::{Visitor, walk_expr, walk_module, walk_stmt, walk_type};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
     ModuleGraph, ModuleMap, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows, resolve_module_declarations_from_active_item_tree,
@@ -529,7 +529,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                     .parse_errors
                     .iter()
                     .map(|error| {
-                        Diagnostic::user_error_at("E0102", error.span, error.message.clone())
+                        Diagnostic::user_error_at(codes::PARSE, error.span, error.message.clone())
                     })
                     .collect::<Vec<_>>(),
             ));
@@ -690,11 +690,14 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
             },
             Err(err) => SourceText {
                 file: None,
-                diagnostic: Some(Diagnostic::user_error_at(
-                    "E0102",
-                    Span::default(),
-                    format!("failed to read `{}`: {err}", self.0.as_str()),
-                )),
+                diagnostic: Some(
+                    Diagnostic::user_error(
+                        codes::LOAD,
+                        format!("failed to read `{}`: {err}", self.0.as_str()),
+                    )
+                    .debug("path", self.0.as_str())
+                    .finish(),
+                ),
             },
         }
     }

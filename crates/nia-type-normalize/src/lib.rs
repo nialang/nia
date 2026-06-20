@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature};
 use nia_span::Span;
@@ -227,7 +227,7 @@ impl<'a> TypeNormalizer<'a> {
         }
         if alias.generics.len() != args.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0202",
+                codes::TYPE_NORMALIZATION,
                 alias.span,
                 format!(
                     "type alias argument count mismatch: expected {}, got {}",
@@ -432,7 +432,7 @@ impl<'a> TypeNormalizer<'a> {
             }
         }
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0202",
+            codes::TYPE_NORMALIZATION,
             span,
             format!("recursive type alias detected: {}", cycle.join(" -> ")),
         ));

@@ -7,7 +7,7 @@ use nia_defs::{
     DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces,
     VisibleExtensionMethods,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
@@ -626,7 +626,7 @@ impl<'a> ValueResolver<'a> {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         segment.span,
                         format!("module namespace `{}` is private", segment.name),
                     ));
@@ -638,7 +638,7 @@ impl<'a> ValueResolver<'a> {
                     }
                     DirectMember::Private => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             format!("type `{}` is private", segment.name),
                         ));
@@ -646,7 +646,7 @@ impl<'a> ValueResolver<'a> {
                     }
                     DirectMember::Missing => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             format!("unknown namespace `{}`", segment.name),
                         ));
@@ -654,7 +654,7 @@ impl<'a> ValueResolver<'a> {
                     }
                     DirectMember::Unloaded => {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             "module namespace refers to an unloaded module",
                         ));
@@ -711,7 +711,7 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 span,
                 format!("module namespace `{}` is private", name.name),
             ));
@@ -724,7 +724,7 @@ impl<'a> ValueResolver<'a> {
             }
             DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("type `{path_text}` is private"),
                 ));
@@ -733,7 +733,7 @@ impl<'a> ValueResolver<'a> {
             DirectMember::Missing => {}
             DirectMember::Unloaded => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "module namespace refers to an unloaded module",
                 ));
@@ -744,7 +744,7 @@ impl<'a> ValueResolver<'a> {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("value `{path_text}` is private"),
                 ));
@@ -752,7 +752,7 @@ impl<'a> ValueResolver<'a> {
             }
             DirectMember::Missing => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("unknown value `{}`", name.name),
                 ));
@@ -760,7 +760,7 @@ impl<'a> ValueResolver<'a> {
             }
             DirectMember::Unloaded => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "module namespace refers to an unloaded module",
                 ));
@@ -926,7 +926,7 @@ impl<'a> ValueResolver<'a> {
             "fence" => BuiltinResolution::Fence,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     format!("unknown builtin `@{name}`"),
                 ));

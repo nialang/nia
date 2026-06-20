@@ -291,7 +291,7 @@ impl<'a> BodyChecker<'a> {
                 ) {
                     self.diagnostics
                         .push(nia_diagnostic::Diagnostic::user_error_at(
-                            "E0301",
+                            nia_diagnostic::codes::TYPE_CHECK,
                             span,
                             format!(
                                 "trait bound not satisfied: {}: {}",
@@ -1038,7 +1038,7 @@ impl<'a> BodyChecker<'a> {
                 if !self.proves_trait_obligation(obligations, &required) {
                     self.diagnostics
                         .push(nia_diagnostic::Diagnostic::user_error_at(
-                            "E0301",
+                            nia_diagnostic::codes::TYPE_CHECK,
                             span,
                             format!(
                                 "trait bound not satisfied: {}: {}",
@@ -1112,7 +1112,7 @@ impl<'a> BodyChecker<'a> {
                 if !self.proves_trait_obligation(obligations, &required) {
                     self.diagnostics
                         .push(nia_diagnostic::Diagnostic::user_error_at(
-                            "E0301",
+                            nia_diagnostic::codes::TYPE_CHECK,
                             span,
                             format!(
                                 "trait bound not satisfied: {}: {}",

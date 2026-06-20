@@ -3,7 +3,7 @@ use nia_ast::{
     Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern, PatternKind, Stmt, StmtKind,
     SwitchArmBody, SwitchPattern, SwitchPatternKind,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -119,7 +119,7 @@ impl FlowChecker<'_> {
             .is_some_and(|tail| self.tail_expr_returns_on_all_paths(tail));
         if self.function_requires_return(function) && flow.falls_through && !tail_returns {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
+                codes::STATIC_CHECK,
                 body.span,
                 "non-void function does not return on all reachable paths",
             ));
@@ -148,7 +148,7 @@ impl FlowChecker<'_> {
         for stmt in &block.stmts {
             if !falls_through {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0501",
+                    codes::STATIC_CHECK,
                     stmt.span,
                     "unreachable statement",
                 ));
@@ -233,7 +233,7 @@ impl FlowChecker<'_> {
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0501",
+                        codes::STATIC_CHECK,
                         stmt.span,
                         "`break` and `continue` can only appear inside loops",
                     ));
@@ -488,7 +488,7 @@ impl FlowChecker<'_> {
                 if matches!(&pattern.kind, SwitchPatternKind::Wildcard) {
                     if has_default {
                         self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0501",
+                            codes::STATIC_CHECK,
                             arm.span,
                             "duplicate switch default",
                         ));
@@ -500,7 +500,7 @@ impl FlowChecker<'_> {
                     && !seen.insert(fingerprint)
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0501",
+                        codes::STATIC_CHECK,
                         pattern.span,
                         "duplicate switch pattern",
                     ));

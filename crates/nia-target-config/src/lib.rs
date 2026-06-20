@@ -5,7 +5,7 @@ use nia_ast::{
     Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
     SwitchPatternKind,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
 use std::collections::HashMap;
@@ -67,7 +67,11 @@ pub fn eval_config_bool(
     match ConditionEvaluator::new(config).eval_bool(expr) {
         Ok(value) => Some(value),
         Err(err) => {
-            diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message));
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::TARGET_CONFIG,
+                err.span,
+                err.message,
+            ));
             None
         }
     }
@@ -88,8 +92,11 @@ impl Pruner<'_> {
         let active_item_tree = match tree.active_items(self) {
             Ok(active) => active,
             Err(err) => {
-                self.diagnostics
-                    .push(Diagnostic::user_error_at("E0103", err.span, err.message));
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TARGET_CONFIG,
+                    err.span,
+                    err.message,
+                ));
                 ActiveModuleItemTree::new(Vec::new(), Default::default())
             }
         };
@@ -457,7 +464,7 @@ impl Pruner<'_> {
                 Err(err) => {
                     let _ = owner_span;
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0103",
+                        codes::TARGET_CONFIG,
                         err.span,
                         err.message,
                     ));

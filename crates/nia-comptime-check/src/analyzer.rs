@@ -22,7 +22,7 @@ use nia_comptime_ir::{
     ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
     BuiltinAssociatedType, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
     LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
@@ -308,7 +308,7 @@ impl Analyzer<'_> {
                 && !int_const_in_i128_range(value, min, max)
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0401",
+                    codes::COMPTIME,
                     variant.span(),
                     format!("enum variant value {value:?} is out of range for backing type"),
                 ));
@@ -359,7 +359,7 @@ impl Analyzer<'_> {
         }
         if !self.active.insert(key) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0401",
+                codes::COMPTIME,
                 span,
                 "cyclic comptime dependency",
             ));
@@ -452,7 +452,7 @@ impl Analyzer<'_> {
                     && values.len() as u64 != *len
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         format!(
                             "comptime array length {} does not match expected length {len}",
@@ -633,7 +633,7 @@ impl Analyzer<'_> {
                     && self.runtime_array_is_char_array(ty)
                     && let Some(expected_len) = self.runtime_array_len(ty)
                 {
-                    self.diagnostics.push(Diagnostic::user_error_at("E0401", 
+                    self.diagnostics.push(Diagnostic::user_error_at(codes::COMPTIME,
                         span,
                         format!(
                             "comptime array length {} does not match expected length {expected_len}",
@@ -649,7 +649,7 @@ impl Analyzer<'_> {
                 if let Some(expected_len) = self.runtime_array_len(ty)
                     && values.len() as u64 != expected_len
                 {
-                    self.diagnostics.push(Diagnostic::user_error_at("E0401", 
+                    self.diagnostics.push(Diagnostic::user_error_at(codes::COMPTIME,
                         span,
                         format!(
                             "comptime array length {} does not match expected length {expected_len}",
@@ -745,7 +745,7 @@ impl Analyzer<'_> {
                 };
                 if !int_const_in_i128_range(*value, min, max) {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         format!(
                             "comptime integer value {value:?} is out of range for {}",
@@ -759,7 +759,7 @@ impl Analyzer<'_> {
                 let value = *value as f32;
                 if !value.is_finite() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         "comptime float value is out of range for f32",
                     ));
@@ -768,7 +768,7 @@ impl Analyzer<'_> {
             (ComptimeValue::Float(value), PrimitiveTy::F64) => {
                 if !value.is_finite() {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0401",
+                        codes::COMPTIME,
                         span,
                         "comptime float value is out of range for f64",
                     ));
@@ -814,7 +814,7 @@ impl Analyzer<'_> {
 
     fn push_comptime_type_mismatch(&mut self, span: Span, expected: &str) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0401",
+            codes::COMPTIME,
             span,
             format!("comptime value does not match expected {expected} type"),
         ));
@@ -822,7 +822,7 @@ impl Analyzer<'_> {
 
     fn push_comptime_missing_struct_field(&mut self, span: Span, name: &str) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0401",
+            codes::COMPTIME,
             span,
             format!("comptime struct value is missing field `{name}`"),
         ));
@@ -830,7 +830,7 @@ impl Analyzer<'_> {
 
     fn push_comptime_extra_struct_field(&mut self, span: Span, name: &str) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0401",
+            codes::COMPTIME,
             span,
             format!("comptime struct value has extra field `{name}`"),
         ));
@@ -838,7 +838,7 @@ impl Analyzer<'_> {
 
     fn push_comptime_primitive_mismatch(&mut self, span: Span, primitive: PrimitiveTy) {
         self.diagnostics.push(Diagnostic::user_error_at(
-            "E0401",
+            codes::COMPTIME,
             span,
             format!(
                 "comptime value does not match primitive type {}",

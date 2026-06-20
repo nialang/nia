@@ -7,7 +7,7 @@ use nia_defs::{
     VisibleExtensionAssociatedValue, VisibleExtensionMethod, VisibleExtensionMethods,
     WhereBoundSignature, WherePredicateSignature,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
     BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, Visibility,
 };
@@ -302,7 +302,7 @@ pub(crate) fn collect_extension_methods(
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     impl_signature.span,
                     "extend target must be an extendable value type",
                 ));
@@ -314,7 +314,7 @@ pub(crate) fn collect_extension_methods(
             if trait_id.is_none() {
                 for associated_type in &impl_signature.associated_types {
                     diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         associated_type.span,
                         "associated type definitions are only allowed in trait implementations",
                     ));
@@ -386,7 +386,7 @@ pub(crate) fn collect_extension_associated_values(
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     impl_signature.span,
                     "extend target must be an extendable value type",
                 ));
@@ -433,7 +433,7 @@ fn impl_trait_id(
                 Some(nia_defs::DefKind::Trait)
             ) {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "trait implementation target must be a trait",
                 ));
@@ -444,7 +444,7 @@ fn impl_trait_id(
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 span,
                 "trait implementation target must be a trait",
             ));
@@ -544,7 +544,7 @@ fn supertrait_id(
                 Some(nia_defs::DefKind::Trait)
             ) {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     span,
                     "trait implementation target must be a trait",
                 ));
@@ -555,7 +555,7 @@ fn supertrait_id(
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 span,
                 "trait implementation target must be a trait",
             ));
@@ -584,7 +584,7 @@ fn validate_trait_impl(
             .any(|required| required.name == associated_type.name)
         {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 associated_type.span,
                 format!(
                     "associated type `{}` is not a member of implemented trait",
@@ -600,7 +600,7 @@ fn validate_trait_impl(
             .any(|associated_type| associated_type.name == required.name)
         {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!("missing definition for associated type `{}`", required.name),
             ));
@@ -614,7 +614,7 @@ fn validate_trait_impl(
             .any(|required| required.name == method.name)
         {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 method.span,
                 format!(
                     "method `{}` is not a member of implemented trait",
@@ -643,7 +643,7 @@ fn validate_trait_impl(
         else {
             if !required.has_default {
                 diagnostics.push(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     impl_signature.span,
                     format!(
                         "missing implementation for trait method `{}`",
@@ -679,7 +679,7 @@ fn validate_trait_impl(
         });
         if !trait_method_signature_matches(&required_signature, &actual_signature) {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 method.span,
                 format!(
                     "implementation of trait method `{}` does not match the trait signature",
@@ -700,7 +700,7 @@ fn validate_builtin_trait_impl(
 ) {
     if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature) {
         diagnostics.push(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             impl_signature.span,
             format!(
                 "implementation of `{}` overlaps a compiler-proven implementation",
@@ -712,7 +712,7 @@ fn validate_builtin_trait_impl(
     for associated_type in &impl_signature.associated_types {
         if !trait_id.has_associated_type(&associated_type.name) {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 associated_type.span,
                 format!(
                     "associated type `{}` is not a member of implemented trait",
@@ -733,7 +733,7 @@ fn validate_builtin_trait_impl(
                 .any(|associated_type| associated_type.name == associated_type_name)
         {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!("missing definition for associated type `{associated_type_name}`"),
             ));
@@ -754,7 +754,7 @@ fn validate_builtin_trait_impl(
             .any(|expected_method| expected_method.name() == method.name)
         {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 method.span,
                 format!(
                     "method `{}` is not a member of implemented trait",
@@ -771,7 +771,7 @@ fn validate_builtin_trait_impl(
             .collect::<Vec<_>>();
         match matching_methods.as_slice() {
             [] => diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "missing implementation for trait method `{}`",
@@ -789,8 +789,7 @@ fn validate_builtin_trait_impl(
                     trait_id,
                     *expected_method,
                 ) {
-                    diagnostics.push(Diagnostic::user_error_at(
-                        "E0201",
+                    diagnostics.push(Diagnostic::user_error_at(codes::NAME_RESOLUTION,
                         method.span,
                         format!(
                             "implementation of trait method `{}` does not match the trait signature",
@@ -800,7 +799,7 @@ fn validate_builtin_trait_impl(
                 }
             }
             _ => diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "duplicate implementation for trait method `{}`",
@@ -833,7 +832,7 @@ fn validate_builtin_supertrait_impls(
             trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",
@@ -1080,7 +1079,7 @@ fn validate_supertrait_impls(
             trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",

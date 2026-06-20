@@ -15,7 +15,7 @@ use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
@@ -295,13 +295,16 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
                 message.push_str("\n  ");
                 message.push_str(&frame.description);
             }
-            Diagnostic::user_error_at("E0201", Span::default(), message)
+            Diagnostic::internal_error(codes::QUERY_ENGINE, message)
+                .primary_fallback(Span::default(), "query cycle has no source span")
+                .finish()
         }
-        QueryError::InvalidInput { query, message } => Diagnostic::user_error_at(
-            "E0201",
-            Span::default(),
-            format!("invalid query input for {}: {message}", query.description),
-        ),
+        QueryError::InvalidInput { query, message } => {
+            let message = format!("invalid query input for {}: {message}", query.description);
+            Diagnostic::internal_error(codes::QUERY_ENGINE, message)
+                .primary_fallback(Span::default(), "query input has no source span")
+                .finish()
+        }
     }
 }
 

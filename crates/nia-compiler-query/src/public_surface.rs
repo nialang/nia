@@ -6,7 +6,7 @@ use nia_defs::{
     PublicNamespace, PublicSource, PublicSurfaces, UsingEntry, UsingGroupItem, UsingName,
     UsingPathSegment, UsingSelector, Visibility,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
     ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
@@ -166,7 +166,7 @@ pub(crate) fn compute_public_surfaces(
                 UsingExpansion::Unresolved => {
                     diagnostics.push((
                         defs.module_id,
-                        Diagnostic::user_error_at("E0201", 
+                        Diagnostic::user_error_at(codes::NAME_RESOLUTION,
                             using.span,
                             format!(
                                 "`pub using {}::...` could not be resolved; possible re-export cycle or unknown name",
@@ -207,7 +207,7 @@ pub(crate) fn compute_public_surfaces(
                         diagnostics.push((
                             defs.module_id,
                             Diagnostic::user_error_at(
-                                "E0201",
+                                codes::NAME_RESOLUTION,
                                 using.span,
                                 format!(
                                     "`using {}::...` could not be resolved",
@@ -240,7 +240,7 @@ pub(crate) fn compute_public_surfaces(
                             diagnostics.push((
                                 defs.module_id,
                                 Diagnostic::user_error_at(
-                                    "E0201",
+                                    codes::NAME_RESOLUTION,
                                     entry.name_span,
                                     format!(
                                         "duplicate using module `{}` in this module",
@@ -269,7 +269,7 @@ pub(crate) fn compute_public_surfaces(
                             diagnostics.push((
                                 defs.module_id,
                                 Diagnostic::user_error_at(
-                                    "E0201",
+                                    codes::NAME_RESOLUTION,
                                     entry.name_span,
                                     format!("duplicate using name `{}` in this module", entry.name),
                                 ),
@@ -418,7 +418,7 @@ fn resolve_namespace_path(
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = path.first() else {
         return Err(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             Span::default(),
             "`using` requires a namespace path",
         ));
@@ -438,7 +438,7 @@ fn resolve_namespace_path(
             })
         } else {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 first.span,
                 format!(
                     "`using {}::...` requires `{0}` to be a module namespace or a local enum",
@@ -450,7 +450,7 @@ fn resolve_namespace_path(
     for segment in &path[1..] {
         if segment.name == "super" {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 segment.span,
                 "`super` can only be used as the first path segment in a `using` path",
             ));
@@ -459,7 +459,7 @@ fn resolve_namespace_path(
             ResolvedNamespace::Module(module_id) => {
                 let Some(surface) = surfaces.get(module_id) else {
                     return Err(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         segment.span,
                         "module namespace refers to an unresolved public surface",
                     ));
@@ -477,21 +477,21 @@ fn resolve_namespace_path(
                     };
                     let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
                         return Err(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             "type namespace refers to an unloaded module",
                         ));
                     };
                     let Some(def) = target_defs.defs.get(enum_id.def_id) else {
                         return Err(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             "type definition not found",
                         ));
                     };
                     if def.kind != DefKind::Enum {
                         return Err(Diagnostic::user_error_at(
-                            "E0201",
+                            codes::NAME_RESOLUTION,
                             segment.span,
                             format!("`{}` is not an enum namespace", segment.name),
                         ));
@@ -508,7 +508,7 @@ fn resolve_namespace_path(
                     ResolvedNamespace::Enum(enum_id)
                 } else {
                     return Err(Diagnostic::user_error_at(
-                        "E0201",
+                        codes::NAME_RESOLUTION,
                         segment.span,
                         format!("unknown namespace `{}`", segment.name),
                     ));
@@ -516,7 +516,7 @@ fn resolve_namespace_path(
             }
             ResolvedNamespace::Enum(_) => {
                 return Err(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     segment.span,
                     "enum namespaces do not contain nested namespaces",
                 ));
@@ -1033,7 +1033,7 @@ fn resolve_public_namespace_path(
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = host.first() else {
         return Err(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             Span::default(),
             "nested `using` group host must name a namespace",
         ));
@@ -1050,7 +1050,7 @@ fn resolve_public_namespace_path(
     for segment in &host[1..] {
         if segment.name == "super" {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 segment.span,
                 "`super` can only be used as the first path segment in a `using` path",
             ));
@@ -1067,7 +1067,7 @@ fn resolve_public_namespace_path(
             )?,
             ResolvedNamespace::Enum(_) => {
                 return Err(Diagnostic::user_error_at(
-                    "E0201",
+                    codes::NAME_RESOLUTION,
                     segment.span,
                     "enum namespaces do not contain nested namespaces",
                 ));
@@ -1088,7 +1088,7 @@ fn resolve_public_namespace_segment(
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(surface) = surfaces.get(module_id) else {
         return Err(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             segment.span,
             "module namespace refers to an unresolved public surface",
         ));
@@ -1108,21 +1108,21 @@ fn resolve_public_namespace_segment(
         };
         let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 segment.span,
                 "type namespace refers to an unloaded module",
             ));
         };
         let Some(def) = target_defs.defs.get(enum_id.def_id) else {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 segment.span,
                 "type definition not found",
             ));
         };
         if def.kind != DefKind::Enum {
             return Err(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 segment.span,
                 format!("`{}` is not an enum namespace", segment.name),
             ));
@@ -1140,7 +1140,7 @@ fn resolve_public_namespace_segment(
         return Ok(ResolvedNamespace::Enum(enum_id));
     }
     Err(Diagnostic::user_error_at(
-        "E0201",
+        codes::NAME_RESOLUTION,
         segment.span,
         format!("unknown namespace `{}`", segment.name),
     ))
@@ -1385,7 +1385,7 @@ fn expand_enum_group_item(
         UsingGroupItem::Nested { host, .. } => {
             let span = host.first().map(|segment| segment.span).unwrap_or_default();
             UsingExpansion::HardError(Diagnostic::user_error_at(
-                "E0201",
+                codes::NAME_RESOLUTION,
                 span,
                 "nested `using` group hosts are only valid under a module host",
             ))
@@ -1404,7 +1404,7 @@ fn resolve_enum_single(
     let local_span = name.alias_span.unwrap_or(name.name_span);
     let Some(variant_def_id) = enum_scope.variants.get(&name.name) else {
         return UsingExpansion::HardError(Diagnostic::user_error_at(
-            "E0201",
+            codes::NAME_RESOLUTION,
             name.name_span,
             format!("unknown enum variant `{}`", name.name),
         ));

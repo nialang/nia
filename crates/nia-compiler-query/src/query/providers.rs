@@ -1155,7 +1155,11 @@ fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<Progr
         for error in &parse_errors {
             diagnostics.push(ProgramDiagnostic {
                 path: path.clone(),
-                diagnostic: Diagnostic::user_error_at("E0201", error.span, error.message.clone()),
+                diagnostic: Diagnostic::user_error_at(
+                    codes::PARSE,
+                    error.span,
+                    error.message.clone(),
+                ),
             });
         }
     }

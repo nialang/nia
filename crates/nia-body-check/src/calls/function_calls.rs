@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_local_resolve::LocalUse;
@@ -90,7 +90,7 @@ impl<'a> BodyChecker<'a> {
         let item = self.function_item_ref(expr, expected)?;
         if !is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 expr.span,
                 "function pointers must be formed with `&fn(...)`",
             ));
@@ -214,7 +214,7 @@ impl<'a> BodyChecker<'a> {
                 )
             };
             self.diagnostics
-                .push(Diagnostic::user_error_at("E0301", span, message));
+                .push(Diagnostic::user_error_at(codes::TYPE_CHECK, span, message));
             return None;
         }
         if !type_args.is_empty() {
@@ -233,7 +233,7 @@ impl<'a> BodyChecker<'a> {
         for generic in &signature.generics {
             if !substitutions.contains_key(generic) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("generic function pointer requires `{generic}`"),
                 ));
@@ -254,7 +254,7 @@ impl<'a> BodyChecker<'a> {
         let signature = &resolved.signature;
         if signature.is_comptime && !self.in_comptime_context() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 "`comptime fn` can only be called from a comptime expression",
             ));
@@ -366,7 +366,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     "callee is not callable",
                 ));
@@ -391,7 +391,7 @@ impl<'a> BodyChecker<'a> {
         let lowered_args = self.lower_bracket_type_args(type_args);
         if lowered_args.len() > signature.generics.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 span,
                 format!(
                     "generic argument count mismatch for function: expected {}, got {}",
@@ -614,7 +614,7 @@ impl<'a> BodyChecker<'a> {
             if !substitutions.contains_key(generic) {
                 complete = false;
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     span,
                     format!("cannot infer generic parameter `{generic}`"),
                 ));
@@ -737,7 +737,7 @@ impl<'a> BodyChecker<'a> {
                     if self.generic_substitution_is_self_mapping(&name, existing) {
                         substitutions.insert(name, actual);
                     } else if !self.types_match(existing, actual) {
-                        self.diagnostics.push(Diagnostic::user_error_at("E0301", 
+                        self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                             span,
                             format!(
                                 "conflicting inferred type for generic parameter `{name}`: expected {}, got {}",

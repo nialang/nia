@@ -285,28 +285,29 @@ fn specialization_policy_name(policy: SpecializationPolicy) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_diagnostic::codes;
     use nia_span::Span;
 
     #[test]
     fn codegen_report_prioritizes_internal_diagnostics_and_summarizes_suppressed() {
         let mut diagnostics = vec![Diagnostic::user_error_at(
-            "E0001",
+            codes::PARSE,
             Span::new(0, 1),
             "duplicate user error",
         )];
         diagnostics.push(Diagnostic::user_error_at(
-            "E0001",
+            codes::PARSE,
             Span::new(0, 1),
             "duplicate user error",
         ));
         diagnostics.push(Diagnostic::internal_error_at(
-            "I0001",
+            codes::ICE,
             Span::new(2, 3),
             "internal error",
         ));
         for index in 0..25 {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0002",
+                codes::TYPE_CHECK,
                 Span::new(10 + index, 11 + index),
                 format!("user error {index}"),
             ));
@@ -317,7 +318,7 @@ mod tests {
         let internal = rendered
             .find("error internal[I0001]")
             .expect("internal diagnostic");
-        let user = rendered.find("error[E0001]").expect("user diagnostic");
+        let user = rendered.find("error[E0101]").expect("user diagnostic");
         assert!(internal < user, "{rendered}");
         assert!(rendered.contains("note: suppressed"), "{rendered}");
         assert!(rendered.contains("1 duplicate(s)"), "{rendered}");

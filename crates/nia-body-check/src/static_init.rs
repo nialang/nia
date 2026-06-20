@@ -5,7 +5,7 @@ use crate::literals::{
     decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind, IndexArg};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::BuiltinValue;
@@ -40,7 +40,7 @@ impl<'a> BodyChecker<'a> {
                 .map(|value| StaticInit::Int(IntConst::signed(value)))
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!("invalid integer literal `{text}` in static initializer"),
                     ));
@@ -56,7 +56,7 @@ impl<'a> BodyChecker<'a> {
                 .map(StaticInit::Char)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!("invalid char literal `{text}` in static initializer"),
                     ));
@@ -66,7 +66,7 @@ impl<'a> BodyChecker<'a> {
                 .map(StaticInit::Byte)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!("invalid byte char literal `{text}` in static initializer"),
                     ));
@@ -79,7 +79,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 Some(BuiltinValue::Layout { .. }) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "generic layout builtin is not representable as static data",
                     ));
@@ -87,7 +87,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 Some(BuiltinValue::FieldOffset { .. }) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "generic field offset builtin is not representable as static data",
                     ));
@@ -95,7 +95,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 None => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "builtin value is not representable as static data yet",
                     ));
@@ -166,7 +166,7 @@ impl<'a> BodyChecker<'a> {
                 .map(StaticInit::Int)
                 .unwrap_or_else(|err| {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         format!(
                             "invalid integer constant in static initializer: {}",
@@ -185,7 +185,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
-                        "E0301",
+                        codes::TYPE_CHECK,
                         expr.span,
                         "global initializer is not representable as static data yet",
                     ));
@@ -199,7 +199,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Cast { expr: inner, .. } => self.lower_static_cast_init(expr, inner),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "global initializer is not representable as static data yet",
                 ));
@@ -263,7 +263,7 @@ impl<'a> BodyChecker<'a> {
             .map(StaticInit::Chars)
             .unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "invalid string literal in static initializer",
                 ));
@@ -280,7 +280,7 @@ impl<'a> BodyChecker<'a> {
             .map(StaticInit::Bytes)
             .unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "invalid byte string literal in static initializer",
                 ));
@@ -398,7 +398,7 @@ impl<'a> BodyChecker<'a> {
             },
             StaticAddressBase::Invalid => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "global address initializer must refer to global storage",
                 ));
@@ -444,7 +444,7 @@ impl<'a> BodyChecker<'a> {
                 expr,
             } => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     "global address initializer cannot dereference runtime pointers",
                 ));
@@ -494,7 +494,7 @@ impl<'a> BodyChecker<'a> {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     expr.span,
                     format!(
                         "static address index is not a valid usize constant: {}",

@@ -8,7 +8,7 @@ use nia_ast::{
     BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
     Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
 };
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
@@ -780,7 +780,7 @@ impl Collector {
     ) {
         if let Err(duplicate) = table.insert(name, def_id, span) {
             diagnostics.push(Diagnostic::user_error_at(
-                "E0101",
+                codes::PARSE,
                 duplicate.second_span,
                 format!("{message}: `{}`", duplicate.name),
             ));
@@ -797,7 +797,7 @@ impl Collector {
     ) {
         if let Err(duplicate) = table.insert(name, def_id, span) {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0101",
+                codes::PARSE,
                 duplicate.second_span,
                 format!("{message}: `{}`", duplicate.name),
             ));
@@ -809,7 +809,7 @@ impl Collector {
         for generic in generics {
             if !seen.insert(generic) {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0101",
+                    codes::PARSE,
                     span,
                     format!("duplicate generic parameter `{generic}`"),
                 ));

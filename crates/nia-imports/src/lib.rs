@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
@@ -199,7 +199,7 @@ impl ModuleGraph {
     ) -> Result<ModuleId, Diagnostic> {
         let Some(parent) = self.get(parent_id).cloned() else {
             return Err(Diagnostic::internal_error(
-                "I0107",
+                codes::MODULE_GRAPH_LOOKUP,
                 "unknown parent module id while adding module declaration",
             )
             .debug("module_id", parent_id)
@@ -210,7 +210,7 @@ impl ModuleGraph {
         let child_id = self.intern_module(child_path.clone(), child_module_path, Some(parent_id));
         let parent = self.modules.get_mut(parent_id.0 as usize).ok_or_else(|| {
             Diagnostic::internal_error(
-                "I0108",
+                codes::MODULE_GRAPH_RECORDING,
                 "unknown parent module id while recording module declaration",
             )
             .debug("module_id", parent_id)
@@ -219,7 +219,7 @@ impl ModuleGraph {
         if let Some(existing) = parent.children.get(name).copied() {
             if existing != child_id {
                 return Err(Diagnostic::internal_error(
-                    "I0109",
+                    codes::MODULE_GRAPH_CHILD,
                     "module child name points at a different module id",
                 )
                 .debug("module_id", parent_id)
@@ -227,7 +227,7 @@ impl ModuleGraph {
                 .finish());
             }
             return Err(Diagnostic::user_error_at(
-                "E0102",
+                codes::LOAD,
                 span,
                 format!("duplicate module declaration `{name}`"),
             ));
@@ -311,7 +311,7 @@ pub fn resolve_module_declarations_from_active_item_tree(
         if let Some(first_span) = seen.insert(module.name.clone(), item.span) {
             let _ = first_span;
             diagnostics.push(Diagnostic::user_error_at(
-                "E0102",
+                codes::LOAD,
                 item.span,
                 format!("duplicate module declaration `{}`", module.name),
             ));

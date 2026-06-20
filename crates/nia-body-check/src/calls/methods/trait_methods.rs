@@ -12,7 +12,7 @@ impl<'a> BodyChecker<'a> {
             [] => return None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     call.span,
                     format!("ambiguous trait method `{}`", call.name),
                 ));
@@ -26,7 +26,7 @@ impl<'a> BodyChecker<'a> {
             .and_then(|param| param.receiver)
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "associated trait functions are not supported by receiver method call syntax",
             ));
@@ -43,7 +43,7 @@ impl<'a> BodyChecker<'a> {
             && candidate.signature.generics.len() != method_instantiation_args.len()
         {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 format!(
                     "generic argument count mismatch for trait method: expected {}, got {}",
@@ -136,7 +136,7 @@ impl<'a> BodyChecker<'a> {
             [] => return None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
+                    codes::TYPE_CHECK,
                     call.span,
                     format!("ambiguous dynamic trait method `{}`", call.name),
                 ));
@@ -150,7 +150,7 @@ impl<'a> BodyChecker<'a> {
             .and_then(|param| param.receiver)
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "associated trait functions are not supported by trait object method call syntax",
             ));
@@ -158,7 +158,7 @@ impl<'a> BodyChecker<'a> {
         };
         if receiver_kind == ReceiverKind::Value {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "by-value trait object methods are not supported",
             ));
@@ -173,7 +173,7 @@ impl<'a> BodyChecker<'a> {
         };
         if !method_instantiation_args.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.span,
                 "trait object methods cannot take method generic arguments",
             ));
@@ -438,7 +438,7 @@ impl<'a> BodyChecker<'a> {
         };
         if *is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
-                "E0301",
+                codes::TYPE_CHECK,
                 call.receiver.span,
                 "receiver cannot be matched through read-only `&Trait`",
             ));
