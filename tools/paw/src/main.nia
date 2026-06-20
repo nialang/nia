@@ -3,6 +3,17 @@ using std::io;
 using std::process;
 using process::{ExitCode, Init};
 
+enum Command: i32 {
+    Check = 1,
+    Obj = 2,
+    ObjDir = 3,
+}
+
+struct PreparedCheck {
+    session: &void,
+    request: &void,
+}
+
 fn write_bytes(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void {
     writer.write_all(bytes).exit().?;
     !{}
@@ -15,9 +26,10 @@ fn write_line(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void 
 }
 
 fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
-    write_line(stderr, b"usage: paw check <file.nia>").?;
-    write_line(stderr, b"       paw obj <file.nia> <out.o>").?;
-    write_line(stderr, b"       paw obj-dir <file.nia> <out-dir>").?;
+    stderr.print(
+        "usage: paw check <file.nia>\n       paw obj <file.nia> <out.o>\n       paw obj-dir <file.nia> <out-dir>\n",
+        &[],
+    ).exit().?;
     !{}
 }
 
@@ -39,6 +51,43 @@ fn status_code(status: i32) ExitCode {
     }
 }
 
+fn is_bytes(value: process::Arg, expected: &[u8]) bool {
+    let bytes = value.bytes();
+    if bytes.len() != expected.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != expected[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn parse_command(command: process::Arg) ?Command {
+    if is_bytes(command, b"check") {
+        ?Command::Check
+    } else if is_bytes(command, b"obj") {
+        ?Command::Obj
+    } else if is_bytes(command, b"obj-dir") {
+        ?Command::ObjDir
+    } else {
+        null
+    }
+}
+
+fn reject_extra_args(stderr: &mut io::FileWriter, args: &mut process::ArgsIter) process::ExitCode!void {
+    if let ?extra = args.next() {
+        _ = extra;
+        usage(stderr).?;
+        stderr.flush().exit().?;
+        return process::exit(2)!;
+    }
+    !{}
+}
+
 fn print_result(stderr: &mut io::FileWriter, result: &void) process::ExitCode!void {
     let message = capi::result_message(result);
     if not message.is_empty() {
@@ -48,24 +97,34 @@ fn print_result(stderr: &mut io::FileWriter, result: &void) process::ExitCode!vo
     !{}
 }
 
-fn run_check(stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!ExitCode {
+fn prepare_check(stderr: &mut io::FileWriter, path: process::Arg) process::ExitCode!PreparedCheck {
     let session = capi::session_new();
     if session as usize == 0usize {
         write_line(stderr, b"paw: failed to create nia session").?;
         return process::exit(255)!;
     }
-    defer capi::session_free(session);
 
-    let request = capi::check_request_new(path);
+    let request = capi::check_request_new(path.bytes());
     if request as usize == 0usize {
+        capi::session_free(session);
         write_line(stderr, b"paw: failed to create check request").?;
         return process::exit(2)!;
     }
-    defer capi::check_request_free(request);
     _ = capi::check_request_set_bare(request);
     _ = capi::check_request_set_o0(request);
+    !{ session: session, request: request }
+}
 
-    let result = capi::session_check(session, request);
+fn finish_check(prepared: PreparedCheck) void {
+    capi::check_request_free(prepared.request);
+    capi::session_free(prepared.session);
+}
+
+fn run_check(stderr: &mut io::FileWriter, path: process::Arg) process::ExitCode!ExitCode {
+    let prepared = prepare_check(stderr, path).?;
+    defer finish_check(prepared);
+
+    let result = capi::session_check(prepared.session, prepared.request);
     if result as usize == 0usize {
         write_line(stderr, b"paw: check returned null result").?;
         return process::exit(255)!;
@@ -77,24 +136,11 @@ fn run_check(stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!ExitCod
     !status_code(status)
 }
 
-fn run_obj(stderr: &mut io::FileWriter, path: &[u8], output: &[u8]) process::ExitCode!ExitCode {
-    let session = capi::session_new();
-    if session as usize == 0usize {
-        write_line(stderr, b"paw: failed to create nia session").?;
-        return process::exit(255)!;
-    }
-    defer capi::session_free(session);
+fn run_obj(stderr: &mut io::FileWriter, path: process::Arg, output: process::Arg) process::ExitCode!ExitCode {
+    let prepared = prepare_check(stderr, path).?;
+    defer finish_check(prepared);
 
-    let request = capi::check_request_new(path);
-    if request as usize == 0usize {
-        write_line(stderr, b"paw: failed to create check request").?;
-        return process::exit(2)!;
-    }
-    defer capi::check_request_free(request);
-    _ = capi::check_request_set_bare(request);
-    _ = capi::check_request_set_o0(request);
-
-    let result = capi::session_emit_object_file(session, request, output);
+    let result = capi::session_emit_object_file(prepared.session, prepared.request, output.bytes());
     if result as usize == 0usize {
         write_line(stderr, b"paw: object emit returned null result").?;
         return process::exit(255)!;
@@ -106,24 +152,11 @@ fn run_obj(stderr: &mut io::FileWriter, path: &[u8], output: &[u8]) process::Exi
     !status_code(status)
 }
 
-fn run_obj_dir(stderr: &mut io::FileWriter, path: &[u8], output: &[u8]) process::ExitCode!ExitCode {
-    let session = capi::session_new();
-    if session as usize == 0usize {
-        write_line(stderr, b"paw: failed to create nia session").?;
-        return process::exit(255)!;
-    }
-    defer capi::session_free(session);
+fn run_obj_dir(stderr: &mut io::FileWriter, path: process::Arg, output: process::Arg) process::ExitCode!ExitCode {
+    let prepared = prepare_check(stderr, path).?;
+    defer finish_check(prepared);
 
-    let request = capi::check_request_new(path);
-    if request as usize == 0usize {
-        write_line(stderr, b"paw: failed to create check request").?;
-        return process::exit(2)!;
-    }
-    defer capi::check_request_free(request);
-    _ = capi::check_request_set_bare(request);
-    _ = capi::check_request_set_o0(request);
-
-    let result = capi::session_emit_object_directory(session, request, output);
+    let result = capi::session_emit_object_directory(prepared.session, prepared.request, output.bytes());
     if result as usize == 0usize {
         write_line(stderr, b"paw: object directory emit returned null result").?;
         return process::exit(255)!;
@@ -147,85 +180,66 @@ pub fn main(init: Init) ExitCode!void {
         return process::exit(2)!;
     };
 
-    let command_bytes = command.bytes();
-    let code = if command_bytes.len() == 5usize
-        and command_bytes[0] == b'c'
-        and command_bytes[1] == b'h'
-        and command_bytes[2] == b'e'
-        and command_bytes[3] == b'c'
-        and command_bytes[4] == b'k'
-    {
-        let path = if let ?value = args.get(2usize) {
-            value
-        } else null {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        };
-        if args.len() != 3usize {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        }
-        run_check(&mut stderr, path.bytes()).?
-    } else if command_bytes.len() == 3usize
-        and command_bytes[0] == b'o'
-        and command_bytes[1] == b'b'
-        and command_bytes[2] == b'j'
-    {
-        let path = if let ?value = args.get(2usize) {
-            value
-        } else null {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        };
-        let output = if let ?value = args.get(3usize) {
-            value
-        } else null {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        };
-        if args.len() != 4usize {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        }
-        run_obj(&mut stderr, path.bytes(), output.bytes()).?
-    } else if command_bytes.len() == 7usize
-        and command_bytes[0] == b'o'
-        and command_bytes[1] == b'b'
-        and command_bytes[2] == b'j'
-        and command_bytes[3] == b'-'
-        and command_bytes[4] == b'd'
-        and command_bytes[5] == b'i'
-        and command_bytes[6] == b'r'
-    {
-        let path = if let ?value = args.get(2usize) {
-            value
-        } else null {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        };
-        let output = if let ?value = args.get(3usize) {
-            value
-        } else null {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        };
-        if args.len() != 4usize {
-            usage(&mut stderr).?;
-            stderr.flush().exit().?;
-            return process::exit(2)!;
-        }
-        run_obj_dir(&mut stderr, path.bytes(), output.bytes()).?
-    } else {
+    let parsed = if let ?value = parse_command(command) {
+        value
+    } else null {
+        stderr.print("paw: unknown command `{}`\n", &[&command]).exit().?;
         usage(&mut stderr).?;
         stderr.flush().exit().?;
         return process::exit(2)!;
+    };
+
+    var rest = args.skip_program();
+    _ = rest.next();
+    let code = switch parsed {
+        Command::Check => {
+            let path = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            reject_extra_args(&mut stderr, &mut rest).?;
+            run_check(&mut stderr, path).?
+        },
+        Command::Obj => {
+            let path = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            let output = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            reject_extra_args(&mut stderr, &mut rest).?;
+            run_obj(&mut stderr, path, output).?
+        },
+        Command::ObjDir => {
+            let path = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            let output = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            reject_extra_args(&mut stderr, &mut rest).?;
+            run_obj_dir(&mut stderr, path, output).?
+        },
+        _ => process::exit(2),
     };
 
     stderr.flush().exit().?;
