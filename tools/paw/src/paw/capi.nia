@@ -27,6 +27,13 @@ extern fn nia_string_free(value: NiaString) void;
 
 extern fn nia_session_new() &void;
 extern fn nia_session_free(session: &void) void;
+extern fn nia_session_set_source(
+    session: &void,
+    path_ptr: &u8,
+    path_len: usize,
+    text_ptr: &u8,
+    text_len: usize,
+) i32;
 
 extern fn nia_check_request_new(path_ptr: &u8, path_len: usize) &void;
 extern fn nia_check_request_free(request: &void) void;
@@ -102,6 +109,16 @@ pub fn session_free(session: &void) void {
     nia_session_free(session)
 }
 
+pub fn session_set_source(session: &void, path: &[u8], text: &[u8]) i32 {
+    nia_session_set_source(
+        session,
+        path.get_ptr_read(),
+        path.len(),
+        text.get_ptr_read(),
+        text.len(),
+    )
+}
+
 pub fn check_request_new(path: &[u8]) &void {
     nia_check_request_new(path.get_ptr_read(), path.len())
 }
@@ -126,6 +143,10 @@ pub fn check_request_set_bare(request: &void) i32 {
 
 pub fn check_request_set_freestanding(request: &void) i32 {
     nia_check_request_set_runtime(request, runtime_freestanding)
+}
+
+pub fn check_request_set_runtime(request: &void, runtime: i32) i32 {
+    nia_check_request_set_runtime(request, runtime)
 }
 
 pub fn check_request_set_o0(request: &void) i32 {

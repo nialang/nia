@@ -1,4 +1,6 @@
 using paw::capi;
+using std;
+using std::fs;
 using std::io;
 using std::process;
 using process::{ExitCode, Init};
@@ -7,14 +9,19 @@ enum Command: i32 {
     Check = 1,
     Obj = 2,
     ObjDir = 3,
-    CheckPkg = 4,
-    ObjPkg = 5,
-    ExePkg = 6,
+    Build = 4,
 }
 
 struct PreparedCheck {
     session: &void,
     request: &void,
+}
+
+struct BuildGraph {
+    package_name_start: usize,
+    package_name_len: usize,
+    exe_root_start: usize,
+    exe_root_len: usize,
 }
 
 fn write_bytes(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void {
@@ -30,7 +37,7 @@ fn write_line(writer: &mut io::FileWriter, bytes: &[u8]) process::ExitCode!void 
 
 fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
     stderr.print(
-        "usage: paw check <file.nia>\n       paw check-pkg <name> <root>\n       paw obj <file.nia> <out.o>\n       paw obj-dir <file.nia> <out-dir>\n       paw obj-pkg <name> <root> <out-dir>\n       paw exe-pkg <name> <root> <out>\n",
+        "usage: paw build <root> <out>\n       paw check <file.nia>\n       paw obj <file.nia> <out.o>\n       paw obj-dir <file.nia> <out-dir>\n",
         &[],
     ).exit().?;
     !{}
@@ -72,12 +79,8 @@ fn is_bytes(value: process::Arg, expected: &[u8]) bool {
 fn parse_command(command: process::Arg) ?Command {
     if is_bytes(command, b"check") {
         ?Command::Check
-    } else if is_bytes(command, b"check-pkg") {
-        ?Command::CheckPkg
-    } else if is_bytes(command, b"obj-pkg") {
-        ?Command::ObjPkg
-    } else if is_bytes(command, b"exe-pkg") {
-        ?Command::ExePkg
+    } else if is_bytes(command, b"build") {
+        ?Command::Build
     } else if is_bytes(command, b"obj") {
         ?Command::Obj
     } else if is_bytes(command, b"obj-dir") {
@@ -142,18 +145,289 @@ fn append_bytes(out: &mut [u8], len: &mut usize, bytes: &[u8]) process::ExitCode
     !{}
 }
 
-fn package_main_path(root: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
+fn path_join(root: process::Arg, suffix: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
     var len = 0usize;
     append_bytes(out, &mut len, root.bytes()).?;
-    append_bytes(out, &mut len, b"/src/main.nia").?;
+    if len != 0usize and out[len - 1usize] != b'/' {
+        append_bytes(out, &mut len, b"/").?;
+    }
+    append_bytes(out, &mut len, suffix).?;
     !&out[0..len]
 }
 
-fn package_core_path(root: process::Arg, out: &mut [u8]) process::ExitCode!&[u8] {
+fn slice_eq(bytes: &[u8], expected: &[u8]) bool {
+    if bytes.len() != expected.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != expected[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn find_byte(bytes: &[u8], start: usize, value: u8) ?usize {
+    var index = start;
+    while index < bytes.len() {
+        if bytes[index] == value {
+            return ?index;
+        }
+        index += 1usize;
+    }
+    null
+}
+
+fn parse_graph(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!BuildGraph {
+    var package_name_start = 0usize;
+    var package_name_len = 0usize;
+    var exe_root_start = 0usize;
+    var exe_root_len = 0usize;
+    var index = 0usize;
+    while index < graph.len() {
+        let line_end = if let ?value = find_byte(graph, index, b'\n') {
+            value
+        } else null {
+            graph.len()
+        };
+        let line = &graph[index..line_end];
+        if line.len() != 0usize {
+            let first_tab = if let ?value = find_byte(line, 0usize, b'\t') {
+                value
+            } else null {
+                write_line(stderr, b"paw: invalid build graph line").?;
+                return process::exit(2)!;
+            };
+            let second_tab = if let ?value = find_byte(line, first_tab + 1usize, b'\t') {
+                value
+            } else null {
+                write_line(stderr, b"paw: invalid build graph line").?;
+                return process::exit(2)!;
+            };
+            let kind = &line[0usize..first_tab];
+            if slice_eq(kind, b"package") {
+                package_name_start = index + first_tab + 1usize;
+                package_name_len = second_tab - first_tab - 1usize;
+            } else if slice_eq(kind, b"executable") {
+                exe_root_start = index + second_tab + 1usize;
+                exe_root_len = line.len() - second_tab - 1usize;
+            } else {
+                write_line(stderr, b"paw: unknown build graph entry").?;
+                return process::exit(2)!;
+            }
+        }
+        index = line_end + 1usize;
+    }
+    if package_name_len == 0usize {
+        write_line(stderr, b"paw: build graph has no package").?;
+        return process::exit(2)!;
+    }
+    if exe_root_len == 0usize {
+        write_line(stderr, b"paw: build graph has no executable").?;
+        return process::exit(2)!;
+    }
+    !{
+        package_name_start: package_name_start,
+        package_name_len: package_name_len,
+        exe_root_start: exe_root_start,
+        exe_root_len: exe_root_len,
+    }
+}
+
+fn read_graph(init: Init, stderr: &mut io::FileWriter, out: &mut [u8]) process::ExitCode!&[u8] {
+    let file = if let !value = fs::File::open(fs::Path::init("/tmp/paw-build.graph"), fs::OpenOptions::read_only()) {
+        value
+    } else error! {
+        write_line(stderr, b"paw: failed to open build graph").?;
+        return process::exit(2)!;
+    };
+    defer {
+        if let !ok = file.close() {
+            _ = ok;
+        } else error! {}
+    };
+    var read_buffer: [1024]u8 = [0; 1024];
+    var reader = file.reader(init.io(), &mut read_buffer[..]);
     var len = 0usize;
-    append_bytes(out, &mut len, root.bytes()).?;
-    append_bytes(out, &mut len, b"/src/core.nia").?;
-    !&out[0..len]
+    while true {
+        if len == out.len() {
+            write_line(stderr, b"paw: build graph is too large").?;
+            return process::exit(2)!;
+        }
+        let count = if let !value = reader.read(&mut out[len..out.len()]) {
+            value
+        } else error! {
+            write_line(stderr, b"paw: failed to read build graph").?;
+            return process::exit(2)!;
+        };
+        if count == 0usize {
+            break;
+        }
+        len += count;
+    }
+    !&out[0usize..len]
+}
+
+fn compile_build_runner(stderr: &mut io::FileWriter, root: process::Arg) process::ExitCode!void {
+    var build_path_storage: [4096]u8 = [0; 4096];
+    let build_path = path_join(root, b"build.nia", &mut build_path_storage).?;
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer capi::session_free(session);
+
+    let runner_path = b"<paw:build-runner>";
+    let runner_source = b"using std::process;\nusing paw;\nusing build;\n\npub fn main(init: process::Init) process::ExitCode!void {\n    var buffer: [4096]u8 = [0; 4096];\n    var b = if let !value = paw::Build::init(init, \"/tmp/paw-build.graph\", &mut buffer[..]) {\n        value\n    } else error! {\n        return error.exit_code()!;\n    };\n    if let !ok = build::build(&mut b) {\n        _ = ok;\n    } else error! {\n        return error.exit_code()!;\n    }\n    if let !ok = b.finish() {\n        _ = ok;\n    } else error! {\n        return error.exit_code()!;\n    }\n    !{}\n}\n";
+    if capi::session_set_source(session, runner_path, runner_source) != capi::status_ok {
+        write_line(stderr, b"paw: failed to install build runner source").?;
+        return process::exit(2)!;
+    }
+    let paw_path = b"<paw:core>";
+    let paw_source = b"using std::fs;\nusing std::io;\nusing std::process;\n\npub enum Error: i32 {\n    Io = 1,\n    InvalidInput = 2,\n    _,\n}\n\npub struct PackageOptions {\n    name: &[char],\n    version: &[char],\n}\n\npub struct ExecutableOptions {\n    name: &[char],\n    root: &[char],\n}\n\npub struct Build {\n    writer: io::FileWriter,\n    file: fs::File,\n}\n\nextend PackageOptions {\n    pub fn name(&self) &[char] {\n        self.name\n    }\n\n    pub fn version(&self) &[char] {\n        self.version\n    }\n}\n\nextend ExecutableOptions {\n    pub fn name(&self) &[char] {\n        self.name\n    }\n\n    pub fn root(&self) &[char] {\n        self.root\n    }\n}\n\nextend Build {\n    pub fn init(init: process::Init, graph_path: &[char], buffer: &mut [u8]) Error!Build {\n        let file = if let !value = fs::File::create(fs::Path::init(graph_path), fs::CreateOptions::init()) {\n            value\n        } else error! {\n            return Error::Io!;\n        };\n        !{\n            writer: file.writer(init.io(), buffer),\n            file: file,\n        }\n    }\n\n    pub fn package(&mut self, options: PackageOptions) Error!void {\n        let name = options.name();\n        let version = options.version();\n        if name.len() == 0usize {\n            return Error::InvalidInput!;\n        }\n        self.write_bytes(b\"package\\t\").?;\n        self.write_chars(name).?;\n        self.write_bytes(b\"\\t\").?;\n        self.write_chars(version).?;\n        self.write_bytes(b\"\\n\").?;\n        !{}\n    }\n\n    pub fn executable(&mut self, options: ExecutableOptions) Error!void {\n        let name = options.name();\n        let root = options.root();\n        if name.len() == 0usize or root.len() == 0usize {\n            return Error::InvalidInput!;\n        }\n        self.write_bytes(b\"executable\\t\").?;\n        self.write_chars(name).?;\n        self.write_bytes(b\"\\t\").?;\n        self.write_chars(root).?;\n        self.write_bytes(b\"\\n\").?;\n        !{}\n    }\n\n    fn write_bytes(&mut self, bytes: &[u8]) Error!void {\n        if let !ok = self.writer.write_all(bytes) {\n            _ = ok;\n        } else error! {\n            return Error::Io!;\n        }\n        !{}\n    }\n\n    fn write_chars(&mut self, chars: &[char]) Error!void {\n        var index = 0usize;\n        while index < chars.len() {\n            let ch = chars[index] as u32;\n            if ch == 0u32 or ch > 127u32 {\n                return Error::InvalidInput!;\n            }\n            var byte: [1]u8 = [ch as u8];\n            self.write_bytes(&byte[..]).?;\n            index += 1usize;\n        }\n        !{}\n    }\n\n    pub fn finish(&mut self) Error!void {\n        if let !ok = self.writer.flush() {\n            _ = ok;\n        } else error! {\n            return Error::Io!;\n        }\n        if let !ok = self.file.close() {\n            _ = ok;\n        } else error! {\n            return Error::Io!;\n        }\n        !{}\n    }\n}\n\nextend Error {\n    pub fn exit_code(self) process::ExitCode {\n        switch self {\n            Error::Io => process::exit(5),\n            Error::InvalidInput => process::exit(22),\n            _ => process::exit(255),\n        }\n    }\n}\n";
+    if capi::session_set_source(session, paw_path, paw_source) != capi::status_ok {
+        write_line(stderr, b"paw: failed to install paw core source").?;
+        return process::exit(2)!;
+    }
+
+    let request = capi::check_request_new(runner_path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create runner check request").?;
+        return process::exit(2)!;
+    }
+    defer capi::check_request_free(request);
+
+    if capi::check_request_add_module(request, b"build", build_path) != capi::status_ok {
+        write_line(stderr, b"paw: failed to add build.nia module").?;
+        return process::exit(2)!;
+    }
+    if capi::check_request_add_module(request, b"paw", paw_path) != capi::status_ok {
+        write_line(stderr, b"paw: failed to add paw core module").?;
+        return process::exit(2)!;
+    }
+    _ = capi::check_request_set_freestanding(request);
+    _ = capi::check_request_set_o0(request);
+
+    let result = capi::session_emit_executable(session, request, b"/tmp/paw-build-runner");
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: build runner emit returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    if status != capi::status_ok {
+        return status_code(status)!;
+    }
+    !{}
+}
+
+fn run_build_runner(stderr: &mut io::FileWriter, init: Init) process::ExitCode!void {
+    let path = b"/tmp/paw-build-runner\0";
+    let cpath = if let ?value = std::CStr::from_bytes(path) {
+        value
+    } else null {
+        write_line(stderr, b"paw: invalid build runner path").?;
+        return process::exit(2)!;
+    };
+    var argv: [2]&u8 = [&path.*[0], 0usize as &u8];
+    let command = process::Command::init(cpath, &argv[0], init.raw_envp());
+    let term = if let !value = command.run() {
+        value
+    } else error! {
+        write_line(stderr, b"paw: failed to run build runner").?;
+        return error.as_exit_code()!;
+    };
+    let code = if let ?value = term.exit_code() {
+        value
+    } else null {
+        write_line(stderr, b"paw: build runner did not exit normally").?;
+        return process::exit(1)!;
+    };
+    if code != 0 {
+        stderr.print("paw: build runner failed with exit code {}\n", &[&code]).exit().?;
+        return process::exit(code)!;
+    }
+    !{}
+}
+
+fn emit_build_executable(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    output: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!ExitCode {
+    let graph = parse_graph(stderr, graph_bytes).?;
+    let package_name = &graph_bytes[graph.package_name_start..(graph.package_name_start + graph.package_name_len)];
+    let exe_root = &graph_bytes[graph.exe_root_start..(graph.exe_root_start + graph.exe_root_len)];
+    var main_path_storage: [4096]u8 = [0; 4096];
+    var root_path_storage: [4096]u8 = [0; 4096];
+    let main_path = path_join(root, exe_root, &mut main_path_storage).?;
+    let root_path = path_join(root, b"src/root.nia", &mut root_path_storage).?;
+
+    let prepared = prepare_package_check(stderr, package_name, main_path, root_path, capi::runtime_freestanding).?;
+    defer finish_check(prepared);
+    let result = capi::session_emit_executable(prepared.session, prepared.request, output.bytes());
+    if result as usize == 0usize {
+        write_line(stderr, b"paw: executable emit returned null result").?;
+        return process::exit(255)!;
+    }
+    defer capi::result_free(result);
+
+    let status = capi::result_status(result);
+    print_result(stderr, result).?;
+    !status_code(status)
+}
+
+fn prepare_package_check(
+    stderr: &mut io::FileWriter,
+    name: &[u8],
+    main_path: &[u8],
+    package_path: &[u8],
+    runtime: i32,
+) process::ExitCode!PreparedCheck {
+    var ready = false;
+    let session = capi::session_new();
+    if session as usize == 0usize {
+        write_line(stderr, b"paw: failed to create nia session").?;
+        return process::exit(255)!;
+    }
+    defer if not ready {
+        capi::session_free(session);
+    };
+
+    let request = capi::check_request_new(main_path);
+    if request as usize == 0usize {
+        write_line(stderr, b"paw: failed to create check request").?;
+        return process::exit(2)!;
+    }
+    defer if not ready {
+        capi::check_request_free(request);
+    };
+
+    if capi::check_request_set_runtime(request, runtime) != capi::status_ok {
+        write_line(stderr, b"paw: failed to set package runtime").?;
+        return process::exit(2)!;
+    }
+    _ = capi::check_request_set_o0(request);
+    if capi::check_request_add_module(request, name, package_path) != capi::status_ok {
+        write_line(stderr, b"paw: failed to add package module").?;
+        return process::exit(2)!;
+    }
+
+    ready = true;
+    !{ session: session, request: request }
+}
+
+fn run_build(stderr: &mut io::FileWriter, init: Init, root: process::Arg, output: process::Arg) process::ExitCode!ExitCode {
+    compile_build_runner(stderr, root).?;
+    run_build_runner(stderr, init).?;
+    var graph_storage: [8192]u8 = [0; 8192];
+    let graph = read_graph(init, stderr, &mut graph_storage).?;
+    emit_build_executable(stderr, root, output, graph)
 }
 
 fn run_check(stderr: &mut io::FileWriter, path: process::Arg) process::ExitCode!ExitCode {
@@ -163,123 +437,6 @@ fn run_check(stderr: &mut io::FileWriter, path: process::Arg) process::ExitCode!
     let result = capi::session_check(prepared.session, prepared.request);
     if result as usize == 0usize {
         write_line(stderr, b"paw: check returned null result").?;
-        return process::exit(255)!;
-    }
-    defer capi::result_free(result);
-
-    let status = capi::result_status(result);
-    print_result(stderr, result).?;
-    !status_code(status)
-}
-
-fn run_check_pkg(stderr: &mut io::FileWriter, name: process::Arg, root: process::Arg) process::ExitCode!ExitCode {
-    var main_storage: [4096]u8 = [0; 4096];
-    var package_storage: [4096]u8 = [0; 4096];
-    let main_path = package_main_path(root, &mut main_storage).?;
-    let package_path = package_core_path(root, &mut package_storage).?;
-
-    let session = capi::session_new();
-    if session as usize == 0usize {
-        write_line(stderr, b"paw: failed to create nia session").?;
-        return process::exit(255)!;
-    }
-    defer capi::session_free(session);
-
-    let request = capi::check_request_new(main_path);
-    if request as usize == 0usize {
-        write_line(stderr, b"paw: failed to create check request").?;
-        return process::exit(2)!;
-    }
-    defer capi::check_request_free(request);
-    _ = capi::check_request_set_bare(request);
-    _ = capi::check_request_set_o0(request);
-    let add_status = capi::check_request_add_module(request, name.bytes(), package_path);
-    if add_status != capi::status_ok {
-        write_line(stderr, b"paw: failed to add package module").?;
-        return process::exit(2)!;
-    }
-
-    let result = capi::session_check(session, request);
-    if result as usize == 0usize {
-        write_line(stderr, b"paw: check returned null result").?;
-        return process::exit(255)!;
-    }
-    defer capi::result_free(result);
-
-    let status = capi::result_status(result);
-    print_result(stderr, result).?;
-    !status_code(status)
-}
-
-fn run_obj_pkg(stderr: &mut io::FileWriter, name: process::Arg, root: process::Arg, output: process::Arg) process::ExitCode!ExitCode {
-    var main_storage: [4096]u8 = [0; 4096];
-    var package_storage: [4096]u8 = [0; 4096];
-    let main_path = package_main_path(root, &mut main_storage).?;
-    let package_path = package_core_path(root, &mut package_storage).?;
-
-    let session = capi::session_new();
-    if session as usize == 0usize {
-        write_line(stderr, b"paw: failed to create nia session").?;
-        return process::exit(255)!;
-    }
-    defer capi::session_free(session);
-
-    let request = capi::check_request_new(main_path);
-    if request as usize == 0usize {
-        write_line(stderr, b"paw: failed to create check request").?;
-        return process::exit(2)!;
-    }
-    defer capi::check_request_free(request);
-    _ = capi::check_request_set_bare(request);
-    _ = capi::check_request_set_o0(request);
-    let add_status = capi::check_request_add_module(request, name.bytes(), package_path);
-    if add_status != capi::status_ok {
-        write_line(stderr, b"paw: failed to add package module").?;
-        return process::exit(2)!;
-    }
-
-    let result = capi::session_emit_object_directory(session, request, output.bytes());
-    if result as usize == 0usize {
-        write_line(stderr, b"paw: package object emit returned null result").?;
-        return process::exit(255)!;
-    }
-    defer capi::result_free(result);
-
-    let status = capi::result_status(result);
-    print_result(stderr, result).?;
-    !status_code(status)
-}
-
-fn run_exe_pkg(stderr: &mut io::FileWriter, name: process::Arg, root: process::Arg, output: process::Arg) process::ExitCode!ExitCode {
-    var main_storage: [4096]u8 = [0; 4096];
-    var package_storage: [4096]u8 = [0; 4096];
-    let main_path = package_main_path(root, &mut main_storage).?;
-    let package_path = package_core_path(root, &mut package_storage).?;
-
-    let session = capi::session_new();
-    if session as usize == 0usize {
-        write_line(stderr, b"paw: failed to create nia session").?;
-        return process::exit(255)!;
-    }
-    defer capi::session_free(session);
-
-    let request = capi::check_request_new(main_path);
-    if request as usize == 0usize {
-        write_line(stderr, b"paw: failed to create check request").?;
-        return process::exit(2)!;
-    }
-    defer capi::check_request_free(request);
-    _ = capi::check_request_set_freestanding(request);
-    _ = capi::check_request_set_o0(request);
-    let add_status = capi::check_request_add_module(request, name.bytes(), package_path);
-    if add_status != capi::status_ok {
-        write_line(stderr, b"paw: failed to add package module").?;
-        return process::exit(2)!;
-    }
-
-    let result = capi::session_emit_executable(session, request, output.bytes());
-    if result as usize == 0usize {
-        write_line(stderr, b"paw: package executable emit returned null result").?;
         return process::exit(255)!;
     }
     defer capi::result_free(result);
@@ -374,74 +531,6 @@ pub fn main(init: Init) ExitCode!void {
             reject_extra_args(&mut stderr, &mut rest).?;
             run_obj(&mut stderr, path, output).?
         },
-        Command::CheckPkg => {
-            let name = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            let root = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            reject_extra_args(&mut stderr, &mut rest).?;
-            run_check_pkg(&mut stderr, name, root).?
-        },
-        Command::ObjPkg => {
-            let name = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            let root = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            let output = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            reject_extra_args(&mut stderr, &mut rest).?;
-            run_obj_pkg(&mut stderr, name, root, output).?
-        },
-        Command::ExePkg => {
-            let name = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            let root = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            let output = if let ?value = rest.next() {
-                value
-            } else null {
-                usage(&mut stderr).?;
-                stderr.flush().exit().?;
-                return process::exit(2)!;
-            };
-            reject_extra_args(&mut stderr, &mut rest).?;
-            run_exe_pkg(&mut stderr, name, root, output).?
-        },
         Command::ObjDir => {
             let path = if let ?value = rest.next() {
                 value
@@ -459,6 +548,24 @@ pub fn main(init: Init) ExitCode!void {
             };
             reject_extra_args(&mut stderr, &mut rest).?;
             run_obj_dir(&mut stderr, path, output).?
+        },
+        Command::Build => {
+            let root = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            let output = if let ?value = rest.next() {
+                value
+            } else null {
+                usage(&mut stderr).?;
+                stderr.flush().exit().?;
+                return process::exit(2)!;
+            };
+            reject_extra_args(&mut stderr, &mut rest).?;
+            run_build(&mut stderr, init, root, output).?
         },
         _ => process::exit(2),
     };
