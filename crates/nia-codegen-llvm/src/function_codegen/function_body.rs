@@ -9,7 +9,7 @@ use nia_function_ir::{
 use nia_llvm::{IntPredicate, basic_block::BasicBlock, values::IntValue};
 use nia_span::Span;
 
-use super::FunctionCodegen;
+use super::{FunctionCodegen, callee_is_extern};
 
 struct TryTerminatorInput<'b, 'ctx> {
     body: &'b FunctionBody,
@@ -1163,6 +1163,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.module.classify_function_return(value.ty),
                 crate::module_codegen::AbiReturn::IndirectOut(_)
             )
+            || callee_is_extern(self, callee)
             || self.return_path_has_registered_defers(body, block, span)?
         {
             return Ok(false);
@@ -1263,6 +1264,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ) {
             return Ok(false);
         }
+        if callee_is_extern(self, callee) {
+            let result = self.emit_expr(value)?;
+            self.builder
+                .build_store(ptr, result)
+                .map_err(|_| self.error(value.span, "failed to store aggregate call result"))?;
+            return Ok(true);
+        }
         let _ = self.emit_call_raw_with_out(value, callee, args, Some(ptr))?;
         Ok(true)
     }
@@ -1290,14 +1298,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let crate::module_codegen::AbiReturn::IndirectOut(ty) =
                     self.module.classify_function_return(expr.ty)
                 {
-                    let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
-                    let result_ptr = self
-                        .builder
-                        .build_alloca(result_ty, "discard.call.out")
-                        .map_err(|_| {
+                    if callee_is_extern(self, callee) {
+                        let _ = self.emit_call_raw(expr, callee, args)?;
+                    } else {
+                        let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
+                        let result_ptr = self
+                            .builder
+                            .build_alloca(result_ty, "discard.call.out")
+                            .map_err(|_| {
                             self.error(expr.span, "failed to allocate discarded call result")
                         })?;
-                    let _ = self.emit_call_raw_with_out(expr, callee, args, Some(result_ptr))?;
+                        let _ =
+                            self.emit_call_raw_with_out(expr, callee, args, Some(result_ptr))?;
+                    }
                 } else {
                     let _ = self.emit_call_raw(expr, callee, args)?;
                 }

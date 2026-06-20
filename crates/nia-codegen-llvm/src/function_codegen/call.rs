@@ -7,7 +7,7 @@ use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, TyKind, TypeEquivalence};
 
-use super::FunctionCodegen;
+use super::{FunctionCodegen, callee_is_extern};
 
 struct DynamicTraitMethodCall<'a, 'ctx> {
     expr: &'a FunctionExpr,
@@ -134,7 +134,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             };
         }
         match self.module.classify_function_return(expr.ty) {
-            AbiReturn::IndirectOut(ty) => {
+            AbiReturn::IndirectOut(ty) if !callee_is_extern(self, callee) => {
                 let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
                 let result_ptr = self
                     .builder
@@ -145,7 +145,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_load(result_ty, result_ptr, "call.result")
                     .map_err(|_| self.error(expr.span, "failed to load call result"))
             }
-            AbiReturn::Direct(_) => {
+            AbiReturn::Direct(_) | AbiReturn::IndirectOut(_) => {
                 let call = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 call.try_as_basic_value()
                     .basic()

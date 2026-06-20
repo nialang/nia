@@ -60,6 +60,45 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_extern_struct_return_calls_with_c_abi_direct_return() {
+    let root = temp_dir("emits_extern_struct_return_calls_with_c_abi_direct_return");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern struct NiaString {
+    ptr: &u8,
+    len: usize,
+}
+
+extern fn make_string() NiaString;
+
+fn main() NiaString {
+    make_string()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("declare %nia__m0__d0__NiaString @make_string()"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("call %nia__m0__d0__NiaString @make_string()"),
+        "{ir}"
+    );
+    assert!(ir.contains("store %nia__m0__d0__NiaString"), "{ir}");
+    assert!(!ir.contains("call void @make_string"), "{ir}");
+}
+
+#[test]
 fn emits_freestanding_start_entry_as_extern_start_calling_root_main() {
     let root = temp_dir("emits_freestanding_start_entry_as_extern_start_calling_root_main");
     let main = root.join("main.nia");
