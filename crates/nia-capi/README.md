@@ -9,6 +9,7 @@ The current surface is intentionally small:
 
 - query C API ABI version, compiler version, and status names;
 - create/free a `NiaSession`;
+- inject in-memory source text into a session;
 - create/free a `NiaCheckRequest`;
 - add module-map entries to a check request;
 - set runtime and optimization level;
@@ -20,7 +21,7 @@ The current surface is intentionally small:
 All string inputs are passed as `const uint8_t *` plus byte length and must be
 valid UTF-8. Returned `NiaString` values are owned by the caller and must be
 released with `nia_string_free`. `NiaResult`, `NiaSession`,
-`NiaCheckRequest`, and `NiaLinkOptions` are opaque handles and must be released
+`NiaCheckRequest` and `NiaLinkOptions` are opaque handles and must be released
 with their matching free functions.
 
 Every exported function catches Rust panics and Nia internal compiler errors at

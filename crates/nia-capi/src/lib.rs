@@ -64,7 +64,7 @@ pub struct NiaResult {
     message: Vec<u8>,
 }
 
-pub const NIA_CAPI_ABI_VERSION: u32 = 1;
+pub const NIA_CAPI_ABI_VERSION: u32 = 2;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nia_capi_abi_version() -> u32 {
@@ -98,6 +98,31 @@ pub extern "C" fn nia_session_free(session: *mut NiaSession) {
     unsafe {
         drop(Box::from_raw(session));
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nia_session_set_source(
+    session: *mut NiaSession,
+    path_ptr: *const u8,
+    path_len: usize,
+    text_ptr: *const u8,
+    text_len: usize,
+) -> NiaStatus {
+    catch_status(|| {
+        let Some(session) = (unsafe { session.as_ref() }) else {
+            return NiaStatus::InvalidInput;
+        };
+        let path = match string_from_abi(path_ptr, path_len) {
+            Ok(path) => path,
+            Err(_) => return NiaStatus::InvalidInput,
+        };
+        let text = match string_from_abi(text_ptr, text_len) {
+            Ok(text) => text,
+            Err(_) => return NiaStatus::InvalidInput,
+        };
+        session.driver.set_source(path, text);
+        NiaStatus::Ok
+    })
 }
 
 #[unsafe(no_mangle)]

@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define NIA_CAPI_ABI_VERSION 1
+#define NIA_CAPI_ABI_VERSION 2
 
 typedef enum NiaStatus {
     NIA_STATUS_OK = 0,
@@ -51,6 +51,12 @@ NiaString nia_status_name(NiaStatus status);
 
 NiaSession *nia_session_new(void);
 void nia_session_free(NiaSession *session);
+NiaStatus nia_session_set_source(
+    NiaSession *session,
+    const uint8_t *path_ptr,
+    size_t path_len,
+    const uint8_t *text_ptr,
+    size_t text_len);
 
 NiaCheckRequest *nia_check_request_new(const uint8_t *path_ptr, size_t path_len);
 void nia_check_request_free(NiaCheckRequest *request);
