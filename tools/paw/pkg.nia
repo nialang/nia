@@ -1,0 +1,4 @@
+pub comptime let package = {
+    name: "paw",
+    version: "0.1.0",
+};
