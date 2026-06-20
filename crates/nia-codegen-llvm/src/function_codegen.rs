@@ -1045,7 +1045,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic::user_error_at("E0601", span, message)
+        Diagnostic::user_error_at(nia_diagnostic::codes::LLVM_CODEGEN, span, message)
     }
 }
 

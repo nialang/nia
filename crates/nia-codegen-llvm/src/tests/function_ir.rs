@@ -422,7 +422,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
     assert!(
         has_internal_diagnostic(
             &output.diagnostics,
-            "I0300",
+            codes::INVALID_BACKEND_IR,
             "field expression references missing field"
         ),
         "{:?}",
@@ -742,7 +742,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     assert!(
         has_internal_diagnostic(
             &output.diagnostics,
-            "I0300",
+            codes::INVALID_BACKEND_IR,
             "call references missing function instance"
         ),
         "{:?}",
@@ -1315,14 +1315,18 @@ fn validates_function_ir_missing_entry_before_llvm() {
     assert!(
         has_internal_diagnostic(
             &output.diagnostics,
-            "I0300",
+            codes::INVALID_BACKEND_IR,
             "backend IR contains invalid function IR"
         ),
         "{:?}",
         output.diagnostics
     );
     assert!(
-        has_internal_diagnostic(&output.diagnostics, "I0300", "function entry block"),
+        has_internal_diagnostic(
+            &output.diagnostics,
+            codes::INVALID_BACKEND_IR,
+            "function entry block"
+        ),
         "{:?}",
         output.diagnostics
     );

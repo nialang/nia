@@ -9,7 +9,7 @@ impl BackendValidator<'_> {
     pub(super) fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
         if !self.index.functions.contains_key(&def_id) {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("{message} {def_id:?}"),
             ));
@@ -66,7 +66,7 @@ impl BackendValidator<'_> {
                 .map(|module| module.name.as_str())
                 .unwrap_or("<missing module>");
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!(
                     "{message} {def_id:?} `{function_name}` in `{module_name}` with arg_module_id {arg_module_id:?}, {} args; {available_instances} instances exist for this def",

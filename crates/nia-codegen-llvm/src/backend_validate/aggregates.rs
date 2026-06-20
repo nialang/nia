@@ -16,7 +16,7 @@ impl BackendValidator<'_> {
     ) {
         let Some(field) = field else {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 "backend IR aggregate literal has invalid field",
             ));
@@ -39,7 +39,7 @@ impl BackendValidator<'_> {
     ) -> Option<InternedTyId> {
         let Some((def_id, args)) = self.field_base_type(base_ty) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 "backend IR field base type is not nominal",
             ));
@@ -47,7 +47,7 @@ impl BackendValidator<'_> {
         };
         let Some(fields) = self.aggregate_fields(def_id, &args) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR aggregate fields are missing for {def_id:?}"),
             ));
@@ -57,7 +57,7 @@ impl BackendValidator<'_> {
             return Some(field.ty);
         }
         self.diagnostics.push(Diagnostic::internal_error_at(
-            "I0300",
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("{message} {field:?}"),
         ));
@@ -76,7 +76,7 @@ impl BackendValidator<'_> {
             && !self.index.union_instances_by_def.contains_key(&def_id)
         {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("{message} {def_id:?}"),
             ));
@@ -91,7 +91,7 @@ impl BackendValidator<'_> {
     ) {
         if !self.index.enum_variants.contains_key(&def_id) {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("{message} {def_id:?}"),
             ));

@@ -19,7 +19,7 @@ impl BackendValidator<'_> {
                 .map(|subject| format!(" {subject}"))
                 .unwrap_or_default();
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 match self.current_item.as_deref() {
                     Some(item) => format!(
@@ -46,7 +46,7 @@ impl BackendValidator<'_> {
         }
         if self.layout_of(ty).is_none() {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR trait object self type {ty:?} is not representable"),
             ));
@@ -59,7 +59,7 @@ impl BackendValidator<'_> {
         }
         let Some(module) = self.index.module(ty.interner_id) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!(
                     "backend IR type {ty:?} belongs to missing module {:?}",
@@ -70,7 +70,7 @@ impl BackendValidator<'_> {
         };
         let Some(kind) = module.interner.get(ty).cloned() else {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR type {ty:?} is missing from its owner interner"),
             ));
@@ -110,7 +110,7 @@ impl BackendValidator<'_> {
             TyKind::Nominal { def_id, args } => {
                 if self.index.module(def_id.module_id).is_none() {
                     self.diagnostics.push(Diagnostic::internal_error_at(
-                        "I0300",
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
                         format!(
                             "backend IR nominal type {def_id:?} belongs to missing module {:?}",
@@ -158,7 +158,7 @@ impl BackendValidator<'_> {
                 }
             }
             TyKind::ComptimeOnly => self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
             )),
@@ -169,7 +169,7 @@ impl BackendValidator<'_> {
                     .map(|subject| format!(" {subject}"))
                     .unwrap_or_default();
                 self.diagnostics.push(Diagnostic::internal_error_at(
-                    "I0300",
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
                     match self.current_item.as_deref() {
                         Some(item) => {
@@ -192,7 +192,7 @@ impl BackendValidator<'_> {
     ) {
         if !elem.is_vector_element() {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!(
                     "backend IR SIMD vector type {ty:?} has invalid element type `{}`",
@@ -202,7 +202,7 @@ impl BackendValidator<'_> {
         }
         if lanes == 0 {
             self.diagnostics.push(Diagnostic::internal_error_at(
-                "I0300",
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR SIMD vector type {ty:?} has zero lanes"),
             ));
@@ -215,7 +215,7 @@ impl BackendValidator<'_> {
             ArrayLenTy::ConstExpr(id) => {
                 let Some(module) = self.index.module(id.module_id) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
-                        "I0300",
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
                         format!(
                             "backend IR array length {id:?} belongs to missing module {:?}",
@@ -226,7 +226,7 @@ impl BackendValidator<'_> {
                 };
                 if !module.comptime.array_lengths.contains_key(id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
-                        "I0300",
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
                         format!(
                             "backend IR array length {id:?} was not evaluated before LLVM codegen"
@@ -239,7 +239,7 @@ impl BackendValidator<'_> {
             }
             ArrayLenTy::Infer => {
                 self.diagnostics.push(Diagnostic::internal_error_at(
-                    "I0300",
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
                     "backend IR array length inference reached LLVM codegen",
                 ));
