@@ -10,6 +10,33 @@ pub enum ExitCode: i32 {
     _,
 }
 
+pub enum TermKind: i32 {
+    Exited = 1,
+    Signal = 2,
+    Stopped = 3,
+    Unknown = 4,
+}
+
+pub enum StdIo: i32 {
+    Inherit = 1,
+    Ignore = 2,
+    Pipe = 3,
+}
+
+pub struct Term {
+    kind: TermKind,
+    code: i32,
+}
+
+pub struct Command {
+    path: cstr::CStr,
+    argv: &&u8,
+    envp: &&u8,
+    stdin: StdIo,
+    stdout: StdIo,
+    stderr: StdIo,
+}
+
 pub struct Args {
     len: usize,
     ptr: &&u8,
@@ -38,11 +65,229 @@ pub struct EnvVar {
     text: cstr::CStr,
 }
 
+pub struct Child {
+    pid: os::ProcessId,
+    stdin: ?os::FileHandle,
+    stdout: ?os::FileHandle,
+    stderr: ?os::FileHandle,
+}
+
 pub struct Init {
     argc: usize,
     argv: &&u8,
     envp: &&u8,
     io: &mut io::Io[Error = os::Error],
+}
+
+extend Command {
+    pub fn init(path: cstr::CStr, argv: &&u8, envp: &&u8) Command {
+        {
+            path: path,
+            argv: argv,
+            envp: envp,
+            stdin: StdIo::Inherit,
+            stdout: StdIo::Inherit,
+            stderr: StdIo::Inherit,
+        }
+    }
+
+    pub fn path(&self) cstr::CStr {
+        self.path
+    }
+
+    pub fn argv(&self) &&u8 {
+        self.argv
+    }
+
+    pub fn envp(&self) &&u8 {
+        self.envp
+    }
+
+    pub fn stdin(&self) StdIo {
+        self.stdin
+    }
+
+    pub fn stdout(&self) StdIo {
+        self.stdout
+    }
+
+    pub fn stderr(&self) StdIo {
+        self.stderr
+    }
+
+    pub fn set_stdin(&mut self, behavior: StdIo) void {
+        self.stdin = behavior;
+    }
+
+    pub fn set_stdout(&mut self, behavior: StdIo) void {
+        self.stdout = behavior;
+    }
+
+    pub fn set_stderr(&mut self, behavior: StdIo) void {
+        self.stderr = behavior;
+    }
+
+    pub fn spawn(&self) os::Error!Child {
+        var options = os::SpawnOptions::init();
+        options.set_stdin(self.stdin.as_os_stdio());
+        options.set_stdout(self.stdout.as_os_stdio());
+        options.set_stderr(self.stderr.as_os_stdio());
+        spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
+    }
+
+    pub fn run(&self) os::Error!Term {
+        var child = self.spawn().?;
+        child.wait()
+    }
+}
+
+extend StdIo {
+    fn as_os_stdio(self) os::StdIo {
+        switch self {
+            StdIo::Inherit => os::StdIo::Inherit,
+            StdIo::Ignore => os::StdIo::Ignore,
+            StdIo::Pipe => os::StdIo::Pipe,
+            _ => os::StdIo::Inherit,
+        }
+    }
+}
+
+extend Child {
+    pub fn init(pid: os::ProcessId) Child {
+        { pid: pid, stdin: null, stdout: null, stderr: null }
+    }
+
+    pub fn from_spawn_result(result: os::SpawnResult) Child {
+        {
+            pid: result.pid(),
+            stdin: result.stdin(),
+            stdout: result.stdout(),
+            stderr: result.stderr(),
+        }
+    }
+
+    pub fn pid(&self) os::ProcessId {
+        self.pid
+    }
+
+    pub fn take_stdin(&mut self) ?os::FileHandle {
+        let handle = self.stdin;
+        self.stdin = null;
+        handle
+    }
+
+    pub fn take_stdout(&mut self) ?os::FileHandle {
+        let handle = self.stdout;
+        self.stdout = null;
+        handle
+    }
+
+    pub fn take_stderr(&mut self) ?os::FileHandle {
+        let handle = self.stderr;
+        self.stderr = null;
+        handle
+    }
+
+    pub fn close_stdin(&mut self) os::Error!void {
+        if let ?handle = self.take_stdin() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_stdout(&mut self) os::Error!void {
+        if let ?handle = self.take_stdout() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_stderr(&mut self) os::Error!void {
+        if let ?handle = self.take_stderr() {
+            handle.close()
+        } else null {
+            !{}
+        }
+    }
+
+    pub fn close_pipes(&mut self) os::Error!void {
+        self.close_stdin().?;
+        self.close_stdout().?;
+        self.close_stderr().?;
+        !{}
+    }
+
+    pub fn wait_raw(&mut self) os::Error!os::WaitStatus {
+        self.close_stdin().?;
+        os::wait(self.pid)
+    }
+
+    pub fn wait(&mut self) os::Error!Term {
+        let status = self.wait_raw().?;
+        self.close_stdout().?;
+        self.close_stderr().?;
+        !Term::from_wait_status(status)
+    }
+}
+
+extend Term {
+    pub fn exited(code: i32) Term {
+        { kind: TermKind::Exited, code: code }
+    }
+
+    pub fn signal(signal: i32) Term {
+        { kind: TermKind::Signal, code: signal }
+    }
+
+    pub fn stopped(signal: i32) Term {
+        { kind: TermKind::Stopped, code: signal }
+    }
+
+    pub fn unknown(raw: i32) Term {
+        { kind: TermKind::Unknown, code: raw }
+    }
+
+    pub fn from_wait_status(status: os::WaitStatus) Term {
+        if let ?code = status.exit_code() {
+            Term::exited(code)
+        } else if let ?signal = status.signal() {
+            Term::signal(signal)
+        } else if let ?signal = status.stop_signal() {
+            Term::stopped(signal)
+        } else {
+            Term::unknown(status.raw())
+        }
+    }
+
+    pub fn kind(&self) TermKind {
+        self.kind
+    }
+
+    pub fn code(&self) i32 {
+        self.code
+    }
+
+    pub fn exited_success(&self) bool {
+        self.kind == TermKind::Exited and self.code == 0
+    }
+
+    pub fn exit_code(&self) ?i32 {
+        if self.kind == TermKind::Exited {
+            ?self.code
+        } else {
+            null
+        }
+    }
+
+    pub fn signal_code(&self) ?i32 {
+        if self.kind == TermKind::Signal {
+            ?self.code
+        } else {
+            null
+        }
+    }
 }
 
 extend Init {
@@ -308,6 +553,40 @@ extend fs::Error {
 
 pub fn exit(code: i32) ExitCode {
     code as ExitCode
+}
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) os::Error!Child {
+    let pid = os::spawn_raw(path, argv, envp).?;
+    !Child::init(pid)
+}
+
+pub fn spawn_with_options(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) os::Error!Child {
+    let result = os::spawn(path, argv, envp, options).?;
+    !Child::from_spawn_result(result)
+}
+
+pub fn spawn(command: &Command) os::Error!Child {
+    command.spawn()
+}
+
+pub fn run(command: &Command) os::Error!Term {
+    command.run()
+}
+
+extend os::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+extend[T] os::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
 }
 
 extend[T] fs::Error!T {

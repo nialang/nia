@@ -1,4 +1,250 @@
 using pkg::os::linux::syscall;
+using pkg::os::linux::types;
+using pkg::os::linux::fd as linux_fd;
+
+using types::{Errno, OpenMode, Pipe, ProcessId, SpawnOptions, SpawnResult, StdIo, WaitStatus};
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Errno!ProcessId {
+    let result = spawn(path, argv, envp, SpawnOptions::init()).?;
+    !result.pid()
+}
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!SpawnResult {
+    var stdin_pipe: ?Pipe = null;
+    var stdout_pipe: ?Pipe = null;
+    var stderr_pipe: ?Pipe = null;
+    var cleanup_stdin_pipe = false;
+    var cleanup_stdout_pipe = false;
+    var cleanup_stderr_pipe = false;
+    defer if cleanup_stdin_pipe {
+        close_pipe(stdin_pipe);
+    };
+    defer if cleanup_stdout_pipe {
+        close_pipe(stdout_pipe);
+    };
+    defer if cleanup_stderr_pipe {
+        close_pipe(stderr_pipe);
+    };
+    if options.stdin() == StdIo::Pipe {
+        stdin_pipe = ?linux_fd::pipe_close_on_exec().?;
+        cleanup_stdin_pipe = true;
+    }
+    if options.stdout() == StdIo::Pipe {
+        stdout_pipe = ?linux_fd::pipe_close_on_exec().?;
+        cleanup_stdout_pipe = true;
+    }
+    if options.stderr() == StdIo::Pipe {
+        stderr_pipe = ?linux_fd::pipe_close_on_exec().?;
+        cleanup_stderr_pipe = true;
+    }
+    let error_pipe = linux_fd::pipe_close_on_exec().?;
+    var cleanup_error_pipe = true;
+    defer if cleanup_error_pipe {
+        close_pipe(?error_pipe);
+    };
+    let ret = syscall::syscall0(syscall::fork);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else if ret == 0 {
+        _ = error_pipe.read().close();
+        if let !ok = apply_stdio(options, stdin_pipe, stdout_pipe, stderr_pipe) {
+            _ = ok;
+        } else error! {
+            write_errno(error_pipe.write(), error);
+            exit(127);
+        }
+        let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
+        write_errno(error_pipe.write(), exec_ret.syscall_error());
+        exit(127);
+        Errno::Invalid!
+    } else {
+        close_child_pipe_ends(stdin_pipe, stdout_pipe, stderr_pipe);
+        cleanup_error_pipe = false;
+        _ = error_pipe.write().close();
+        let pid = ProcessId::init(ret as i32);
+        if let ?errno = read_spawn_error(error_pipe.read(), pid).? {
+            _ = wait(pid);
+            errno!
+        } else null {
+            cleanup_stdin_pipe = false;
+            cleanup_stdout_pipe = false;
+            cleanup_stderr_pipe = false;
+            !SpawnResult::init(
+                pid,
+                parent_stdin(stdin_pipe),
+                parent_stdout(stdout_pipe),
+                parent_stderr(stderr_pipe),
+            )
+        }
+    }
+}
+
+fn close_pipe(pipe: ?Pipe) void {
+    if let ?value = pipe {
+        _ = value.read().close();
+        _ = value.write().close();
+    } else null {}
+}
+
+fn close_child_pipe_ends(stdin: ?Pipe, stdout: ?Pipe, stderr: ?Pipe) void {
+    if let ?pipe = stdin {
+        _ = pipe.read().close();
+    } else null {}
+    if let ?pipe = stdout {
+        _ = pipe.write().close();
+    } else null {}
+    if let ?pipe = stderr {
+        _ = pipe.write().close();
+    } else null {}
+}
+
+fn parent_stdin(pipe: ?Pipe) ?types::FileDescriptor {
+    if let ?value = pipe {
+        ?value.write()
+    } else null {
+        null
+    }
+}
+
+fn parent_stdout(pipe: ?Pipe) ?types::FileDescriptor {
+    if let ?value = pipe {
+        ?value.read()
+    } else null {
+        null
+    }
+}
+
+fn parent_stderr(pipe: ?Pipe) ?types::FileDescriptor {
+    if let ?value = pipe {
+        ?value.read()
+    } else null {
+        null
+    }
+}
+
+fn write_errno(fd: types::FileDescriptor, errno: Errno) void {
+    var code = errno as i32;
+    var bytes = &mut ((&mut code as &mut u8)[0..@size[i32]()]);
+    _ = fd.write_some(bytes);
+}
+
+fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) Errno! ?Errno {
+    defer _ = fd.close();
+    var code: i32 = 0;
+    var bytes = &mut ((&mut code as &mut u8)[0..@size[i32]()]);
+    var read_len = 0usize;
+    while read_len < bytes.len() {
+        let amount = fd.read_some(&mut bytes[read_len..]).?;
+        if amount == 0usize {
+            if read_len == 0usize {
+                return !null;
+            }
+            _ = wait(pid);
+            return Errno::Io!;
+        }
+        read_len += amount;
+    }
+    !(?Errno::from_code(code))
+}
+
+fn apply_stdio(options: SpawnOptions, stdin_pipe: ?Pipe, stdout_pipe: ?Pipe, stderr_pipe: ?Pipe) Errno!void {
+    var dev_null: ?types::FileDescriptor = null;
+    if options.stdin() == StdIo::Ignore {
+        dev_null = ?open_dev_null().?;
+        dup_to(dev_null, types::FileDescriptor::stdin()).?;
+    } else if options.stdin() == StdIo::Pipe {
+        dup_to(pipe_read(stdin_pipe), types::FileDescriptor::stdin()).?;
+    }
+    if options.stdout() == StdIo::Ignore {
+        if let ?fd = dev_null {
+            dup_to(?fd, types::FileDescriptor::stdout()).?;
+        } else null {
+            dev_null = ?open_dev_null().?;
+            dup_to(dev_null, types::FileDescriptor::stdout()).?;
+        }
+    } else if options.stdout() == StdIo::Pipe {
+        dup_to(pipe_write(stdout_pipe), types::FileDescriptor::stdout()).?;
+    }
+    if options.stderr() == StdIo::Ignore {
+        if let ?fd = dev_null {
+            dup_to(?fd, types::FileDescriptor::stderr()).?;
+        } else null {
+            dev_null = ?open_dev_null().?;
+            dup_to(dev_null, types::FileDescriptor::stderr()).?;
+        }
+    } else if options.stderr() == StdIo::Pipe {
+        dup_to(pipe_write(stderr_pipe), types::FileDescriptor::stderr()).?;
+    }
+    close_pipe(stdin_pipe);
+    close_pipe(stdout_pipe);
+    close_pipe(stderr_pipe);
+    if let ?fd = dev_null {
+        fd.close().?;
+    } else null {}
+    !{}
+}
+
+fn pipe_read(pipe: ?Pipe) ?types::FileDescriptor {
+    if let ?value = pipe {
+        ?value.read()
+    } else null {
+        null
+    }
+}
+
+fn pipe_write(pipe: ?Pipe) ?types::FileDescriptor {
+    if let ?value = pipe {
+        ?value.write()
+    } else null {
+        null
+    }
+}
+
+fn open_dev_null() Errno!types::FileDescriptor {
+    let path = b"/dev/null\0";
+    let ret = syscall::syscall4(
+        syscall::openat,
+        types::at_fdcwd as usize,
+        &path.*[0] as usize,
+        OpenMode::ReadWrite as i32 as usize,
+        0usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !types::FileDescriptor::init(ret as i32)
+    }
+}
+
+fn dup_to(from: ?types::FileDescriptor, to: types::FileDescriptor) Errno!void {
+    let fd = if let ?value = from {
+        value
+    } else null {
+        return Errno::Invalid!;
+    };
+    let ret = syscall::syscall2(syscall::dup2, fd.raw() as usize, to.raw() as usize);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
+pub fn wait(pid: ProcessId) Errno!WaitStatus {
+    var status: i32 = 0;
+    let ret = syscall::syscall4(
+        syscall::wait4,
+        pid.raw() as usize,
+        &mut status as usize,
+        0usize,
+        0usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !WaitStatus::init(status)
+    }
+}
 
 pub fn exit(code: i32) void {
     _ = syscall::syscall1(syscall::exit, code as usize);

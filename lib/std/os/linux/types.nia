@@ -7,6 +7,7 @@ pub comptime let open_truncate: i32 = 0o1000;
 pub comptime let open_directory: i32 = 0o200000;
 pub comptime let open_no_follow: i32 = 0o400000;
 pub comptime let open_close_on_exec: i32 = 0o2000000;
+pub comptime let close_on_exec: i32 = 0o2000000;
 
 pub enum Errno: i32 {
     PermissionDenied = 1,
@@ -85,6 +86,38 @@ pub struct FileDescriptor {
     fd: i32,
 }
 
+pub struct Pipe {
+    read: FileDescriptor,
+    write: FileDescriptor,
+}
+
+pub struct ProcessId {
+    pid: i32,
+}
+
+pub struct WaitStatus {
+    raw: i32,
+}
+
+pub enum StdIo: i32 {
+    Inherit = 1,
+    Ignore = 2,
+    Pipe = 3,
+}
+
+pub struct SpawnResult {
+    pid: ProcessId,
+    stdin: ?FileDescriptor,
+    stdout: ?FileDescriptor,
+    stderr: ?FileDescriptor,
+}
+
+pub struct SpawnOptions {
+    stdin: StdIo,
+    stdout: StdIo,
+    stderr: StdIo,
+}
+
 extend Errno {
     pub fn from_code(code: i32) Errno {
         code as Errno
@@ -110,6 +143,138 @@ extend FileDescriptor {
 
     pub fn raw(&self) i32 {
         self.fd
+    }
+}
+
+extend Pipe {
+    pub fn init(read: FileDescriptor, write: FileDescriptor) Pipe {
+        { read: read, write: write }
+    }
+
+    pub fn read(&self) FileDescriptor {
+        self.read
+    }
+
+    pub fn write(&self) FileDescriptor {
+        self.write
+    }
+}
+
+extend ProcessId {
+    pub fn init(pid: i32) ProcessId {
+        { pid: pid }
+    }
+
+    pub fn raw(&self) i32 {
+        self.pid
+    }
+}
+
+extend WaitStatus {
+    pub fn init(raw: i32) WaitStatus {
+        { raw: raw }
+    }
+
+    pub fn raw(&self) i32 {
+        self.raw
+    }
+
+    pub fn exited(&self) bool {
+        (self.raw & 0x7fi32) == 0i32
+    }
+
+    pub fn signaled(&self) bool {
+        let signal = self.raw & 0x7fi32;
+        signal != 0i32 and signal != 0x7fi32
+    }
+
+    pub fn stopped(&self) bool {
+        (self.raw & 0xffi32) == 0x7fi32
+    }
+
+    pub fn exit_code(&self) ?i32 {
+        if self.exited() {
+            ?((self.raw >> 8u8) & 0xffi32)
+        } else {
+            null
+        }
+    }
+
+    pub fn signal(&self) ?i32 {
+        if self.signaled() {
+            ?(self.raw & 0x7fi32)
+        } else {
+            null
+        }
+    }
+
+    pub fn stop_signal(&self) ?i32 {
+        if self.stopped() {
+            ?((self.raw >> 8u8) & 0xffi32)
+        } else {
+            null
+        }
+    }
+}
+
+extend SpawnResult {
+    pub fn init(
+        pid: ProcessId,
+        stdin: ?FileDescriptor,
+        stdout: ?FileDescriptor,
+        stderr: ?FileDescriptor,
+    ) SpawnResult {
+        { pid: pid, stdin: stdin, stdout: stdout, stderr: stderr }
+    }
+
+    pub fn pid(&self) ProcessId {
+        self.pid
+    }
+
+    pub fn stdin(&self) ?FileDescriptor {
+        self.stdin
+    }
+
+    pub fn stdout(&self) ?FileDescriptor {
+        self.stdout
+    }
+
+    pub fn stderr(&self) ?FileDescriptor {
+        self.stderr
+    }
+}
+
+extend SpawnOptions {
+    pub fn init() SpawnOptions {
+        {
+            stdin: StdIo::Inherit,
+            stdout: StdIo::Inherit,
+            stderr: StdIo::Inherit,
+        }
+    }
+
+    pub fn stdin(&self) StdIo {
+        self.stdin
+    }
+
+    pub fn stdout(&self) StdIo {
+        self.stdout
+    }
+
+    pub fn stderr(&self) StdIo {
+        self.stderr
+    }
+
+    pub fn set_stdin(&mut self, behavior: StdIo) void {
+        self.stdin = behavior;
+    }
+
+    pub fn set_stdout(&mut self, behavior: StdIo) void {
+        self.stdout = behavior;
+    }
+
+    pub fn set_stderr(&mut self, behavior: StdIo) void {
+        self.stderr = behavior;
     }
 }
 
