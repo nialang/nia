@@ -27,6 +27,29 @@ comptime let build_runner_source_suffix =
     \\
 ;
 
+struct PreparedProject {
+    check: requests::PreparedCheck,
+    graph: build_graph::BuildGraph,
+}
+
+extend PreparedProject {
+    fn session(&self) &abi::Session {
+        self.check.session()
+    }
+
+    fn request(&self) &abi::CheckRequest {
+        self.check.request()
+    }
+
+    fn executable_name(&self, graph_bytes: &[u8]) &[u8] {
+        &graph_bytes[self.graph.exe_name_start()..(self.graph.exe_name_start() + self.graph.exe_name_len())]
+    }
+}
+
+fn finish_project(prepared: PreparedProject) void {
+    requests::finish(prepared.check);
+}
+
 pub(pkg) fn run(
     stderr: &mut io::FileWriter,
     init: process::Init,
@@ -194,7 +217,7 @@ fn emit_build_executable(
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer requests::finish(prepared);
+    defer finish_project(prepared);
     let link_options = if let ?value = abi::LinkOptions::init() {
         value
     } else null {
@@ -202,7 +225,7 @@ fn emit_build_executable(
         return process::exit(255)!;
     };
     defer link_options.free();
-    build_graph::apply_link_options(stderr, graph_bytes, &link_options).?;
+    build_graph::apply_link_options(stderr, graph_bytes, prepared.executable_name(graph_bytes), &link_options).?;
     let result = prepared.session().emit_executable_with_options(prepared.request(), output.bytes(), &link_options);
     requests::finish_result(stderr, result, b"paw: executable emit returned null result")
 }
@@ -213,7 +236,7 @@ fn check_project(
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer requests::finish(prepared);
+    defer finish_project(prepared);
     let result = prepared.session().check(prepared.request());
     requests::finish_result(stderr, result, b"paw: check returned null result")
 }
@@ -225,7 +248,7 @@ fn emit_project_object(
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer requests::finish(prepared);
+    defer finish_project(prepared);
     let result = prepared.session().emit_object_file(prepared.request(), output.bytes());
     requests::finish_result(stderr, result, b"paw: object emit returned null result")
 }
@@ -237,7 +260,7 @@ fn emit_project_object_dir(
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer requests::finish(prepared);
+    defer finish_project(prepared);
     let result = prepared.session().emit_object_directory(prepared.request(), output.bytes());
     requests::finish_result(stderr, result, b"paw: object directory emit returned null result")
 }
@@ -246,7 +269,7 @@ fn prepare_project(
     stderr: &mut io::FileWriter,
     root: process::Arg,
     graph_bytes: &[u8],
-) process::ExitCode!requests::PreparedCheck {
+) process::ExitCode!PreparedProject {
     let parsed = build_graph::parse(stderr, graph_bytes).?;
     let package_name = &graph_bytes[parsed.package_name_start()..(parsed.package_name_start() + parsed.package_name_len())];
     let exe_root = &graph_bytes[parsed.exe_root_start()..(parsed.exe_root_start() + parsed.exe_root_len())];
@@ -255,5 +278,6 @@ fn prepare_project(
     let main_path = paths::path_join(root, exe_root, &mut main_path_storage).?;
     let root_path = paths::path_join(root, b"src/root.nia", &mut root_path_storage).?;
 
-    requests::prepare_package_check(stderr, package_name, main_path, root_path, abi::runtime_freestanding)
+    let check = requests::prepare_package_check(stderr, package_name, main_path, root_path, abi::runtime_freestanding).?;
+    !{ check: check, graph: parsed }
 }
