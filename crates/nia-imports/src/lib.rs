@@ -7,7 +7,7 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
 use nia_span::Span;
 
-pub const ROOT_MODULE_MAP_NAME: &str = "root";
+pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
 pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
 pub const STD_MODULE_MAP_NAME: &str = "std";
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
@@ -26,10 +26,10 @@ impl ModuleMap {
         self.entries.insert(name.into(), path);
     }
 
-    pub fn with_compiler_root(&self, root_path: SourcePath) -> Self {
+    pub fn with_entry(&self, entry_path: SourcePath) -> Self {
         let mut map = self.clone();
         map.entries
-            .insert(ROOT_MODULE_MAP_NAME.to_string(), root_path);
+            .insert(ENTRY_MODULE_MAP_NAME.to_string(), entry_path);
         map
     }
 
@@ -96,7 +96,7 @@ impl ModulePath {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleGraph {
-    root: ModuleId,
+    entry: ModuleId,
     modules: Vec<ModuleNode>,
     by_path: HashMap<String, ModuleId>,
     by_module_path: HashMap<ModulePath, ModuleId>,
@@ -106,21 +106,21 @@ pub struct ModuleGraph {
 }
 
 impl ModuleGraph {
-    pub fn new(root_path: SourcePath) -> Self {
-        let root = ModuleId(0);
-        let root_module_path = ModulePath::root(ROOT_MODULE_MAP_NAME);
+    pub fn new(entry_path: SourcePath) -> Self {
+        let entry = ModuleId(0);
+        let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
         let mut by_path = HashMap::new();
-        by_path.insert(root_path.as_str().to_string(), root);
+        by_path.insert(entry_path.as_str().to_string(), entry);
         let mut by_module_path = HashMap::new();
-        by_module_path.insert(root_module_path.clone(), root);
+        by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = HashMap::new();
-        package_roots.insert(ROOT_MODULE_MAP_NAME.to_string(), root);
+        package_roots.insert(ENTRY_MODULE_MAP_NAME.to_string(), entry);
         Self {
-            root,
+            entry,
             modules: vec![ModuleNode {
-                id: root,
-                path: root_path,
-                module_path: root_module_path,
+                id: entry,
+                path: entry_path,
+                module_path: entry_module_path,
                 parent: None,
                 children: HashMap::new(),
                 declarations: Vec::new(),
@@ -133,8 +133,8 @@ impl ModuleGraph {
         }
     }
 
-    pub fn root(&self) -> ModuleId {
-        self.root
+    pub fn entry(&self) -> ModuleId {
+        self.entry
     }
 
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
@@ -398,7 +398,7 @@ fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: Module
 
 fn child_source_path(parent: &ModuleNode, child: &str) -> SourcePath {
     let parent_path = parent.path.as_str();
-    let base = if parent.module_path.package == ROOT_MODULE_MAP_NAME
+    let base = if parent.module_path.package == ENTRY_MODULE_MAP_NAME
         && parent.module_path.is_package_root()
     {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)

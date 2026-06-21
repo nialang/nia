@@ -6,8 +6,8 @@ pub module palette;
 using std::debug;
 using std::process;
 
-using root::config;
-using root::facade as api;
+using entry::config;
+using entry::facade as api;
 
 // using can import selected names, rename them, and import enum variants.
 using api::{Point, add as plus, Color::Green};

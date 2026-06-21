@@ -99,8 +99,8 @@ fn main() NiaString {
 }
 
 #[test]
-fn emits_freestanding_start_entry_as_extern_start_calling_root_main() {
-    let root = temp_dir("emits_freestanding_start_entry_as_extern_start_calling_root_main");
+fn emits_freestanding_start_entry_as_extern_start_calling_entry_main() {
+    let root = temp_dir("emits_freestanding_start_entry_as_extern_start_calling_entry_main");
     let main = root.join("main.nia");
     std::fs::write(
         &main,

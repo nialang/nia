@@ -54,7 +54,7 @@ pub fn compute_executable_reachability(
         .iter()
         .map(|def_id| def_id.module_id)
         .collect::<HashSet<_>>();
-    add_reachable_module(graph.root(), &mut reachable_modules, &mut VecDeque::new());
+    add_reachable_module(graph.entry(), &mut reachable_modules, &mut VecDeque::new());
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
     loop {
@@ -200,7 +200,7 @@ fn executable_root_functions(
     defs_by_id: &HashMap<ModuleId, DefCollection>,
 ) -> HashSet<GlobalDefId> {
     let mut roots = HashSet::new();
-    if let Some(main) = named_function(defs_by_id, graph.root(), "main") {
+    if let Some(main) = named_function(defs_by_id, graph.entry(), "main") {
         roots.insert(main);
     }
     if let Some(start_module) = freestanding_start_module(graph)

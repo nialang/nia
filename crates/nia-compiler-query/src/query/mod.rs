@@ -1513,7 +1513,7 @@ fn main() i32 {
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
-            .expect("root module should be executable-reachable");
+            .expect("entry module should be executable-reachable");
         let next = module
             .defs
             .defs

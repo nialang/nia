@@ -3,7 +3,7 @@ using std::process;
 using process::{Init, ExitCode};
 
 // Executable examples use the standard startup contract: the injected runtime
-// calls this public root main and maps ExitCode errors to process status.
+// calls this public entry main and maps ExitCode errors to process status.
 pub fn main(init: Init) ExitCode!void {
     // The startup payload currently carries runtime I/O state. Discard it when
     // a program only needs debug output.

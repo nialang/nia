@@ -62,7 +62,7 @@ pub comptime let config = {width: 4usize};
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime fn id[T](value: T) T {
     value
@@ -670,7 +670,7 @@ pub comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let selected: u8 = config::packet.payload;
 "#,

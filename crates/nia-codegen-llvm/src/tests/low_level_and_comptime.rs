@@ -227,7 +227,7 @@ fn emits_arrays_sized_by_imported_comptime_values() {
         &main,
         r#"
 module config;
-using root::config;
+using entry::config;
 
 fn main() i32 {
     var values: [config::width]i32 = [1, 2, 3, 4];
@@ -280,7 +280,7 @@ extend Item {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 using defs::*;
 
 fn literal_count() Boxed {
@@ -323,7 +323,7 @@ fn emits_imported_generic_struct_with_imported_comptime_array_field_length() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 using defs::Boxed;
 
 fn take(box: Boxed[u8]) u8 {

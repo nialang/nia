@@ -9,7 +9,7 @@ fn public_comptime_values_are_visible_through_import_closure() {
         r#"
 module facade;
 module defs;
-using root::facade;
+using entry::facade;
 
 fn main() i32 {
     facade::answer
@@ -19,7 +19,7 @@ fn main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using root::defs;
+using entry::defs;
 pub using defs::answer;
 "#,
     );
@@ -358,7 +358,7 @@ fn imported_comptime_functions_are_ordinary_comptime_values() {
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let width: usize = config::width(2);
 

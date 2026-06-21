@@ -378,7 +378,7 @@ extend GenericIter : Iterator {
         &main,
         r#"
 module iter;
-using root::iter;
+using entry::iter;
 
 fn main() i32 {
     var total = 0;

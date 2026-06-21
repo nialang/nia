@@ -42,15 +42,15 @@ pub(super) fn has_internal_diagnostic(
     })
 }
 
-pub(super) fn check_program(root_path: impl Into<String>) -> nia_compiler_query::CheckedProgram {
-    check_program_with_options(root_path, NiaOptimizationLevel::default())
+pub(super) fn check_program(entry_path: impl Into<String>) -> nia_compiler_query::CheckedProgram {
+    check_program_with_options(entry_path, NiaOptimizationLevel::default())
 }
 
 pub(super) fn check_program_with_options(
-    root_path: impl Into<String>,
+    entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgram {
-    let loaded = nia_loader_query::load_program_with_map(root_path, nia_imports::ModuleMap::new());
+    let loaded = nia_loader_query::load_program_with_map(entry_path, nia_imports::ModuleMap::new());
     nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
     )
@@ -58,11 +58,11 @@ pub(super) fn check_program_with_options(
 }
 
 pub(super) fn check_freestanding_executable_with_options(
-    root_path: impl Into<String>,
+    entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CheckedProgram {
     let loaded = nia_loader_query::load_program_with_map_and_entry_runtime(
-        root_path,
+        entry_path,
         nia_imports::ModuleMap::new(),
         nia_loader_query::EntryRuntime::Freestanding,
     );
@@ -150,7 +150,7 @@ fn main() i32 {
                     r#"
 module facade;
 module impl;
-using root::facade;
+using entry::facade;
 
 using facade::{Box, make_box, read_box};
 
@@ -163,7 +163,7 @@ fn main() i32 {
                 (
                     "facade.nia",
                     r#"
-using root::impl;
+using entry::impl;
 
 pub using impl::{Box, make_box, read_box, answer};
 "#,
@@ -300,7 +300,7 @@ fn main() i32 {
                     r#"
 module facade;
 module convert;
-using root::facade;
+using entry::facade;
 
 fn main() i32 {
     facade::run()
@@ -310,7 +310,7 @@ fn main() i32 {
                 (
                     "facade.nia",
                     r#"
-using root::convert;
+using entry::convert;
 
 pub struct Item {
     value: i32,

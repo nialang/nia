@@ -295,7 +295,7 @@ fn cross_module_trait_impls_are_checked() {
         &root.join("main.nia"),
         r#"
 module traits;
-using root::traits;
+using entry::traits;
 
 struct Point {
     x: i32,
@@ -352,7 +352,7 @@ fn cross_module_where_predicate_infers_input_from_impl_candidates() {
         &root.join("main.nia"),
         r#"
 module fmt;
-using root::fmt;
+using entry::fmt;
 
 fn main() i32 {
     fmt::parse[i32]("abc")
@@ -425,7 +425,7 @@ where W: Writer
         &root.join("main.nia"),
         r#"
 module io;
-using root::io;
+using entry::io;
 
 struct File {
     raw: i32,
@@ -496,7 +496,7 @@ extend FileDescriptor {
     write(
         &root.join("fs.nia"),
         r#"
-using root::os;
+using entry::os;
 
 pub using os::{Error};
 
@@ -514,7 +514,7 @@ extend File {
     write(
         &root.join("io.nia"),
         r#"
-using root::fs;
+using entry::fs;
 
 pub trait Writer {
     type Error;
@@ -557,8 +557,8 @@ extend fs::File : Writer {
 module os;
 module fs;
 module io;
-using root::fs;
-using root::io;
+using entry::fs;
+using entry::io;
 
 fn main() void {
     var stdout = fs::File::standard_output();

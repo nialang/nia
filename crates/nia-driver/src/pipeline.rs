@@ -31,7 +31,7 @@ impl Default for Runtime {
 
 #[derive(Debug, Clone)]
 pub struct CheckRequest {
-    pub root_path: String,
+    pub entry_path: String,
     pub module_map: ModuleMap,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
@@ -340,7 +340,7 @@ impl Driver {
 
     fn load_program(&self, request: &CheckRequest) -> LoadedProgram {
         let key = LoaderKey {
-            root_path: request.root_path.clone(),
+            entry_path: request.entry_path.clone(),
             module_map: request.module_map.clone(),
             target: self.config.target.clone(),
             entry_runtime: entry_runtime(request.runtime),
@@ -350,7 +350,7 @@ impl Driver {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
                 let database = LoaderDatabase::new(
-                    LoadRequest::new(key.root_path.clone())
+                    LoadRequest::new(key.entry_path.clone())
                         .with_module_map(key.module_map.clone())
                         .with_sources(self.sources.clone())
                         .with_target(key.target.clone())
@@ -370,7 +370,7 @@ impl Driver {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LoaderKey {
-    root_path: String,
+    entry_path: String,
     module_map: ModuleMap,
     target: TargetConfig,
     entry_runtime: EntryRuntime,
@@ -402,9 +402,9 @@ impl fmt::Debug for SessionCompiler {
 }
 
 impl CheckRequest {
-    pub fn new(root_path: impl Into<String>) -> Self {
+    pub fn new(entry_path: impl Into<String>) -> Self {
         Self {
-            root_path: root_path.into(),
+            entry_path: entry_path.into(),
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,

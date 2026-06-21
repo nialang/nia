@@ -829,7 +829,7 @@ mod tests {
         let (module, errors) = parse_module(
             r#"
 module math;
-using root::math;
+using entry::math;
 struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;

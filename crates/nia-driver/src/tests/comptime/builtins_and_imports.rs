@@ -171,7 +171,7 @@ fn imported_comptime_values_drive_array_lengths() {
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 fn main() i32 {
     var values: [config::width]i32 = [1, 2, 3, 4];

@@ -601,7 +601,7 @@ pub comptime let point: Point = Point{x: 4, y: 8};
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime fn id[T](value: T) T {
     value
@@ -785,7 +785,7 @@ pub comptime fn id[T](value: T) T {
         &root.join("main.nia"),
         r#"
 module helpers;
-using root::helpers;
+using entry::helpers;
 
 fn main() i32 {
     comptime let width = 4usize;
@@ -820,7 +820,7 @@ pub comptime fn word_bytes() usize {
         &root.join("main.nia"),
         r#"
 module helpers;
-using root::helpers;
+using entry::helpers;
 
 fn main() i32 {
     comptime let n: usize = helpers::word_bytes();
@@ -847,7 +847,7 @@ pub comptime let width = 4usize;
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime fn id[T](value: T) T {
     value

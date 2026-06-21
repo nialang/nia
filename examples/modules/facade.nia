@@ -1,5 +1,5 @@
-using root::math;
-using root::palette;
+using entry::math;
+using entry::palette;
 
 // A facade module can re-export modules, selected items, renamed items, and enum
 // variants so users do not need to know the internal file layout.

@@ -113,7 +113,7 @@ pub comptime let os: [5]char = "linux".*;
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let n: usize = config::os.len();
 
@@ -302,7 +302,7 @@ pub comptime fn sample_os() [os_len]char {
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let n: usize = config::sample_os().len();
 
@@ -334,7 +334,7 @@ pub comptime fn sample_os() [os_len]char {
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let os = config::sample_os();
 "#,
