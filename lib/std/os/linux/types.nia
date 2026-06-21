@@ -36,6 +36,43 @@ pub enum Errno: i32 {
     _,
 }
 
+pub enum SpawnStage: i32 {
+    Setup = 1,
+    Stdio = 2,
+    Cwd = 3,
+    Exec = 4,
+    _,
+}
+
+pub enum SpawnError: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
+    Setup = 101,
+    Stdio = 102,
+    Cwd = 103,
+    Exec = 104,
+    _,
+}
+
 pub enum OpenMode: i32 {
     ReadOnly = 0,
     WriteOnly = 1,
@@ -124,6 +161,22 @@ pub struct SpawnOptions {
 extend Errno {
     pub fn from_code(code: i32) Errno {
         code as Errno
+    }
+}
+
+extend SpawnError {
+    pub fn from_errno(errno: Errno) SpawnError {
+        errno as i32 as SpawnError
+    }
+
+    pub fn from_stage(stage: SpawnStage, errno: Errno) SpawnError {
+        switch stage {
+            SpawnStage::Setup => SpawnError::Setup,
+            SpawnStage::Stdio => SpawnError::Stdio,
+            SpawnStage::Cwd => SpawnError::Cwd,
+            SpawnStage::Exec => SpawnError::Exec,
+            _ => SpawnError::from_errno(errno),
+        }
     }
 }
 

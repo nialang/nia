@@ -106,7 +106,7 @@ extend Dir {
         let handle = os::open_at(
             self.handle,
             path.ptr(),
-            options.os_mode(),
+            options.os_mode().as_fs_error().?,
             false,
             false,
             false,
@@ -128,7 +128,7 @@ extend Dir {
         let handle = os::open_at(
             self.handle,
             path.ptr(),
-            options.os_mode(),
+            options.os_mode().as_fs_error().?,
             true,
             options.truncate(),
             options.is_exclusive(),
@@ -187,7 +187,7 @@ extend File {
         let handle = os::open_at(
             os::cwd(),
             encoded.ptr(),
-            options.os_mode(),
+            options.os_mode().as_fs_error().?,
             false,
             false,
             false,
@@ -202,7 +202,7 @@ extend File {
         let handle = os::open_at(
             os::cwd(),
             encoded.ptr(),
-            options.os_mode(),
+            options.os_mode().as_fs_error().?,
             true,
             options.truncate(),
             options.is_exclusive(),

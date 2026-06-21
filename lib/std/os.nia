@@ -31,6 +31,36 @@ pub enum Error: i32 {
     _,
 }
 
+pub enum SpawnError: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
+    Setup = 101,
+    Stdio = 102,
+    Cwd = 103,
+    Exec = 104,
+    System = 255,
+    _,
+}
+
 pub enum OpenMode: i32 {
     ReadOnly = 0,
     WriteOnly = 1,
@@ -138,10 +168,11 @@ pub fn open_at(
     exclusive: bool,
     permissions: u32,
 ) Error!FileHandle {
+    let platform_mode = mode.as_platform_open_mode().?;
     let handle = platform::open_at(
         dir.platform(),
         path,
-        mode.as_platform_open_mode(),
+        platform_mode,
         create,
         truncate,
         exclusive,
@@ -206,13 +237,13 @@ pub fn random(bytes: &mut [u8]) Error!void {
     platform::random(bytes).as_os_error()
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Error!ProcessId {
-    let pid = platform::spawn_raw(path, argv, envp).as_os_error().?;
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
+    let pid = platform::spawn_raw(path, argv, envp).as_spawn_error().?;
     !ProcessId::from_platform(pid)
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Error!SpawnResult {
-    let result = platform::spawn(path, argv, envp, options.platform()).as_os_error().?;
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
+    let result = platform::spawn(path, argv, envp, options.platform()).as_spawn_error().?;
     !SpawnResult::from_platform(result)
 }
 
@@ -231,7 +262,11 @@ pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
 }
 
 pub fn kill(pid: ProcessId) Error!void {
-    platform::kill(pid.platform()).as_os_error()
+    kill_with(pid, platform::sigterm())
+}
+
+pub fn kill_with(pid: ProcessId, signal: i32) Error!void {
+    platform::kill_with(pid.platform(), signal).as_os_error()
 }
 
 pub fn exit(code: i32) void {
@@ -267,6 +302,49 @@ extend platform::Errno {
     }
 }
 
+extend platform::SpawnError {
+    fn as_spawn_error(self) SpawnError {
+        switch self {
+            platform::SpawnError::PermissionDenied => SpawnError::PermissionDenied,
+            platform::SpawnError::NoEntry => SpawnError::NotFound,
+            platform::SpawnError::Interrupted => SpawnError::Interrupted,
+            platform::SpawnError::Io => SpawnError::Io,
+            platform::SpawnError::BadFd => SpawnError::BadFd,
+            platform::SpawnError::Again => SpawnError::Again,
+            platform::SpawnError::NoMemory => SpawnError::OutOfMemory,
+            platform::SpawnError::Access => SpawnError::Access,
+            platform::SpawnError::Fault => SpawnError::Fault,
+            platform::SpawnError::Busy => SpawnError::Busy,
+            platform::SpawnError::Exists => SpawnError::AlreadyExists,
+            platform::SpawnError::CrossDevice => SpawnError::CrossDevice,
+            platform::SpawnError::NotDir => SpawnError::NotDir,
+            platform::SpawnError::IsDir => SpawnError::IsDir,
+            platform::SpawnError::Invalid => SpawnError::Invalid,
+            platform::SpawnError::NoSpace => SpawnError::NoSpace,
+            platform::SpawnError::ReadOnly => SpawnError::ReadOnly,
+            platform::SpawnError::BrokenPipe => SpawnError::BrokenPipe,
+            platform::SpawnError::OutOfRange => SpawnError::OutOfRange,
+            platform::SpawnError::TooLong => SpawnError::TooLong,
+            platform::SpawnError::NotEmpty => SpawnError::NotEmpty,
+            platform::SpawnError::Setup => SpawnError::Setup,
+            platform::SpawnError::Stdio => SpawnError::Stdio,
+            platform::SpawnError::Cwd => SpawnError::Cwd,
+            platform::SpawnError::Exec => SpawnError::Exec,
+            _ => SpawnError::System,
+        }
+    }
+}
+
+extend[T] platform::SpawnError!T {
+    fn as_spawn_error(self) SpawnError!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_spawn_error()!
+        }
+    }
+}
+
 extend[T] platform::Errno!T {
     fn as_os_error(self) Error!T {
         if let !value = self {
@@ -278,23 +356,23 @@ extend[T] platform::Errno!T {
 }
 
 extend OpenMode {
-    fn as_platform_open_mode(self) platform::OpenMode {
+    fn as_platform_open_mode(self) Error!platform::OpenMode {
         switch self {
-            OpenMode::ReadOnly => platform::OpenMode::ReadOnly,
-            OpenMode::WriteOnly => platform::OpenMode::WriteOnly,
-            OpenMode::ReadWrite => platform::OpenMode::ReadWrite,
-            _ => platform::OpenMode::ReadOnly,
+            OpenMode::ReadOnly => !platform::OpenMode::ReadOnly,
+            OpenMode::WriteOnly => !platform::OpenMode::WriteOnly,
+            OpenMode::ReadWrite => !platform::OpenMode::ReadWrite,
+            _ => Error::Invalid!,
         }
     }
 }
 
 extend SeekWhence {
-    fn as_platform_seek_whence(self) platform::SeekWhence {
+    fn as_platform_seek_whence(self) Error!platform::SeekWhence {
         switch self {
-            SeekWhence::Start => platform::SeekWhence::Start,
-            SeekWhence::Current => platform::SeekWhence::Current,
-            SeekWhence::End => platform::SeekWhence::End,
-            _ => platform::SeekWhence::Start,
+            SeekWhence::Start => !platform::SeekWhence::Start,
+            SeekWhence::Current => !platform::SeekWhence::Current,
+            SeekWhence::End => !platform::SeekWhence::End,
+            _ => Error::Invalid!,
         }
     }
 }
@@ -506,9 +584,10 @@ extend FileHandle {
     }
 
     pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+        let platform_whence = whence.as_platform_seek_whence().?;
         self.platform().seek(
             offset,
-            whence.as_platform_seek_whence(),
+            platform_whence,
         ).as_os_error()
     }
 
@@ -625,12 +704,12 @@ extend SpawnResult {
 }
 
 extend StdIo {
-    fn as_platform_stdio(self) platform::StdIo {
+    fn as_platform_stdio(self) Error!platform::StdIo {
         switch self {
-            StdIo::Inherit => platform::StdIo::Inherit,
-            StdIo::Ignore => platform::StdIo::Ignore,
-            StdIo::Pipe => platform::StdIo::Pipe,
-            _ => platform::StdIo::Inherit,
+            StdIo::Inherit => !platform::StdIo::Inherit,
+            StdIo::Ignore => !platform::StdIo::Ignore,
+            StdIo::Pipe => !platform::StdIo::Pipe,
+            _ => Error::Invalid!,
         }
     }
 }
@@ -644,16 +723,19 @@ extend SpawnOptions {
         self.platform
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) void {
-        self.platform.set_stdin(behavior.as_platform_stdio());
+    pub fn set_stdin(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stdin(behavior.as_platform_stdio().?);
+        !{}
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) void {
-        self.platform.set_stdout(behavior.as_platform_stdio());
+    pub fn set_stdout(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stdout(behavior.as_platform_stdio().?);
+        !{}
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) void {
-        self.platform.set_stderr(behavior.as_platform_stdio());
+    pub fn set_stderr(&mut self, behavior: StdIo) Error!void {
+        self.platform.set_stderr(behavior.as_platform_stdio().?);
+        !{}
     }
 
     pub fn set_cwd(&mut self, path: &u8) void {

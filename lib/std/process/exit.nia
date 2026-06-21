@@ -4,7 +4,7 @@ using pkg::mem;
 using pkg::os;
 using pkg::process::types;
 
-using types::ExitCode;
+using types::{Error, ExitCode};
 
 extend fs::Error {
     pub fn as_exit_code(self) ExitCode {
@@ -23,6 +23,22 @@ extend os::Error {
 }
 
 extend[T] os::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend Error {
+    pub fn as_exit_code(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
+extend[T] Error!T {
     pub fn exit(self) ExitCode!T {
         if let !value = self {
             !value

@@ -2,14 +2,19 @@ using pkg::os::linux::syscall;
 using pkg::os::linux::types;
 using pkg::os::linux::fd as linux_fd;
 
-using types::{Errno, OpenMode, Pipe, ProcessId, SpawnOptions, SpawnResult, StdIo, WaitStatus};
+using types::{Errno, OpenMode, Pipe, ProcessId, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Errno!ProcessId {
+struct SpawnErrorRecord {
+    stage: i32,
+    code: i32,
+}
+
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
     let result = spawn(path, argv, envp, SpawnOptions::init()).?;
     !result.pid()
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!SpawnResult {
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
     var stdin_pipe: ?Pipe = null;
     var stdout_pipe: ?Pipe = null;
     var stderr_pipe: ?Pipe = null;
@@ -26,51 +31,51 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!Spa
         close_pipe(stderr_pipe);
     };
     if options.stdin() == StdIo::Pipe {
-        stdin_pipe = ?linux_fd::pipe_close_on_exec().?;
+        stdin_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
         cleanup_stdin_pipe = true;
     }
     if options.stdout() == StdIo::Pipe {
-        stdout_pipe = ?linux_fd::pipe_close_on_exec().?;
+        stdout_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
         cleanup_stdout_pipe = true;
     }
     if options.stderr() == StdIo::Pipe {
-        stderr_pipe = ?linux_fd::pipe_close_on_exec().?;
+        stderr_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
         cleanup_stderr_pipe = true;
     }
-    let error_pipe = linux_fd::pipe_close_on_exec().?;
+    let error_pipe = linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
     var cleanup_error_pipe = true;
     defer if cleanup_error_pipe {
         close_pipe(?error_pipe);
     };
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
-        ret.syscall_error()!
+        SpawnError::from_errno(ret.syscall_error())!
     } else if ret == 0 {
         _ = error_pipe.read().close();
         if let !ok = apply_stdio(options, stdin_pipe, stdout_pipe, stderr_pipe) {
             _ = ok;
         } else error! {
-            write_errno(error_pipe.write(), error);
+            write_spawn_error(error_pipe.write(), SpawnStage::Stdio, error);
             exit(127);
         }
         if let !ok = apply_cwd(options) {
             _ = ok;
         } else error! {
-            write_errno(error_pipe.write(), error);
+            write_spawn_error(error_pipe.write(), SpawnStage::Cwd, error);
             exit(127);
         }
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        write_errno(error_pipe.write(), exec_ret.syscall_error());
+        write_spawn_error(error_pipe.write(), SpawnStage::Exec, exec_ret.syscall_error());
         exit(127);
-        Errno::Invalid!
+        SpawnError::Invalid!
     } else {
         close_child_pipe_ends(stdin_pipe, stdout_pipe, stderr_pipe);
         cleanup_error_pipe = false;
         _ = error_pipe.write().close();
         let pid = ProcessId::init(ret as i32);
-        if let ?errno = read_spawn_error(error_pipe.read(), pid).? {
+        if let ?spawn_error = read_spawn_error(error_pipe.read(), pid).? {
             _ = wait(pid);
-            errno!
+            spawn_error!
         } else null {
             cleanup_stdin_pipe = false;
             cleanup_stdout_pipe = false;
@@ -128,29 +133,29 @@ fn parent_stderr(pipe: ?Pipe) ?types::FileDescriptor {
     }
 }
 
-fn write_errno(fd: types::FileDescriptor, errno: Errno) void {
-    var code = errno as i32;
-    var bytes = &mut ((&mut code as &mut u8)[0..@size[i32]()]);
+fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) void {
+    var record = SpawnErrorRecord::init(stage, errno);
+    var bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
     _ = fd.write_some(bytes);
 }
 
-fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) Errno! ?Errno {
+fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?SpawnError {
     defer _ = fd.close();
-    var code: i32 = 0;
-    var bytes = &mut ((&mut code as &mut u8)[0..@size[i32]()]);
+    var record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
+    var bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
     var read_len = 0usize;
     while read_len < bytes.len() {
-        let amount = fd.read_some(&mut bytes[read_len..]).?;
+        let amount = fd.read_some(&mut bytes[read_len..]).as_spawn_setup_error().?;
         if amount == 0usize {
             if read_len == 0usize {
                 return !null;
             }
             _ = wait(pid);
-            return Errno::Io!;
+            return SpawnError::Io!;
         }
         read_len += amount;
     }
-    !(?Errno::from_code(code))
+    !(?SpawnError::from_stage(record.stage(), record.errno()))
 }
 
 fn apply_stdio(options: SpawnOptions, stdin_pipe: ?Pipe, stdout_pipe: ?Pipe, stderr_pipe: ?Pipe) Errno!void {
@@ -266,7 +271,11 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
 }
 
 pub fn kill(pid: ProcessId) Errno!void {
-    let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, types::sigterm as usize);
+    kill_with(pid, types::sigterm)
+}
+
+pub fn kill_with(pid: ProcessId, signal: i32) Errno!void {
+    let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, signal as usize);
     if ret < 0 {
         ret.syscall_error()!
     } else {
@@ -298,4 +307,28 @@ fn wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
 pub fn exit(code: i32) void {
     _ = syscall::syscall1(syscall::exit, code as usize);
     loop {}
+}
+
+extend SpawnErrorRecord {
+    fn init(stage: SpawnStage, errno: Errno) SpawnErrorRecord {
+        { stage: stage as i32, code: errno as i32 }
+    }
+
+    fn stage(&self) SpawnStage {
+        self.stage as SpawnStage
+    }
+
+    fn errno(&self) Errno {
+        Errno::from_code(self.code)
+    }
+}
+
+extend[T] Errno!T {
+    fn as_spawn_setup_error(self) SpawnError!T {
+        if let !value = self {
+            !value
+        } else error! {
+            SpawnError::from_errno(error)!
+        }
+    }
 }
