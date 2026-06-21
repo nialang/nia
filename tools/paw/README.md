@@ -58,31 +58,43 @@ paw objects <root> <out-dir>
 
 ## Bootstrapping
 
-From the repository root:
+`paw` is self-hosted through one compiler-built seed binary. From the repository
+root, first build the C API library and create a local bootstrap directory:
 
 ```sh
 cargo build -p nia-capi
+mkdir -p build/paw-bootstrap
+```
+
+Then build the seed `paw` with `nia`:
+
+```sh
 cargo run -q -p nia-cli -- emit --exe tools/paw/src/main.nia \
   -M paw=tools/paw/src/root.nia \
   -L target/debug/deps -l nia_capi \
   --rpath target/debug/deps --dynamic-linker auto \
-  -o /tmp/paw-current
+  -o build/paw-bootstrap/paw-step1
 ```
 
-Then use the emitted `paw`:
+Use the seed to build the normal `paw` binary:
 
 ```sh
-/tmp/paw-current check tools/paw
-/tmp/paw-current build tools/paw /tmp/paw-self
-/tmp/paw-current objects tools/paw /tmp/paw-objects
+build/paw-bootstrap/paw-step1 check tools/paw
+build/paw-bootstrap/paw-step1 build tools/paw build/paw-bootstrap/paw
 ```
 
-A basic self-hosting check is:
+A basic self-hosting check builds one more generation and verifies object output:
 
 ```sh
-/tmp/paw-current build tools/paw /tmp/paw-self
-/tmp/paw-self build tools/paw /tmp/paw-self2
+build/paw-bootstrap/paw build tools/paw build/paw-bootstrap/paw-step2
+build/paw-bootstrap/paw objects tools/paw build/paw-bootstrap/objects
 ```
+
+The `build/` directory is ignored by this repository and is the current place
+for local bootstrap artifacts. Future package builds should distinguish build
+outputs from reusable caches; a project-local `.nia-build/` for outputs and
+`.nia-cache/` for reusable package/compiler cache entries is the likely shape,
+but `paw` does not own those directories yet.
 
 ## Current Limits
 
