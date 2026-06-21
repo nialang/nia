@@ -4,13 +4,20 @@ using std::io;
 using std::mem;
 using std::process;
 
-pub(pkg) struct BuildGraph {
+pub(pkg) struct BuildPlan {
     package_name_start: usize,
     package_name_len: usize,
     exe_name_start: usize,
     exe_name_len: usize,
     exe_root_start: usize,
     exe_root_len: usize,
+    action: StepAction,
+}
+
+pub(pkg) enum StepAction: i32 {
+    BuildExecutable = 1,
+    CheckExecutable = 2,
+    ObjectDirectory = 3,
 }
 
 enum EntryKind: i32 {
@@ -21,11 +28,13 @@ enum EntryKind: i32 {
     Rpath = 5,
     DynamicLinker = 6,
     Step = 7,
-    StepExecutable = 8,
+    StepBuildExecutable = 8,
     DefaultStep = 9,
+    StepCheckExecutable = 10,
+    StepObjectDirectory = 11,
 }
 
-extend BuildGraph {
+extend BuildPlan {
     pub(pkg) fn package_name_start(&self) usize {
         self.package_name_start
     }
@@ -50,9 +59,12 @@ extend BuildGraph {
         self.exe_root_len
     }
 
+    pub(pkg) fn action(&self) StepAction {
+        self.action
+    }
 }
 
-pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u8]) process::ExitCode!BuildGraph {
+pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u8]) process::ExitCode!BuildPlan {
     var package_name_start = 0usize;
     var package_name_len = 0usize;
     var exe_name_start = 0usize;
@@ -61,10 +73,10 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
     var exe_root_len = 0usize;
     var default_step_start = 0usize;
     var default_step_len = 0usize;
-    var selected_step_start = 0usize;
     var selected_step_len = 0usize;
     var selected_step_exe_start = 0usize;
     var selected_step_exe_len = 0usize;
+    var selected_action: ?StepAction = null;
     var has_package = false;
     var has_executable = false;
     var has_default_step = false;
@@ -108,17 +120,17 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                     default_step_start = index + parsed.first_value_start();
                     default_step_len = parsed.first_value_len();
                 },
-                EntryKind::StepExecutable => {
+                EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => {
                     let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
                     if requested_step.len() != 0usize and mem::equal[u8](step, requested_step) {
                         if selected_step_len != 0usize {
-                            stderr.print("paw: build graph has duplicate step executable dependencies\n", &[]).exit().?;
+                            stderr.print("paw: build graph has duplicate step actions\n", &[]).exit().?;
                             return process::exit(2)!;
                         }
-                        selected_step_start = index + parsed.first_value_start();
                         selected_step_len = parsed.first_value_len();
                         selected_step_exe_start = index + parsed.second_value_start();
                         selected_step_exe_len = parsed.second_value_len();
+                        selected_action = parsed.kind().step_action();
                     }
                 },
                 EntryKind::Step => {},
@@ -152,25 +164,45 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
             let line = &graph[scan..line_end];
             if line.len() != 0 {
                 let parsed = parse_line(stderr, line).?;
-                if parsed.kind() == EntryKind::StepExecutable {
+                if parsed.kind().is_step_action() {
                     let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
                     if mem::equal[u8](step, default_step) {
                         if selected_step_len != 0usize {
-                            stderr.print("paw: build graph has duplicate step executable dependencies\n", &[]).exit().?;
+                            stderr.print("paw: build graph has duplicate step actions\n", &[]).exit().?;
                             return process::exit(2)!;
                         }
-                        selected_step_start = scan + parsed.first_value_start();
                         selected_step_len = parsed.first_value_len();
                         selected_step_exe_start = scan + parsed.second_value_start();
                         selected_step_exe_len = parsed.second_value_len();
+                        selected_action = parsed.kind().step_action();
                     }
                 }
             }
             scan = line_end + 1;
         }
     }
+    let action = if let ?value = selected_action {
+        value
+    } else null {
+        stderr.print("paw: requested step has no action\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
     if selected_step_exe_len == 0usize {
-        stderr.print("paw: requested step has no executable dependency\n", &[]).exit().?;
+        stderr.print("paw: requested step action has no executable\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    let selected_step = if requested_step.len() == 0usize {
+        &graph[default_step_start..(default_step_start + default_step_len)]
+    } else {
+        requested_step
+    };
+    let selected_step_declarations = count_step_declarations(stderr, graph, selected_step).?;
+    if selected_step_declarations == 0usize {
+        stderr.print("paw: requested step is not declared\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    if selected_step_declarations != 1usize {
+        stderr.print("paw: build graph has duplicate step declarations\n", &[]).exit().?;
         return process::exit(2)!;
     }
     let exe_name = &graph[exe_name_start..(exe_name_start + exe_name_len)];
@@ -186,7 +218,32 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
         exe_name_len: exe_name_len,
         exe_root_start: exe_root_start,
         exe_root_len: exe_root_len,
+        action: action,
     }
+}
+
+fn count_step_declarations(stderr: &mut io::FileWriter, graph: &[u8], name: &[u8]) process::ExitCode!usize {
+    var count = 0usize;
+    var scan = 0usize;
+    while scan < graph.len() {
+        let line_end = if let ?value = find_byte(graph, scan, b'\n') {
+            value
+        } else null {
+            graph.len()
+        };
+        let line = &graph[scan..line_end];
+        if line.len() != 0 {
+            let parsed = parse_line(stderr, line).?;
+            if parsed.kind() == EntryKind::Step {
+                let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
+                if mem::equal[u8](step, name) {
+                    count += 1usize;
+                }
+            }
+        }
+        scan = line_end + 1;
+    }
+    !count
 }
 
 struct ParsedLine {
@@ -236,7 +293,7 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
     switch kind {
         EntryKind::Package, EntryKind::Executable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::Step, EntryKind::DefaultStep => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
-        EntryKind::StepExecutable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::DynamicLinker => parse_dynamic_linker_line(stderr, line, kind, first_tab, second_tab),
         _ => {
@@ -351,12 +408,29 @@ extend EntryKind {
             ?EntryKind::DynamicLinker
         } else if mem::equal[u8](text, b"step") {
             ?EntryKind::Step
-        } else if mem::equal[u8](text, b"step-executable") {
-            ?EntryKind::StepExecutable
+        } else if mem::equal[u8](text, b"step-build-executable") {
+            ?EntryKind::StepBuildExecutable
+        } else if mem::equal[u8](text, b"step-check-executable") {
+            ?EntryKind::StepCheckExecutable
+        } else if mem::equal[u8](text, b"step-object-directory") {
+            ?EntryKind::StepObjectDirectory
         } else if mem::equal[u8](text, b"default-step") {
             ?EntryKind::DefaultStep
         } else {
             null
+        }
+    }
+
+    fn is_step_action(self) bool {
+        self == EntryKind::StepBuildExecutable or self == EntryKind::StepCheckExecutable or self == EntryKind::StepObjectDirectory
+    }
+
+    fn step_action(self) ?StepAction {
+        switch self {
+            EntryKind::StepBuildExecutable => ?StepAction::BuildExecutable,
+            EntryKind::StepCheckExecutable => ?StepAction::CheckExecutable,
+            EntryKind::StepObjectDirectory => ?StepAction::ObjectDirectory,
+            EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::Step, EntryKind::DefaultStep => null,
         }
     }
 }
@@ -410,7 +484,7 @@ fn apply_link_option_line(
         }
     }
     switch kind {
-        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepExecutable, EntryKind::DefaultStep => !{},
+        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::DefaultStep => !{},
         EntryKind::LibraryPath => {
             var path_storage: [4096]u8 = [0; 4096];
             apply_single_field_link_option(
