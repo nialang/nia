@@ -33,6 +33,15 @@ extend FixedBufferWriter {
     pub fn written(&self) &[u8] {
         & self.buffer[0..self.len]
     }
+
+    pub fn write_all(&mut self, bytes: &[u8]) BufferError!void {
+        if bytes.len() > self.buffer.len() - self.len {
+            return BufferError::NoSpace!;
+        }
+        mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + bytes.len())], bytes);
+        self.len += bytes.len();
+        !{}
+    }
 }
 
 extend FixedBufferWriter : Writer {

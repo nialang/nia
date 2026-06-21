@@ -33,6 +33,7 @@ fn main() i32 {
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
+    let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
     let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
@@ -42,6 +43,7 @@ fn main() i32 {
             locals: &locals,
             semantic_uses: &semantic_uses,
             const_exprs: &type_lowering.const_exprs,
+            source_path: &source_path,
         });
     assert!(
         comptime_module.diagnostics.is_empty(),
@@ -58,6 +60,7 @@ fn main() i32 {
         interner: &normalization.interner,
         normalized: &normalization.normalized,
         target: &target,
+        source_path: &source_path,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
@@ -114,6 +117,7 @@ fn main() i32 {
     let origins = NodeOriginTable::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
+        source_path: &source_path,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,

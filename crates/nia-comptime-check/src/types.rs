@@ -11,6 +11,7 @@ use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
 use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
+use nia_source::SourcePath;
 use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
 use nia_type_lower::TypeLowering;
@@ -147,6 +148,7 @@ pub struct ComptimeInput<'a> {
     pub interner: &'a TyInterner,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub target: &'a TargetConfig,
+    pub source_path: &'a SourcePath,
     pub program: ComptimeProgramContext<'a>,
 }
 
@@ -164,11 +166,13 @@ pub struct ComptimeModuleInput<'a> {
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+    pub source_path: &'a SourcePath,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeProgramContext<'a> {
     pub modules: Option<&'a HashMap<ModuleId, ResolvedComptimeModule>>,
+    pub source_paths: Option<&'a HashMap<ModuleId, SourcePath>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
     pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
@@ -180,6 +184,7 @@ impl<'a> ComptimeProgramContext<'a> {
     pub fn empty() -> Self {
         Self {
             modules: None,
+            source_paths: None,
             defs: None,
             type_lowerings: None,
             type_normalizations: None,

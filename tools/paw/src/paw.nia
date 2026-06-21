@@ -1,4 +1,0 @@
-pub module capi;
-pub module core;
-
-pub using core::{Build, Error, ExecutableOptions, PackageOptions};

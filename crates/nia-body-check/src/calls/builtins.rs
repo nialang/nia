@@ -60,6 +60,14 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        if matches!(resolution, BuiltinResolution::Embed) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "builtin `@embed` can only be evaluated at comptime",
+            ));
+            return self.error();
+        }
         if matches!(
             resolution,
             BuiltinResolution::Offset
@@ -84,7 +92,11 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = self.ty_for_type(type_arg);
         let builtin = match resolution {
-            BuiltinResolution::ComptimeError | BuiltinResolution::Trap => return self.error(),
+            BuiltinResolution::ComptimeError
+            | BuiltinResolution::Trap
+            | BuiltinResolution::Embed => {
+                return self.error();
+            }
             BuiltinResolution::SizeOf => {
                 self.require_sized_type(type_arg.span, ty, name);
                 LayoutBuiltin::Size
@@ -210,6 +222,31 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
                 self.never()
+            }
+            BuiltinResolution::Embed => {
+                if type_arg.is_some() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        builtin_span,
+                        "builtin `@embed` does not take a type argument",
+                    ));
+                }
+                if args.len() != 1 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        call_span,
+                        "builtin `@embed` requires exactly one path argument",
+                    ));
+                }
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    call_span,
+                    "builtin `@embed` can only be evaluated at comptime",
+                ));
+                self.error()
             }
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 if !args.is_empty() {

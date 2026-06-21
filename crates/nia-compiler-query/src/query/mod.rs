@@ -70,6 +70,7 @@ use resolve::*;
 use types::*;
 
 type ProgramDefsById = Arc<HashMap<ModuleId, DefCollection>>;
+type ProgramSourcePaths = Arc<HashMap<ModuleId, SourcePath>>;
 type ProgramTypeLowerings = Arc<HashMap<ModuleId, TypeLowering>>;
 type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
 type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;

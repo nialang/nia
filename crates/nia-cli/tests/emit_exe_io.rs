@@ -103,16 +103,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     var writer = io::FixedBufferWriter::init(&mut storage[..]);
+    writer.write_all(b"ni").exit().?;
     if let !ok = writer.print("nia {}", &[&7]) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
-    if writer.len() != 5 {
+    if writer.len() != 7 {
         return (2 as process::ExitCode)!;
     }
+    if let !ok = writer.write_all(b"++") {
+        _ = ok;
+        return (5 as process::ExitCode)!;
+    } else error! {
+        if error != io::BufferError::NoSpace {
+            return (6 as process::ExitCode)!;
+        }
+    }
 
-    var copied: [5]u8 = [0, 0, 0, 0, 0];
+    var copied: [7]u8 = [0, 0, 0, 0, 0, 0, 0];
     var reader = io::FixedBufferReader::init(writer.written());
     if let !ok = reader.read_exact(&mut copied[..]) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
-    var expected: &[u8] = b"nia 7";
-    if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
+    var expected: &[u8] = b"ninia 7";
+    if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] or copied[5] != expected[5] or copied[6] != expected[6] {
         return (4 as process::ExitCode)!;
     }
     !{}

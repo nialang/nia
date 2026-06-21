@@ -21,6 +21,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
     pub(super) program_defs_by_id: fn(&QueryDb<CompilerContext>) -> ProgramDefsById,
+    pub(super) program_source_paths: fn(&QueryDb<CompilerContext>) -> ProgramSourcePaths,
     pub(super) public_surface: fn(&QueryDb<CompilerContext>) -> PublicSurfaceQueryValue,
     pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
@@ -69,6 +70,7 @@ impl Default for CompilerQueryProviders {
             module_defs: provide_module_defs,
             defs_by_module: provide_defs_by_module,
             program_defs_by_id: provide_program_defs_by_id,
+            program_source_paths: provide_program_source_paths,
             public_surface: provide_public_surface,
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
@@ -649,6 +651,7 @@ pub(super) fn provide_comptime_module(
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let source_path = db.query(ModulePathQuery(module_id));
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -656,6 +659,7 @@ pub(super) fn provide_comptime_module(
         locals: &locals,
         semantic_uses: &semantic_uses,
         const_exprs: &type_lowering.const_exprs,
+        source_path: &source_path,
     })
 }
 
@@ -671,6 +675,12 @@ pub(super) fn provide_program_comptime_modules(
     )
 }
 
+pub(super) fn provide_program_source_paths(db: &QueryDb<CompilerContext>) -> ProgramSourcePaths {
+    let ids = db.query(ParseOkModuleIdsQuery);
+    let paths = db.query_many(ids.iter().copied().map(ModulePathQuery));
+    Arc::new(ids.into_iter().zip(paths).collect())
+}
+
 pub(super) fn provide_comptime(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -679,6 +689,7 @@ pub(super) fn provide_comptime(
         let module = db.query(ComptimeModuleQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_modules = db.query(ProgramComptimeModulesQuery);
+        let program_source_paths = db.query(ProgramSourcePathsQuery);
         let program_defs = db.query(ProgramDefsByIdQuery);
         let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
         let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
@@ -687,6 +698,7 @@ pub(super) fn provide_comptime(
         let values = db.query(ValueResolutionQuery(module_id));
         let locals = db.query(LocalResolutionQuery(module_id));
         let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+        let source_path = db.query(ModulePathQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let type_normalization = db.query(TypeNormalizationQuery(module_id));
         let mut comptime =
@@ -700,8 +712,10 @@ pub(super) fn provide_comptime(
                 interner: &type_normalization.interner,
                 normalized: &type_normalization.normalized,
                 target: &db.query(CompilerTargetQuery),
+                source_path: &source_path,
                 program: nia_comptime_check::ComptimeProgramContext {
                     modules: Some(&program_modules),
+                    source_paths: Some(&program_source_paths),
                     defs: Some(&program_defs),
                     type_lowerings: Some(&program_type_lowerings),
                     type_normalizations: Some(&program_type_normalizations),
@@ -851,6 +865,7 @@ fn body_check_with_filter(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+    let source_path = db.query(ModulePathQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
     let signatures = db.query(ItemSignaturesQuery(module_id));
@@ -869,6 +884,7 @@ fn body_check_with_filter(
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
         nia_body_check::BodyCheckInput {
             source_version: Some(source_version),
+            source_path: &source_path,
             origins: &origins,
             active_item_tree: &active_item_tree,
             defs: &defs,

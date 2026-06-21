@@ -32,6 +32,21 @@ impl QueryKey<CompilerContext> for ProgramComptimeModulesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramSourcePathsQuery;
+
+impl QueryKey<CompilerContext> for ProgramSourcePathsQuery {
+    type Value = ProgramSourcePaths;
+
+    fn name() -> &'static str {
+        "program_source_paths"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_source_paths)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ComptimeQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ComptimeQuery {

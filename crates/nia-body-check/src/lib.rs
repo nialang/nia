@@ -42,7 +42,7 @@ use nia_sema_ir::{
     FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
     SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
-use nia_source::SourceVersion;
+use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -158,6 +158,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
+    pub source_path: &'a SourcePath,
     pub origins: &'a NodeOriginTable,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
@@ -183,6 +184,7 @@ pub struct BodyCheckInput<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
+    pub source_path: &'a SourcePath,
     pub origins: &'a NodeOriginTable,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
@@ -242,6 +244,7 @@ pub fn check_module_bodies(
     let empty_program_extension_methods = ExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let target = TargetConfig::host();
+    let source_path = SourcePath::new("main.nia");
     let semantic_uses = semantic_use_table_for_body_input(defs.module_id, values, locals, lowered);
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = ActiveModuleItemTree::new(
@@ -250,6 +253,7 @@ pub fn check_module_bodies(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
+        source_path: &source_path,
         origins: &NodeOriginTable::default(),
         active_item_tree: &active_item_tree,
         defs,
@@ -305,6 +309,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: input.source_version,
+        source_path: input.source_path,
         origins: input.origins,
         active_item_tree: input.active_item_tree,
         defs: input.defs,
@@ -441,6 +446,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         program_comptime_modules: input.program_comptime.modules,
+        source_path: input.source_path,
         extension_methods_by_id,
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
@@ -576,6 +582,7 @@ struct BodyChecker<'a> {
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
+    source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     node_expr_types: HashMap<NodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
@@ -1050,17 +1057,23 @@ impl<'a> BodyChecker<'a> {
         let comptime_ty = match binding.ty.as_ref() {
             Some(ty) => {
                 let explicit = self.ty_for_type(ty);
-                let value_ty = self.with_comptime_context(|this| {
-                    this.check_expr_with_expected(value, Some(explicit))
-                });
-                if !self.is_comptime_only_ty(value_ty) {
+                let value_ty = self
+                    .comptime_initializer_runtime_type(value, Some(explicit))
+                    .unwrap_or_else(|| {
+                        self.with_comptime_context(|this| {
+                            this.check_expr_with_expected(value, Some(explicit))
+                        })
+                    });
+                if !self.is_comptime_only_ty(value_ty) && !self.types_match(explicit, value_ty) {
                     self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
                 }
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
             None => {
-                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                if let Some(ty) = self.comptime_initializer_runtime_type(value, None) {
+                    ty
+                } else if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
                     self.with_comptime_context(|this| this.infer_array_literal_expr(value))
                 } else {
                     self.with_comptime_context(|this| this.check_expr(value))
@@ -1068,6 +1081,22 @@ impl<'a> BodyChecker<'a> {
             }
         };
         self.comptime_types.insert(def_id, comptime_ty);
+    }
+
+    fn comptime_initializer_runtime_type(
+        &mut self,
+        value: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        if !is_embed_builtin_call(value) {
+            return None;
+        }
+        let comptime_expr = self.lower_comptime_expr(value).ok()?;
+        let ty = self.comptime_expr_type_for_ir_with_expected(&comptime_expr, expected)?;
+        match ty {
+            nia_comptime_check::ComptimeValueType::Runtime(ty) => Some(ty),
+            _ => None,
+        }
     }
 
     fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
@@ -2320,6 +2349,16 @@ impl<'a> BodyChecker<'a> {
             }
         }
     }
+}
+
+fn is_embed_builtin_call(expr: &Expr) -> bool {
+    let ExprKind::Call { callee, .. } = &expr.kind else {
+        return false;
+    };
+    matches!(
+        &callee.kind,
+        ExprKind::Builtin { name, .. } if name == "embed"
+    )
 }
 
 pub(crate) fn generic_inst_base(expr: &Expr) -> &Expr {

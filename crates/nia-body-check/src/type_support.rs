@@ -868,6 +868,7 @@ impl<'a> BodyChecker<'a> {
             program_trait_impls: self.program_trait_impls,
             program_comptime: self.program_comptime,
             program_comptime_modules: self.program_comptime_modules,
+            source_path: self.source_path,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),

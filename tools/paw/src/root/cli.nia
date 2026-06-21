@@ -1,0 +1,129 @@
+using pkg::build;
+using std::io;
+using std::mem;
+using std::process;
+using process::{ExitCode, Init};
+
+enum Command: i32 {
+    Check = 1,
+    Obj = 2,
+    ObjDir = 3,
+    Build = 4,
+}
+
+struct Cli {
+    init: Init,
+    stderr: &mut io::FileWriter,
+}
+
+pub fn run(init: Init, stderr: &mut io::FileWriter) ExitCode!ExitCode {
+    var cli = Cli::init(init, stderr);
+    cli.run(init.args())
+}
+
+extend Cli {
+    fn init(init: Init, stderr: &mut io::FileWriter) Cli {
+        { init: init, stderr: stderr }
+    }
+
+    fn run(&mut self, args: process::Args) process::ExitCode!ExitCode {
+        var rest = args.skip_program();
+        let command_arg = self.arg(&mut rest).?;
+        let command = if let ?value = Command::parse(command_arg) {
+            value
+        } else null {
+            self.stderr.print("paw: unknown command `{}`\n", &[&command_arg]).exit().?;
+            self.print_usage_error().?;
+            return process::exit(2)!;
+        };
+
+        command.run(self, &mut rest)
+    }
+
+    fn check(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
+        let root = self.arg(args).?;
+        self.finish_args(args).?;
+        build::check(self.stderr, self.init, root)
+    }
+
+    fn object(&mut self, command: Command, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
+        let root = self.arg(args).?;
+        let output = self.arg(args).?;
+        self.finish_args(args).?;
+        switch command {
+            Command::Obj => build::obj(self.stderr, self.init, root, output),
+            Command::ObjDir => build::obj_dir(self.stderr, self.init, root, output),
+            _ => !process::exit(2),
+        }
+    }
+
+    fn build(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
+        let root = self.arg(args).?;
+        let output = self.arg(args).?;
+        self.finish_args(args).?;
+        build::run(self.stderr, self.init, root, output)
+    }
+
+    fn arg(&mut self, args: &mut process::ArgsIter) process::ExitCode!process::Arg {
+        if let ?value = args.next() {
+            !value
+        } else null {
+            self.print_usage_error().?;
+            return process::exit(2)!;
+        }
+    }
+
+    fn finish_args(&mut self, args: &mut process::ArgsIter) process::ExitCode!void {
+        if let ?extra = args.next() {
+            _ = extra;
+            self.print_usage_error().?;
+            return process::exit(2)!;
+        }
+        !{}
+    }
+
+    fn print_usage_error(&mut self) process::ExitCode!void {
+        usage(self.stderr).?;
+        self.stderr.flush().exit().?;
+        !{}
+    }
+
+}
+
+extend Command {
+    fn parse(command: process::Arg) ?Command {
+        if mem::equal[u8](command.bytes(), b"check") {
+            ?Command::Check
+        } else if mem::equal[u8](command.bytes(), b"build") {
+            ?Command::Build
+        } else if mem::equal[u8](command.bytes(), b"obj") {
+            ?Command::Obj
+        } else if mem::equal[u8](command.bytes(), b"obj-dir") {
+            ?Command::ObjDir
+        } else {
+            null
+        }
+    }
+
+    fn run(self, cli: &mut Cli, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
+        switch self {
+            Command::Check => cli.check(args),
+            Command::Obj, Command::ObjDir => cli.object(self, args),
+            Command::Build => cli.build(args),
+            _ => !process::exit(2),
+        }
+    }
+}
+
+fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
+    stderr.print(
+        \\usage: paw build <root> <out>
+        \\       paw check <root>
+        \\       paw obj <root> <out.o>
+        \\       paw obj-dir <root> <out-dir>
+        \\
+        ,
+        &[],
+    ).exit().?;
+    !{}
+}

@@ -464,6 +464,29 @@ fn lower_call_with_context(
                 field: lower_string_literal(field),
             });
         }
+        if name == "embed" {
+            if type_arg.is_some() {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@embed` does not take a type argument".to_string(),
+                });
+            }
+            let [arg] = args else {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@embed` requires exactly one path argument".to_string(),
+                });
+            };
+            let nia_ast::ExprKind::String(path) = &arg.kind else {
+                return Err(ComptimeLowerError {
+                    span: arg.span,
+                    message: "builtin `@embed` path must be a string literal".to_string(),
+                });
+            };
+            return Ok(EarlyComptimeExprKind::Embed {
+                path: lower_string_literal(path),
+            });
+        }
         if type_arg.is_none() && ValueBuiltin::from_name(name).is_none() {
             return Err(ComptimeLowerError {
                 span: callee.span,
@@ -881,6 +904,7 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
                 field,
             }
         }
+        EarlyComptimeExprKind::Embed { path } => ResolvedComptimeExprKind::Embed { path },
         EarlyComptimeExprKind::Call {
             callee,
             type_args,

@@ -241,6 +241,15 @@ impl Analyzer<'_> {
                 .comptime_byte_string_literal_type(
                     nia_comptime_engine::eval_byte_string_literal(literal)?.len() as u64,
                 ),
+            ResolvedComptimeExprKind::Embed { path } => {
+                let path = nia_comptime_engine::eval_string_literal(path)?;
+                let resolved = super::env_impl::resolve_embed_path(
+                    self.current_execution_source_path()?.as_str(),
+                    &path,
+                );
+                let len = std::fs::metadata(resolved).ok()?.len();
+                self.comptime_byte_string_literal_type(len)
+            }
             ResolvedComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),

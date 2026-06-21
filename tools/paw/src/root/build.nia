@@ -1,0 +1,259 @@
+using pkg::abi;
+using pkg::graph as build_graph;
+using pkg::paths;
+using pkg::requests;
+using std;
+using std::fs;
+using std::io;
+using std::process;
+
+comptime let build_api_source_path = b"<paw:build-api>";
+comptime let build_api_source = @embed("build_api.nia");
+comptime let build_runner_source_prefix =
+    b\\using std::process;
+    \\using paw;
+    \\using build;
+    \\
+    \\pub fn main(init: process::Init) process::ExitCode!void {
+    \\    var buffer: [4096]u8 = [0; 4096];
+    \\    var b = paw::Build::init(init, "
+;
+comptime let build_runner_source_suffix =
+    b\\", &mut buffer[..]).exit().?;
+    \\    build::build(&mut b).exit().?;
+    \\    b.finish().exit().?;
+    \\    !{}
+    \\}
+    \\
+;
+
+pub(pkg) fn run(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: process::Arg,
+    output: process::Arg,
+) process::ExitCode!process::ExitCode {
+    var graph_storage: [8192]u8 = [0; 8192];
+    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
+    emit_build_executable(stderr, root, output, graph_bytes)
+}
+
+pub(pkg) fn check(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: process::Arg,
+) process::ExitCode!process::ExitCode {
+    var graph_storage: [8192]u8 = [0; 8192];
+    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
+    check_project(stderr, root, graph_bytes)
+}
+
+pub(pkg) fn obj(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: process::Arg,
+    output: process::Arg,
+) process::ExitCode!process::ExitCode {
+    var graph_storage: [8192]u8 = [0; 8192];
+    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
+    emit_project_object(stderr, root, output, graph_bytes)
+}
+
+pub(pkg) fn obj_dir(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: process::Arg,
+    output: process::Arg,
+) process::ExitCode!process::ExitCode {
+    var graph_storage: [8192]u8 = [0; 8192];
+    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
+    emit_project_object_dir(stderr, root, output, graph_bytes)
+}
+
+fn read_build_graph(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: process::Arg,
+    graph_storage: &mut [u8],
+) process::ExitCode!&[u8] {
+    var cwd = if let !value = fs::Dir::cwd() {
+        value
+    } else error! {
+        stderr.print("paw: failed to open current directory\n", &[]).exit().?;
+        return process::exit(5)!;
+    };
+    defer cwd.close().exit().?;
+    var runner_text_storage: [4096]char = ['\0'; 4096];
+    var graph_text_storage: [4096]char = ['\0'; 4096];
+    let runner_path = paths::temp_path(
+        "/tmp/paw-build-runner-",
+        "",
+        &mut runner_text_storage,
+    ).?;
+    let graph_path = paths::temp_path(
+        "/tmp/paw-build-",
+        ".graph",
+        &mut graph_text_storage,
+    ).?;
+    defer {
+        cwd.delete_file(graph_path.path()).exit().?;
+        cwd.delete_file(runner_path.path()).exit().?;
+    };
+    compile_build_runner(stderr, root, runner_path.path(), graph_path.path()).?;
+    run_build_runner(stderr, init, runner_path.path()).?;
+    build_graph::read(init, stderr, graph_path.path(), graph_storage)
+}
+
+fn build_runner_source(graph_path: fs::Path, out: &mut [u8]) process::ExitCode!&[u8] {
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(build_runner_source_prefix).exit().?;
+    writer.print("{}", &[graph_path.text()]).exit().?;
+    writer.write_all(build_runner_source_suffix).exit().?;
+    !writer.written()
+}
+
+fn compile_build_runner(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    runner_path: fs::Path,
+    graph_path: fs::Path,
+) process::ExitCode!void {
+    var build_path_storage: [4096]u8 = [0; 4096];
+    let build_path = paths::path_join(root, b"build.nia", &mut build_path_storage).?;
+    let session = if let ?value = abi::Session::init() {
+        value
+    } else null {
+        stderr.print("paw: failed to create nia session\n", &[]).exit().?;
+        return process::exit(255)!;
+    };
+    defer session.free();
+
+    let runner_source_path = b"<paw:build-runner>";
+    var runner_source_storage: [2048]u8 = [0; 2048];
+    let runner_source = build_runner_source(graph_path, &mut runner_source_storage).?;
+    requests::expect_status(stderr, session.set_source(runner_source_path, runner_source), b"paw: failed to install build runner source").?;
+    requests::expect_status(stderr, session.set_source(build_api_source_path, build_api_source), b"paw: failed to install build API source").?;
+    let request = if let ?value = abi::CheckRequest::init(runner_source_path) {
+        value
+    } else null {
+        stderr.print("paw: failed to create runner check request\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    defer request.free();
+
+    requests::expect_status(stderr, request.add_module(b"build", build_path), b"paw: failed to add build.nia module").?;
+    requests::expect_status(stderr, request.add_module(b"paw", build_api_source_path), b"paw: failed to add paw build API module").?;
+    requests::expect_status(stderr, request.set_freestanding(), b"paw: failed to set freestanding runtime").?;
+    requests::expect_status(stderr, request.set_o0(), b"paw: failed to set optimization level").?;
+
+    var runner_path_storage: [4096]u8 = [0; 4096];
+    let runner_encoded = runner_path.encode(&mut runner_path_storage[..]).exit().?;
+    let result = session.emit_executable(&request, runner_encoded.bytes());
+    let code = requests::finish_result(stderr, result, b"paw: build runner emit returned null result").?;
+    if code != process::exit(0) {
+        return code!;
+    }
+    !{}
+}
+
+fn run_build_runner(stderr: &mut io::FileWriter, init: process::Init, runner_path: fs::Path) process::ExitCode!void {
+    var path_storage: [4096]u8 = [0; 4096];
+    let encoded = runner_path.encode(&mut path_storage[..]).exit().?;
+    let path = encoded.nul_terminated_bytes();
+    let cpath = if let ?value = std::CStr::from_bytes(path) {
+        value
+    } else null {
+        stderr.print("paw: invalid build runner path\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    var argv: [2]&u8 = [&path[0], 0usize as &u8];
+    let command = process::Command::init(cpath, &argv[0], init.raw_envp());
+    let term = if let !value = command.run() {
+        value
+    } else error! {
+        stderr.print("paw: failed to run build runner\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    let code = if let ?value = term.exit_code() {
+        value
+    } else null {
+        stderr.print("paw: build runner did not exit normally\n", &[]).exit().?;
+        return process::exit(1)!;
+    };
+    if code != 0 {
+        stderr.print("paw: build runner failed with exit code {}\n", &[&code]).exit().?;
+        return process::exit(code)!;
+    }
+    !{}
+}
+
+fn emit_build_executable(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    output: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!process::ExitCode {
+    let prepared = prepare_project(stderr, root, graph_bytes).?;
+    defer requests::finish(prepared);
+    let link_options = if let ?value = abi::LinkOptions::init() {
+        value
+    } else null {
+        stderr.print("paw: failed to create link options\n", &[]).exit().?;
+        return process::exit(255)!;
+    };
+    defer link_options.free();
+    build_graph::apply_link_options(stderr, graph_bytes, &link_options).?;
+    let result = prepared.session().emit_executable_with_options(prepared.request(), output.bytes(), &link_options);
+    requests::finish_result(stderr, result, b"paw: executable emit returned null result")
+}
+
+fn check_project(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!process::ExitCode {
+    let prepared = prepare_project(stderr, root, graph_bytes).?;
+    defer requests::finish(prepared);
+    let result = prepared.session().check(prepared.request());
+    requests::finish_result(stderr, result, b"paw: check returned null result")
+}
+
+fn emit_project_object(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    output: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!process::ExitCode {
+    let prepared = prepare_project(stderr, root, graph_bytes).?;
+    defer requests::finish(prepared);
+    let result = prepared.session().emit_object_file(prepared.request(), output.bytes());
+    requests::finish_result(stderr, result, b"paw: object emit returned null result")
+}
+
+fn emit_project_object_dir(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    output: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!process::ExitCode {
+    let prepared = prepare_project(stderr, root, graph_bytes).?;
+    defer requests::finish(prepared);
+    let result = prepared.session().emit_object_directory(prepared.request(), output.bytes());
+    requests::finish_result(stderr, result, b"paw: object directory emit returned null result")
+}
+
+fn prepare_project(
+    stderr: &mut io::FileWriter,
+    root: process::Arg,
+    graph_bytes: &[u8],
+) process::ExitCode!requests::PreparedCheck {
+    let parsed = build_graph::parse(stderr, graph_bytes).?;
+    let package_name = &graph_bytes[parsed.package_name_start()..(parsed.package_name_start() + parsed.package_name_len())];
+    let exe_root = &graph_bytes[parsed.exe_root_start()..(parsed.exe_root_start() + parsed.exe_root_len())];
+    var main_path_storage: [4096]u8 = [0; 4096];
+    var root_path_storage: [4096]u8 = [0; 4096];
+    let main_path = paths::path_join(root, exe_root, &mut main_path_storage).?;
+    let root_path = paths::path_join(root, b"src/root.nia", &mut root_path_storage).?;
+
+    requests::prepare_package_check(stderr, package_name, main_path, root_path, abi::runtime_freestanding)
+}

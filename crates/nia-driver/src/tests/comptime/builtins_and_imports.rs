@@ -214,3 +214,84 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn embed_reads_bytes_relative_to_source_file() {
+    let root = temp_dir("embed_reads_bytes_relative_to_source_file");
+    std::fs::create_dir_all(root.join("src/assets")).expect("create assets dir");
+    std::fs::write(root.join("src/assets/payload.bin"), [b'n', b'i', b'a']).expect("write payload");
+    write(
+        &root.join("src/main.nia"),
+        r#"
+comptime let payload = @embed("assets/payload.bin");
+
+comptime fn score(bytes: [3]u8) usize {
+    if bytes[0] == b'n' and bytes[1] == b'i' and bytes[2] == b'a' {
+        bytes.len()
+    } else {
+        0usize
+    }
+}
+
+comptime let n: usize = score(payload.*);
+
+fn main() i32 {
+    var values: [n]u8 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("src/main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn embed_reports_missing_file() {
+    let root = temp_dir("embed_reports_missing_file");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let payload = @embed("missing.bin");
+
+fn main() i32 {
+    payload.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("failed to embed")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn embed_is_rejected_in_runtime_body() {
+    let root = temp_dir("embed_is_rejected_in_runtime_body");
+    std::fs::write(root.join("payload.bin"), [1u8, 2u8, 3u8]).expect("write payload");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    let payload = @embed("payload.bin");
+    payload.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `@embed` can only be evaluated at comptime")),
+        "{:?}",
+        program.diagnostics
+    );
+}

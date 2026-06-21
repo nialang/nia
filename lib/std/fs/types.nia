@@ -58,6 +58,7 @@ pub struct Path {
 
 pub struct EncodedPath {
     ptr: &u8,
+    len: usize,
 }
 
 // DirEntry names point into the iterator buffer and are overwritten by later next calls.
