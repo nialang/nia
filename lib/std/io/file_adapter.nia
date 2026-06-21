@@ -23,12 +23,12 @@ pub struct FileReader {
 }
 
 extend fs::File {
-    pub fn writer(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, self.handle(), buffer)
+    pub fn writer(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) fs::Error!FileWriter {
+        !FileWriter::init(io, self.borrow_handle().?, buffer)
     }
 
-    pub fn reader(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
-        FileReader::init(io, self.handle(), buffer)
+    pub fn reader(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) fs::Error!FileReader {
+        !FileReader::init(io, self.borrow_handle().?, buffer)
     }
 }
 

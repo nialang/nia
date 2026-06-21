@@ -27,7 +27,7 @@ comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {
     fn from_owned_descriptor(handle: os::FileHandle) Dir {
-        { handle: handle }
+        { handle: ?handle }
     }
 
     pub fn cwd() Error!Dir {
@@ -98,13 +98,13 @@ extend Dir {
         if buffer.len() == 0 {
             Error::Invalid!
         } else {
-            !DirIterator::init(os::DirectoryReader::init(self.handle, buffer))
+            !DirIterator::init(os::DirectoryReader::init(self.borrow_handle().?, buffer))
         }
     }
 
     pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
         let handle = os::open_at(
-            self.handle,
+            self.borrow_handle().?,
             path.ptr(),
             options.os_mode().as_fs_error().?,
             false,
@@ -117,7 +117,7 @@ extend Dir {
 
     pub fn open_encoded_dir(&self, path: EncodedPath, options: OpenDirOptions) Error!Dir {
         let handle = os::open_dir_at(
-            self.handle,
+            self.borrow_handle().?,
             path.ptr(),
             options.follow_symlinks(),
         ).as_fs_error().?;
@@ -126,7 +126,7 @@ extend Dir {
 
     pub fn create_encoded_file(&self, path: EncodedPath, options: CreateOptions) Error!File {
         let handle = os::open_at(
-            self.handle,
+            self.borrow_handle().?,
             path.ptr(),
             options.os_mode().as_fs_error().?,
             true,
@@ -139,46 +139,61 @@ extend Dir {
 
     pub fn create_encoded_dir(&self, path: EncodedPath, options: CreateDirOptions) Error!void {
         os::create_dir_at(
-            self.handle,
+            self.borrow_handle().?,
             path.ptr(),
             options.permissions(),
         ).as_fs_error()
     }
 
     pub fn delete_encoded_file(&self, path: EncodedPath) Error!void {
-        os::delete_file_at(self.handle, path.ptr()).as_fs_error()
+        os::delete_file_at(self.borrow_handle().?, path.ptr()).as_fs_error()
     }
 
     pub fn delete_encoded_dir(&self, path: EncodedPath) Error!void {
-        os::delete_dir_at(self.handle, path.ptr()).as_fs_error()
+        os::delete_dir_at(self.borrow_handle().?, path.ptr()).as_fs_error()
     }
 
     pub fn rename_encoded_to(&self, old_path: EncodedPath, new_dir: &Dir, new_path: EncodedPath) Error!void {
         os::rename_at(
-            self.handle,
+            self.borrow_handle().?,
             old_path.ptr(),
-            new_dir.handle,
+            new_dir.borrow_handle().?,
             new_path.ptr(),
         ).as_fs_error()
     }
 
     pub fn encoded_metadata(&self, path: EncodedPath, options: MetadataOptions) Error!Metadata {
         let metadata = os::metadata_at(
-            self.handle,
+            self.borrow_handle().?,
             path.ptr(),
             options.follow_symlinks(),
         ).as_fs_error().?;
         !metadata.as_fs_metadata()
     }
 
-    pub fn close(&self) Error!void {
-        self.handle.close().as_fs_error()
+    pub fn borrow_handle(&self) Error!os::FileHandle {
+        if let ?handle = self.handle {
+            !handle
+        } else null {
+            Error::BadFd!
+        }
+    }
+
+    pub fn take_handle(&mut self) Error!os::FileHandle {
+        let handle = self.borrow_handle().?;
+        self.handle = null;
+        !handle
+    }
+
+    pub fn close(&mut self) Error!void {
+        let handle = self.take_handle().?;
+        handle.close().as_fs_error()
     }
 }
 
 extend File {
     fn from_owned_descriptor(handle: os::FileHandle) File {
-        { handle: handle }
+        { handle: ?handle }
     }
 
     pub fn open(path: Path, options: OpenOptions) Error!File {
@@ -211,23 +226,33 @@ extend File {
         !File::from_owned_descriptor(handle)
     }
 
-    pub fn handle(&self) os::FileHandle {
-        self.handle
+    pub fn borrow_handle(&self) Error!os::FileHandle {
+        if let ?handle = self.handle {
+            !handle
+        } else null {
+            Error::BadFd!
+        }
+    }
+
+    pub fn take_handle(&mut self) Error!os::FileHandle {
+        let handle = self.borrow_handle().?;
+        self.handle = null;
+        !handle
     }
 
     pub fn seek_to(&self, offset: u64) Error!u64 {
         if offset > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.handle.seek(offset as i64, os::SeekWhence::Start).as_fs_error()
+        self.borrow_handle().?.seek(offset as i64, os::SeekWhence::Start).as_fs_error()
     }
 
     pub fn seek_by(&self, delta: i64) Error!u64 {
-        self.handle.seek(delta, os::SeekWhence::Current).as_fs_error()
+        self.borrow_handle().?.seek(delta, os::SeekWhence::Current).as_fs_error()
     }
 
     pub fn seek_from_end(&self, delta: i64) Error!u64 {
-        self.handle.seek(delta, os::SeekWhence::End).as_fs_error()
+        self.borrow_handle().?.seek(delta, os::SeekWhence::End).as_fs_error()
     }
 
     pub fn len(&self) Error!u64 {
@@ -236,7 +261,7 @@ extend File {
     }
 
     pub fn metadata(&self) Error!Metadata {
-        let metadata = self.handle.metadata().as_fs_error().?;
+        let metadata = self.borrow_handle().?.metadata().as_fs_error().?;
         !metadata.as_fs_metadata()
     }
 
@@ -244,18 +269,19 @@ extend File {
         if len > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.handle.truncate(len).as_fs_error()
+        self.borrow_handle().?.truncate(len).as_fs_error()
     }
 
     pub fn sync(&self) Error!void {
-        self.handle.sync().as_fs_error()
+        self.borrow_handle().?.sync().as_fs_error()
     }
 
     pub fn sync_data(&self) Error!void {
-        self.handle.sync_data().as_fs_error()
+        self.borrow_handle().?.sync_data().as_fs_error()
     }
 
-    pub fn close(&self) Error!void {
-        self.handle.close().as_fs_error()
+    pub fn close(&mut self) Error!void {
+        let handle = self.take_handle().?;
+        handle.close().as_fs_error()
     }
 }
