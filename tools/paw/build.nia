@@ -6,5 +6,8 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     exe.library_path("../../target/release/deps").?;
     exe.library("nia_capi").?;
     exe.rpath("../../target/release/deps").?;
-    exe.dynamic_linker_auto()
+    exe.dynamic_linker_auto().?;
+    var step = build.step("build").?;
+    step.depend(&exe).?;
+    step.default()
 }
