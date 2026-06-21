@@ -6,8 +6,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_reports_private_root_entry_called_by_freestanding_start() {
-    let root = temp_dir("emit_exe_reports_private_root_entry_called_by_freestanding_start");
+fn emit_exe_reports_private_entry_main_called_by_freestanding_start() {
+    let root = temp_dir("emit_exe_reports_private_entry_main_called_by_freestanding_start");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -31,7 +31,7 @@ fn main(init: process::Init) process::ExitCode!void {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("root::main"), "{stderr}");
+    assert!(stderr.contains("entry::main"), "{stderr}");
 }
 
 #[test]
@@ -78,7 +78,7 @@ pub(pkg) module x86_64;
     std::fs::write(
         &std_start_linux_x86_64,
         r#"
-using root;
+using entry;
 
 fn syscall_exit(code: i32) void {
     @asm({
@@ -108,7 +108,7 @@ pub extern fn _start() void {
 }
 
 extern fn custom_start() void {
-    syscall_exit(root::mymain());
+    syscall_exit(entry::mymain());
     loop {}
 }
 "#,

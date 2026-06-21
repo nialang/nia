@@ -9,7 +9,7 @@ fn emits_imported_open_enum_as_error_union_payload() {
         &main,
         r#"
 module errors;
-using root::errors;
+using entry::errors;
 
 fn maybe(flag: bool) errors::Error!i32 {
     if flag {
@@ -60,7 +60,7 @@ fn emits_local_struct_with_imported_nominal_field() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 using defs::Item;
 
 struct HoldsItem {
@@ -119,7 +119,7 @@ fn emits_local_struct_array_field_when_module_has_import() {
         &main,
         r#"
 module empty;
-using root::empty;
+using entry::empty;
 
 struct S {
     x: i32,
@@ -167,7 +167,7 @@ fn emits_imported_struct_array_field_expression_edges() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 fn main() i32 {
     var bag = defs::make_bag();
@@ -223,7 +223,7 @@ fn emits_imported_aggregate_function_pointer_call_abi() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 fn main() i32 {
     var callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
@@ -274,7 +274,7 @@ fn emits_imported_enum_variant_values_and_switch_patterns() {
         &main,
         r#"
 module module_enum_defs;
-using root::module_enum_defs;
+using entry::module_enum_defs;
 
 using module_enum_defs::Mode;
 
@@ -329,7 +329,7 @@ fn emits_enum_switch_with_only_returning_arms() {
         &main,
         r#"
 module module_enum_defs;
-using root::module_enum_defs;
+using entry::module_enum_defs;
 
 fn main() i32 {
     var box = module_enum_defs::make_box();
@@ -422,7 +422,7 @@ fn emits_imported_enum_variant_widening_cast() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 fn main() i32 {
     defs::Mode::B as i32
@@ -462,7 +462,7 @@ fn emits_using_imported_type_associated_function_call() {
         &main,
         r#"
 module module_assoc_defs;
-using root::module_assoc_defs;
+using entry::module_assoc_defs;
 
 using module_assoc_defs::Box;
 
@@ -514,7 +514,7 @@ fn emits_size_builtin_when_module_has_import() {
         &main,
         r#"
 module empty;
-using root::empty;
+using entry::empty;
 
 struct S {
     x: i32,
@@ -589,7 +589,7 @@ fn emits_imported_array_length_size_builtin() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 fn main() i32 {
     var b = defs::make_box();

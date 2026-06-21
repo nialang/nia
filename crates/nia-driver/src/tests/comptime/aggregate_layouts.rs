@@ -407,7 +407,7 @@ fn imported_generic_comptime_function_infers_type_arg_from_typed_value() {
         &root.join("main.nia"),
         r#"
 module identity;
-using root::identity;
+using entry::identity;
 
 comptime let width: usize = 4;
 comptime let n: usize = identity::id(width);
@@ -497,7 +497,7 @@ fn imported_generic_comptime_function_substitutes_type_args_for_layout_builtins(
         &root.join("main.nia"),
         r#"
 module layout;
-using root::layout;
+using entry::layout;
 
 struct Pair {
     a: u8,
@@ -543,7 +543,7 @@ pub comptime let pair_size: usize = @size[Pair]();
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let n: usize = config::pair_size;
 
@@ -575,7 +575,7 @@ pub struct Packet {
         &root.join("main.nia"),
         r#"
 module config;
-using root::config;
+using entry::config;
 
 comptime let n: usize = @size[config::Packet]();
 
@@ -644,7 +644,7 @@ extend Item {
         &root.join("main.nia"),
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 using defs::*;
 
 fn make() Boxed {
@@ -691,7 +691,7 @@ extend Item {
         &root.join("main.nia"),
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 using defs::*;
 
 fn make() Boxed {

@@ -143,7 +143,7 @@ pub trait Writer {
         &root.join("main.nia"),
         r#"
 module io;
-using root::io;
+using entry::io;
 
 fn error_of[W](value: [W as io::Writer]::Error) void
 where W: io::Writer
@@ -184,7 +184,7 @@ pub trait Writer {
         &root.join("main.nia"),
         r#"
 module io;
-using root::io;
+using entry::io;
 
 struct Box[T] {
     value: T,
@@ -221,7 +221,7 @@ pub trait Writer {
         &root.join("main.nia"),
         r#"
 module io;
-using root::io;
+using entry::io;
 
 struct Box[T] {
     value: T,

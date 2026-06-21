@@ -11,7 +11,7 @@ use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
-    ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
+    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME,
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
@@ -648,7 +648,7 @@ impl<'a> TypeResolver<'a> {
         match name {
             "self" => Some(self.defs.module_id),
             "super" => graph.get(self.defs.module_id)?.parent,
-            ROOT_MODULE_MAP_NAME => Some(graph.root()),
+            ENTRY_MODULE_MAP_NAME => Some(graph.entry()),
             PACKAGE_MODULE_MAP_NAME => graph.current_package_root(self.defs.module_id),
             package => graph
                 .get(self.defs.module_id)

@@ -598,7 +598,7 @@ fn module_map_rejects_compiler_reserved_roots() {
     let main = root.join("main.nia");
     std::fs::write(&main, "fn main() i32 { 0 }").expect("write main source");
 
-    for reserved in ["root", "pkg", "builtin"] {
+    for reserved in ["entry", "pkg", "builtin"] {
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg("check")
             .arg(&main)
@@ -680,7 +680,7 @@ fn main(init: process::Init) process::ExitCode!void {
     assert!(!exe_check.status.success());
     let stderr = String::from_utf8_lossy(&exe_check.stderr);
     assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("root::main"), "{stderr}");
+    assert!(stderr.contains("entry::main"), "{stderr}");
 
     let public_main = root.join("public_main.nia");
     std::fs::write(

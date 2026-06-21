@@ -2,8 +2,8 @@
 use std::{env, fs, path::PathBuf, process::ExitCode, time::Instant};
 
 use nia_driver::{
-    BUILTIN_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel, PACKAGE_MODULE_MAP_NAME,
-    ROOT_MODULE_MAP_NAME, Runtime, SourcePath,
+    BUILTIN_MODULE_MAP_NAME, ENTRY_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel,
+    PACKAGE_MODULE_MAP_NAME, Runtime, SourcePath,
 };
 
 mod help;
@@ -626,7 +626,7 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     }
     if matches!(
         name,
-        ROOT_MODULE_MAP_NAME | PACKAGE_MODULE_MAP_NAME | BUILTIN_MODULE_MAP_NAME
+        ENTRY_MODULE_MAP_NAME | PACKAGE_MODULE_MAP_NAME | BUILTIN_MODULE_MAP_NAME
     ) {
         return Err(format!("`{name}` is a compiler-reserved module root"));
     }

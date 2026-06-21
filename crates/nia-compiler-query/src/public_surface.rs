@@ -9,7 +9,7 @@ use nia_defs::{
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
-    ModuleGraph, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
+    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
@@ -398,7 +398,7 @@ fn root_module_for_segment(
     match name {
         "self" => Some(current_module),
         "super" => graph.get(current_module)?.parent,
-        ROOT_MODULE_MAP_NAME => Some(graph.root()),
+        ENTRY_MODULE_MAP_NAME => Some(graph.entry()),
         PACKAGE_MODULE_MAP_NAME => graph.current_package_root(current_module),
         package => graph
             .get(current_module)
@@ -1444,7 +1444,7 @@ mod tests {
         let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
         for child in children {
             graph
-                .intern_declared_child(graph.root(), child, Visibility::Public, Span::default())
+                .intern_declared_child(graph.entry(), child, Visibility::Public, Span::default())
                 .expect("child declaration");
         }
         graph

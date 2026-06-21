@@ -42,7 +42,7 @@ fn emits_empty_struct_literals_in_runtime_contexts() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 struct LocalEmpty {}
 
@@ -96,7 +96,7 @@ fn emits_empty_struct_literals_in_return_and_call_contexts() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 struct LocalEmpty {}
 
@@ -186,7 +186,7 @@ fn emits_generic_empty_struct_literals_across_modules() {
         &main,
         r#"
 module defs;
-using root::defs;
+using entry::defs;
 
 struct LocalBox[T] {}
 

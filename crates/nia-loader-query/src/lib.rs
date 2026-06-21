@@ -16,21 +16,24 @@ use nia_span::Span;
 use nia_target_config::{TargetConfig, prune_module_for_target};
 use std::path::Path;
 
-pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
-    load_program_with_map(root_path, ModuleMap::default())
+pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
+    load_program_with_map(entry_path, ModuleMap::default())
 }
 
-pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap) -> LoadedProgram {
-    load_program_with_map_and_entry_runtime(root_path, module_map, EntryRuntime::None)
+pub fn load_program_with_map(
+    entry_path: impl Into<String>,
+    module_map: ModuleMap,
+) -> LoadedProgram {
+    load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None)
 }
 
 pub fn load_program_with_map_and_entry_runtime(
-    root_path: impl Into<String>,
+    entry_path: impl Into<String>,
     module_map: ModuleMap,
     entry_runtime: EntryRuntime,
 ) -> LoadedProgram {
     load_program_request(
-        LoadRequest::new(root_path)
+        LoadRequest::new(entry_path)
             .with_module_map(module_map)
             .with_entry_runtime(entry_runtime),
     )
@@ -48,11 +51,11 @@ pub struct LoaderDatabase {
 
 impl LoaderDatabase {
     pub fn new(request: LoadRequest) -> Self {
-        let root_path = SourcePath::new(request.root_path);
-        let module_map = effective_module_map(&root_path, request.module_map);
+        let entry_path = SourcePath::new(request.entry_path);
+        let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let db = QueryDb::new(LoaderContext {
-            root_path,
+            entry_path,
             module_map,
             sources: sources.clone(),
             target: request.target,
@@ -88,7 +91,7 @@ impl LoaderDatabase {
 
 #[derive(Debug, Clone)]
 pub struct LoadRequest {
-    pub root_path: String,
+    pub entry_path: String,
     pub module_map: ModuleMap,
     pub sources: SourceDatabase,
     pub target: TargetConfig,
@@ -96,9 +99,9 @@ pub struct LoadRequest {
 }
 
 impl LoadRequest {
-    pub fn new(root_path: impl Into<String>) -> Self {
+    pub fn new(entry_path: impl Into<String>) -> Self {
         Self {
-            root_path: root_path.into(),
+            entry_path: entry_path.into(),
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
@@ -136,12 +139,12 @@ pub enum EntryRuntime {
 
 #[cfg(test)]
 fn load_program_from_sources(
-    root_path: impl Into<String>,
+    entry_path: impl Into<String>,
     module_map: ModuleMap,
     sources: SourceDatabase,
 ) -> LoadedProgram {
     load_program_request(
-        LoadRequest::new(root_path)
+        LoadRequest::new(entry_path)
             .with_module_map(module_map)
             .with_sources(sources),
     )
@@ -149,13 +152,13 @@ fn load_program_from_sources(
 
 #[cfg(test)]
 fn load_program_trace(
-    root_path: impl Into<String>,
+    entry_path: impl Into<String>,
     module_map: ModuleMap,
 ) -> nia_query::QueryTrace {
-    let root_path = SourcePath::new(root_path.into());
-    let module_map = effective_module_map(&root_path, module_map);
+    let entry_path = SourcePath::new(entry_path.into());
+    let module_map = effective_module_map(&entry_path, module_map);
     let db = QueryDb::new(LoaderContext {
-        root_path,
+        entry_path,
         module_map,
         sources: SourceDatabase::new(),
         target: TargetConfig::host(),
@@ -165,9 +168,9 @@ fn load_program_trace(
     db.query_trace()
 }
 
-fn effective_module_map(root_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
+fn effective_module_map(entry_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
     module_map
-        .with_compiler_root(root_path.clone())
+        .with_entry(entry_path.clone())
         .with_builtin_root(builtin_module_path())
         .with_default_std(default_std_module_path())
 }
@@ -191,7 +194,7 @@ fn default_std_module_path() -> SourcePath {
 }
 
 struct LoaderContext {
-    root_path: SourcePath,
+    entry_path: SourcePath,
     module_map: ModuleMap,
     sources: SourceDatabase,
     target: TargetConfig,
@@ -243,7 +246,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let mut graph = ModuleGraph::new(db.context().root_path.clone());
+        let mut graph = ModuleGraph::new(db.context().entry_path.clone());
         inject_entry_runtime(db, &mut graph);
         let mut index = 0;
         while index < graph.modules().count() {
@@ -277,7 +280,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 }
 
 fn should_eager_add_declarations(node: &ModuleNode) -> bool {
-    node.module_path.package == nia_imports::ROOT_MODULE_MAP_NAME
+    node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
         || !node.module_path.is_package_root()
         || (node.module_path.package == nia_imports::STD_MODULE_MAP_NAME
             && node
@@ -873,7 +876,7 @@ impl QualifiedPathModuleCollector<'_> {
             });
             return;
         }
-        if first == nia_imports::ROOT_MODULE_MAP_NAME {
+        if first == nia_imports::ENTRY_MODULE_MAP_NAME {
             return;
         }
         if !self.local_module_names.contains(first) && self.module_map.get(first).is_some() {
@@ -968,7 +971,7 @@ fn collect_root_group_modules(
     for item in items {
         match item {
             UsingGroupItem::Name(name) => {
-                if name.name != nia_imports::ROOT_MODULE_MAP_NAME
+                if name.name != nia_imports::ENTRY_MODULE_MAP_NAME
                     && name.name != nia_imports::PACKAGE_MODULE_MAP_NAME
                     && !local_module_names.contains(&name.name)
                     && module_map.get(&name.name).is_some()
@@ -1073,7 +1076,7 @@ impl UsedModuleRoot {
         packages: &mut Vec<String>,
     ) -> Option<Self> {
         let first = host.first()?;
-        if first.name == nia_imports::ROOT_MODULE_MAP_NAME {
+        if first.name == nia_imports::ENTRY_MODULE_MAP_NAME {
             return None;
         }
         if first.name == nia_imports::PACKAGE_MODULE_MAP_NAME {
@@ -1118,33 +1121,33 @@ impl UsedModuleRoot {
 }
 
 fn collect_selector_modules(
-    root: UsedModuleRoot,
+    used_root: UsedModuleRoot,
     selector: &UsingSelector,
     paths: &mut Vec<UsedModulePath>,
 ) {
     match selector {
         UsingSelector::SelfName => {
             let include_children = matches!(
-                &root,
+                &used_root,
                 UsedModuleRoot::Package { base, .. } if base.is_empty()
             );
-            paths.push(root.path(&[], include_children));
+            paths.push(used_root.path(&[], include_children));
         }
         UsingSelector::Wildcard { .. } => {
-            paths.push(root.path(&[], true));
+            paths.push(used_root.path(&[], true));
         }
         UsingSelector::Single(name) => {
-            paths.push(root.path(&[], false));
-            paths.push(root.path(std::slice::from_ref(&name.name), false));
+            paths.push(used_root.path(&[], false));
+            paths.push(used_root.path(std::slice::from_ref(&name.name), false));
         }
         UsingSelector::Group(items) => {
             let include_children = matches!(
-                &root,
+                &used_root,
                 UsedModuleRoot::Package { base, .. } if base.is_empty()
             );
-            paths.push(root.path(&[], include_children));
+            paths.push(used_root.path(&[], include_children));
             for item in items {
-                collect_group_item_modules(&root, item, paths);
+                collect_group_item_modules(&used_root, item, paths);
             }
         }
     }
@@ -1288,8 +1291,8 @@ module present;
         assert_eq!(program.modules.len(), 2);
         let root_module = program
             .graph
-            .get(program.graph.root())
-            .expect("root module");
+            .get(program.graph.entry())
+            .expect("entry module");
         assert!(root_module.children.contains_key("present"));
         assert!(!root_module.children.contains_key("missing"));
     }
@@ -1314,8 +1317,8 @@ module present;
         assert_eq!(program.modules.len(), 2);
         let root_module = program
             .graph
-            .get(program.graph.root())
-            .expect("root module");
+            .get(program.graph.entry())
+            .expect("entry module");
         assert!(root_module.children.contains_key("present"));
         assert!(!root_module.children.contains_key("missing"));
     }
@@ -1461,7 +1464,7 @@ module present;
                 .any(|module| module.path.as_str().ends_with("lib/std/start.nia"))
         );
         let std_root = program.graph.package_root("std").expect("std package root");
-        let std = program.graph.get(std_root).expect("std root module");
+        let std = program.graph.get(std_root).expect("std entry module");
         let start_declaration = std
             .declarations
             .iter()
@@ -1582,8 +1585,8 @@ fn main(value: std::fmt::Value) void {
         assert_eq!(program.modules.len(), 2);
         let root_module = program
             .graph
-            .get(program.graph.root())
-            .expect("root module");
+            .get(program.graph.entry())
+            .expect("entry module");
         let defs_module = program
             .graph
             .get(root_module.children["defs"])
@@ -1668,7 +1671,7 @@ fn main(value: std::fmt::Value) void {
         let main = SourcePath::new("main.nia");
         sources.set_source(main.clone(), "fn main() i32 { 0 }");
         let db = QueryDb::new(LoaderContext {
-            root_path: main.clone(),
+            entry_path: main.clone(),
             module_map: effective_module_map(&main, ModuleMap::default()),
             sources: sources.clone(),
             target: TargetConfig::host(),
@@ -1725,7 +1728,7 @@ fn main(value: std::fmt::Value) void {
         sources.set_source(main.clone(), "");
         sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
         let db = QueryDb::new(LoaderContext {
-            root_path: main.clone(),
+            entry_path: main.clone(),
             module_map: effective_module_map(&main, ModuleMap::default()),
             sources: sources.clone(),
             target: TargetConfig::host(),
@@ -1753,7 +1756,7 @@ fn main(value: std::fmt::Value) void {
     #[test]
     fn loaded_module_query_reports_paths_outside_module_graph() {
         let db = QueryDb::new(LoaderContext {
-            root_path: SourcePath::new("main.nia"),
+            entry_path: SourcePath::new("main.nia"),
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),

@@ -9,7 +9,7 @@ pub use nia_compiler_query::{
     ProgramDiagnostic, TimingMode,
 };
 pub use nia_imports::{
-    BUILTIN_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME, ROOT_MODULE_MAP_NAME,
+    BUILTIN_MODULE_MAP_NAME, ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME,
 };
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 pub use nia_parser::ParseError;

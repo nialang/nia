@@ -412,7 +412,7 @@ pub extern "C" fn nia_session_emit_object_file(
                     request.request.clone(),
                     nia_driver::ObjectOutput::Single(output.into()),
                 ));
-        result_from_driver_output(driver_output, Some(&request.request.root_path))
+        result_from_driver_output(driver_output, Some(&request.request.entry_path))
     }) {
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(message) => Box::into_raw(Box::new(NiaResult::new(NiaStatus::InternalError, message))),
@@ -444,7 +444,7 @@ pub extern "C" fn nia_session_emit_object_directory(
                     request.request.clone(),
                     nia_driver::ObjectOutput::Directory(output.into()),
                 ));
-        result_from_driver_output(driver_output, Some(&request.request.root_path))
+        result_from_driver_output(driver_output, Some(&request.request.entry_path))
     }) {
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(message) => Box::into_raw(Box::new(NiaResult::new(NiaStatus::InternalError, message))),
@@ -507,7 +507,7 @@ pub extern "C" fn nia_session_emit_executable_with_options(
             link_request.link_options = link_options;
         }
         let driver_output = session.driver.link_executable(link_request);
-        result_from_driver_output(driver_output, Some(&request.request.root_path))
+        result_from_driver_output(driver_output, Some(&request.request.entry_path))
     }) {
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(message) => Box::into_raw(Box::new(NiaResult::new(NiaStatus::InternalError, message))),
@@ -572,7 +572,7 @@ fn check_file(path_ptr: *const u8, path_len: usize) -> NiaResult {
 }
 
 fn check_with_driver(driver: &nia_driver::Driver, request: nia_driver::CheckRequest) -> NiaResult {
-    let path = request.root_path.clone();
+    let path = request.entry_path.clone();
     let output = driver.check(request);
     match output.result {
         Ok(_) => NiaResult::new(NiaStatus::Ok, String::new()),
