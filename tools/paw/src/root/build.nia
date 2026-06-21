@@ -71,7 +71,7 @@ pub(pkg) fn check(
     check_project(stderr, root, graph_bytes)
 }
 
-pub(pkg) fn obj(
+pub(pkg) fn objects(
     stderr: &mut io::FileWriter,
     init: process::Init,
     root: process::Arg,
@@ -79,18 +79,7 @@ pub(pkg) fn obj(
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_project_object(stderr, root, output, graph_bytes)
-}
-
-pub(pkg) fn obj_dir(
-    stderr: &mut io::FileWriter,
-    init: process::Init,
-    root: process::Arg,
-    output: process::Arg,
-) process::ExitCode!process::ExitCode {
-    var graph_storage: [8192]u8 = [0; 8192];
-    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_project_object_dir(stderr, root, output, graph_bytes)
+    emit_project_objects(stderr, root, output, graph_bytes)
 }
 
 fn read_build_graph(
@@ -241,19 +230,7 @@ fn check_project(
     requests::finish_result(stderr, result, b"paw: check returned null result")
 }
 
-fn emit_project_object(
-    stderr: &mut io::FileWriter,
-    root: process::Arg,
-    output: process::Arg,
-    graph_bytes: &[u8],
-) process::ExitCode!process::ExitCode {
-    let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer finish_project(prepared);
-    let result = prepared.session().emit_object_file(prepared.request(), output.bytes());
-    requests::finish_result(stderr, result, b"paw: object emit returned null result")
-}
-
-fn emit_project_object_dir(
+fn emit_project_objects(
     stderr: &mut io::FileWriter,
     root: process::Arg,
     output: process::Arg,
