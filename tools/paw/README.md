@@ -53,12 +53,8 @@ paw objects <root> <out-dir>
 
 - `check` checks the package executable described by `<root>/build.nia`.
 - `build` emits and links the package executable to `<out>`.
-- `objects` emits one object file per codegen unit into `<out-dir>`.
-
-`paw` is package-oriented, so object output is a directory. There is no
-single-object `paw obj` command; single-object output is a lower-level
-`nia emit --obj -o` operation and only works when a program has one codegen
-unit.
+- `objects` emits the package's object files into `<out-dir>`, one file per
+  codegen unit.
 
 ## Bootstrapping
 
