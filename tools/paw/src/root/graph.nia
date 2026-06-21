@@ -7,6 +7,8 @@ using std::process;
 pub(pkg) struct BuildGraph {
     package_name_start: usize,
     package_name_len: usize,
+    exe_name_start: usize,
+    exe_name_len: usize,
     exe_root_start: usize,
     exe_root_len: usize,
 }
@@ -29,6 +31,14 @@ extend BuildGraph {
         self.package_name_len
     }
 
+    pub(pkg) fn exe_name_start(&self) usize {
+        self.exe_name_start
+    }
+
+    pub(pkg) fn exe_name_len(&self) usize {
+        self.exe_name_len
+    }
+
     pub(pkg) fn exe_root_start(&self) usize {
         self.exe_root_start
     }
@@ -41,6 +51,8 @@ extend BuildGraph {
 pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!BuildGraph {
     var package_name_start = 0usize;
     var package_name_len = 0usize;
+    var exe_name_start = 0usize;
+    var exe_name_len = 0usize;
     var exe_root_start = 0usize;
     var exe_root_len = 0usize;
     var index = 0usize;
@@ -59,6 +71,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
                     package_name_len = parsed.first_value_len();
                 },
                 EntryKind::Executable => {
+                    exe_name_start = index + parsed.first_value_start();
+                    exe_name_len = parsed.first_value_len();
                     exe_root_start = index + parsed.second_value_start();
                     exe_root_len = parsed.second_value_len();
                 },
@@ -72,13 +86,15 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
         stderr.print("paw: build graph has no package\n", &[]).exit().?;
         return process::exit(2)!;
     }
-    if exe_root_len == 0 {
+    if exe_name_len == 0usize or exe_root_len == 0usize {
         stderr.print("paw: build graph has no executable\n", &[]).exit().?;
         return process::exit(2)!;
     }
     !{
         package_name_start: package_name_start,
         package_name_len: package_name_len,
+        exe_name_start: exe_name_start,
+        exe_name_len: exe_name_len,
         exe_root_start: exe_root_start,
         exe_root_len: exe_root_len,
     }
@@ -130,7 +146,7 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
     let second_tab = find_byte(line, first_tab + 1, b'\t');
     switch kind {
         EntryKind::Package, EntryKind::Executable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
-        EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::DynamicLinker => parse_dynamic_linker_line(stderr, line, kind, first_tab, second_tab),
         _ => {
             stderr.print("paw: unknown build graph entry\n", &[]).exit().?;
@@ -166,27 +182,6 @@ fn parse_two_field_line(
     }
 }
 
-fn parse_one_field_line(
-    stderr: &mut io::FileWriter,
-    line: &[u8],
-    kind: EntryKind,
-    first_tab: usize,
-    second_tab: ?usize,
-) process::ExitCode!ParsedLine {
-    if let ?second = second_tab {
-        _ = second;
-        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
-        return process::exit(2)!;
-    }
-    !{
-        kind: kind,
-        first_value_start: first_tab + 1,
-        first_value_len: line.len() - first_tab - 1,
-        second_value_start: line.len(),
-        second_value_len: 0usize,
-    }
-}
-
 fn parse_dynamic_linker_line(
     stderr: &mut io::FileWriter,
     line: &[u8],
@@ -194,13 +189,15 @@ fn parse_dynamic_linker_line(
     first_tab: usize,
     second_tab: ?usize,
 ) process::ExitCode!ParsedLine {
-    if let ?second = second_tab {
-        if not mem::equal[u8](&line[(first_tab + 1)..second], b"path") {
-            stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
-            return process::exit(2)!;
-        }
-        if let ?extra = find_byte(line, second + 1, b'\t') {
-            _ = extra;
+    let second = if let ?value = second_tab {
+        value
+    } else null {
+        stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    let value = &line[(second + 1)..line.len()];
+    if not mem::equal[u8](value, b"auto") and not mem::equal[u8](value, b"none") {
+        if value.len() < 6usize or not mem::equal[u8](&value[0..5], b"path\t") {
             stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
             return process::exit(2)!;
         }
@@ -212,17 +209,17 @@ fn parse_dynamic_linker_line(
             second_value_len: line.len() - second - 1,
         };
     }
-    let value = &line[(first_tab + 1)..line.len()];
-    if not mem::equal[u8](value, b"auto") and not mem::equal[u8](value, b"none") {
+    if let ?extra = find_byte(line, second + 1, b'\t') {
+        _ = extra;
         stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
         return process::exit(2)!;
     }
     !{
         kind: kind,
         first_value_start: first_tab + 1,
-        first_value_len: line.len() - first_tab - 1,
-        second_value_start: line.len(),
-        second_value_len: 0usize,
+        first_value_len: second - first_tab - 1,
+        second_value_start: second + 1,
+        second_value_len: line.len() - second - 1,
     }
 }
 
@@ -246,7 +243,12 @@ extend EntryKind {
     }
 }
 
-pub(pkg) fn apply_link_options(stderr: &mut io::FileWriter, graph: &[u8], options: &abi::LinkOptions) process::ExitCode!void {
+pub(pkg) fn apply_link_options(
+    stderr: &mut io::FileWriter,
+    graph: &[u8],
+    executable_name: &[u8],
+    options: &abi::LinkOptions,
+) process::ExitCode!void {
     var index = 0usize;
     while index < graph.len() {
         let line_end = if let ?value = find_byte(graph, index, b'\n') {
@@ -256,14 +258,19 @@ pub(pkg) fn apply_link_options(stderr: &mut io::FileWriter, graph: &[u8], option
         };
         let line = &graph[index..line_end];
         if line.len() != 0 {
-            apply_link_option_line(stderr, line, options).?;
+            apply_link_option_line(stderr, line, executable_name, options).?;
         }
         index = line_end + 1;
     }
     !{}
 }
 
-fn apply_link_option_line(stderr: &mut io::FileWriter, line: &[u8], options: &abi::LinkOptions) process::ExitCode!void {
+fn apply_link_option_line(
+    stderr: &mut io::FileWriter,
+    line: &[u8],
+    executable_name: &[u8],
+    options: &abi::LinkOptions,
+) process::ExitCode!void {
     let first_tab = if let ?value = find_byte(line, 0, b'\t') {
         value
     } else null {
@@ -276,25 +283,57 @@ fn apply_link_option_line(stderr: &mut io::FileWriter, line: &[u8], options: &ab
         stderr.print("paw: unknown build graph entry\n", &[]).exit().?;
         return process::exit(2)!;
     };
+    if kind == EntryKind::LibraryPath or kind == EntryKind::Library or kind == EntryKind::Rpath or kind == EntryKind::DynamicLinker {
+        if not artifact_matches(line, first_tab, executable_name) {
+            return !{};
+        }
+    }
     switch kind {
         EntryKind::Package, EntryKind::Executable => !{},
         EntryKind::LibraryPath => apply_single_field_link_option(
             stderr,
-            options.add_library_path(&line[(first_tab + 1)..line.len()]),
+            options.add_library_path(require_artifact_payload(stderr, line, first_tab).?),
             b"paw: failed to add native library path",
         ),
         EntryKind::Library => apply_single_field_link_option(
             stderr,
-            options.add_library(&line[(first_tab + 1)..line.len()]),
+            options.add_library(require_artifact_payload(stderr, line, first_tab).?),
             b"paw: failed to add native library",
         ),
         EntryKind::Rpath => apply_single_field_link_option(
             stderr,
-            options.add_rpath(&line[(first_tab + 1)..line.len()]),
+            options.add_rpath(require_artifact_payload(stderr, line, first_tab).?),
             b"paw: failed to add runtime library path",
         ),
         EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, options),
         _ => !{},
+    }
+}
+
+fn artifact_matches(line: &[u8], first_tab: usize, executable_name: &[u8]) bool {
+    let second_tab = if let ?value = find_byte(line, first_tab + 1, b'\t') {
+        value
+    } else null {
+        return false;
+    };
+    mem::equal[u8](&line[(first_tab + 1)..second_tab], executable_name)
+}
+
+fn artifact_payload(line: &[u8], first_tab: usize) ?&[u8] {
+    let second_tab = if let ?value = find_byte(line, first_tab + 1, b'\t') {
+        value
+    } else null {
+        return null;
+    };
+    ?&line[(second_tab + 1)..line.len()]
+}
+
+fn require_artifact_payload(stderr: &mut io::FileWriter, line: &[u8], first_tab: usize) process::ExitCode!&[u8] {
+    if let ?payload = artifact_payload(line, first_tab) {
+        !payload
+    } else null {
+        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
+        return process::exit(2)!;
     }
 }
 
@@ -312,7 +351,12 @@ fn apply_dynamic_linker(
     first_tab: usize,
     options: &abi::LinkOptions,
 ) process::ExitCode!void {
-    let value = &line[(first_tab + 1)..line.len()];
+    let value = if let ?field = artifact_payload(line, first_tab) {
+        field
+    } else null {
+        stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
     if mem::equal[u8](value, b"auto") {
         return apply_single_field_link_option(
             stderr,
@@ -327,19 +371,13 @@ fn apply_dynamic_linker(
             b"paw: failed to set dynamic linker",
         );
     }
-    let second_tab = if let ?value = find_byte(line, first_tab + 1, b'\t') {
-        value
-    } else null {
-        stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
-        return process::exit(2)!;
-    };
-    if not mem::equal[u8](&line[(first_tab + 1)..second_tab], b"path") {
+    if value.len() < 6usize or not mem::equal[u8](&value[0..5], b"path\t") {
         stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
         return process::exit(2)!;
     }
     apply_single_field_link_option(
         stderr,
-        options.set_dynamic_path(&line[(second_tab + 1)..line.len()]),
+        options.set_dynamic_path(&value[5..value.len()]),
         b"paw: failed to set dynamic linker",
     )
 }

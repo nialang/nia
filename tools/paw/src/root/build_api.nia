@@ -24,6 +24,11 @@ pub struct Build {
     file: fs::File,
 }
 
+pub struct Executable {
+    writer: &mut io::FileWriter,
+    name: &[char],
+}
+
 extend PackageOptions {
     pub fn name(&self) &[char] {
         self.name
@@ -63,55 +68,58 @@ extend Build {
         self.writer.print("package\t{}\t{}\n", &[name, version]).as_paw_fmt_error()
     }
 
-    pub fn executable(&mut self, options: ExecutableOptions) Error!void {
+    pub fn executable(&mut self, options: ExecutableOptions) Error!Executable {
         let name = options.name();
         let root = options.root();
         if not is_graph_field(name) or not is_graph_field(root) {
             return Error::InvalidInput!;
         }
-        self.writer.print("executable\t{}\t{}\n", &[name, root]).as_paw_fmt_error()
-    }
-
-    pub fn library_path(&mut self, path: &[char]) Error!void {
-        if not is_graph_field(path) {
-            return Error::InvalidInput!;
-        }
-        self.writer.print("library-path\t{}\n", &[path]).as_paw_fmt_error()
-    }
-
-    pub fn library(&mut self, name: &[char]) Error!void {
-        if not is_graph_field(name) {
-            return Error::InvalidInput!;
-        }
-        self.writer.print("library\t{}\n", &[name]).as_paw_fmt_error()
-    }
-
-    pub fn rpath(&mut self, path: &[char]) Error!void {
-        if not is_graph_field(path) {
-            return Error::InvalidInput!;
-        }
-        self.writer.print("rpath\t{}\n", &[path]).as_paw_fmt_error()
-    }
-
-    pub fn dynamic_linker_auto(&mut self) Error!void {
-        self.writer.print("dynamic-linker\tauto\n", &[]).as_paw_fmt_error()
-    }
-
-    pub fn no_dynamic_linker(&mut self) Error!void {
-        self.writer.print("dynamic-linker\tnone\n", &[]).as_paw_fmt_error()
-    }
-
-    pub fn dynamic_linker_path(&mut self, path: &[char]) Error!void {
-        if not is_graph_field(path) {
-            return Error::InvalidInput!;
-        }
-        self.writer.print("dynamic-linker\tpath\t{}\n", &[path]).as_paw_fmt_error()
+        self.writer.print("executable\t{}\t{}\n", &[name, root]).as_paw_fmt_error().?;
+        !{ writer: &mut self.writer, name: name }
     }
 
     pub fn finish(&mut self) Error!void {
         self.writer.flush().as_paw_error().?;
         self.file.close().as_paw_error().?;
         !{}
+    }
+}
+
+extend Executable {
+    pub fn library_path(&mut self, path: &[char]) Error!void {
+        if not is_graph_field(path) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("library-path\t{}\t{}\n", &[self.name, path]).as_paw_fmt_error()
+    }
+
+    pub fn library(&mut self, name: &[char]) Error!void {
+        if not is_graph_field(name) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("library\t{}\t{}\n", &[self.name, name]).as_paw_fmt_error()
+    }
+
+    pub fn rpath(&mut self, path: &[char]) Error!void {
+        if not is_graph_field(path) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("rpath\t{}\t{}\n", &[self.name, path]).as_paw_fmt_error()
+    }
+
+    pub fn dynamic_linker_auto(&mut self) Error!void {
+        self.writer.print("dynamic-linker\t{}\tauto\n", &[self.name]).as_paw_fmt_error()
+    }
+
+    pub fn no_dynamic_linker(&mut self) Error!void {
+        self.writer.print("dynamic-linker\t{}\tnone\n", &[self.name]).as_paw_fmt_error()
+    }
+
+    pub fn dynamic_linker_path(&mut self, path: &[char]) Error!void {
+        if not is_graph_field(path) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("dynamic-linker\t{}\tpath\t{}\n", &[self.name, path]).as_paw_fmt_error()
     }
 }
 
