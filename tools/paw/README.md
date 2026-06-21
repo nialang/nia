@@ -51,17 +51,16 @@ root.
 ## Commands
 
 ```text
-paw check [root]
-paw build [root]
-paw objects [root]
+paw [step] [--root <dir>]
 ```
 
-- `check` checks the package executable described by `build.nia`.
-- `build` emits and links the package executable into `<root>/.nia-build/`.
-- `objects` emits the package's object files into
-  `<root>/.nia-build/objects`, one file per codegen unit.
+- `paw` runs the default step from `build.nia`.
+- `paw build` runs the step named `build`.
+- `--root <dir>` selects the package root. If omitted, `paw` uses the current
+  directory.
 
-If `root` is omitted, `paw` uses the current directory.
+The current step action is executable build output, written into
+`<root>/.nia-build/`.
 
 ## Bootstrapping
 
@@ -87,17 +86,15 @@ target/release/nia emit --exe tools/paw/src/main.nia \
 Use the seed to build the normal `paw` binary:
 
 ```sh
-build/paw-bootstrap/paw-step1 check tools/paw
-build/paw-bootstrap/paw-step1 build tools/paw
+build/paw-bootstrap/paw-step1 build --root tools/paw
 cp tools/paw/.nia-build/paw build/paw-bootstrap/paw
 ```
 
 A basic self-hosting check builds one more generation and verifies object output:
 
 ```sh
-build/paw-bootstrap/paw build tools/paw
+build/paw-bootstrap/paw build --root tools/paw
 cp tools/paw/.nia-build/paw build/paw-bootstrap/paw-step2
-build/paw-bootstrap/paw objects tools/paw
 ```
 
 The `build/` directory is ignored by this repository and is used here for

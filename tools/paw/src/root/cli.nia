@@ -4,15 +4,14 @@ using std::mem;
 using std::process;
 using process::{ExitCode, Init};
 
-enum Command: i32 {
-    Check = 1,
-    Objects = 2,
-    Build = 3,
-}
-
 struct Cli {
     init: Init,
     stderr: &mut io::FileWriter,
+}
+
+struct Options {
+    root: &[u8],
+    step: &[u8],
 }
 
 pub fn run(init: Init, stderr: &mut io::FileWriter) ExitCode!ExitCode {
@@ -27,60 +26,43 @@ extend Cli {
 
     fn run(&mut self, args: process::Args) process::ExitCode!ExitCode {
         var rest = args.skip_program();
-        let command_arg = self.arg(&mut rest).?;
-        let command = if let ?value = Command::parse(command_arg) {
-            value
-        } else null {
-            self.stderr.print("paw: unknown command `{}`\n", &[&command_arg]).exit().?;
-            self.print_usage_error().?;
-            return process::exit(2)!;
-        };
-
-        command.run(self, &mut rest)
+        let options = self.parse_options(&mut rest).?;
+        build::run_step(self.stderr, self.init, options.root, options.step)
     }
 
-    fn check(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.optional_root(args).?;
-        self.finish_args(args).?;
-        build::check(self.stderr, self.init, root)
-    }
-
-    fn objects(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.optional_root(args).?;
-        self.finish_args(args).?;
-        build::objects(self.stderr, self.init, root)
-    }
-
-    fn build(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.optional_root(args).?;
-        self.finish_args(args).?;
-        build::run(self.stderr, self.init, root)
-    }
-
-    fn arg(&mut self, args: &mut process::ArgsIter) process::ExitCode!process::Arg {
-        if let ?value = args.next() {
-            !value
-        } else null {
-            self.print_usage_error().?;
-            return process::exit(2)!;
+    fn parse_options(&mut self, args: &mut process::ArgsIter) process::ExitCode!Options {
+        var root: &[u8] = b".";
+        var step: &[u8] = b"";
+        while true {
+            let arg = if let ?value = args.next() {
+                value
+            } else null {
+                break;
+            };
+            if mem::equal[u8](arg.bytes(), b"--root") {
+                let value = if let ?root_arg = args.next() {
+                    root_arg
+                } else null {
+                    self.print_usage_error().?;
+                    return process::exit(2)!;
+                };
+                root = value.bytes();
+            } else if mem::equal[u8](arg.bytes(), b"--help") {
+                usage(self.stderr).?;
+                self.stderr.flush().exit().?;
+                return process::exit(0)!;
+            } else if is_option(arg.bytes()) {
+                self.print_usage_error().?;
+                return process::exit(2)!;
+            } else {
+                if step.len() != 0usize {
+                    self.print_usage_error().?;
+                    return process::exit(2)!;
+                }
+                step = arg.bytes();
+            }
         }
-    }
-
-    fn finish_args(&mut self, args: &mut process::ArgsIter) process::ExitCode!void {
-        if let ?extra = args.next() {
-            _ = extra;
-            self.print_usage_error().?;
-            return process::exit(2)!;
-        }
-        !{}
-    }
-
-    fn optional_root(&mut self, args: &mut process::ArgsIter) process::ExitCode!&[u8] {
-        if let ?value = args.next() {
-            !value.bytes()
-        } else null {
-            !b"."
-        }
+        !{ root: root, step: step }
     }
 
     fn print_usage_error(&mut self) process::ExitCode!void {
@@ -88,37 +70,15 @@ extend Cli {
         self.stderr.flush().exit().?;
         !{}
     }
-
 }
 
-extend Command {
-    fn parse(command: process::Arg) ?Command {
-        if mem::equal[u8](command.bytes(), b"check") {
-            ?Command::Check
-        } else if mem::equal[u8](command.bytes(), b"build") {
-            ?Command::Build
-        } else if mem::equal[u8](command.bytes(), b"objects") {
-            ?Command::Objects
-        } else {
-            null
-        }
-    }
-
-    fn run(self, cli: &mut Cli, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        switch self {
-            Command::Check => cli.check(args),
-            Command::Objects => cli.objects(args),
-            Command::Build => cli.build(args),
-            _ => !process::exit(2),
-        }
-    }
+fn is_option(arg: &[u8]) bool {
+    arg.len() != 0usize and arg[0] == b'-'
 }
 
 fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
     stderr.print(
-        \\usage: paw build [root]
-        \\       paw check [root]
-        \\       paw objects [root]
+        \\usage: paw [step] [--root <dir>]
         \\
         ,
         &[],

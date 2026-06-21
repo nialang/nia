@@ -50,34 +50,15 @@ fn finish_project(prepared: PreparedProject) void {
     requests::finish(prepared.check);
 }
 
-pub(pkg) fn run(
+pub(pkg) fn run_step(
     stderr: &mut io::FileWriter,
     init: process::Init,
     root: &[u8],
+    step: &[u8],
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_build_executable(stderr, root, graph_bytes)
-}
-
-pub(pkg) fn check(
-    stderr: &mut io::FileWriter,
-    init: process::Init,
-    root: &[u8],
-) process::ExitCode!process::ExitCode {
-    var graph_storage: [8192]u8 = [0; 8192];
-    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    check_project(stderr, root, graph_bytes)
-}
-
-pub(pkg) fn objects(
-    stderr: &mut io::FileWriter,
-    init: process::Init,
-    root: &[u8],
-) process::ExitCode!process::ExitCode {
-    var graph_storage: [8192]u8 = [0; 8192];
-    let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_project_objects(stderr, root, graph_bytes)
+    emit_build_executable(stderr, root, step, graph_bytes)
 }
 
 fn read_build_graph(
@@ -225,9 +206,10 @@ fn nul_terminate(bytes: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
 fn emit_build_executable(
     stderr: &mut io::FileWriter,
     root: &[u8],
+    step: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
-    let prepared = prepare_project(stderr, root, graph_bytes).?;
+    let prepared = prepare_project(stderr, root, step, graph_bytes).?;
     defer finish_project(prepared);
     var output_storage: [4096]u8 = [0; 4096];
     let output = executable_output_path(root, prepared.executable_name(graph_bytes), &mut output_storage).?;
@@ -243,36 +225,13 @@ fn emit_build_executable(
     requests::finish_result(stderr, result, b"paw: executable emit returned null result")
 }
 
-fn check_project(
-    stderr: &mut io::FileWriter,
-    root: &[u8],
-    graph_bytes: &[u8],
-) process::ExitCode!process::ExitCode {
-    let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer finish_project(prepared);
-    let result = prepared.session().check(prepared.request());
-    requests::finish_result(stderr, result, b"paw: check returned null result")
-}
-
-fn emit_project_objects(
-    stderr: &mut io::FileWriter,
-    root: &[u8],
-    graph_bytes: &[u8],
-) process::ExitCode!process::ExitCode {
-    let prepared = prepare_project(stderr, root, graph_bytes).?;
-    defer finish_project(prepared);
-    var output_storage: [4096]u8 = [0; 4096];
-    let output = objects_output_path(root, &mut output_storage).?;
-    let result = prepared.session().emit_object_directory(prepared.request(), output);
-    requests::finish_result(stderr, result, b"paw: object directory emit returned null result")
-}
-
 fn prepare_project(
     stderr: &mut io::FileWriter,
     root: &[u8],
+    step: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!PreparedProject {
-    let parsed = build_graph::parse(stderr, graph_bytes).?;
+    let parsed = build_graph::parse(stderr, graph_bytes, step).?;
     let package_name = &graph_bytes[parsed.package_name_start()..(parsed.package_name_start() + parsed.package_name_len())];
     let exe_root = &graph_bytes[parsed.exe_root_start()..(parsed.exe_root_start() + parsed.exe_root_len())];
     var main_path_storage: [4096]u8 = [0; 4096];
@@ -292,15 +251,5 @@ fn executable_output_path(root: &[u8], name: &[u8], out: &mut [u8]) process::Exi
     }
     writer.write_all(b".nia-build/").exit().?;
     writer.write_all(name).exit().?;
-    !writer.written()
-}
-
-fn objects_output_path(root: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
-    var writer = io::FixedBufferWriter::init(out);
-    writer.write_all(root).exit().?;
-    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
-        writer.write_all(b"/").exit().?;
-    }
-    writer.write_all(b".nia-build/objects").exit().?;
     !writer.written()
 }
