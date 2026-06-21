@@ -258,6 +258,7 @@ extend EntryKind {
 pub(pkg) fn apply_link_options(
     stderr: &mut io::FileWriter,
     graph: &[u8],
+    root: &[u8],
     executable_name: &[u8],
     options: &abi::LinkOptions,
 ) process::ExitCode!void {
@@ -270,7 +271,7 @@ pub(pkg) fn apply_link_options(
         };
         let line = &graph[index..line_end];
         if line.len() != 0 {
-            apply_link_option_line(stderr, line, executable_name, options).?;
+            apply_link_option_line(stderr, line, root, executable_name, options).?;
         }
         index = line_end + 1;
     }
@@ -280,6 +281,7 @@ pub(pkg) fn apply_link_options(
 fn apply_link_option_line(
     stderr: &mut io::FileWriter,
     line: &[u8],
+    root: &[u8],
     executable_name: &[u8],
     options: &abi::LinkOptions,
 ) process::ExitCode!void {
@@ -303,22 +305,28 @@ fn apply_link_option_line(
     }
     switch kind {
         EntryKind::Package, EntryKind::Executable => !{},
-        EntryKind::LibraryPath => apply_single_field_link_option(
-            stderr,
-            options.add_library_path(require_artifact_payload(stderr, line, first_tab).?),
-            b"paw: failed to add native library path",
-        ),
+        EntryKind::LibraryPath => {
+            var path_storage: [4096]u8 = [0; 4096];
+            apply_single_field_link_option(
+                stderr,
+                options.add_library_path(root_relative_path(root, require_artifact_payload(stderr, line, first_tab).?, &mut path_storage).?),
+                b"paw: failed to add native library path",
+            )
+        },
         EntryKind::Library => apply_single_field_link_option(
             stderr,
             options.add_library(require_artifact_payload(stderr, line, first_tab).?),
             b"paw: failed to add native library",
         ),
-        EntryKind::Rpath => apply_single_field_link_option(
-            stderr,
-            options.add_rpath(require_artifact_payload(stderr, line, first_tab).?),
-            b"paw: failed to add runtime library path",
-        ),
-        EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, options),
+        EntryKind::Rpath => {
+            var path_storage: [4096]u8 = [0; 4096];
+            apply_single_field_link_option(
+                stderr,
+                options.add_rpath(root_relative_path(root, require_artifact_payload(stderr, line, first_tab).?, &mut path_storage).?),
+                b"paw: failed to add runtime library path",
+            )
+        },
+        EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, root, options),
         _ => !{},
     }
 }
@@ -362,6 +370,7 @@ fn apply_dynamic_linker(
     stderr: &mut io::FileWriter,
     line: &[u8],
     first_tab: usize,
+    root: &[u8],
     options: &abi::LinkOptions,
 ) process::ExitCode!void {
     let value = if let ?field = artifact_payload(line, first_tab) {
@@ -388,11 +397,30 @@ fn apply_dynamic_linker(
         stderr.print("paw: invalid dynamic linker entry\n", &[]).exit().?;
         return process::exit(2)!;
     }
+    var path_storage: [4096]u8 = [0; 4096];
+    let path = root_relative_path(root, &value[5..value.len()], &mut path_storage).?;
     apply_single_field_link_option(
         stderr,
-        options.set_dynamic_path(&value[5..value.len()]),
+        options.set_dynamic_path(path),
         b"paw: failed to set dynamic linker",
     )
+}
+
+fn root_relative_path(root: &[u8], path: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    if is_absolute(path) {
+        return !path;
+    }
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(path).exit().?;
+    !writer.written()
+}
+
+fn is_absolute(path: &[u8]) bool {
+    path.len() != 0usize and path[0] == b'/'
 }
 
 fn find_byte(bytes: &[u8], start: usize, value: u8) ?usize {

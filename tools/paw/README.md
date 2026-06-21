@@ -31,9 +31,9 @@ using paw;
 pub fn build(build: &mut paw::Build) paw::Error!void {
     build.package({ name: "paw", version: "0.1.0" }).?;
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
-    exe.library_path("target/release/deps").?;
+    exe.library_path("../../target/release/deps").?;
     exe.library("nia_capi").?;
-    exe.rpath("target/release/deps").?;
+    exe.rpath("../../target/release/deps").?;
     exe.dynamic_linker_auto()
 }
 ```
@@ -41,20 +41,23 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
 Link options belong to the executable handle. They are not global package
 options. The current graph format accepts exactly one package and one
 executable; duplicate package entries, multiple executables, and link options
-that reference an unknown artifact are rejected.
+that reference an unknown artifact are rejected. Relative paths in `build.nia`
+are resolved from the package root.
 
 ## Commands
 
 ```text
-paw check <root>
-paw build <root> <out>
-paw objects <root> <out-dir>
+paw check [root]
+paw build [root]
+paw objects [root]
 ```
 
-- `check` checks the package executable described by `<root>/build.nia`.
-- `build` emits and links the package executable to `<out>`.
-- `objects` emits the package's object files into `<out-dir>`, one file per
-  codegen unit.
+- `check` checks the package executable described by `build.nia`.
+- `build` emits and links the package executable into `<root>/.nia-build/`.
+- `objects` emits the package's object files into
+  `<root>/.nia-build/objects`, one file per codegen unit.
+
+If `root` is omitted, `paw` uses the current directory.
 
 ## Bootstrapping
 
@@ -81,21 +84,23 @@ Use the seed to build the normal `paw` binary:
 
 ```sh
 build/paw-bootstrap/paw-step1 check tools/paw
-build/paw-bootstrap/paw-step1 build tools/paw build/paw-bootstrap/paw
+build/paw-bootstrap/paw-step1 build tools/paw
+cp tools/paw/.nia-build/paw build/paw-bootstrap/paw
 ```
 
 A basic self-hosting check builds one more generation and verifies object output:
 
 ```sh
-build/paw-bootstrap/paw build tools/paw build/paw-bootstrap/paw-step2
-build/paw-bootstrap/paw objects tools/paw build/paw-bootstrap/objects
+build/paw-bootstrap/paw build tools/paw
+cp tools/paw/.nia-build/paw build/paw-bootstrap/paw-step2
+build/paw-bootstrap/paw objects tools/paw
 ```
 
-The `build/` directory is ignored by this repository and is the current place
-for local bootstrap artifacts. Future package builds should distinguish build
-outputs from reusable caches; a project-local `.nia-build/` for outputs and
-`.nia-cache/` for reusable package/compiler cache entries is the likely shape,
-but `paw` does not own those directories yet.
+The `build/` directory is ignored by this repository and is used here for
+bootstrap binaries. Package build outputs go under `.nia-build/` inside the
+package root. Future package builds should keep reusable compiler or package
+cache entries separate from those build outputs; `.nia-cache/` is the likely
+shape for that cache, but `paw` does not own it yet.
 
 ## Current Limits
 
