@@ -34,15 +34,19 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     exe.library_path("../../target/release/deps").?;
     exe.library("nia_capi").?;
     exe.rpath("../../target/release/deps").?;
-    exe.dynamic_linker_auto()
+    exe.dynamic_linker_auto().?;
+    var step = build.step("build").?;
+    step.depend(&exe).?;
+    step.default()
 }
 ```
 
 Link options belong to the executable handle. They are not global package
 options. The current graph format accepts exactly one package and one
 executable; duplicate package entries, multiple executables, and link options
-that reference an unknown artifact are rejected. Relative paths in `build.nia`
-are resolved from the package root.
+that reference an unknown artifact are rejected. The default step must depend
+on the executable. Relative paths in `build.nia` are resolved from the package
+root.
 
 ## Commands
 
@@ -107,6 +111,7 @@ shape for that cache, but `paw` does not own it yet.
 `paw` is not a complete package manager yet. The current implementation has:
 
 - one package and one executable per build graph;
+- one default step with one executable dependency;
 - no dependency resolver;
 - no package cache;
 - no install or publish workflow;

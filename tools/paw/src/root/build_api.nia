@@ -29,6 +29,11 @@ pub struct Executable {
     name: &[char],
 }
 
+pub struct Step {
+    writer: &mut io::FileWriter,
+    name: &[char],
+}
+
 extend PackageOptions {
     pub fn name(&self) &[char] {
         self.name
@@ -78,6 +83,14 @@ extend Build {
         !{ writer: &mut self.writer, name: name }
     }
 
+    pub fn step(&mut self, name: &[char]) Error!Step {
+        if not is_graph_field(name) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("step\t{}\n", &[name]).as_paw_fmt_error().?;
+        !{ writer: &mut self.writer, name: name }
+    }
+
     pub fn finish(&mut self) Error!void {
         self.writer.flush().as_paw_error().?;
         self.file.close().as_paw_error().?;
@@ -120,6 +133,16 @@ extend Executable {
             return Error::InvalidInput!;
         }
         self.writer.print("dynamic-linker\t{}\tpath\t{}\n", &[self.name, path]).as_paw_fmt_error()
+    }
+}
+
+extend Step {
+    pub fn depend(&mut self, executable: &Executable) Error!void {
+        self.writer.print("step-executable\t{}\t{}\n", &[self.name, executable.name]).as_paw_fmt_error()
+    }
+
+    pub fn default(&mut self) Error!void {
+        self.writer.print("default-step\t{}\n", &[self.name]).as_paw_fmt_error()
     }
 }
 
