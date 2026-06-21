@@ -1,25 +1,29 @@
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, Term};
+using types::{Child, ChildState, ChildStateKind, ChildStatePayload, Error, ExitedChild, RunningChild, Signal, Term};
 
 extend Child {
     pub fn init(pid: os::ProcessId) Child {
-        { pid: pid, stdin: null, stdout: null, stderr: null, status: null }
+        {
+            state: ChildState::running(pid),
+            stdin: null,
+            stdout: null,
+            stderr: null,
+        }
     }
 
     pub fn from_spawn_result(result: os::SpawnResult) Child {
         {
-            pid: result.pid(),
+            state: ChildState::running(result.pid()),
             stdin: result.stdin(),
             stdout: result.stdout(),
             stderr: result.stderr(),
-            status: null,
         }
     }
 
     pub fn pid(&self) os::ProcessId {
-        self.pid
+        self.state.pid()
     }
 
     pub fn take_stdin(&mut self) ?os::FileHandle {
@@ -40,56 +44,58 @@ extend Child {
         handle
     }
 
-    pub fn close_stdin(&mut self) os::Error!void {
+    pub fn close_stdin(&mut self) Error!void {
         if let ?handle = self.take_stdin() {
-            handle.close()
+            handle.close().as_process_error(Error::CloseStdin)
         } else null {
             !{}
         }
     }
 
-    pub fn close_stdout(&mut self) os::Error!void {
+    pub fn close_stdout(&mut self) Error!void {
         if let ?handle = self.take_stdout() {
-            handle.close()
+            handle.close().as_process_error(Error::CloseStdout)
         } else null {
             !{}
         }
     }
 
-    pub fn close_stderr(&mut self) os::Error!void {
+    pub fn close_stderr(&mut self) Error!void {
         if let ?handle = self.take_stderr() {
-            handle.close()
+            handle.close().as_process_error(Error::CloseStderr)
         } else null {
             !{}
         }
     }
 
-    pub fn close_pipes(&mut self) os::Error!void {
+    pub fn close_pipes(&mut self) Error!void {
         self.close_stdin().?;
         self.close_stdout().?;
         self.close_stderr().?;
         !{}
     }
 
-    pub fn wait_raw(&mut self) os::Error!os::WaitStatus {
-        if let ?status = self.status {
+    pub fn wait_raw(&mut self) Error!os::WaitStatus {
+        if let ?status = self.state.status() {
             return !status;
         } else null {}
+        let pid = self.state.pid();
         self.close_stdin().?;
-        let status = os::wait(self.pid).?;
-        self.status = ?status;
+        let status = os::wait(pid).as_process_error(Error::Wait).?;
+        self.state = ChildState::exited(pid, status);
         self.close_stdout().?;
         self.close_stderr().?;
         !status
     }
 
-    pub fn try_wait_raw(&mut self) os::Error! ?os::WaitStatus {
-        if let ?status = self.status {
+    pub fn try_wait_raw(&mut self) Error! ?os::WaitStatus {
+        if let ?status = self.state.status() {
             return !(?status);
         } else null {}
-        let status = os::try_wait(self.pid).?;
+        let pid = self.state.pid();
+        let status = os::try_wait(pid).as_process_error(Error::TryWait).?;
         if let ?value = status {
-            self.status = ?value;
+            self.state = ChildState::exited(pid, value);
             self.close_pipes().?;
             !(?value)
         } else null {
@@ -97,12 +103,12 @@ extend Child {
         }
     }
 
-    pub fn wait(&mut self) os::Error!Term {
+    pub fn wait(&mut self) Error!Term {
         let status = self.wait_raw().?;
         !Term::from_wait_status(status)
     }
 
-    pub fn try_wait(&mut self) os::Error! ?Term {
+    pub fn try_wait(&mut self) Error! ?Term {
         let status = self.try_wait_raw().?;
         if let ?value = status {
             !(?Term::from_wait_status(value))
@@ -111,11 +117,89 @@ extend Child {
         }
     }
 
-    pub fn kill(&mut self) os::Error!Term {
-        if let ?status = self.status {
+    pub fn kill(&mut self) Error!Term {
+        self.kill_with(Signal::Term)
+    }
+
+    pub fn kill_with(&mut self, signal: Signal) Error!Term {
+        if let ?status = self.state.status() {
             return !Term::from_wait_status(status);
         } else null {}
-        os::kill(self.pid).?;
+        os::kill_with(self.state.pid(), signal as i32).as_process_error(Error::Kill).?;
         self.wait()
+    }
+}
+
+extend ChildState {
+    fn running(pid: os::ProcessId) ChildState {
+        {
+            kind: ChildStateKind::Running,
+            payload: { running: RunningChild::init(pid) },
+        }
+    }
+
+    fn exited(pid: os::ProcessId, status: os::WaitStatus) ChildState {
+        {
+            kind: ChildStateKind::Exited,
+            payload: { exited: ExitedChild::init(pid, status) },
+        }
+    }
+
+    fn pid(&self) os::ProcessId {
+        switch self.kind {
+            ChildStateKind::Running => self.payload.running.pid(),
+            ChildStateKind::Exited => self.payload.exited.pid(),
+        }
+    }
+
+    fn status(&self) ?os::WaitStatus {
+        switch self.kind {
+            ChildStateKind::Running => null,
+            ChildStateKind::Exited => ?self.payload.exited.status(),
+        }
+    }
+}
+
+extend RunningChild {
+    fn init(pid: os::ProcessId) RunningChild {
+        { pid: pid }
+    }
+
+    fn pid(&self) os::ProcessId {
+        self.pid
+    }
+}
+
+extend ExitedChild {
+    fn init(pid: os::ProcessId, status: os::WaitStatus) ExitedChild {
+        { pid: pid, status: status }
+    }
+
+    fn pid(&self) os::ProcessId {
+        self.pid
+    }
+
+    fn status(&self) os::WaitStatus {
+        self.status
+    }
+}
+
+extend os::Error {
+    fn as_process_error(self, context: Error) Error {
+        switch self {
+            os::Error::Invalid => Error::Invalid,
+            os::Error::System => Error::System,
+            _ => context,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn as_process_error(self, context: Error) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_process_error(context)!
+        }
     }
 }

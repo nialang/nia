@@ -23,6 +23,7 @@ pub using types::{
     OpenMode,
     ProcessId,
     SeekWhence,
+    SpawnError,
     SpawnOptions,
     SpawnResult,
     StdIo,
@@ -31,6 +32,10 @@ pub using types::{
 };
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
+
+pub fn sigterm() i32 {
+    types::sigterm
+}
 
 pub fn cwd() FileDescriptor {
     fd::cwd()
@@ -109,11 +114,11 @@ pub fn random(bytes: &mut [u8]) Errno!void {
     random_impl::random(bytes)
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Errno!ProcessId {
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
     process::spawn_raw(path, argv, envp)
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) Errno!SpawnResult {
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
     process::spawn(path, argv, envp, options)
 }
 
@@ -126,7 +131,11 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
 }
 
 pub fn kill(pid: ProcessId) Errno!void {
-    process::kill(pid)
+    process::kill_with(pid, types::sigterm)
+}
+
+pub fn kill_with(pid: ProcessId, signal: i32) Errno!void {
+    process::kill_with(pid, signal)
 }
 
 pub fn exit(code: i32) void {

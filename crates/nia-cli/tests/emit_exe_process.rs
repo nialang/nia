@@ -192,7 +192,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let message = b"ignored-output\0";
     var argv: [3]&u8 = [path.raw_ptr(), &message.*[0], 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdout(process::StdIo::Ignore);
+    command.set_stdout(process::StdIo::Ignore).exit().?;
     let term = if let !value = command.run() {
         value
     } else error! {
@@ -252,7 +252,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let script = b"echo ignored-error >&2\0";
     var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stderr(process::StdIo::Ignore);
+    command.set_stderr(process::StdIo::Ignore).exit().?;
     let term = if let !value = command.run() {
         value
     } else error! {
@@ -313,9 +313,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let script = b"cat >/dev/null; echo ignored-output; echo ignored-error >&2\0";
     var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdin(process::StdIo::Ignore);
-    command.set_stdout(process::StdIo::Ignore);
-    command.set_stderr(process::StdIo::Ignore);
+    command.set_stdin(process::StdIo::Ignore).exit().?;
+    command.set_stdout(process::StdIo::Ignore).exit().?;
+    command.set_stderr(process::StdIo::Ignore).exit().?;
     let term = if let !value = command.run() {
         value
     } else error! {
@@ -362,7 +362,6 @@ fn emit_exe_std_process_command_spawn_reports_exec_error() {
         &main,
         r#"
 using std;
-using std::os;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -377,7 +376,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let child = if let !value = command.spawn() {
         value
     } else error! {
-        if error == os::Error::NotFound {
+        if error == process::Error::SpawnExec {
             return !{};
         } else {
             return process::exit(2)!;
@@ -430,7 +429,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let script = b"printf pipe-output\0";
     var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdout(process::StdIo::Pipe);
+    command.set_stdout(process::StdIo::Pipe).exit().?;
     var child = if let !value = command.spawn() {
         value
     } else error! {
@@ -499,6 +498,79 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit() {
+    let root = temp_dir("emit_exe_std_process_pipe_stdout_reports_eof_after_child_exit");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/true\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_stdout(process::StdIo::Pipe).exit().?;
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    let handle = if let ?value = child.take_stdout() {
+        value
+    } else null {
+        return process::exit(3)!;
+    };
+    let term = if let !value = child.wait() {
+        value
+    } else error! {
+        return process::exit(4)!;
+    };
+    if not term.exited_success() {
+        return process::exit(5)!;
+    }
+    var byte: [1]u8 = [0];
+    let amount = if let !value = handle.read_some(&mut byte[..]) {
+        value
+    } else error! {
+        return process::exit(6)!;
+    };
+    handle.close().exit().?;
+    if amount != 0usize {
+        return process::exit(7)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process pipe stdout eof");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output =
+        Command::new(&exe).output_timeout("run emitted std process pipe stdout eof executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_process_command_can_pipe_stdin_and_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_pipe_stdin_and_stdout");
     let main = root.join("main.nia");
@@ -519,8 +591,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdin(process::StdIo::Pipe);
-    command.set_stdout(process::StdIo::Pipe);
+    command.set_stdin(process::StdIo::Pipe).exit().?;
+    command.set_stdout(process::StdIo::Pipe).exit().?;
     var child = if let !value = command.spawn() {
         value
     } else error! {
@@ -610,8 +682,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdin(process::StdIo::Pipe);
-    command.set_stdout(process::StdIo::Ignore);
+    command.set_stdin(process::StdIo::Pipe).exit().?;
+    command.set_stdout(process::StdIo::Ignore).exit().?;
     var child = if let !value = command.spawn() {
         value
     } else error! {
@@ -806,8 +878,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdin(process::StdIo::Pipe);
-    command.set_stdout(process::StdIo::Ignore);
+    command.set_stdin(process::StdIo::Pipe).exit().?;
+    command.set_stdout(process::StdIo::Ignore).exit().?;
     var child = if let !value = command.spawn() {
         value
     } else error! {
@@ -877,8 +949,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let script = b"while true; do sleep 1; done\0";
     var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     var command = process::Command::init(path, &argv[0], init.raw_envp());
-    command.set_stdout(process::StdIo::Ignore);
-    command.set_stderr(process::StdIo::Ignore);
+    command.set_stdout(process::StdIo::Ignore).exit().?;
+    command.set_stderr(process::StdIo::Ignore).exit().?;
     var child = if let !value = command.spawn() {
         value
     } else error! {
@@ -930,6 +1002,89 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
 
     let output = Command::new(&exe).output_timeout("run emitted std process kill executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_process_kill_with_uses_requested_signal() {
+    let root = temp_dir("emit_exe_std_process_kill_with_uses_requested_signal");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/sh\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    let flag = b"-c\0";
+    let script = b"while true; do sleep 1; done\0";
+    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_stdout(process::StdIo::Ignore).exit().?;
+    command.set_stderr(process::StdIo::Ignore).exit().?;
+    var child = if let !value = command.spawn() {
+        value
+    } else error! {
+        return process::exit(2)!;
+    };
+    let term = if let !value = child.kill_with(process::Signal::Kill) {
+        value
+    } else error! {
+        return process::exit(3)!;
+    };
+    let signal = if let ?value = term.signal_code() {
+        value
+    } else null {
+        return process::exit(4)!;
+    };
+    if signal != 9 {
+        return process::exit(5)!;
+    }
+    let cached = if let !value = child.try_wait() {
+        value
+    } else error! {
+        return process::exit(6)!;
+    };
+    if let ?cached_term = cached {
+        let cached_signal = if let ?value = cached_term.signal_code() {
+            value
+        } else null {
+            return process::exit(7)!;
+        };
+        if cached_signal != 9 {
+            return process::exit(8)!;
+        }
+    } else null {
+        return process::exit(9)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process kill with signal");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output =
+        Command::new(&exe).output_timeout("run emitted std process kill with signal executable");
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -996,6 +1151,66 @@ pub fn main(init: process::Init) process::ExitCode!void {{
     );
 
     let output = Command::new(&exe).output_timeout("run emitted std process cwd executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_process_command_reports_cwd_spawn_stage() {
+    let root = temp_dir("emit_exe_std_process_command_reports_cwd_spawn_stage");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let path_bytes = b"/bin/true\0";
+    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    let cwd_bytes = b"/definitely/not/a/nia/process-test-cwd\0";
+    let cwd = if let ?value = std::CStr::from_bytes(cwd_bytes) {
+        value
+    } else null {
+        return process::exit(2)!;
+    };
+    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    command.set_cwd(cwd);
+    let child = if let !value = command.spawn() {
+        value
+    } else error! {
+        if error == process::Error::SpawnCwd {
+            return !{};
+        } else {
+            return process::exit(3)!;
+        }
+    };
+    _ = child;
+    return process::exit(4)!;
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process cwd stage");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe).output_timeout("run emitted std process cwd stage executable");
     assert_eq!(output.status.code(), Some(0));
 }
 

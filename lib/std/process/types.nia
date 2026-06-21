@@ -20,6 +20,28 @@ pub enum StdIo: i32 {
     Pipe = 3,
 }
 
+pub enum Error: i32 {
+    Invalid = 22,
+    SpawnSetup = 101,
+    SpawnStdio = 102,
+    SpawnCwd = 103,
+    SpawnExec = 104,
+    Wait = 120,
+    TryWait = 121,
+    Kill = 122,
+    CloseStdin = 130,
+    CloseStdout = 131,
+    CloseStderr = 132,
+    System = 255,
+    _,
+}
+
+pub enum Signal: i32 {
+    Term = 15,
+    Kill = 9,
+    _,
+}
+
 pub struct Term {
     kind: TermKind,
     code: i32,
@@ -63,12 +85,35 @@ pub struct EnvVar {
     text: cstr::CStr,
 }
 
-pub struct Child {
+pub enum ChildStateKind: i32 {
+    Running = 1,
+    Exited = 2,
+}
+
+pub struct RunningChild {
     pid: os::ProcessId,
+}
+
+pub struct ExitedChild {
+    pid: os::ProcessId,
+    status: os::WaitStatus,
+}
+
+pub union ChildStatePayload {
+    running: RunningChild,
+    exited: ExitedChild,
+}
+
+pub struct ChildState {
+    kind: ChildStateKind,
+    payload: ChildStatePayload,
+}
+
+pub struct Child {
+    state: ChildState,
     stdin: ?os::FileHandle,
     stdout: ?os::FileHandle,
     stderr: ?os::FileHandle,
-    status: ?os::WaitStatus,
 }
 
 pub struct Init {

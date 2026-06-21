@@ -2,7 +2,7 @@ using pkg::cstr;
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, Command, StdIo, Term};
+using types::{Child, Command, Error, StdIo, Term};
 
 extend Command {
     pub fn init(path: cstr::CStr, argv: &&u8, envp: &&u8) Command {
@@ -45,64 +45,114 @@ extend Command {
         self.cwd
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) void {
+    pub fn set_stdin(&mut self, behavior: StdIo) Error!void {
+        _ = behavior.as_os_stdio().?;
         self.stdin = behavior;
+        !{}
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) void {
+    pub fn set_stdout(&mut self, behavior: StdIo) Error!void {
+        _ = behavior.as_os_stdio().?;
         self.stdout = behavior;
+        !{}
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) void {
+    pub fn set_stderr(&mut self, behavior: StdIo) Error!void {
+        _ = behavior.as_os_stdio().?;
         self.stderr = behavior;
+        !{}
     }
 
     pub fn set_cwd(&mut self, cwd: cstr::CStr) void {
         self.cwd = ?cwd;
     }
 
-    pub fn spawn(&self) os::Error!Child {
+    pub fn spawn(&self) Error!Child {
         var options = os::SpawnOptions::init();
-        options.set_stdin(self.stdin.as_os_stdio());
-        options.set_stdout(self.stdout.as_os_stdio());
-        options.set_stderr(self.stderr.as_os_stdio());
+        options.set_stdin(self.stdin.as_os_stdio().?).as_process_setup_error().?;
+        options.set_stdout(self.stdout.as_os_stdio().?).as_process_setup_error().?;
+        options.set_stderr(self.stderr.as_os_stdio().?).as_process_setup_error().?;
         if let ?cwd = self.cwd {
             options.set_cwd(cwd.raw_ptr());
         } else null {}
         spawn_with_options(self.path.raw_ptr(), self.argv, self.envp, options)
     }
 
-    pub fn run(&self) os::Error!Term {
+    pub fn run(&self) Error!Term {
         var child = self.spawn().?;
         child.wait()
     }
 }
 
 extend StdIo {
-    fn as_os_stdio(self) os::StdIo {
+    fn as_os_stdio(self) Error!os::StdIo {
         switch self {
-            StdIo::Inherit => os::StdIo::Inherit,
-            StdIo::Ignore => os::StdIo::Ignore,
-            StdIo::Pipe => os::StdIo::Pipe,
-            _ => os::StdIo::Inherit,
+            StdIo::Inherit => !os::StdIo::Inherit,
+            StdIo::Ignore => !os::StdIo::Ignore,
+            StdIo::Pipe => !os::StdIo::Pipe,
+            _ => Error::Invalid!,
         }
     }
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) os::Error!Child {
-    let pid = os::spawn_raw(path, argv, envp).?;
+pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
+    let pid = os::spawn_raw(path, argv, envp).as_process_error().?;
     !Child::init(pid)
 }
 
-pub fn spawn_with_options(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) os::Error!Child {
-    let result = os::spawn(path, argv, envp, options).?;
+pub fn spawn_with_options(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
+    let result = os::spawn(path, argv, envp, options).as_process_error().?;
     !Child::from_spawn_result(result)
 }
 
-pub fn spawn(command: &Command) os::Error!Child {
+pub fn spawn(command: &Command) Error!Child {
     command.spawn()
 }
 
-pub fn run(command: &Command) os::Error!Term {
+pub fn run(command: &Command) Error!Term {
     command.run()
+}
+
+extend os::SpawnError {
+    fn as_process_error(self) Error {
+        switch self {
+            os::SpawnError::Invalid => Error::Invalid,
+            os::SpawnError::Setup => Error::SpawnSetup,
+            os::SpawnError::Stdio => Error::SpawnStdio,
+            os::SpawnError::Cwd => Error::SpawnCwd,
+            os::SpawnError::Exec => Error::SpawnExec,
+            os::SpawnError::System => Error::System,
+            _ => Error::System,
+        }
+    }
+}
+
+extend[T] os::SpawnError!T {
+    fn as_process_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_process_error()!
+        }
+    }
+}
+
+extend os::Error {
+    fn as_process_setup_error(self) Error {
+        switch self {
+            os::Error::Invalid => Error::Invalid,
+            os::Error::System => Error::System,
+            _ => Error::SpawnSetup,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    fn as_process_setup_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_process_setup_error()!
+        }
+    }
 }
