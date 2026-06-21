@@ -9,7 +9,7 @@ fn lowers_statement_switch_into_switch_terminator() {
         switch_default_arm(TypedSwitchArmBody::Expr(int_expr(20))),
     ]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch {
         arms,
         default,
@@ -56,7 +56,7 @@ fn statement_switch_without_default_falls_back_to_merge() {
         TypedSwitchArmBody::Expr(int_expr(10)),
     )]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch {
         default, fallback, ..
     } = function_body.blocks[0].terminator
@@ -83,7 +83,7 @@ fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
         switch_default_arm(TypedSwitchArmBody::Expr(int_expr(30))),
     ]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body
@@ -180,7 +180,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body
@@ -295,7 +295,7 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     let target_cache_count = function_body
         .blocks
@@ -416,7 +416,7 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(
         !function_body.blocks.iter().any(|block| {
@@ -468,7 +468,7 @@ fn statement_switch_arm_block_exits_arm_scope_to_merge() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, fallback, .. } = &function_body.blocks[0].terminator
     else {
         panic!("expected switch terminator");
@@ -493,7 +493,7 @@ fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, .. } = &function_body.blocks[0].terminator else {
         panic!("expected switch terminator");
     };
@@ -533,7 +533,7 @@ fn collects_unique_locals_from_statement_switch_arms() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body

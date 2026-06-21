@@ -116,7 +116,16 @@ impl<'a> BodyChecker<'a> {
         let mut obligations = Vec::new();
         self.push_method_owner_trait_obligations(def_id, &mut obligations);
         if let Some(signature) = self.signatures.functions.get(&def_id).cloned() {
-            self.push_where_predicate_obligations(&mut obligations, &signature.where_predicates);
+            if self.program_functions.is_empty()
+                || self
+                    .program_functions
+                    .contains_key(&self.global_def_id(def_id))
+            {
+                self.push_where_predicate_obligations(
+                    &mut obligations,
+                    &signature.where_predicates,
+                );
+            }
         }
         obligations
     }
@@ -865,6 +874,9 @@ impl<'a> BodyChecker<'a> {
             .current_def_id
             .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
             .and_then(|def_id| {
+                if !self.program_functions.is_empty() {
+                    self.program_functions.get(&self.global_def_id(def_id))?;
+                }
                 let signature = self.signatures.functions.get(&def_id)?.clone();
                 Some(self.function_signature_trait_obligations(def_id, &signature))
             })

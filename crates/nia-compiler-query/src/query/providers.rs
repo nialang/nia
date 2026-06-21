@@ -54,7 +54,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
     pub(super) backend_lowering:
         fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
-    pub(super) program_diagnostics: fn(&QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic>,
 }
 
 impl Default for CompilerQueryProviders {
@@ -97,22 +96,69 @@ impl Default for CompilerQueryProviders {
             checked_modules: provide_checked_modules,
             monomorphization: provide_monomorphization,
             backend_lowering: provide_backend_lowering,
-            program_diagnostics: provide_program_diagnostics,
         }
     }
 }
 
 pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
     time_provider(db.query(CompilerTimingsQuery), "checked_program", || {
+        let graph = db.query(ModuleGraphQuery);
+        let optimization = db.query(CompilerOptimizationQuery);
+        let mut diagnostics = early_program_diagnostics(db);
+        let modules = checked_modules_for_codegen(db);
+        diagnostics.extend(checked_module_diagnostics(&modules));
+        if !diagnostics.is_empty() {
+            return CheckedProgram {
+                graph,
+                optimization,
+                modules,
+                monomorphization: empty_monomorphization(),
+                backend_lowering: empty_backend_lowering(optimization),
+                diagnostics,
+            };
+        }
+        let monomorphization = db.query(MonomorphizationQuery);
+        diagnostics.extend(monomorphization_diagnostics(&modules, &monomorphization));
+        if !diagnostics.is_empty() {
+            return CheckedProgram {
+                graph,
+                optimization,
+                modules,
+                monomorphization,
+                backend_lowering: empty_backend_lowering(optimization),
+                diagnostics,
+            };
+        }
+        let backend_lowering = db.query(BackendLoweringQuery);
+        diagnostics.extend(backend_lowering_diagnostics(&modules, &backend_lowering));
         CheckedProgram {
-            graph: db.query(ModuleGraphQuery),
-            optimization: db.query(CompilerOptimizationQuery),
-            modules: checked_modules_for_codegen(db),
-            monomorphization: db.query(MonomorphizationQuery),
-            backend_lowering: db.query(BackendLoweringQuery),
-            diagnostics: db.query(ProgramDiagnosticsQuery),
+            graph,
+            optimization,
+            modules,
+            monomorphization,
+            backend_lowering,
+            diagnostics,
         }
     })
+}
+
+fn empty_monomorphization() -> nia_monomorphize::Monomorphization {
+    nia_monomorphize::Monomorphization {
+        instances: Vec::new(),
+        type_interners: HashMap::new(),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn empty_backend_lowering(optimization: OptimizationPolicy) -> nia_backend_lower::BackendLowering {
+    nia_backend_lower::BackendLowering {
+        program: nia_backend_ir::BackendProgram {
+            modules: Vec::new(),
+        },
+        optimization,
+        optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
+    }
 }
 
 fn time_provider<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
@@ -362,6 +408,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
             .copied()
             .map(|module_id| db.query(ModuleDefsQuery(module_id)))
             .collect::<Vec<_>>();
+        let normalizations = db.query(ProgramTypeNormalizationsQuery);
         let modules = module_ids
             .iter()
             .copied()
@@ -377,8 +424,30 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
                 },
             )
             .collect::<Vec<_>>();
+        let extension_modules = module_ids
+            .iter()
+            .zip(defs.iter())
+            .zip(type_lowerings.iter())
+            .zip(item_signatures.iter())
+            .map(
+                |(((module_id, defs), lowering), signatures)| ExtensionModuleInput {
+                    module_id: *module_id,
+                    defs,
+                    lowering,
+                    signatures,
+                    normalization: normalizations
+                        .get(module_id)
+                        .expect("missing type normalization"),
+                },
+            )
+            .collect::<Vec<_>>();
+        let invalid_trait_impl_method_ids =
+            crate::program_signatures::collect_invalid_trait_impl_method_ids(&extension_modules);
         Arc::new(ProgramSignatures {
-            functions: collect_program_functions(&modules),
+            functions: collect_program_functions_excluding(
+                &modules,
+                &invalid_trait_impl_method_ids,
+            ),
             globals: collect_program_globals(&modules),
             comptimes: collect_program_comptimes(&modules),
             structs: collect_program_structs(&modules),
@@ -386,7 +455,9 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
             enums: collect_program_enums(&modules),
             traits: collect_program_traits(&modules),
             type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
-            trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
+            trait_impls: crate::program_signatures::collect_valid_program_trait_impls(
+                &extension_modules,
+            ),
         })
     })
 }
@@ -1005,13 +1076,11 @@ pub(super) fn provide_monomorphization(
         nia_monomorphize::collect_monomorphizations(
             &checked_modules
                 .iter()
-                .map(|module| MonomorphizeModuleInput {
+                .zip(function_bodies.iter())
+                .map(|(module, function_bodies)| MonomorphizeModuleInput {
                     module_id: module.id,
                     defs: &module.defs,
-                    interner: &function_bodies
-                        .get(&module.id)
-                        .expect("missing lowered function bodies")
-                        .interner,
+                    interner: &function_bodies.interner,
                     normalization: &module.type_normalization,
                     comptime: &module.comptime,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
@@ -1036,15 +1105,24 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
 
 fn function_bodies_from_checked_modules(
     checked_modules: &[CheckedModule],
-) -> HashMap<ModuleId, LoweredFunctionBodies> {
+) -> Vec<LoweredFunctionBodies> {
     checked_modules
         .iter()
         .map(|module| {
-            let (interner, bodies) = nia_function_lower::lower_function_bodies_with_interner(
+            let lowered = nia_function_lower::lower_function_bodies_with_interner(
                 module.body_ir.function_bodies.iter(),
                 &module.body_ir.interner,
-            );
-            (module.id, LoweredFunctionBodies { interner, bodies })
+            )
+            .unwrap_or_else(|diagnostics| nia_function_lower::LoweredFunctionBodies {
+                interner: module.body_ir.interner.clone(),
+                bodies: HashMap::new(),
+                diagnostics,
+            });
+            LoweredFunctionBodies {
+                interner: lowered.interner,
+                bodies: lowered.bodies,
+                diagnostics: lowered.diagnostics,
+            }
         })
         .collect()
 }
@@ -1076,16 +1154,7 @@ fn provide_backend_lowering_inner(
                 .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
                 .collect::<Vec<_>>();
             let extension_methods = db.query(ExtensionMethodsQuery);
-            let function_bodies_by_id = function_bodies_from_checked_modules(&checked_modules);
-            let function_bodies = checked_modules
-                .iter()
-                .map(|checked_module| {
-                    function_bodies_by_id
-                        .get(&checked_module.id)
-                        .expect("missing lowered function bodies")
-                        .clone()
-                })
-                .collect::<Vec<_>>();
+            let function_bodies = function_bodies_from_checked_modules(&checked_modules);
             (
                 active_item_trees,
                 visible_extensions,
@@ -1094,6 +1163,17 @@ fn provide_backend_lowering_inner(
             )
         },
     );
+    let function_lowering_diagnostics =
+        function_lowering_diagnostics(&checked_modules, &function_bodies);
+    if !function_lowering_diagnostics.is_empty() {
+        return nia_backend_lower::BackendLowering {
+            diagnostics: function_lowering_diagnostics
+                .into_iter()
+                .map(|program_diagnostic| program_diagnostic.diagnostic)
+                .collect(),
+            ..empty_backend_lowering(db.query(CompilerOptimizationQuery))
+        };
+    }
     let indexes = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.indexes",
@@ -1107,6 +1187,7 @@ fn provide_backend_lowering_inner(
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
                 checked_modules: &checked_modules,
+                runtime: db.query(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
@@ -1139,15 +1220,7 @@ fn backend_timing_mode(timings: TimingMode) -> nia_backend_lower::BackendTimingM
     }
 }
 
-pub(super) fn provide_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_diagnostics",
-        || provide_program_diagnostics_inner(db),
-    )
-}
-
-fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
+fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = db.query(ProgramLoadDiagnosticsQuery);
     for module_id in db.query(LoadedModulesQuery) {
         let parse_errors = db.query(ModuleParseErrorsQuery(module_id));
@@ -1185,9 +1258,12 @@ fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<Progr
                 diagnostic,
             }),
     );
+    diagnostics
+}
 
-    let checked_modules = db.query(CheckedModulesQuery);
-    for checked in &checked_modules {
+fn checked_module_diagnostics(checked_modules: &[CheckedModule]) -> Vec<ProgramDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for checked in checked_modules {
         diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
         diagnostics.extend(module_diagnostics(
             &checked.path,
@@ -1235,34 +1311,64 @@ fn provide_program_diagnostics_inner(db: &QueryDb<CompilerContext>) -> Vec<Progr
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
     }
-
-    let monomorphization = db.query(MonomorphizationQuery);
-    diagnostics.extend(
-        monomorphization
-            .diagnostics
-            .iter()
-            .cloned()
-            .map(|diagnostic| ProgramDiagnostic {
-                path: path_for_diagnostic_span(
-                    &checked_modules,
-                    diagnostic.primary_span().unwrap_or_default(),
-                ),
-                diagnostic,
-            }),
-    );
-    let backend_lowering = db.query(BackendLoweringQuery);
-    diagnostics.extend(
-        backend_lowering
-            .diagnostics
-            .iter()
-            .cloned()
-            .map(|diagnostic| ProgramDiagnostic {
-                path: path_for_diagnostic_span(
-                    &checked_modules,
-                    diagnostic.primary_span().unwrap_or_default(),
-                ),
-                diagnostic,
-            }),
-    );
     diagnostics
+}
+
+fn monomorphization_diagnostics(
+    checked_modules: &[CheckedModule],
+    monomorphization: &nia_monomorphize::Monomorphization,
+) -> Vec<ProgramDiagnostic> {
+    monomorphization
+        .diagnostics
+        .iter()
+        .cloned()
+        .map(|diagnostic| ProgramDiagnostic {
+            path: path_for_diagnostic_span(
+                checked_modules,
+                diagnostic.primary_span().unwrap_or_default(),
+            ),
+            diagnostic,
+        })
+        .collect()
+}
+
+fn function_lowering_diagnostics(
+    checked_modules: &[CheckedModule],
+    function_bodies: &[LoweredFunctionBodies],
+) -> Vec<ProgramDiagnostic> {
+    checked_modules
+        .iter()
+        .zip(function_bodies.iter())
+        .flat_map(|(module, lowered)| {
+            lowered
+                .diagnostics
+                .iter()
+                .map(|diagnostic| ProgramDiagnostic {
+                    path: module.path.clone(),
+                    diagnostic: Diagnostic::internal_error_at(
+                        codes::INVALID_FUNCTION_IR,
+                        diagnostic.span,
+                        diagnostic.message.clone(),
+                    ),
+                })
+        })
+        .collect()
+}
+
+fn backend_lowering_diagnostics(
+    checked_modules: &[CheckedModule],
+    backend_lowering: &nia_backend_lower::BackendLowering,
+) -> Vec<ProgramDiagnostic> {
+    backend_lowering
+        .diagnostics
+        .iter()
+        .cloned()
+        .map(|diagnostic| ProgramDiagnostic {
+            path: path_for_diagnostic_span(
+                checked_modules,
+                diagnostic.primary_span().unwrap_or_default(),
+            ),
+            diagnostic,
+        })
+        .collect()
 }

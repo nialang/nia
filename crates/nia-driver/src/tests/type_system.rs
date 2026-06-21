@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::{CheckRequest, Driver, EmitLlvmRequest, NiaOptimizationLevel};
+use crate::{
+    CheckRequest, Driver, DriverError, DriverOutput, EmitLlvmRequest, NiaOptimizationLevel,
+};
 use nia_ids::ModuleId;
 
 #[test]
@@ -888,6 +890,25 @@ fn main() i32 {
 }
 
 #[test]
+fn driver_output_converts_internal_panics_to_diagnostics() {
+    let output = DriverOutput::catch_ice(|| -> DriverOutput<()> {
+        panic!("Nia ICE: forced driver failure");
+    });
+
+    let Err(DriverError::InternalDiagnostic(diagnostic)) = output.result else {
+        panic!("expected internal diagnostic");
+    };
+    assert_eq!(diagnostic.code.as_str(), "I0001");
+    assert!(diagnostic.summary.contains("forced driver failure"));
+    let rendered = crate::render_driver_error(
+        &DriverError::InternalDiagnostic(diagnostic),
+        Some("main.nia"),
+        Some("fn main() i32 { 0 }\n"),
+    );
+    assert!(rendered.contains("internal compiler error"), "{rendered}");
+}
+
+#[test]
 fn driver_facade_formats_inspection_outputs() {
     let tokens = crate::tokens_inspection("fn main() i32 { 0 }\n");
     assert!(tokens.text.contains("Fn"));
@@ -916,9 +937,9 @@ fn main() i32 {
 "#,
     );
 
-    let program = Driver::new().check(CheckRequest::new(
+    let program = checked_program_from_output(Driver::new().check(CheckRequest::new(
         root.join("main.nia").to_string_lossy().into_owned(),
-    ));
+    )));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let report = crate::optimization_report(&program);
@@ -939,7 +960,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = driver.check(CheckRequest::new("main.nia"));
+    let program = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert_eq!(program.modules.len(), 1);
@@ -950,12 +971,12 @@ fn driver_invalidates_reused_loader_sources() {
     let driver = Driver::new();
     driver.set_source("main.nia", "fn main() i32 { 1 }");
 
-    let first = driver.check(CheckRequest::new("main.nia"));
+    let first = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
     driver.set_source("main.nia", "fn main() i32 { true }");
 
-    let second = driver.check(CheckRequest::new("main.nia"));
+    let second = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
     assert!(!second.diagnostics.is_empty());
 }
 

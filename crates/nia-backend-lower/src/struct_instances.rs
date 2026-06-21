@@ -423,8 +423,10 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Trap
+            FunctionExprKind::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+            }
+            FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -567,12 +569,21 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(place.ty, seen, out);
-        if let FunctionPlaceBase::Deref(expr) = &place.base {
-            self.collect_struct_instances_expr(expr, seen, out);
+        match &place.base {
+            FunctionPlaceBase::Deref(expr) => {
+                self.collect_struct_instances_expr(expr, seen, out);
+            }
+            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+            }
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Error => {
+                    crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
+                }
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
@@ -1015,8 +1026,10 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Trap
+            FunctionExprKind::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+            }
+            FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -1159,12 +1172,21 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(place.ty, seen, out);
-        if let FunctionPlaceBase::Deref(expr) = &place.base {
-            self.collect_union_instances_expr(expr, seen, out);
+        match &place.base {
+            FunctionPlaceBase::Deref(expr) => {
+                self.collect_union_instances_expr(expr, seen, out);
+            }
+            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+            }
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Error => {
+                    crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
+                }
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_union_instances_expr(expr, seen, out);
                 }

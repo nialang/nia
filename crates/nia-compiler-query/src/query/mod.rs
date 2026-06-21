@@ -5,7 +5,7 @@ use crate::{
     program_signatures::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
         VisibleExtensionsInput, collect_extension_associated_values, collect_extension_methods,
-        collect_program_comptimes, collect_program_enums, collect_program_functions,
+        collect_program_comptimes, collect_program_enums, collect_program_functions_excluding,
         collect_program_globals, collect_program_structs, collect_program_traits,
         collect_program_unions, visible_extensions_for_module,
     },
@@ -38,8 +38,15 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::{HashMap, HashSet},
+    env, fs,
+    hash::{Hash, Hasher},
+    io,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
+    thread,
+    time::{Duration, Instant},
 };
 
 mod backend_lowering;
@@ -111,6 +118,7 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
+        let _permit = compiler_check_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(CheckedProgramQuery)
         })) {
@@ -170,7 +178,7 @@ impl CompilerDatabase {
         if diff.loaded_modules_changed {
             invalidation.extend(self.db.invalidate(LoadedModulesQuery));
         }
-        if diff.program_diagnostics_changed {
+        if diff.loaded_diagnostics_changed {
             invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
         }
         if diff.target_changed {
@@ -219,6 +227,207 @@ impl CompilerDatabase {
         }
         invalidation
     }
+}
+
+fn compiler_check_permit() -> CompilerCheckPermit {
+    if !compiler_check_slots_enabled() {
+        return CompilerCheckPermit { slot: None };
+    }
+    CompilerCheckPermit {
+        slot: Some(acquire_compiler_check_slot()),
+    }
+}
+
+fn compiler_check_slots_enabled() -> bool {
+    cfg!(debug_assertions)
+        && (env_limit("NIA_COMPILER_CHECK_LIMIT").is_some() || current_exe_is_test_binary())
+}
+
+fn current_exe_is_test_binary() -> bool {
+    env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.ends_with("deps")))
+        .unwrap_or(false)
+}
+
+struct CompilerCheckPermit {
+    slot: Option<PathBuf>,
+}
+
+impl Drop for CompilerCheckPermit {
+    fn drop(&mut self) {
+        if let Some(slot) = self.slot.take() {
+            let _ = fs::remove_dir_all(slot);
+        }
+    }
+}
+
+fn acquire_compiler_check_slot() -> PathBuf {
+    const PERMIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+    const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+
+    let root = compiler_check_slot_root();
+    fs::create_dir_all(&root).expect("create compiler check slot root");
+    let start = Instant::now();
+    let mut sleep = Duration::from_millis(10);
+    loop {
+        for index in 0..compiler_check_limit() {
+            let slot = root.join(index.to_string());
+            match fs::create_dir(&slot) {
+                Ok(()) => {
+                    write_process_owner(&slot);
+                    return slot;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    reclaim_stale_compiler_check_slot(&slot, STALE_AFTER);
+                }
+                Err(error) => panic!("create compiler check slot {}: {error}", slot.display()),
+            }
+        }
+        if start.elapsed() >= PERMIT_TIMEOUT {
+            panic!(
+                "timed out after {PERMIT_TIMEOUT:?} waiting for compiler check slot in {}",
+                root.display()
+            );
+        }
+        thread::sleep(sleep);
+        sleep = (sleep * 2).min(Duration::from_millis(250));
+    }
+}
+
+fn compiler_check_limit() -> usize {
+    const MAX_CHECKS: usize = 4;
+    const BYTES_PER_CHECK: usize = 1024 * 1024 * 1024;
+
+    if let Some(limit) = env_limit("NIA_COMPILER_CHECK_LIMIT") {
+        return limit;
+    }
+    let cpu_limit = available_parallelism().clamp(1, MAX_CHECKS);
+    let memory_limit = memory_limited_parallelism(BYTES_PER_CHECK).unwrap_or(cpu_limit);
+    cpu_limit.min(memory_limit).clamp(1, MAX_CHECKS)
+}
+
+fn env_limit(name: &str) -> Option<usize> {
+    env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+}
+
+fn compiler_check_slot_root() -> PathBuf {
+    let mut root = env::temp_dir();
+    root.push("nia_compiler_check_slots");
+    root.push(workspace_slot_namespace());
+    root
+}
+
+fn workspace_slot_namespace() -> String {
+    let mut hasher = DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn reclaim_stale_compiler_check_slot(slot: &Path, stale_after: Duration) {
+    if compiler_check_slot_owner_is_alive(slot) {
+        return;
+    }
+    if compiler_check_slot_owner_is_unknown(slot)
+        && !compiler_check_slot_is_stale_by_age(slot, stale_after)
+    {
+        return;
+    }
+    let _ = fs::remove_dir_all(slot);
+}
+
+fn compiler_check_slot_owner_is_unknown(slot: &Path) -> bool {
+    read_process_owner(slot).is_none()
+}
+
+fn compiler_check_slot_owner_is_alive(slot: &Path) -> bool {
+    let Some((pid, start_time)) = read_process_owner(slot) else {
+        return false;
+    };
+    process_is_alive(pid, start_time)
+}
+
+fn write_process_owner(slot: &Path) {
+    let pid = std::process::id();
+    let start_time = process_start_time(pid).unwrap_or(0);
+    let _ = fs::write(slot.join("owner"), format!("{pid} {start_time}"));
+}
+
+fn read_process_owner(slot: &Path) -> Option<(u32, u64)> {
+    let owner = fs::read_to_string(slot.join("owner")).ok()?;
+    let mut parts = owner.split_whitespace();
+    let pid = parts.next()?.parse().ok()?;
+    let start_time = parts.next()?.parse().ok()?;
+    Some((pid, start_time))
+}
+
+fn compiler_check_slot_is_stale_by_age(slot: &Path, stale_after: Duration) -> bool {
+    fs::metadata(slot)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|elapsed| elapsed >= stale_after)
+}
+
+#[cfg(target_os = "linux")]
+fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
+    let Some(start_time) = process_start_time(pid) else {
+        return false;
+    };
+    expected_start_time == 0 || start_time == expected_start_time
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn process_start_time(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_start_time(_pid: u32) -> Option<u64> {
+    None
+}
+
+fn available_parallelism() -> usize {
+    thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+}
+
+fn memory_limited_parallelism(bytes_per_slot: usize) -> Option<usize> {
+    let mem_available_kb = linux_mem_available_kb()?;
+    let available_bytes = mem_available_kb.saturating_mul(1024);
+    Some((available_bytes / bytes_per_slot).max(1))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_mem_available_kb() -> Option<usize> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    for line in meminfo.lines() {
+        let Some(rest) = line.strip_prefix("MemAvailable:") else {
+            continue;
+        };
+        return rest.split_whitespace().next()?.parse().ok();
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_mem_available_kb() -> Option<usize> {
+    None
 }
 
 impl std::fmt::Debug for CompilerDatabase {
@@ -511,7 +720,7 @@ fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
 struct CompilerInputDiff {
     graph_changed: bool,
     loaded_modules_changed: bool,
-    program_diagnostics_changed: bool,
+    loaded_diagnostics_changed: bool,
     target_changed: bool,
     runtime_changed: bool,
     optimization_changed: bool,
@@ -525,7 +734,7 @@ impl CompilerInputDiff {
         Self {
             graph_changed: old.loaded.graph != new.loaded.graph,
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new),
-            program_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
+            loaded_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
             target_changed: old.target != new.target,
             runtime_changed: old.runtime != new.runtime,
             optimization_changed: old.optimization != new.optimization,

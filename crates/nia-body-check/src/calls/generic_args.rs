@@ -63,7 +63,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn effective_generics_for_def(&self, def_id: GlobalDefId) -> Vec<String> {
+    pub(crate) fn effective_generics_for_def(&self, def_id: GlobalDefId) -> Vec<String> {
         let mut generics = self
             .extensions
             .targets()

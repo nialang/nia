@@ -256,8 +256,10 @@ fn collect_function_refs_from_expr(
                 collect_function_refs_from_expr(module_id, end, refs);
             }
         }
-        FunctionExprKind::Error
-        | FunctionExprKind::Integer(_)
+        FunctionExprKind::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+        }
+        FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
         | FunctionExprKind::ByteString(_)
@@ -395,14 +397,20 @@ fn collect_function_refs_from_place(
 ) {
     match &place.base {
         FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(module_id, expr, refs),
-        FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
+        FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+        FunctionPlaceBase::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+        }
     }
     for elem in &place.elems {
         match elem {
             FunctionPlaceElem::Index(expr) => {
                 collect_function_refs_from_expr(module_id, expr, refs)
             }
-            FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+            FunctionPlaceElem::Field(_) => {}
+            FunctionPlaceElem::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
+            }
         }
     }
 }

@@ -1037,8 +1037,9 @@ impl FunctionLowerer {
                 FunctionTerminator::Branch { target, span }
             }
             Fallthrough::StoreThenBranch { local_id, target } => {
+                let mut tail_terminated = false;
                 if let Some(tail) = &body.tail {
-                    self.store_expr_result_or_effect(
+                    tail_terminated = self.store_expr_result_or_effect(
                         tail,
                         local_id,
                         scope,
@@ -1046,6 +1047,9 @@ impl FunctionLowerer {
                         &mut ops,
                         blocks,
                     );
+                }
+                if tail_terminated {
+                    return;
                 }
                 FunctionTerminator::Branch { target, span }
             }

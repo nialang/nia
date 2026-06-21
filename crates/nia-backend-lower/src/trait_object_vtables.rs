@@ -284,8 +284,10 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Atomic(atomic) => {
                 self.collect_trait_object_vtables_from_atomic(atomic, out, seen);
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Trap
+            FunctionExprKind::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+            }
+            FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -360,8 +362,15 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendTraitObjectVtable>,
         seen: &mut HashSet<BackendTraitObjectVtableKey>,
     ) {
-        if let nia_function_ir::FunctionPlaceBase::Deref(expr) = &place.base {
-            self.collect_trait_object_vtables_from_expr(expr, out, seen);
+        match &place.base {
+            nia_function_ir::FunctionPlaceBase::Deref(expr) => {
+                self.collect_trait_object_vtables_from_expr(expr, out, seen);
+            }
+            nia_function_ir::FunctionPlaceBase::Local(_)
+            | nia_function_ir::FunctionPlaceBase::Global(_) => {}
+            nia_function_ir::FunctionPlaceBase::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+            }
         }
         for elem in &place.elems {
             if let nia_function_ir::FunctionPlaceElem::Index(expr) = elem {

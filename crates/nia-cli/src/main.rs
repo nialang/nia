@@ -664,16 +664,13 @@ fn run_check(
     opt_report: bool,
     runtime: Runtime,
 ) -> ExitCode {
-    let program = time_stage(timings, "check", || {
+    let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, runtime)
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report(&program);
     }
@@ -686,7 +683,7 @@ fn check_with_driver(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
-) -> nia_driver::CheckedProgram {
+) -> nia_driver::DriverOutput<nia_driver::CheckedProgram> {
     nia_driver::Driver::new().check(
         nia_driver::CheckRequest::new(path)
             .with_module_map(module_map)
@@ -694,6 +691,23 @@ fn check_with_driver(
             .with_timings(timings)
             .with_runtime(runtime),
     )
+}
+
+fn checked_program_from_output(
+    output: nia_driver::DriverOutput<nia_driver::CheckedProgram>,
+    path: &str,
+    source: &str,
+) -> Result<nia_driver::CheckedProgram, ExitCode> {
+    match output.result {
+        Ok(program) => Ok(program),
+        Err(error) => {
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
+            Err(ExitCode::FAILURE)
+        }
+    }
 }
 
 fn run_emit(
@@ -756,16 +770,13 @@ fn run_emit_checked(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = time_stage(timings, "check", || {
+    let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
@@ -781,16 +792,13 @@ fn run_emit_backend(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = time_stage(timings, "check", || {
+    let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
@@ -806,16 +814,13 @@ fn run_emit_llvm(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let program = time_stage(timings, "check", || {
+    let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
@@ -855,16 +860,13 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let program = time_stage(timings, "check", || {
+    let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, options.runtime)
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
@@ -911,7 +913,7 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let program = time_stage(timings, "check_exe", || {
+    let output = time_stage(timings, "check_exe", || {
         check_with_driver(
             path,
             module_map,
@@ -920,13 +922,10 @@ fn run_emit_exe(
             Runtime::Freestanding,
         )
     });
-    if !program.diagnostics.is_empty() {
-        eprint!(
-            "{}",
-            nia_driver::render_program_diagnostics(&program, Some(path), Some(source))
-        );
-        return ExitCode::FAILURE;
-    }
+    let program = match checked_program_from_output(output, path, source) {
+        Ok(program) => program,
+        Err(code) => return code,
+    };
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }

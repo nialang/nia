@@ -227,8 +227,10 @@ impl<'a> ModuleLowerer<'a> {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(end);
                 }
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Trap
+            FunctionExprKind::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+            }
+            FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -293,8 +295,14 @@ impl<'a> ModuleLowerer<'a> {
 
     fn devirtualize_direct_trait_calls_in_place(&mut self, place: &mut FunctionPlace) -> bool {
         let mut changed = false;
-        if let FunctionPlaceBase::Deref(expr) = &mut place.base {
-            changed |= self.devirtualize_direct_trait_calls_in_expr(expr);
+        match &mut place.base {
+            FunctionPlaceBase::Deref(expr) => {
+                changed |= self.devirtualize_direct_trait_calls_in_expr(expr);
+            }
+            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+            }
         }
         for elem in &mut place.elems {
             if let FunctionPlaceElem::Index(expr) = elem {

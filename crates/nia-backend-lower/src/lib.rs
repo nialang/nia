@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod function_instances;
 mod function_refs;
+mod input;
 mod instantiate;
 mod instantiation_context;
 mod items;
@@ -136,6 +137,7 @@ pub struct BackendLowerModuleInput<'a> {
 pub enum BackendFunctionRoots {
     #[default]
     Public,
+    EntryPoints,
     FunctionBodies,
 }
 
@@ -159,13 +161,23 @@ pub fn lower_backend_program_with_timings(
     timings: BackendTimingMode,
 ) -> BackendLowering {
     let timing = timings.enabled();
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = input::validate_backend_lowering_inputs(modules);
     let mut optimization_report = BackendOptimizationReport {
         enabled_module_passes: enabled_module_passes(&optimization),
         enabled_function_passes: opt::enabled_function_passes(&optimization),
         enabled_global_passes: enabled_global_passes(&optimization),
         changed_passes: Vec::new(),
     };
+    if !diagnostics.is_empty() {
+        return BackendLowering {
+            program: BackendProgram {
+                modules: Vec::new(),
+            },
+            optimization,
+            optimization_report,
+            diagnostics,
+        };
+    }
     let shared = time_backend_stage(timing, "backend_lower.shared_indexes", || {
         BackendLowerShared::new(modules, monomorphization)
     });
@@ -208,10 +220,46 @@ pub fn lower_backend_program_with_timings(
         .enumerate()
         .map(|(index, module)| (module.id, index))
         .collect::<HashMap<_, _>>();
+    let mut pending_foreign_functions = lowerers
+        .iter_mut()
+        .flat_map(|lowerer| std::mem::take(&mut lowerer.foreign_function_refs))
+        .collect::<VecDeque<_>>();
+    let mut queued_foreign_functions = HashSet::new();
     let mut queued_foreign_instances = HashSet::new();
     time_backend_stage(timing, "backend_lower.foreign_instances", || {
-        while !pending_foreign_instances.is_empty() {
-            let mut batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+        while !pending_foreign_functions.is_empty() || !pending_foreign_instances.is_empty() {
+            let mut function_batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+            while let Some(function) = pending_foreign_functions.pop_front() {
+                if !queued_foreign_functions.insert(function) {
+                    continue;
+                }
+                let Some(owner_index) = module_indices.get(&function.module_id).copied() else {
+                    continue;
+                };
+                function_batches[owner_index].push(function);
+            }
+            for (owner_index, refs) in function_batches.into_iter().enumerate() {
+                if refs.is_empty() {
+                    continue;
+                }
+                {
+                    let lowerer = &mut lowerers[owner_index];
+                    lowerer.lower_additional_functions(refs, &mut lowered_modules[owner_index]);
+                }
+                refresh_known_backend_type_interner_from_source(&mut lowerers, owner_index);
+                pending_foreign_functions.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_refs,
+                ));
+                pending_foreign_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_instance_refs,
+                ));
+                diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
+                optimization_report.changed_passes.extend(std::mem::take(
+                    &mut lowerers[owner_index].optimization_report.changed_passes,
+                ));
+            }
+
+            let mut instance_batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
             while let Some(instance) = pending_foreign_instances.pop_front() {
                 if !queued_foreign_instances.insert(instance.key()) {
                     continue;
@@ -220,10 +268,10 @@ pub fn lower_backend_program_with_timings(
                 else {
                     continue;
                 };
-                batches[owner_index].push(instance);
+                instance_batches[owner_index].push(instance);
             }
 
-            for (owner_index, refs) in batches.into_iter().enumerate() {
+            for (owner_index, refs) in instance_batches.into_iter().enumerate() {
                 if refs.is_empty() {
                     continue;
                 }
@@ -246,6 +294,9 @@ pub fn lower_backend_program_with_timings(
                     );
                     refresh_known_backend_type_interner_from_source(&mut lowerers, owner_index);
                 }
+                pending_foreign_functions.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_refs,
+                ));
                 pending_foreign_instances.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_instance_refs,
                 ));
@@ -345,6 +396,7 @@ pub(crate) struct ModuleLowerer<'a> {
     extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
     trait_context: trait_context::BackendTraitContext,
     instantiation: instantiation_context::BackendInstantiationContext<'a>,
+    foreign_function_refs: Vec<GlobalDefId>,
     foreign_function_instance_refs: Vec<function_refs::FunctionInstanceRef>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
@@ -481,9 +533,12 @@ impl<'a> ModuleLowerer<'a> {
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
-            extension_generics_by_method: index_extension_generics_by_method(input.extensions),
+            extension_generics_by_method: index_extension_generics_by_method(
+                input.program_extension_methods,
+            ),
             trait_context: trait_context::BackendTraitContext::new(input),
             instantiation: instantiation_context::BackendInstantiationContext::default(),
+            foreign_function_refs: Vec::new(),
             foreign_function_instance_refs: Vec::new(),
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
@@ -547,17 +602,11 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemTreeNodeKind::Extend(extend) => {
                     for method in &extend.methods {
-                        let def_id = self.index_function_source(
+                        self.index_function_source(
                             method.function.span,
                             &method.function,
                             &mut worklist,
                         );
-                        if extend.trait_ref.is_some()
-                            && let Some(def_id) = def_id
-                            && self.is_eager_trait_impl_method_root(def_id)
-                        {
-                            worklist.enqueue_function(def_id);
-                        }
                     }
                 }
                 ItemTreeNodeKind::Enum(item_enum) => {
@@ -666,15 +715,6 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn is_eager_trait_impl_method_root(&self, def_id: GlobalDefId) -> bool {
-        match self.input.roots {
-            BackendFunctionRoots::Public => true,
-            BackendFunctionRoots::FunctionBodies => {
-                self.input.function_bodies.contains_key(&def_id)
-            }
-        }
-    }
-
     fn index_function_source(
         &mut self,
         span: nia_span::Span,
@@ -697,19 +737,31 @@ impl<'a> ModuleLowerer<'a> {
         function: &nia_ast::FunctionItem,
     ) -> bool {
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
-            return function.is_extern || self.input.function_bodies.contains_key(&def_id);
-        }
-        if function.is_comptime
-            || function.is_extern
-            || function.name == "main"
-            || function.name == "_start"
-        {
-            return true;
+            return function.is_extern
+                || (self.input.function_bodies.contains_key(&def_id)
+                    && !self.is_generic_trait_impl_method(def_id));
         }
         let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
             return false;
         };
+        if function.is_comptime || function.is_extern || def.name == "main" || def.name == "_start"
+        {
+            return true;
+        }
+        if self.input.roots == BackendFunctionRoots::EntryPoints {
+            return false;
+        }
         def.visibility != Visibility::Private
+    }
+
+    fn is_generic_trait_impl_method(&self, def_id: GlobalDefId) -> bool {
+        let Some(impl_index) = self.trait_context.trait_impls_by_method.get(&def_id) else {
+            return false;
+        };
+        self.input
+            .trait_impls
+            .get(*impl_index)
+            .is_some_and(|impl_signature| !impl_signature.generics.is_empty())
     }
 
     fn lower_reachable_function_closure(
@@ -724,7 +776,11 @@ impl<'a> ModuleLowerer<'a> {
             .map(|function| function.def_id)
             .collect::<HashSet<_>>();
         while let Some(def_id) = worklist.pending_functions.pop_front() {
-            if def_id.module_id != self.input.module_id || lowered.contains(&def_id) {
+            if def_id.module_id != self.input.module_id {
+                self.foreign_function_refs.push(def_id);
+                continue;
+            }
+            if lowered.contains(&def_id) {
                 continue;
             }
             let Some(source) = self.function_sources.get(&def_id).copied() else {
@@ -749,6 +805,55 @@ impl<'a> ModuleLowerer<'a> {
         changed |=
             self.collect_new_trait_object_vtables(trait_object_vtables, functions, &[], worklist);
         changed
+    }
+
+    fn lower_additional_functions(&mut self, refs: Vec<GlobalDefId>, module: &mut BackendModule) {
+        let mut worklist = ReachabilityWorklist {
+            pending_functions: VecDeque::new(),
+            queued_functions: module
+                .functions
+                .iter()
+                .map(|function| function.def_id)
+                .collect::<HashSet<_>>(),
+            pending_instances: Vec::new(),
+            queued_instances: module
+                .function_instances
+                .iter()
+                .map(FunctionInstanceKey::from)
+                .collect::<HashSet<_>>(),
+        };
+        for def_id in refs {
+            worklist.enqueue_function(def_id);
+        }
+        let mut function_templates = Vec::new();
+        self.complete_reachable_backend_items(
+            &mut module.functions,
+            &mut function_templates,
+            &mut module.function_instances,
+            &mut module.trait_object_vtables,
+        );
+        self.lower_reachable_instances_and_vtables(
+            &mut module.functions,
+            &mut function_templates,
+            &mut module.function_instances,
+            &mut worklist,
+            &mut module.trait_object_vtables,
+        );
+        self.extend_struct_instances_from_functions(
+            &mut module.struct_instances,
+            &mut module.union_instances,
+            &module.functions,
+            &module.function_instances,
+        );
+        let mut backend_layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut backend_layouts,
+            &module.struct_instances,
+            &module.union_instances,
+        );
+        module.layouts = backend_layouts;
+        module.interner = self.type_context.interner.clone();
     }
 
     fn lower_reachable_instances_and_vtables(
@@ -810,13 +915,18 @@ impl<'a> ModuleLowerer<'a> {
             .map(|function| function.def_id)
             .collect::<HashSet<_>>();
         for instance in pending_instances {
-            if instance.def_id.module_id != self.input.module_id || !known.insert(instance.def_id) {
+            if !known.insert(instance.def_id) {
                 continue;
             }
-            let Some(source) = self.function_sources.get(&instance.def_id).copied() else {
-                continue;
+            let function = if instance.def_id.module_id == self.input.module_id {
+                self.function_sources
+                    .get(&instance.def_id)
+                    .copied()
+                    .and_then(|source| self.lower_function(source.span, source.function))
+            } else {
+                self.backend_function_template_for_program_def(instance.def_id)
             };
-            if let Some(function) = self.lower_function(source.span, source.function) {
+            if let Some(function) = function {
                 function_templates.push(function);
             }
         }
@@ -1133,13 +1243,11 @@ fn refresh_known_backend_type_interner_from_source(
 }
 
 fn index_extension_generics_by_method(
-    extensions: &VisibleExtensionMethods,
+    extensions: &ExtensionMethods,
 ) -> HashMap<GlobalDefId, Vec<String>> {
     let mut generics_by_method = HashMap::new();
-    for target in extensions.targets() {
-        for method in &target.methods {
-            generics_by_method.insert(method.def_id, method.impl_generics.clone());
-        }
+    for method in extensions.all_methods() {
+        generics_by_method.insert(method.def_id, method.impl_generics.clone());
     }
     generics_by_method
 }

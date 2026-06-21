@@ -106,7 +106,7 @@ impl<'a> ModuleLowerer<'a> {
             if args.iter().any(|arg| {
                 self.cached_ty_contains_generic_param(*arg)
                     || self.cached_ty_contains_unresolved_projection(*arg)
-                    || self.cached_ty_is_error(*arg)
+                    || self.cached_ty_contains_error(*arg)
             }) {
                 continue;
             }
@@ -411,9 +411,17 @@ impl<'a> ModuleLowerer<'a> {
         discovered_body
     }
 
-    fn backend_function_template_for_program_def(
+    pub(crate) fn backend_function_template_for_program_def(
         &mut self,
         def_id: GlobalDefId,
+    ) -> Option<BackendFunction> {
+        self.backend_function_template_for_program_def_with_body(def_id, true)
+    }
+
+    fn backend_function_template_for_program_def_with_body(
+        &mut self,
+        def_id: GlobalDefId,
+        include_body: bool,
     ) -> Option<BackendFunction> {
         let signature = self.input.program_functions.get(&def_id)?;
         if signature.signature.is_comptime {
@@ -439,7 +447,9 @@ impl<'a> ModuleLowerer<'a> {
                 )
             })
             .collect::<HashMap<_, _>>();
-        let raw_function_body = self.input.program_function_bodies.get(&def_id).cloned();
+        let raw_function_body = include_body
+            .then(|| self.input.program_function_bodies.get(&def_id).cloned())
+            .flatten();
         let param_locals = raw_function_body
             .as_ref()
             .map(|body| self.template_param_locals(def_id, &signature.signature.params, body))
@@ -655,8 +665,18 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn cached_ty_is_error(&mut self, ty: InternedTyId) -> bool {
-        matches!(self.ty_kind(ty), Some(TyKind::Error))
+    fn cached_ty_contains_error(&mut self, ty: InternedTyId) -> bool {
+        let current_interner = self.type_context.interner.clone();
+        contains_error(
+            ty,
+            &mut |ty| {
+                (ty.interner_id == current_interner.interner_id())
+                    .then(|| current_interner.get(ty).cloned())
+                    .flatten()
+                    .or_else(|| self.ty_kind(ty).cloned())
+            },
+            None,
+        )
     }
 
     fn import_monomorphized_instance_args(&mut self, args: &[InternedTyId]) -> Vec<InternedTyId> {
@@ -832,6 +852,86 @@ pub(crate) fn contains_unresolved_projection(
         )
         | None => false,
     }
+}
+
+pub(crate) fn contains_error(
+    ty: InternedTyId,
+    ty_kind: &mut impl FnMut(InternedTyId) -> Option<TyKind>,
+    cache: Option<&mut HashMap<InternedTyId, bool>>,
+) -> bool {
+    if let Some(cache) = cache.as_ref()
+        && let Some(contains) = cache.get(&ty).copied()
+    {
+        return contains;
+    }
+    let contains = match ty_kind(ty) {
+        Some(TyKind::Error) => true,
+        Some(
+            TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem },
+        ) => contains_error(elem, ty_kind, None),
+        Some(TyKind::Array { elem, .. }) => contains_error(elem, ty_kind, None),
+        Some(TyKind::Range { bound, .. }) => {
+            bound.is_some_and(|bound| contains_error(bound, ty_kind, None))
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            ..
+        }) => {
+            params
+                .into_iter()
+                .any(|param| contains_error(param, ty_kind, None))
+                || contains_error(return_type, ty_kind, None)
+        }
+        Some(TyKind::Optional { elem }) => contains_error(elem, ty_kind, None),
+        Some(TyKind::ErrorUnion { error, value }) => {
+            contains_error(error, ty_kind, None) || contains_error(value, ty_kind, None)
+        }
+        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+            .into_iter()
+            .any(|arg| contains_error(arg, ty_kind, None)),
+        Some(TyKind::TraitObject {
+            trait_args,
+            associated_type_bindings,
+            ..
+        })
+        | Some(TyKind::TraitObjectPointee {
+            trait_args,
+            associated_type_bindings,
+            ..
+        }) => {
+            trait_args
+                .into_iter()
+                .any(|arg| contains_error(arg, ty_kind, None))
+                || associated_type_bindings.into_iter().any(|binding| {
+                    binding
+                        .trait_args
+                        .into_iter()
+                        .any(|arg| contains_error(arg, ty_kind, None))
+                        || contains_error(binding.ty, ty_kind, None)
+                })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_args,
+            ..
+        }) => {
+            contains_error(self_ty, ty_kind, None)
+                || trait_args
+                    .into_iter()
+                    .any(|arg| contains_error(arg, ty_kind, None))
+        }
+        Some(TyKind::GenericParam(_))
+        | Some(TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. })
+        | None => false,
+    };
+    if let Some(cache) = cache {
+        cache.insert(ty, contains);
+    }
+    contains
 }
 
 #[cfg(test)]

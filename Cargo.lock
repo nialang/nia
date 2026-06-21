@@ -354,6 +354,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-function-ir",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-layout",

@@ -21,6 +21,10 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
     pipeline_with_values(source, |_, _, _| {})
 }
 
+pub(super) fn pipeline_without_visible_extensions(source: &str) -> BodyCheck {
+    pipeline_with_options(source, |_, _, _| {}, false)
+}
+
 pub(super) fn pipeline_with_values(
     source: &str,
     adjust_values: impl FnOnce(
@@ -28,6 +32,18 @@ pub(super) fn pipeline_with_values(
         &nia_defs::DefCollection,
         &mut nia_value_resolve::ValueResolution,
     ),
+) -> BodyCheck {
+    pipeline_with_options(source, adjust_values, true)
+}
+
+fn pipeline_with_options(
+    source: &str,
+    adjust_values: impl FnOnce(
+        &nia_ast::Module,
+        &nia_defs::DefCollection,
+        &mut nia_value_resolve::ValueResolution,
+    ),
+    include_visible_extensions: bool,
 ) -> BodyCheck {
     let (module, parse_errors) = parse_module(source);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
@@ -94,42 +110,45 @@ pub(super) fn pipeline_with_values(
         normalization.diagnostics
     );
     let mut extensions = VisibleExtensionMethods::default();
-    for item in &module.items {
-        let nia_ast::ItemKind::Extend(extend) = &item.kind else {
-            continue;
-        };
-        let Some(target_ty) = lowered.node_type_uses.get(&extend.target.node_key).copied() else {
-            continue;
-        };
-        let target_ty = normalization.normalize(target_ty);
-        for method in &extend.methods {
-            let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
+    if include_visible_extensions {
+        for item in &module.items {
+            let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
-            let Some(method_def) = defs.defs.get(method_id) else {
+            let Some(target_ty) = lowered.node_type_uses.get(&extend.target.node_key).copied()
+            else {
                 continue;
             };
-            if method_def.kind != DefKind::Method {
-                continue;
-            }
-            extensions.insert(
-                0,
-                target_ty,
-                VisibleExtensionMethod {
-                    name: method_def.name.clone(),
-                    def_id: GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id: method_id,
+            let target_ty = normalization.normalize(target_ty);
+            for method in &extend.methods {
+                let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
+                    continue;
+                };
+                let Some(method_def) = defs.defs.get(method_id) else {
+                    continue;
+                };
+                if method_def.kind != DefKind::Method {
+                    continue;
+                }
+                extensions.insert(
+                    0,
+                    target_ty,
+                    VisibleExtensionMethod {
+                        name: method_def.name.clone(),
+                        def_id: GlobalDefId {
+                            module_id: ModuleId(0),
+                            def_id: method_id,
+                        },
+                        impl_index: 0,
+                        impl_generics: extend.generics.clone(),
+                        trait_id: None,
+                        trait_args: Vec::new(),
+                        where_predicates: Vec::new(),
+                        is_callable: true,
+                        is_trait_witness: false,
                     },
-                    impl_index: 0,
-                    impl_generics: extend.generics.clone(),
-                    trait_id: None,
-                    trait_args: Vec::new(),
-                    where_predicates: Vec::new(),
-                    is_callable: true,
-                    is_trait_witness: false,
-                },
-            );
+                );
+            }
         }
     }
     let layouts = nia_layout::compute_layouts(

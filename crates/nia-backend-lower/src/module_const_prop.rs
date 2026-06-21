@@ -524,8 +524,10 @@ fn propagate_cross_function_constants_in_expr(
                 );
             }
         }
-        FunctionExprKind::Error
-        | FunctionExprKind::Trap
+        FunctionExprKind::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+        }
+        FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -613,12 +615,18 @@ fn propagate_cross_function_constants_in_place(
     instance_constants: &HashMap<FunctionInstanceKey, FunctionExpr>,
 ) -> bool {
     let mut changed = false;
-    if let FunctionPlaceBase::Deref(expr) = &mut place.base {
-        changed |= propagate_cross_function_constants_in_expr(
-            expr,
-            function_constants,
-            instance_constants,
-        );
+    match &mut place.base {
+        FunctionPlaceBase::Deref(expr) => {
+            changed |= propagate_cross_function_constants_in_expr(
+                expr,
+                function_constants,
+                instance_constants,
+            );
+        }
+        FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+        FunctionPlaceBase::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+        }
     }
     for elem in &mut place.elems {
         if let FunctionPlaceElem::Index(expr) = elem {

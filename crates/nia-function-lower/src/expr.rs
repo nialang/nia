@@ -49,11 +49,9 @@ impl FunctionLowerer {
             TypedExprKind::Range(range) => {
                 FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
             }
-            TypedExprKind::MemoryIntrinsic(memory) => {
-                let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
-                ops.push(op);
-                FunctionExprKind::Error
-            }
+            TypedExprKind::MemoryIntrinsic(_) => unreachable!(
+                "function lowering input validation rejects memory intrinsics in value position"
+            ),
             TypedExprKind::Atomic(atomic) => {
                 FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
             }
@@ -128,6 +126,22 @@ impl FunctionLowerer {
                     ) =>
             {
                 FunctionExprKind::AddrOf(self.lower_expr_place(inner, scope, current, ops, blocks))
+            }
+            TypedExprKind::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
+                    && matches!(
+                        inner.kind,
+                        TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. }
+                    ) =>
+            {
+                let mut inner = self.lower_value_expr(inner, scope, current, ops, blocks);
+                if let Some(function_pointer_ty) = self.function_pointer_pointee_ty(expr.ty) {
+                    inner.ty = function_pointer_ty;
+                }
+                FunctionExprKind::Unary {
+                    op: *op,
+                    expr: Box::new(inner),
+                }
             }
             TypedExprKind::Unary { op, expr: inner } => FunctionExprKind::Unary {
                 op: *op,
@@ -207,7 +221,9 @@ impl FunctionLowerer {
             TypedExprKind::InlineAsm(asm) => {
                 FunctionExprKind::InlineAsm(self.lower_inline_asm(asm, scope, current, ops, blocks))
             }
-            TypedExprKind::Error => FunctionExprKind::Error,
+            TypedExprKind::Error => unreachable!(
+                "function lowering input validation rejects error expressions before lowering"
+            ),
             TypedExprKind::Integer(text) => FunctionExprKind::Integer(text.clone()),
             TypedExprKind::Float(text) => FunctionExprKind::Float(text.clone()),
             TypedExprKind::String(scalars) => FunctionExprKind::String(scalars.clone()),
@@ -389,10 +405,23 @@ impl FunctionLowerer {
         current: &mut FunctionBlockId,
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
-    ) {
+    ) -> bool {
+        if self.expr_lowers_as_terminating_effect(expr) {
+            self.lower_effect_expr(expr, scope, current, ops, blocks);
+            self.finish_block(
+                blocks,
+                *current,
+                scope,
+                expr.span,
+                std::mem::take(ops),
+                FunctionTerminator::Error { span: expr.span },
+            );
+            return true;
+        }
+
         if self.expr_lowers_as_effect_only(expr) {
             self.lower_effect_expr(expr, scope, current, ops, blocks);
-            return;
+            return false;
         }
 
         let value = self.lower_value_expr(expr, scope, current, ops, blocks);
@@ -401,6 +430,7 @@ impl FunctionLowerer {
             value,
             span: expr.span,
         });
+        false
     }
 
     pub(super) fn lower_memory_intrinsic_op(
@@ -588,8 +618,9 @@ impl FunctionLowerer {
 
         let mut else_current = else_target;
         let mut else_ops = Vec::new();
+        let mut else_terminated = false;
         if let Some(else_branch) = else_branch {
-            self.store_expr_result_or_effect(
+            else_terminated = self.store_expr_result_or_effect(
                 else_branch,
                 local,
                 context.scope,
@@ -598,17 +629,19 @@ impl FunctionLowerer {
                 context.blocks,
             );
         }
-        self.finish_block(
-            context.blocks,
-            else_current,
-            context.scope,
-            else_branch.map(|expr| expr.span).unwrap_or(expr.span),
-            else_ops,
-            FunctionTerminator::Branch {
-                target: merge_target,
-                span: else_branch.map(|expr| expr.span).unwrap_or(expr.span),
-            },
-        );
+        if !else_terminated {
+            self.finish_block(
+                context.blocks,
+                else_current,
+                context.scope,
+                else_branch.map(|expr| expr.span).unwrap_or(expr.span),
+                else_ops,
+                FunctionTerminator::Branch {
+                    target: merge_target,
+                    span: else_branch.map(|expr| expr.span).unwrap_or(expr.span),
+                },
+            );
+        }
 
         *context.current = merge_target;
         FunctionExpr {
@@ -755,7 +788,7 @@ impl FunctionLowerer {
         if let Some(else_branch) = &if_pattern.else_branch {
             let mut else_current = else_target;
             let mut else_ops = Vec::new();
-            self.store_expr_result_or_effect(
+            let else_terminated = self.store_expr_result_or_effect(
                 else_branch,
                 result_local,
                 context.scope,
@@ -763,17 +796,19 @@ impl FunctionLowerer {
                 &mut else_ops,
                 context.blocks,
             );
-            self.finish_block(
-                context.blocks,
-                else_current,
-                context.scope,
-                else_branch.span,
-                else_ops,
-                FunctionTerminator::Branch {
-                    target: merge_target,
-                    span: else_branch.span,
-                },
-            );
+            if !else_terminated {
+                self.finish_block(
+                    context.blocks,
+                    else_current,
+                    context.scope,
+                    else_branch.span,
+                    else_ops,
+                    FunctionTerminator::Branch {
+                        target: merge_target,
+                        span: else_branch.span,
+                    },
+                );
+            }
         }
 
         *context.current = merge_target;
@@ -980,7 +1015,7 @@ impl FunctionLowerer {
             TypedSwitchArmBody::Expr(expr) => {
                 let mut current = context.entry;
                 let mut ops = Vec::new();
-                self.store_expr_result_or_effect(
+                let terminated = self.store_expr_result_or_effect(
                     expr,
                     context.result_local,
                     context.scope,
@@ -988,17 +1023,19 @@ impl FunctionLowerer {
                     &mut ops,
                     context.blocks,
                 );
-                self.finish_block(
-                    context.blocks,
-                    current,
-                    context.scope,
-                    context.span,
-                    ops,
-                    FunctionTerminator::Branch {
-                        target: context.merge_target,
-                        span: context.span,
-                    },
-                );
+                if !terminated {
+                    self.finish_block(
+                        context.blocks,
+                        current,
+                        context.scope,
+                        context.span,
+                        ops,
+                        FunctionTerminator::Branch {
+                            target: context.merge_target,
+                            span: context.span,
+                        },
+                    );
+                }
             }
             TypedSwitchArmBody::Stmt(stmt) => {
                 let mut current = context.entry;
@@ -1282,6 +1319,19 @@ impl FunctionLowerer {
             nia_body_ir::TypedBitIntrinsicOp::Ctz => FunctionBitIntrinsicOp::Ctz,
             nia_body_ir::TypedBitIntrinsicOp::Clz => FunctionBitIntrinsicOp::Clz,
             nia_body_ir::TypedBitIntrinsicOp::Popcount => FunctionBitIntrinsicOp::Popcount,
+        }
+    }
+
+    fn function_pointer_pointee_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        let interner = self.interner.as_ref()?;
+        match interner.get(ty) {
+            Some(TyKind::FunctionPointer { .. }) => Some(ty),
+            Some(TyKind::Pointer { elem, .. })
+                if matches!(interner.get(*elem), Some(TyKind::FunctionPointer { .. })) =>
+            {
+                Some(*elem)
+            }
+            _ => None,
         }
     }
 }

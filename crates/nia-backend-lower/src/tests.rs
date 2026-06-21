@@ -270,7 +270,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .function_bodies
         .iter()
         .map(|(def_id, body)| {
-            let mut body = lower_function_body(body);
+            let mut body = lower_function_body(body).expect("valid typed body");
             mutate_body(&mut body);
             (*def_id, body)
         })

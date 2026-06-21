@@ -404,8 +404,10 @@ impl<'a> ModuleLowerer<'a> {
                     self.inline_leaf_calls_in_expr(end, function_candidates, instance_candidates);
                 }
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Trap
+            FunctionExprKind::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+            }
+            FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
             | FunctionExprKind::String(_)
@@ -480,8 +482,14 @@ impl<'a> ModuleLowerer<'a> {
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
-        if let FunctionPlaceBase::Deref(expr) = &mut place.base {
-            self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
+        match &mut place.base {
+            FunctionPlaceBase::Deref(expr) => {
+                self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
+            }
+            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Error => {
+                crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+            }
         }
         for elem in &mut place.elems {
             if let FunctionPlaceElem::Index(expr) = elem {
@@ -877,8 +885,10 @@ fn substitute_inline_locals(
         FunctionExprKind::Atomic(atomic) => {
             substitute_inline_locals_in_atomic(atomic, substitutions, require_local_match)?;
         }
-        FunctionExprKind::Error
-        | FunctionExprKind::Trap
+        FunctionExprKind::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+        }
+        FunctionExprKind::Trap
         | FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -1053,8 +1063,10 @@ fn small_pure_inline_expr_cost_with_local(
                 + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?
                 + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
-        FunctionExprKind::Error
-        | FunctionExprKind::Trap
+        FunctionExprKind::Error => {
+            crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+        }
+        FunctionExprKind::Trap
         | FunctionExprKind::Local(_)
         | FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::StaticArrayPointer { .. }

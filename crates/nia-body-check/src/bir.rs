@@ -37,6 +37,75 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
+    fn readonly_slice_elem_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Slice {
+                is_readonly: true,
+                elem,
+            }) => Some(*elem),
+            _ => None,
+        }
+    }
+
+    fn lower_static_array_literal_with_ty(
+        &mut self,
+        span: Span,
+        array: TypedExpr,
+        forced_ty: Option<nia_ids::InternedTyId>,
+    ) -> TypedExpr {
+        if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
+            return array;
+        }
+        let pointer_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: array.ty,
+        });
+        let pointer = TypedExpr {
+            span,
+            ty: pointer_ty,
+            kind: TypedExprKind::StaticArrayPointer {
+                array: Box::new(array),
+                is_readonly: true,
+            },
+        };
+        let Some(slice_ty) = forced_ty else {
+            return pointer;
+        };
+        let Some(slice_elem) = self.readonly_slice_elem_ty(slice_ty) else {
+            return pointer;
+        };
+        let Some(TyKind::Array {
+            elem: array_elem, ..
+        }) = self
+            .interner
+            .get(self.normalization.normalize(pointer.ty))
+            .and_then(|kind| match kind {
+                TyKind::Pointer { elem, .. } => {
+                    self.interner.get(self.normalization.normalize(*elem))
+                }
+                _ => None,
+            })
+        else {
+            return pointer;
+        };
+        if !self.types_match(slice_elem, *array_elem) {
+            return pointer;
+        }
+        TypedExpr {
+            span,
+            ty: slice_ty,
+            kind: TypedExprKind::Slice {
+                lhs: Box::new(pointer),
+                range: TypedSliceRange {
+                    start: None,
+                    end: None,
+                    inclusive: false,
+                },
+                is_readonly: true,
+            },
+        }
+    }
+
     fn materialize_forced_expr_ty(
         &mut self,
         expr: &Expr,
@@ -471,7 +540,9 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
-        let forced_ty = self.materialize_forced_expr_ty(expr, forced_ty);
+        let forced_ty = self
+            .materialize_forced_expr_ty(expr, forced_ty)
+            .filter(|ty| !self.is_error_ty(*ty));
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
@@ -526,13 +597,7 @@ impl<'a> BodyChecker<'a> {
                     ty: self.string_literal_array_type(literal),
                     kind: TypedExprKind::String(decode_string_literal(literal).unwrap_or_default()),
                 };
-                if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
-                    return array;
-                }
-                TypedExprKind::StaticArrayPointer {
-                    array: Box::new(array),
-                    is_readonly: true,
-                }
+                return self.lower_static_array_literal_with_ty(expr.span, array, forced_ty);
             }
             ExprKind::ByteString(literal) => {
                 let array = TypedExpr {
@@ -542,13 +607,7 @@ impl<'a> BodyChecker<'a> {
                         decode_byte_string_literal(literal).unwrap_or_default(),
                     ),
                 };
-                if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
-                    return array;
-                }
-                TypedExprKind::StaticArrayPointer {
-                    array: Box::new(array),
-                    is_readonly: true,
-                }
+                return self.lower_static_array_literal_with_ty(expr.span, array, forced_ty);
             }
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
@@ -646,15 +705,9 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            ExprKind::Field { lhs, name } => {
-                let lhs_expr = self.lower_expr(lhs);
-                self.field_def_for_base_ty(lhs_expr.ty, name)
-                    .map(|field| TypedExprKind::Field {
-                        lhs: Box::new(lhs_expr),
-                        field,
-                    })
-                    .unwrap_or(TypedExprKind::Error)
-            }
+            ExprKind::Field { lhs, name } => self
+                .lower_field_access_expr(lhs, name)
+                .unwrap_or(TypedExprKind::Error),
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, ty),
             },
@@ -962,7 +1015,7 @@ impl<'a> BodyChecker<'a> {
                             order: self.lower_atomic_order(order),
                         }),
                         _ => TypedExprKind::Call {
-                            callee: self.lower_callee(expr, callee),
+                            callee: self.lower_callee(expr, callee, args),
                             args: self.lower_call_args(expr, callee, args),
                         },
                     }
@@ -973,7 +1026,9 @@ impl<'a> BodyChecker<'a> {
                     trait_args,
                 }) = self.resolved_call(expr)
                 {
-                    let (receiver, lowered_args) = self.lower_builtin_call_receiver(callee, args);
+                    let receiver_ty = self.receiver_ty_for_target(self_ty, method.receiver_kind());
+                    let (receiver, lowered_args) =
+                        self.lower_builtin_call_receiver(callee, args, Some(receiver_ty));
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
                             trait_id,
@@ -989,7 +1044,8 @@ impl<'a> BodyChecker<'a> {
                 } else if let Some(ResolvedCall::BuiltinMethod { method, self_ty }) =
                     self.resolved_call(expr)
                 {
-                    let (receiver, lowered_args) = self.lower_builtin_call_receiver(callee, args);
+                    let (receiver, lowered_args) =
+                        self.lower_builtin_call_receiver(callee, args, Some(self_ty));
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinMethod {
                             method,
@@ -1001,22 +1057,14 @@ impl<'a> BodyChecker<'a> {
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
                     self.resolved_call(expr)
                 {
-                    let lowered_args = if let Some(receiver) = self.lower_receiver_expr(callee) {
-                        std::iter::once(receiver)
-                            .chain(args.iter().map(|arg| self.lower_expr_with_checked_ty(arg)))
-                            .collect()
-                    } else {
-                        args.iter()
-                            .map(|arg| self.lower_expr_with_checked_ty(arg))
-                            .collect()
-                    };
+                    let lowered_args = self.lower_builtin_trait_method_call_args(callee, args);
                     TypedExprKind::Call {
                         callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op }),
                         args: lowered_args,
                     }
                 } else {
                     TypedExprKind::Call {
-                        callee: self.lower_callee(expr, callee),
+                        callee: self.lower_callee(expr, callee, args),
                         args: self.lower_call_args(expr, callee, args),
                     }
                 }
@@ -1028,12 +1076,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     TypedExprKind::EnumVariant(variant)
                 } else {
-                    let lhs_expr = self.lower_expr(lhs);
-                    self.field_def_for_base_ty(lhs_expr.ty, name)
-                        .map(|field| TypedExprKind::Field {
-                            lhs: Box::new(lhs_expr),
-                            field,
-                        })
+                    self.lower_field_access_expr(lhs, name)
                         .unwrap_or(TypedExprKind::Error)
                 }
             }
@@ -1337,17 +1380,23 @@ impl<'a> BodyChecker<'a> {
                     return None;
                 }
                 let array_ty = self.comptime_array_ty_for_slice_value(elem, value)?;
-                let pointer_ty = self.interner.intern(TyKind::Pointer {
-                    is_readonly: true,
-                    elem: array_ty,
-                });
+                let array = self.materialize_comptime_array_expr(span, array_ty, value)?;
+                let pointer = TypedExpr {
+                    span,
+                    ty: self.interner.intern(TyKind::Pointer {
+                        is_readonly: true,
+                        elem: array.ty,
+                    }),
+                    kind: TypedExprKind::StaticArrayPointer {
+                        array: Box::new(array),
+                        is_readonly: true,
+                    },
+                };
                 Some(TypedExpr {
                     span,
                     ty,
                     kind: TypedExprKind::Slice {
-                        lhs: Box::new(
-                            self.materialize_comptime_value_expr(span, pointer_ty, value)?,
-                        ),
+                        lhs: Box::new(pointer),
                         range: TypedSliceRange {
                             start: None,
                             end: None,
@@ -1384,9 +1433,7 @@ impl<'a> BodyChecker<'a> {
         let TyKind::Array { len, elem } = self.interner.get(normalized_ty).cloned()? else {
             return None;
         };
-        let nia_comptime_check::ComptimeValue::Array(values) = value else {
-            return None;
-        };
+        let values = comptime_array_values(value)?;
         let ty = match len {
             ArrayLenTy::ConstValue(expected_len) => {
                 if expected_len != values.len() as u64 {
@@ -1398,7 +1445,12 @@ impl<'a> BodyChecker<'a> {
                 len: ArrayLenTy::ConstValue(values.len() as u64),
                 elem,
             }),
-            ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => return None,
+            ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => {
+                if self.array_len_value(span, &len).ok()? != values.len() as u64 {
+                    return None;
+                }
+                ty
+            }
         };
         let elem = self.normalization.normalize(elem);
         match self.interner.get(elem) {
@@ -1519,6 +1571,41 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<nia_ids::GlobalDefId> {
         let base = self.receiver_base_type(ty)?;
         self.field_def_for_nominal(base.def_id, name)
+    }
+
+    fn lower_field_access_expr(&mut self, lhs: &Expr, name: &str) -> Option<TypedExprKind> {
+        let lhs_expr = self.lower_expr(lhs);
+        let (lhs_expr, base_ty) = self.lower_field_lhs_to_value(lhs_expr)?;
+        let field = self.field_def_for_struct_ty(base_ty, name)?;
+        Some(TypedExprKind::Field {
+            lhs: Box::new(lhs_expr),
+            field,
+        })
+    }
+
+    fn lower_field_lhs_to_value(
+        &mut self,
+        lhs: TypedExpr,
+    ) -> Option<(TypedExpr, nia_ids::InternedTyId)> {
+        let ty = self.normalize_aliases_in_type(lhs.ty);
+        match self.interner.get(ty).cloned()? {
+            TyKind::Nominal { .. } => Some((lhs, ty)),
+            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => {
+                let elem = self.normalize_aliases_in_type(elem);
+                Some((
+                    TypedExpr {
+                        span: lhs.span,
+                        ty: elem,
+                        kind: TypedExprKind::Unary {
+                            op: UnaryOp::Deref,
+                            expr: Box::new(lhs),
+                        },
+                    },
+                    elem,
+                ))
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn field_def_for_nominal(
@@ -1696,9 +1783,9 @@ impl<'a> BodyChecker<'a> {
         0
     }
 
-    fn lower_callee(&mut self, call: &Expr, callee: &Expr) -> TypedCallee {
+    fn lower_callee(&mut self, call: &Expr, callee: &Expr, args: &[Expr]) -> TypedCallee {
         if let Some(resolved) = self.resolved_call(call) {
-            return self.lower_resolved_callee(callee, resolved);
+            return self.lower_resolved_callee(callee, args, resolved);
         }
         if let Some(reference) = self.function_reference(callee) {
             if reference.args.is_empty() {
@@ -1742,17 +1829,26 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_call_args(&mut self, call: &Expr, callee: &Expr, args: &[Expr]) -> Vec<TypedExpr> {
+        let skip_first_arg = self
+            .resolved_call(call)
+            .is_some_and(|resolved| self.call_args_start_with_method_receiver(callee, resolved));
+        let value_args = if skip_first_arg && !args.is_empty() {
+            &args[1..]
+        } else {
+            args
+        };
         let param_tys = self
             .resolved_call(call)
-            .and_then(|resolved| self.lowered_call_param_tys(resolved))
+            .and_then(|resolved| self.lowered_explicit_call_arg_tys(callee, resolved))
             .or_else(|| self.lowered_call_param_tys_from_callee(callee));
         let Some(param_tys) = param_tys else {
-            return args
+            return value_args
                 .iter()
                 .map(|arg| self.lower_expr_with_checked_ty(arg))
                 .collect();
         };
-        args.iter()
+        value_args
+            .iter()
             .enumerate()
             .map(|(index, arg)| {
                 let expected = param_tys.get(index).copied().or_else(|| {
@@ -1760,9 +1856,60 @@ impl<'a> BodyChecker<'a> {
                         .get(&arg.node_key)
                         .map(|coercion| coercion.slice_ty)
                 });
+                let expected = expected.and_then(|ty| self.non_error_ty(ty));
                 self.lower_expr_with_ty(arg, expected)
             })
             .collect()
+    }
+
+    fn call_args_start_with_method_receiver(&self, callee: &Expr, resolved: ResolvedCall) -> bool {
+        matches!(
+            resolved,
+            ResolvedCall::Method { .. }
+                | ResolvedCall::TraitMethod { .. }
+                | ResolvedCall::BuiltinTraitMethod { .. }
+                | ResolvedCall::BuiltinMethod { .. }
+                | ResolvedCall::BuiltinPlaceMethod { .. }
+        ) && !self.callee_has_receiver_lhs(callee)
+    }
+
+    fn lower_builtin_trait_method_call_args(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+    ) -> Vec<TypedExpr> {
+        if let Some(receiver) = self.lower_receiver_expr(callee) {
+            return std::iter::once(receiver)
+                .chain(args.iter().map(|arg| self.lower_expr_with_checked_ty(arg)))
+                .collect();
+        }
+        let Some((receiver, value_args)) = args.split_first() else {
+            return Vec::new();
+        };
+        std::iter::once(self.lower_expr_with_checked_ty(receiver))
+            .chain(
+                value_args
+                    .iter()
+                    .map(|arg| self.lower_expr_with_checked_ty(arg)),
+            )
+            .collect()
+    }
+
+    fn lowered_explicit_call_arg_tys(
+        &mut self,
+        _callee: &Expr,
+        resolved: ResolvedCall,
+    ) -> Option<Vec<nia_ids::InternedTyId>> {
+        let has_receiver_param = matches!(
+            resolved,
+            ResolvedCall::Method { .. } | ResolvedCall::TraitMethod { .. }
+        );
+        let params = self.lowered_call_param_tys(resolved)?;
+        if has_receiver_param {
+            Some(params.into_iter().skip(1).collect())
+        } else {
+            Some(params)
+        }
     }
 
     fn lowered_call_param_tys_from_callee(
@@ -1779,6 +1926,19 @@ impl<'a> BodyChecker<'a> {
                     .map(|param| param.ty)
                     .collect()
             })
+            .or_else(|| self.lowered_function_pointer_param_tys(callee))
+    }
+
+    fn lowered_function_pointer_param_tys(
+        &mut self,
+        callee: &Expr,
+    ) -> Option<Vec<nia_ids::InternedTyId>> {
+        let callee_ty = self.expr_ty(callee)?;
+        let callee_ty = self.normalize_projection(callee_ty);
+        match self.interner.get(callee_ty).cloned() {
+            Some(TyKind::FunctionPointer { params, .. }) => Some(params),
+            _ => None,
+        }
     }
 
     fn lower_expr_with_checked_ty(&mut self, expr: &Expr) -> TypedExpr {
@@ -1815,12 +1975,7 @@ impl<'a> BodyChecker<'a> {
                 args,
             } => {
                 let signature = self.resolved_function_signature(def_id)?.signature;
-                let substitutions = signature
-                    .generics
-                    .iter()
-                    .cloned()
-                    .zip(args)
-                    .collect::<HashMap<_, _>>();
+                let substitutions = self.method_substitutions(def_id, &signature, &args);
                 Some(
                     signature
                         .params
@@ -1829,11 +1984,171 @@ impl<'a> BodyChecker<'a> {
                         .collect(),
                 )
             }
+            ResolvedCall::Method {
+                def_id,
+                args,
+                receiver_kind: _,
+            } => {
+                let signature = self.resolved_function_signature(def_id)?.signature;
+                let mut substitutions = self.method_substitutions(def_id, &signature, &args);
+                let receiver_ty = signature
+                    .params
+                    .first()
+                    .and_then(|param| param.receiver)
+                    .and_then(|receiver| {
+                        let self_ty = self.method_self_target_ty(&signature, &substitutions)?;
+                        let receiver_ty = self.receiver_ty_for_target(self_ty, receiver);
+                        self.non_error_ty(receiver_ty)
+                    });
+                Some(self.substituted_call_param_tys(
+                    &signature.params,
+                    &mut substitutions,
+                    receiver_ty,
+                ))
+            }
+            ResolvedCall::TraitMethod {
+                trait_id,
+                method_id: _,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+                receiver_kind,
+            } => {
+                let signature = self.trait_method_signature(trait_id, &method_name)?;
+                let mut substitutions = self.generic_substitutions_for_trait_call(
+                    trait_id,
+                    &signature.generics,
+                    self_ty,
+                    &trait_args,
+                    &args,
+                );
+                let receiver_ty = signature
+                    .params
+                    .first()
+                    .and_then(|param| param.receiver)
+                    .and_then(|receiver| {
+                        let receiver_ty = self.receiver_ty_for_target(self_ty, receiver);
+                        self.non_error_ty(receiver_ty)
+                    })
+                    .or_else(|| {
+                        let receiver_ty = self.receiver_ty_for_target(self_ty, receiver_kind);
+                        self.non_error_ty(receiver_ty)
+                    });
+                Some(self.substituted_call_param_tys(
+                    &signature.params,
+                    &mut substitutions,
+                    receiver_ty,
+                ))
+            }
+            ResolvedCall::TraitAssociatedFunction {
+                trait_id,
+                method_id: _,
+                method_name,
+                self_ty,
+                trait_args,
+                args,
+            } => {
+                let signature = self.trait_method_signature(trait_id, &method_name)?;
+                let mut substitutions = self.generic_substitutions_for_trait_call(
+                    trait_id,
+                    &signature.generics,
+                    self_ty,
+                    &trait_args,
+                    &args,
+                );
+                Some(self.substituted_call_param_tys(&signature.params, &mut substitutions, None))
+            }
+            ResolvedCall::DynamicTraitMethod { params, .. } => Some(params),
             _ => None,
         }
     }
 
-    fn lower_resolved_callee(&mut self, callee: &Expr, resolved: ResolvedCall) -> TypedCallee {
+    fn method_substitutions(
+        &mut self,
+        def_id: nia_ids::GlobalDefId,
+        signature: &nia_item_signatures::FunctionSignature,
+        args: &[nia_ids::InternedTyId],
+    ) -> HashMap<String, nia_ids::InternedTyId> {
+        let generics = self.effective_generics_for_def(def_id);
+        let mut substitutions = self.generic_substitutions(&generics, args);
+        for (generic, arg) in signature
+            .generics
+            .iter()
+            .zip(args.iter().skip(generics.len()))
+        {
+            substitutions.entry(generic.clone()).or_insert(*arg);
+        }
+        substitutions
+    }
+
+    fn method_self_target_ty(
+        &mut self,
+        signature: &nia_item_signatures::FunctionSignature,
+        substitutions: &HashMap<String, nia_ids::InternedTyId>,
+    ) -> Option<nia_ids::InternedTyId> {
+        let ty = signature.params.first()?.ty;
+        let ty = self.substitute_generics(ty, substitutions);
+        self.non_error_ty(ty)
+    }
+
+    fn generic_substitutions_for_trait_call(
+        &mut self,
+        trait_id: nia_ids::GlobalDefId,
+        method_generics: &[String],
+        self_ty: nia_ids::InternedTyId,
+        trait_args: &[nia_ids::InternedTyId],
+        method_args: &[nia_ids::InternedTyId],
+    ) -> HashMap<String, nia_ids::InternedTyId> {
+        let trait_generics = self
+            .resolved_trait_signature(trait_id)
+            .map(|signature| signature.generics)
+            .unwrap_or_default();
+        let mut substitutions = self.generic_substitutions(&trait_generics, trait_args);
+        substitutions.insert("Self".to_string(), self_ty);
+        substitutions.extend(self.generic_substitutions(method_generics, method_args));
+        substitutions
+    }
+
+    fn trait_method_signature(
+        &mut self,
+        trait_id: nia_ids::GlobalDefId,
+        method_name: &str,
+    ) -> Option<nia_item_signatures::FunctionSignature> {
+        self.resolved_trait_signature(trait_id)?
+            .methods
+            .into_iter()
+            .find(|method| method.name == method_name)
+            .map(|method| method.signature)
+    }
+
+    fn substituted_call_param_tys(
+        &mut self,
+        params: &[nia_item_signatures::ParamSignature],
+        substitutions: &mut HashMap<String, nia_ids::InternedTyId>,
+        receiver_ty: Option<nia_ids::InternedTyId>,
+    ) -> Vec<nia_ids::InternedTyId> {
+        params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                let ty = if index == 0 {
+                    receiver_ty.unwrap_or_else(|| self.substitute_generics(param.ty, substitutions))
+                } else {
+                    self.substitute_generics(param.ty, substitutions)
+                };
+                let ty = self.normalize_projection(ty);
+                self.normalize_aliases_in_type(ty)
+            })
+            .collect()
+    }
+
+    fn lower_resolved_callee(
+        &mut self,
+        callee: &Expr,
+        call_args: &[Expr],
+        resolved: ResolvedCall,
+    ) -> TypedCallee {
         match resolved {
             ResolvedCall::Function(def_id) => TypedCallee::Function(def_id),
             ResolvedCall::FunctionInstance {
@@ -1853,10 +2168,11 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 args,
                 receiver_kind,
-                receiver: Box::new(
-                    self.lower_receiver_expr(callee)
-                        .unwrap_or_else(|| self.lower_expr(callee)),
-                ),
+                receiver: Box::new(self.lower_method_receiver_expr(
+                    callee,
+                    call_args,
+                    receiver_kind,
+                )),
             },
             ResolvedCall::TraitMethod {
                 trait_id,
@@ -1874,10 +2190,11 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 args,
                 receiver_kind,
-                receiver: Box::new(
-                    self.lower_receiver_expr(callee)
-                        .unwrap_or_else(|| self.lower_expr(callee)),
-                ),
+                receiver: Box::new(self.lower_method_receiver_expr(
+                    callee,
+                    call_args,
+                    receiver_kind,
+                )),
             },
             ResolvedCall::TraitAssociatedFunction {
                 trait_id,
@@ -1958,6 +2275,31 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_receiver_expr(&mut self, callee: &Expr) -> Option<TypedExpr> {
+        self.lower_receiver_expr_with_ty(callee, None)
+    }
+
+    fn callee_has_receiver_lhs(&self, callee: &Expr) -> bool {
+        match &callee.kind {
+            ExprKind::Field { .. } => true,
+            ExprKind::BracketSuffix {
+                callee: generic_callee,
+                ..
+            } if matches!(
+                self.bracket_suffix_resolution(callee),
+                Some(BracketSuffixResolution::GenericCall)
+            ) =>
+            {
+                self.callee_has_receiver_lhs(generic_callee)
+            }
+            _ => false,
+        }
+    }
+
+    fn lower_receiver_expr_with_ty(
+        &mut self,
+        callee: &Expr,
+        expected: Option<nia_ids::InternedTyId>,
+    ) -> Option<TypedExpr> {
         let field_callee = match &callee.kind {
             ExprKind::Field { .. } => callee,
             ExprKind::BracketSuffix {
@@ -1972,18 +2314,37 @@ impl<'a> BodyChecker<'a> {
             }
             _ => return None,
         };
-        let ExprKind::Field { lhs, .. } = &field_callee.kind else {
-            return None;
+        let lhs = match &field_callee.kind {
+            ExprKind::Field { lhs, .. } => lhs,
+            _ => return None,
         };
-        Some(self.lower_expr(lhs))
+        Some(self.lower_expr_with_ty(lhs, expected))
+    }
+
+    fn lower_method_receiver_expr(
+        &mut self,
+        callee: &Expr,
+        call_args: &[Expr],
+        _receiver_kind: ReceiverKind,
+    ) -> TypedExpr {
+        if self.callee_has_receiver_lhs(callee)
+            && let Some(receiver) = self.lower_receiver_expr(callee)
+        {
+            return receiver;
+        }
+        if let Some(receiver) = call_args.first() {
+            return self.lower_expr_with_checked_ty(receiver);
+        }
+        self.lower_expr(callee)
     }
 
     fn lower_builtin_call_receiver(
         &mut self,
         callee: &Expr,
         args: &[Expr],
+        receiver_ty: Option<nia_ids::InternedTyId>,
     ) -> (TypedExpr, Vec<TypedExpr>) {
-        if let Some(receiver) = self.lower_receiver_expr(callee) {
+        if let Some(receiver) = self.lower_receiver_expr_with_ty(callee, receiver_ty) {
             return (
                 receiver,
                 args.iter()
@@ -2419,39 +2780,65 @@ fn pointer_pointee(
 ) -> Option<&nia_comptime_check::ComptimeValue> {
     match value {
         nia_comptime_check::ComptimeValue::Pointer(pointee) => Some(pointee),
+        nia_comptime_check::ComptimeValue::String(_) => Some(value),
         _ => None,
+    }
+}
+
+enum ComptimeArrayValues<'a> {
+    Values(&'a [nia_comptime_check::ComptimeValue]),
+    String(&'a str),
+}
+
+impl ComptimeArrayValues<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Values(values) => values.len(),
+            Self::String(value) => value.chars().count(),
+        }
     }
 }
 
 fn comptime_array_values(
     value: &nia_comptime_check::ComptimeValue,
-) -> Option<&[nia_comptime_check::ComptimeValue]> {
+) -> Option<ComptimeArrayValues<'_>> {
     match value {
-        nia_comptime_check::ComptimeValue::Array(values) => Some(values),
+        nia_comptime_check::ComptimeValue::Array(values) => {
+            Some(ComptimeArrayValues::Values(values))
+        }
+        nia_comptime_check::ComptimeValue::String(value) => {
+            Some(ComptimeArrayValues::String(value))
+        }
         _ => None,
     }
 }
 
-fn comptime_ints_to_u8(values: &[nia_comptime_check::ComptimeValue]) -> Option<Vec<u8>> {
-    values
-        .iter()
-        .map(|value| {
-            let nia_comptime_check::ComptimeValue::Int(value) = value else {
-                return None;
-            };
-            u8::try_from(value.bits()).ok()
-        })
-        .collect()
+fn comptime_ints_to_u8(values: ComptimeArrayValues<'_>) -> Option<Vec<u8>> {
+    match values {
+        ComptimeArrayValues::Values(values) => values
+            .iter()
+            .map(|value| {
+                let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                    return None;
+                };
+                u8::try_from(value.bits()).ok()
+            })
+            .collect(),
+        ComptimeArrayValues::String(_) => None,
+    }
 }
 
-fn comptime_ints_to_u32(values: &[nia_comptime_check::ComptimeValue]) -> Option<Vec<u32>> {
-    values
-        .iter()
-        .map(|value| {
-            let nia_comptime_check::ComptimeValue::Int(value) = value else {
-                return None;
-            };
-            u32::try_from(value.bits()).ok()
-        })
-        .collect()
+fn comptime_ints_to_u32(values: ComptimeArrayValues<'_>) -> Option<Vec<u32>> {
+    match values {
+        ComptimeArrayValues::Values(values) => values
+            .iter()
+            .map(|value| {
+                let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                    return None;
+                };
+                u32::try_from(value.bits()).ok()
+            })
+            .collect(),
+        ComptimeArrayValues::String(value) => Some(value.chars().map(u32::from).collect()),
+    }
 }
