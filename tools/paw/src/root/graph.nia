@@ -11,8 +11,6 @@ pub(pkg) struct BuildGraph {
     exe_name_len: usize,
     exe_root_start: usize,
     exe_root_len: usize,
-    default_step_start: usize,
-    default_step_len: usize,
 }
 
 enum EntryKind: i32 {
@@ -52,16 +50,9 @@ extend BuildGraph {
         self.exe_root_len
     }
 
-    pub(pkg) fn default_step_start(&self) usize {
-        self.default_step_start
-    }
-
-    pub(pkg) fn default_step_len(&self) usize {
-        self.default_step_len
-    }
 }
 
-pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!BuildGraph {
+pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u8]) process::ExitCode!BuildGraph {
     var package_name_start = 0usize;
     var package_name_len = 0usize;
     var exe_name_start = 0usize;
@@ -70,10 +61,10 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
     var exe_root_len = 0usize;
     var default_step_start = 0usize;
     var default_step_len = 0usize;
-    var step_dep_start = 0usize;
-    var step_dep_len = 0usize;
-    var step_dep_exe_start = 0usize;
-    var step_dep_exe_len = 0usize;
+    var selected_step_start = 0usize;
+    var selected_step_len = 0usize;
+    var selected_step_exe_start = 0usize;
+    var selected_step_exe_len = 0usize;
     var has_package = false;
     var has_executable = false;
     var has_default_step = false;
@@ -118,14 +109,17 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
                     default_step_len = parsed.first_value_len();
                 },
                 EntryKind::StepExecutable => {
-                    if step_dep_len != 0usize {
-                        stderr.print("paw: build graph has multiple step executable dependencies\n", &[]).exit().?;
-                        return process::exit(2)!;
+                    let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
+                    if requested_step.len() != 0usize and mem::equal[u8](step, requested_step) {
+                        if selected_step_len != 0usize {
+                            stderr.print("paw: build graph has duplicate step executable dependencies\n", &[]).exit().?;
+                            return process::exit(2)!;
+                        }
+                        selected_step_start = index + parsed.first_value_start();
+                        selected_step_len = parsed.first_value_len();
+                        selected_step_exe_start = index + parsed.second_value_start();
+                        selected_step_exe_len = parsed.second_value_len();
                     }
-                    step_dep_start = index + parsed.first_value_start();
-                    step_dep_len = parsed.first_value_len();
-                    step_dep_exe_start = index + parsed.second_value_start();
-                    step_dep_exe_len = parsed.second_value_len();
                 },
                 EntryKind::Step => {},
                 EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker => {},
@@ -146,20 +140,43 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
         stderr.print("paw: build graph has no default step\n", &[]).exit().?;
         return process::exit(2)!;
     }
-    if step_dep_exe_len == 0usize {
-        stderr.print("paw: default step has no executable dependency\n", &[]).exit().?;
-        return process::exit(2)!;
+    if requested_step.len() == 0usize {
+        var scan = 0usize;
+        let default_step = &graph[default_step_start..(default_step_start + default_step_len)];
+        while scan < graph.len() {
+            let line_end = if let ?value = find_byte(graph, scan, b'\n') {
+                value
+            } else null {
+                graph.len()
+            };
+            let line = &graph[scan..line_end];
+            if line.len() != 0 {
+                let parsed = parse_line(stderr, line).?;
+                if parsed.kind() == EntryKind::StepExecutable {
+                    let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
+                    if mem::equal[u8](step, default_step) {
+                        if selected_step_len != 0usize {
+                            stderr.print("paw: build graph has duplicate step executable dependencies\n", &[]).exit().?;
+                            return process::exit(2)!;
+                        }
+                        selected_step_start = scan + parsed.first_value_start();
+                        selected_step_len = parsed.first_value_len();
+                        selected_step_exe_start = scan + parsed.second_value_start();
+                        selected_step_exe_len = parsed.second_value_len();
+                    }
+                }
+            }
+            scan = line_end + 1;
+        }
     }
-    let default_step = &graph[default_step_start..(default_step_start + default_step_len)];
-    let step_dep = &graph[step_dep_start..(step_dep_start + step_dep_len)];
-    if not mem::equal[u8](default_step, step_dep) {
-        stderr.print("paw: default step has no executable dependency\n", &[]).exit().?;
+    if selected_step_exe_len == 0usize {
+        stderr.print("paw: requested step has no executable dependency\n", &[]).exit().?;
         return process::exit(2)!;
     }
     let exe_name = &graph[exe_name_start..(exe_name_start + exe_name_len)];
-    let default_step_exe = &graph[step_dep_exe_start..(step_dep_exe_start + step_dep_exe_len)];
-    if not mem::equal[u8](exe_name, default_step_exe) {
-        stderr.print("paw: default step references unknown executable\n", &[]).exit().?;
+    let selected_step_exe = &graph[selected_step_exe_start..(selected_step_exe_start + selected_step_exe_len)];
+    if not mem::equal[u8](exe_name, selected_step_exe) {
+        stderr.print("paw: requested step references unknown executable\n", &[]).exit().?;
         return process::exit(2)!;
     }
     !{
@@ -169,8 +186,6 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
         exe_name_len: exe_name_len,
         exe_root_start: exe_root_start,
         exe_root_len: exe_root_len,
-        default_step_start: default_step_start,
-        default_step_len: default_step_len,
     }
 }
 
