@@ -52,12 +52,6 @@ extern fn nia_check_request_add_module(
 extern fn nia_check_request_set_runtime(request: &void, runtime: i32) i32;
 extern fn nia_check_request_set_optimization(request: &void, level: i32) i32;
 extern fn nia_session_check(session: &void, request: &void) &void;
-extern fn nia_session_emit_object_file(
-    session: &void,
-    request: &void,
-    output_ptr: &u8,
-    output_len: usize,
-) &void;
 extern fn nia_session_emit_executable(
     session: &void,
     request: &void,
@@ -132,10 +126,6 @@ extend Session {
 
     pub fn check(&self, request: &CheckRequest) ?CheckResult {
         CheckResult::from_raw(nia_session_check(self.raw, request.raw()))
-    }
-
-    pub fn emit_object_file(&self, request: &CheckRequest, output: &[u8]) ?CheckResult {
-        CheckResult::from_raw(nia_session_emit_object_file(self.raw, request.raw(), output.get_ptr_read(), output.len()))
     }
 
     pub fn emit_object_directory(&self, request: &CheckRequest, output: &[u8]) ?CheckResult {

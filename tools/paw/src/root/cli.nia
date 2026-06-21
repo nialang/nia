@@ -6,9 +6,8 @@ using process::{ExitCode, Init};
 
 enum Command: i32 {
     Check = 1,
-    Obj = 2,
-    ObjDir = 3,
-    Build = 4,
+    Objects = 2,
+    Build = 3,
 }
 
 struct Cli {
@@ -46,15 +45,11 @@ extend Cli {
         build::check(self.stderr, self.init, root)
     }
 
-    fn object(&mut self, command: Command, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
+    fn objects(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
         let root = self.arg(args).?;
         let output = self.arg(args).?;
         self.finish_args(args).?;
-        switch command {
-            Command::Obj => build::obj(self.stderr, self.init, root, output),
-            Command::ObjDir => build::obj_dir(self.stderr, self.init, root, output),
-            _ => !process::exit(2),
-        }
+        build::objects(self.stderr, self.init, root, output)
     }
 
     fn build(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
@@ -96,10 +91,8 @@ extend Command {
             ?Command::Check
         } else if mem::equal[u8](command.bytes(), b"build") {
             ?Command::Build
-        } else if mem::equal[u8](command.bytes(), b"obj") {
-            ?Command::Obj
-        } else if mem::equal[u8](command.bytes(), b"obj-dir") {
-            ?Command::ObjDir
+        } else if mem::equal[u8](command.bytes(), b"objects") {
+            ?Command::Objects
         } else {
             null
         }
@@ -108,7 +101,7 @@ extend Command {
     fn run(self, cli: &mut Cli, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
         switch self {
             Command::Check => cli.check(args),
-            Command::Obj, Command::ObjDir => cli.object(self, args),
+            Command::Objects => cli.objects(args),
             Command::Build => cli.build(args),
             _ => !process::exit(2),
         }
@@ -119,8 +112,7 @@ fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
     stderr.print(
         \\usage: paw build <root> <out>
         \\       paw check <root>
-        \\       paw obj <root> <out.o>
-        \\       paw obj-dir <root> <out-dir>
+        \\       paw objects <root> <out-dir>
         \\
         ,
         &[],
