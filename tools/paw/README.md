@@ -35,18 +35,21 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     exe.library("nia_capi").?;
     exe.rpath("../../target/release/deps").?;
     exe.dynamic_linker_auto().?;
-    var step = build.step("build").?;
-    step.depend(&exe).?;
-    step.default()
+    var build_step = build.step("build").?;
+    build_step.build(&exe).?;
+    build_step.default().?;
+    var check_step = build.step("check").?;
+    check_step.check(&exe).?;
+    var objects_step = build.step("objects").?;
+    objects_step.objects(&exe)
 }
 ```
 
 Link options belong to the executable handle. They are not global package
 options. The current graph format accepts exactly one package and one
 executable; duplicate package entries, multiple executables, and link options
-that reference an unknown artifact are rejected. The default step must depend
-on the executable. Relative paths in `build.nia` are resolved from the package
-root.
+that reference an unknown artifact are rejected. The default step must have a
+build action. Relative paths in `build.nia` are resolved from the package root.
 
 ## Commands
 
@@ -56,11 +59,13 @@ paw [step] [--root <dir>]
 
 - `paw` runs the default step from `build.nia`.
 - `paw build` runs the step named `build`.
+- `paw check` and `paw objects` work when those steps are declared by
+  `build.nia`.
 - `--root <dir>` selects the package root. If omitted, `paw` uses the current
   directory.
 
-The current step action is executable build output, written into
-`<root>/.nia-build/`.
+The current executable build output is written into `<root>/.nia-build/`.
+Object directory output is written into `<root>/.nia-build/objects`.
 
 ## Bootstrapping
 
@@ -95,6 +100,7 @@ A basic self-hosting check builds one more generation and verifies object output
 ```sh
 build/paw-bootstrap/paw build --root tools/paw
 cp tools/paw/.nia-build/paw build/paw-bootstrap/paw-step2
+build/paw-bootstrap/paw objects --root tools/paw
 ```
 
 The `build/` directory is ignored by this repository and is used here for
@@ -108,11 +114,11 @@ shape for that cache, but `paw` does not own it yet.
 `paw` is not a complete package manager yet. The current implementation has:
 
 - one package and one executable per build graph;
-- one default step with one executable dependency;
+- executable build, check, and object directory step actions;
 - no dependency resolver;
 - no package cache;
 - no install or publish workflow;
-- no dedicated test command.
+- no dedicated test action.
 
 Those limits are represented directly in the implementation instead of being
 papered over with compatibility shims.

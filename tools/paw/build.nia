@@ -7,7 +7,11 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     exe.library("nia_capi").?;
     exe.rpath("../../target/release/deps").?;
     exe.dynamic_linker_auto().?;
-    var step = build.step("build").?;
-    step.depend(&exe).?;
-    step.default()
+    var build_step = build.step("build").?;
+    build_step.build(&exe).?;
+    build_step.default().?;
+    var check_step = build.step("check").?;
+    check_step.check(&exe).?;
+    var objects_step = build.step("objects").?;
+    objects_step.objects(&exe)
 }
