@@ -31,9 +31,9 @@ using paw;
 pub fn build(build: &mut paw::Build) paw::Error!void {
     build.package({ name: "paw", version: "0.1.0" }).?;
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
-    exe.library_path("target/debug/deps").?;
+    exe.library_path("target/release/deps").?;
     exe.library("nia_capi").?;
-    exe.rpath("target/debug/deps").?;
+    exe.rpath("target/release/deps").?;
     exe.dynamic_linker_auto()
 }
 ```
@@ -59,20 +59,21 @@ paw objects <root> <out-dir>
 ## Bootstrapping
 
 `paw` is self-hosted through one compiler-built seed binary. From the repository
-root, first build the C API library and create a local bootstrap directory:
+root, first build the release compiler, release C API library, and create a
+local bootstrap directory:
 
 ```sh
-cargo build -p nia-capi
+cargo build --release -p nia-cli -p nia-capi
 mkdir -p build/paw-bootstrap
 ```
 
 Then build the seed `paw` with `nia`:
 
 ```sh
-cargo run -q -p nia-cli -- emit --exe tools/paw/src/main.nia \
+target/release/nia emit --exe tools/paw/src/main.nia \
   -M paw=tools/paw/src/root.nia \
-  -L target/debug/deps -l nia_capi \
-  --rpath target/debug/deps --dynamic-linker auto \
+  -L target/release/deps -l nia_capi \
+  --rpath target/release/deps --dynamic-linker auto \
   -o build/paw-bootstrap/paw-step1
 ```
 
