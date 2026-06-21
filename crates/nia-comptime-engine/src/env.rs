@@ -29,6 +29,14 @@ pub trait ComptimeCommonEnv {
         })
     }
 
+    fn resolve_embed(&mut self, span: Span, path: &str) -> Result<ComptimeValue, ComptimeError> {
+        let _ = path;
+        Err(ComptimeError {
+            span,
+            message: "builtin `@embed` is not available in this context".to_string(),
+        })
+    }
+
     fn cast_value(
         &mut self,
         span: Span,

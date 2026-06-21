@@ -180,6 +180,13 @@ fn eval_resolved_comptime_expr_flow(
                 span,
                 message: "unsupported byte string literal in comptime expression".to_string(),
             })?,
+        ResolvedComptimeExprKind::Embed { path } => {
+            let path = eval_string_literal(path).ok_or_else(|| ComptimeError {
+                span,
+                message: "invalid `@embed` path literal".to_string(),
+            })?;
+            env.resolve_embed(span, &path)?
+        }
         ResolvedComptimeExprKind::Integer(text) => eval_int_literal(text)
             .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
             .map_err(|message| ComptimeError { span, message })?,
@@ -425,6 +432,13 @@ fn eval_comptime_expr_flow(
                 span: expr.span,
                 message: "unsupported byte string literal in comptime expression".to_string(),
             })?,
+        EarlyComptimeExprKind::Embed { path } => {
+            let path = eval_string_literal(path).ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: "invalid `@embed` path literal".to_string(),
+            })?;
+            env.resolve_embed(expr.span, &path)?
+        }
         EarlyComptimeExprKind::Integer(text) => eval_int_literal(text)
             .map(|value| ComptimeValue::Int(IntConst::from_i128(value)))
             .map_err(|message| ComptimeError {

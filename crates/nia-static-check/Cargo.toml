@@ -25,6 +25,7 @@ nia-value-resolve.workspace = true
 [dev-dependencies]
 nia-item-signatures.workspace = true
 nia-parser.workspace = true
+nia-source.workspace = true
 nia-target-config.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true

@@ -41,17 +41,29 @@ extend Path {
             return PathError::TooLong!;
         }
         storage[out] = 0u8;
-        !EncodedPath::init(storage.get_ptr_read())
+        !EncodedPath::init(storage.get_ptr_read(), out)
     }
 }
 
 extend EncodedPath {
-    pub fn init(ptr: &u8) EncodedPath {
-        { ptr: ptr }
+    pub fn init(ptr: &u8, len: usize) EncodedPath {
+        { ptr: ptr, len: len }
     }
 
     pub fn ptr(&self) &u8 {
         self.ptr
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn bytes(&self) &[u8] {
+        &self.ptr[0..self.len]
+    }
+
+    pub fn nul_terminated_bytes(&self) &[u8] {
+        &self.ptr[0..(self.len + 1usize)]
     }
 }
 

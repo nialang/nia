@@ -73,6 +73,7 @@ pub enum BuiltinResolution {
     CmpxchgStrong,
     CmpxchgWeak,
     Fence,
+    Embed,
     Reserved,
 }
 
@@ -924,6 +925,7 @@ impl<'a> ValueResolver<'a> {
             "cmpxchg_strong" => BuiltinResolution::CmpxchgStrong,
             "cmpxchg_weak" => BuiltinResolution::CmpxchgWeak,
             "fence" => BuiltinResolution::Fence,
+            "embed" => BuiltinResolution::Embed,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,

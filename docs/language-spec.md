@@ -1940,6 +1940,7 @@ Nia provides a small builtin surface:
 @align[T]()
 @offset[T]("field")
 @error("message")
+@embed("path")
 value.len()
 range.start()
 range.end()
@@ -1969,6 +1970,12 @@ slice.get_ptr()
 `@offset[T]("field")` returns the ABI byte offset of a struct or union field
 as `usize`. The field name must be a string literal. For unions, every field
 has offset `0`.
+
+`@embed("path")` reads a file during compile-time evaluation and returns its
+contents as a byte array value. The path argument must be a string literal and
+is resolved relative to the source file that contains the `@embed` call, not the
+process working directory. `@embed` is only valid in a `comptime` expression
+context; it does not parse or macro-expand the embedded bytes.
 
 `@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
 types this predicate is compiler-proven. In generic code it must be written in

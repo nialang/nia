@@ -36,6 +36,7 @@ use nia_sema::{
     check_exact_arity, check_required_field_set, check_value_field_set,
 };
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable};
+use nia_source::SourcePath;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
@@ -71,6 +72,7 @@ pub struct TypedComptimeQueryInput<'a> {
     pub interner: &'a TyInterner,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub target: &'a TargetConfig,
+    pub source_path: &'a SourcePath,
     pub program: ComptimeProgramContext<'a>,
     pub typed_values: &'a HashMap<ComptimeKey, TypedComptimeValue>,
     pub array_lengths: &'a HashMap<GlobalConstExprId, u64>,
@@ -189,6 +191,7 @@ impl Analyzer<'_> {
                 interner: input.interner,
                 normalized: input.normalized,
                 target: input.target,
+                source_path: input.source_path,
                 program: input.program,
             },
             values: HashMap::new(),

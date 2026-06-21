@@ -1,5 +1,6 @@
 using pkg::fmt;
 using pkg::fs;
+using pkg::io;
 using pkg::mem;
 using pkg::os;
 using pkg::process::types;
@@ -71,6 +72,27 @@ extend fmt::Error {
 }
 
 extend[T] fmt::Error!T {
+    pub fn exit(self) ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend io::BufferError {
+    pub fn as_exit_code(self) ExitCode {
+        switch self {
+            io::BufferError::NoSpace => exit(2),
+            io::BufferError::ShortWrite => exit(5),
+            io::BufferError::EndOfStream => exit(5),
+            _ => exit(255),
+        }
+    }
+}
+
+extend[T] io::BufferError!T {
     pub fn exit(self) ExitCode!T {
         if let !value = self {
             !value

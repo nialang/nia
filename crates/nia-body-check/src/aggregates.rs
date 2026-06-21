@@ -1098,8 +1098,10 @@ impl<'a> BodyChecker<'a> {
                 interner: &self.interner,
                 normalized: &self.normalization.normalized,
                 target: self.target,
+                source_path: self.source_path,
                 program: nia_comptime_check::ComptimeProgramContext {
                     modules: Some(self.program_comptime_modules),
+                    source_paths: None,
                     defs: self.program.defs,
                     type_lowerings: self.program.type_lowerings,
                     type_normalizations: self.program.type_normalizations,
@@ -1150,8 +1152,10 @@ impl<'a> BodyChecker<'a> {
             interner: &query_interner,
             normalized: &self.normalization.normalized,
             target: self.target,
+            source_path: self.source_path,
             program: nia_comptime_check::ComptimeProgramContext {
                 modules: Some(self.program_comptime_modules),
+                source_paths: None,
                 defs: self.program.defs,
                 type_lowerings: self.program.type_lowerings,
                 type_normalizations: self.program.type_normalizations,

@@ -1,0 +1,10 @@
+using paw;
+
+pub fn build(build: &mut paw::Build) paw::Error!void {
+    build.package({ name: "paw", version: "0.1.0" }).?;
+    build.library_path("target/debug/deps").?;
+    build.library("nia_capi").?;
+    build.rpath("target/debug/deps").?;
+    build.dynamic_linker_auto().?;
+    build.executable({ name: "paw", root: "src/main.nia" })
+}

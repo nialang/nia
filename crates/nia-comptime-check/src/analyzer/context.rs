@@ -285,6 +285,15 @@ impl Analyzer<'_> {
             .find_map(|frame| frame.function_id)
     }
 
+    pub(super) fn current_execution_source_path(&self) -> Option<&nia_source::SourcePath> {
+        let module_id = self.current_execution_module_id();
+        if module_id == self.input.defs.module_id {
+            Some(self.input.source_path)
+        } else {
+            self.input.program.source_paths?.get(&module_id)
+        }
+    }
+
     pub(super) fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
         self.working_interners.get(&module_id)
     }

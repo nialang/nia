@@ -16,6 +16,7 @@ use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
 use nia_sema_ir::SemanticUseTable;
+use nia_source::SourcePath;
 use nia_static_ir::StaticInit;
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
 use nia_type_normalize::normalize_module_types;
@@ -185,6 +186,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
+    let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
@@ -194,6 +196,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             locals: &locals,
             semantic_uses: &semantic_uses,
             const_exprs: &type_lowering.const_exprs,
+            source_path: &source_path,
         });
     assert!(
         comptime_module.diagnostics.is_empty(),
@@ -210,6 +213,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         interner: &normalization.interner,
         normalized: &normalization.normalized,
         target: &target,
+        source_path: &source_path,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
@@ -225,6 +229,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let origins = NodeOriginTable::default();
     let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
+        source_path: &source_path,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,

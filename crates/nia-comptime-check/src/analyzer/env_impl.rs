@@ -17,6 +17,7 @@ use nia_local_resolve::LocalKind;
 use nia_sema_ir::BuiltinAssociatedValue;
 use nia_span::Span;
 use nia_ty::{IntConst, TyKind};
+use std::path::{Path, PathBuf};
 
 impl ComptimeCommonEnv for Analyzer<'_> {
     fn resolve_builtin_value(
@@ -31,6 +32,32 @@ impl ComptimeCommonEnv for Analyzer<'_> {
                 message: "builtin `@error` must be called with a message".to_string(),
             }),
         }
+    }
+
+    fn resolve_embed(&mut self, span: Span, path: &str) -> Result<ComptimeValue, ComptimeError> {
+        if path.is_empty() {
+            return Err(ComptimeError {
+                span,
+                message: "builtin `@embed` path cannot be empty".to_string(),
+            });
+        }
+        let Some(source_path) = self.current_execution_source_path() else {
+            return Err(ComptimeError {
+                span,
+                message: "builtin `@embed` cannot resolve the current source path".to_string(),
+            });
+        };
+        let resolved = resolve_embed_path(source_path.as_str(), path);
+        let bytes = std::fs::read(&resolved).map_err(|error| ComptimeError {
+            span,
+            message: format!("failed to embed `{}`: {error}", resolved.display()),
+        })?;
+        Ok(ComptimeValue::Pointer(Box::new(ComptimeValue::Array(
+            bytes
+                .into_iter()
+                .map(|byte| ComptimeValue::Int(IntConst::unsigned(byte as u128)))
+                .collect(),
+        ))))
     }
 
     fn cast_value(
@@ -141,6 +168,17 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         frame.type_substitutions.extend(substitutions);
         Ok(())
     }
+}
+
+pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    Path::new(source_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(path)
 }
 
 impl ResolvedComptimeEnv for Analyzer<'_> {

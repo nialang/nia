@@ -657,6 +657,14 @@ types, for example `E!T` can type `!value` when `E` is already concrete, while
 still refusing to invent the missing half of an error union from the value
 shape alone.
 
+File embedding is part of the same semantic boundary. The `@embed("path")`
+builtin is lowered into `nia-comptime-ir`, evaluated by `nia-comptime-engine`
+through the caller-provided comptime environment, and resolved by
+`nia-comptime-check` against the `SourcePath` of the module currently
+executing. It is deliberately not a loader fallback or cwd-relative operation;
+cross-module execution receives the producing module's source path through the
+program comptime context.
+
 Comptime block expressions are typed from their tail expression. A block with
 statements creates a typed comptime scope in the checker, records local binding
 types from explicit annotations or inferable initializer expressions, and then

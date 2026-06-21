@@ -20,6 +20,7 @@ nia-item-tree.workspace = true
 nia-local-resolve.workspace = true
 nia-parser.workspace = true
 nia-sema-ir.workspace = true
+nia-source.workspace = true
 nia-target-config.workspace = true
 nia-type-lower.workspace = true
 nia-type-resolve.workspace = true

@@ -11,7 +11,7 @@ pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
 pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseTable};
-pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};
+pub(super) use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
 pub(super) use nia_ty::{TraitId, TyKind};
 pub(super) use nia_type_lower::lower_module_types;
 pub(super) use nia_type_resolve::resolve_module_types;
@@ -70,6 +70,7 @@ fn pipeline_with_options(
         signatures.diagnostics
     );
     let target = nia_target_config::TargetConfig::host();
+    let source_path = SourcePath::new("/tmp/nia-body-check-test/main.nia");
     let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
@@ -79,6 +80,7 @@ fn pipeline_with_options(
             locals: &locals,
             semantic_uses: &semantic_uses,
             const_exprs: &lowered.const_exprs,
+            source_path: &source_path,
         });
     assert!(
         comptime_module.diagnostics.is_empty(),
@@ -95,6 +97,7 @@ fn pipeline_with_options(
         interner: &lowered.interner,
         normalized: &std::collections::HashMap::new(),
         target: &target,
+        source_path: &source_path,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     assert!(
@@ -161,6 +164,7 @@ fn pipeline_with_options(
     let origins = NodeOriginTable::default();
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
+        source_path: &source_path,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,

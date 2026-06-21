@@ -10,6 +10,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::{LocalResolution, resolve_module_locals};
 use nia_parser::parse_module;
 use nia_sema_ir::SemanticUseTable;
+use nia_source::SourcePath;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
@@ -36,6 +37,7 @@ fn check_source(source: &str) -> CheckedFixture {
     let locals = resolve_module_locals(&module, &defs, &values);
     let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let source_path = SourcePath::new("/tmp/nia-comptime-check-test/main.nia");
     let item_tree = ModuleItemTree::from_module(&module);
     let active_item_tree = ActiveModuleItemTree::new(
         item_tree.active_items_without_comptime(),
@@ -48,6 +50,7 @@ fn check_source(source: &str) -> CheckedFixture {
         locals: &locals,
         semantic_uses: &semantic_uses,
         const_exprs: &lowered.const_exprs,
+        source_path: &source_path,
     });
     let checked = check_module_comptime(ComptimeInput {
         module: &comptime_module.module,
@@ -59,6 +62,7 @@ fn check_source(source: &str) -> CheckedFixture {
         interner: &lowered.interner,
         normalized: &HashMap::new(),
         target: &target,
+        source_path: &source_path,
         program: ComptimeProgramContext::empty(),
     });
     CheckedFixture {
@@ -284,6 +288,7 @@ y
         item_tree.active_items_without_comptime(),
         Default::default(),
     );
+    let source_path = SourcePath::new("/tmp/nia-comptime-check-test/lowering.nia");
 
     let comptime_module = lower_module_comptime(ComptimeModuleInput {
         active_item_tree: &active_item_tree,
@@ -292,6 +297,7 @@ y
         locals: &locals,
         semantic_uses: &semantic_uses,
         const_exprs: &lowered.const_exprs,
+        source_path: &source_path,
     });
 
     assert!(

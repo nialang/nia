@@ -563,6 +563,7 @@ mod tests {
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module;
     use nia_sema_ir::SemanticUseTable;
+    use nia_source::SourcePath;
     use nia_type_lower::lower_module_types_with_id;
     use nia_type_normalize::normalize_module_types;
     use nia_type_resolve::resolve_module_types;
@@ -580,6 +581,7 @@ mod tests {
         let locals = resolve_module_locals(&module, &defs, &values);
         let semantic_uses = semantic_use_table(module_id, &values, &locals, &type_lowering);
         let target = nia_target_config::TargetConfig::host();
+        let source_path = SourcePath::new("/tmp/nia-static-check-test/main.nia");
         let normalization = normalize_module_types(module_id, &type_lowering.interner, &signatures);
         let item_tree = ModuleItemTree::from_module(&module);
         let active_item_tree = ActiveModuleItemTree::new(
@@ -594,6 +596,7 @@ mod tests {
                 locals: &locals,
                 semantic_uses: &semantic_uses,
                 const_exprs: &type_lowering.const_exprs,
+                source_path: &source_path,
             });
         assert!(
             comptime_module.diagnostics.is_empty(),
@@ -611,6 +614,7 @@ mod tests {
                 interner: &normalization.interner,
                 normalized: &normalization.normalized,
                 target: &target,
+                source_path: &source_path,
                 program: nia_comptime_check::ComptimeProgramContext::empty(),
             });
         assert!(
