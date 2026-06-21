@@ -55,6 +55,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
     var exe_name_len = 0usize;
     var exe_root_start = 0usize;
     var exe_root_len = 0usize;
+    var has_package = false;
+    var has_executable = false;
     var index = 0usize;
     while index < graph.len() {
         let line_end = if let ?value = find_byte(graph, index, b'\n') {
@@ -67,10 +69,20 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8]) process::ExitCode!B
             let parsed = parse_line(stderr, line).?;
             switch parsed.kind() {
                 EntryKind::Package => {
+                    if has_package {
+                        stderr.print("paw: build graph has duplicate package entries\n", &[]).exit().?;
+                        return process::exit(2)!;
+                    }
+                    has_package = true;
                     package_name_start = index + parsed.first_value_start();
                     package_name_len = parsed.first_value_len();
                 },
                 EntryKind::Executable => {
+                    if has_executable {
+                        stderr.print("paw: build graph has multiple executables\n", &[]).exit().?;
+                        return process::exit(2)!;
+                    }
+                    has_executable = true;
                     exe_name_start = index + parsed.first_value_start();
                     exe_name_len = parsed.first_value_len();
                     exe_root_start = index + parsed.second_value_start();
@@ -285,7 +297,8 @@ fn apply_link_option_line(
     };
     if kind == EntryKind::LibraryPath or kind == EntryKind::Library or kind == EntryKind::Rpath or kind == EntryKind::DynamicLinker {
         if not artifact_matches(line, first_tab, executable_name) {
-            return !{};
+            stderr.print("paw: build graph references unknown artifact\n", &[]).exit().?;
+            return process::exit(2)!;
         }
     }
     switch kind {
