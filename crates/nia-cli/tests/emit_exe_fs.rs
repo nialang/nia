@@ -92,7 +92,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
     var write_buffer: [64]u8 = [0; 64];
-    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"nia fs") {
         _ = ok;
     } else error! {
@@ -116,7 +116,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (5 as process::ExitCode)!;
     }
     var read_buffer: [64]u8 = [0; 64];
-    var reader = opened.reader(init.io(), &mut read_buffer[..]);
+    var reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
     var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
     if let !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
@@ -188,7 +188,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
     var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"open close") {
         _ = ok;
     } else error! {
@@ -212,7 +212,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (5 as process::ExitCode)!;
     }
     var read_buffer: [16]u8 = [0; 16];
-    var reader = opened.reader(init.io(), &mut read_buffer[..]);
+    var reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
     var bytes: [10]u8 = [0; 10];
     if let !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
@@ -263,6 +263,150 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_file_close_marks_handle_closed() {
+    let root = temp_dir("emit_exe_std_fs_file_close_marks_handle_closed");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = if let !value = fs::File::create(fs::Path::init("data.txt"), fs::CreateOptions::init()) {
+        value
+    } else error! {
+        return (1 as process::ExitCode)!;
+    };
+    if let !ok = file.close() {
+        _ = ok;
+    } else error! {
+        return (2 as process::ExitCode)!;
+    }
+    if let !handle = file.borrow_handle() {
+        _ = handle;
+        return (3 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (4 as process::ExitCode)!;
+        }
+    }
+    if let !ok = file.close() {
+        _ = ok;
+        return (5 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (6 as process::ExitCode)!;
+        }
+    }
+    var buffer: [8]u8 = [0; 8];
+    if let !writer = file.writer(init.io(), &mut buffer[..]) {
+        _ = writer;
+        return (7 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (8 as process::ExitCode)!;
+        }
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe fs file closed state");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_fs_dir_close_marks_handle_closed() {
+    let root = temp_dir("emit_exe_std_fs_dir_close_marks_handle_closed");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var cwd = if let !value = fs::Dir::cwd() {
+        value
+    } else error! {
+        return (1 as process::ExitCode)!;
+    };
+    if let !ok = cwd.close() {
+        _ = ok;
+    } else error! {
+        return (2 as process::ExitCode)!;
+    }
+    if let !handle = cwd.borrow_handle() {
+        _ = handle;
+        return (3 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (4 as process::ExitCode)!;
+        }
+    }
+    if let !ok = cwd.close() {
+        _ = ok;
+        return (5 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (6 as process::ExitCode)!;
+        }
+    }
+    if let !file = cwd.create_file(fs::Path::init("bad.txt"), fs::CreateOptions::init()) {
+        _ = file;
+        return (7 as process::ExitCode)!;
+    } else error! {
+        if error != fs::Error::BadFd {
+            return (8 as process::ExitCode)!;
+        }
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe fs dir closed state");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_fs_file_seek_len_truncate_and_sync() {
     let root = temp_dir("emit_exe_std_fs_file_seek_len_truncate_and_sync");
     let data_path = root.join("data.txt");
@@ -285,7 +429,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"abcdef") {
         _ = ok;
     } else error! {
@@ -425,7 +569,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"metadata") {
         _ = ok;
     } else error! {
@@ -550,7 +694,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
     var buffer: [64]u8 = [0; 64];
-    var writer = file.writer(init.io(), &mut buffer[..]);
+    var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
     if let !ok = writer.write_all(b"ok") {
         _ = ok;
     } else error! {

@@ -4,6 +4,11 @@ using pkg::os::linux::fd as linux_fd;
 
 using types::{Errno, OpenMode, Pipe, ProcessId, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
 
+struct SpawnPipe {
+    read: ?types::FileDescriptor,
+    write: ?types::FileDescriptor,
+}
+
 struct SpawnErrorRecord {
     stage: i32,
     code: i32,
@@ -15,121 +20,75 @@ pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
 }
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    var stdin_pipe: ?Pipe = null;
-    var stdout_pipe: ?Pipe = null;
-    var stderr_pipe: ?Pipe = null;
-    var cleanup_stdin_pipe = false;
-    var cleanup_stdout_pipe = false;
-    var cleanup_stderr_pipe = false;
-    defer if cleanup_stdin_pipe {
-        close_pipe(stdin_pipe);
-    };
-    defer if cleanup_stdout_pipe {
-        close_pipe(stdout_pipe);
-    };
-    defer if cleanup_stderr_pipe {
-        close_pipe(stderr_pipe);
-    };
+    var stdin_pipe = SpawnPipe::closed();
+    var stdout_pipe = SpawnPipe::closed();
+    var stderr_pipe = SpawnPipe::closed();
+    defer stdin_pipe.close_all();
+    defer stdout_pipe.close_all();
+    defer stderr_pipe.close_all();
     if options.stdin() == StdIo::Pipe {
-        stdin_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
-        cleanup_stdin_pipe = true;
+        stdin_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
     if options.stdout() == StdIo::Pipe {
-        stdout_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
-        cleanup_stdout_pipe = true;
+        stdout_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
     if options.stderr() == StdIo::Pipe {
-        stderr_pipe = ?linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
-        cleanup_stderr_pipe = true;
+        stderr_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
-    let error_pipe = linux_fd::pipe_close_on_exec().as_spawn_setup_error().?;
-    var cleanup_error_pipe = true;
-    defer if cleanup_error_pipe {
-        close_pipe(?error_pipe);
-    };
+    var error_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+    defer error_pipe.close_all();
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
         SpawnError::from_errno(ret.syscall_error())!
     } else if ret == 0 {
-        _ = error_pipe.read().close();
-        if let !ok = apply_stdio(options, stdin_pipe, stdout_pipe, stderr_pipe) {
+        error_pipe.close_read();
+        if let !ok = apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
             _ = ok;
         } else error! {
-            write_spawn_error(error_pipe.write(), SpawnStage::Stdio, error);
+            report_spawn_error(&error_pipe, SpawnStage::Stdio, error);
             exit(127);
         }
         if let !ok = apply_cwd(options) {
             _ = ok;
         } else error! {
-            write_spawn_error(error_pipe.write(), SpawnStage::Cwd, error);
+            report_spawn_error(&error_pipe, SpawnStage::Cwd, error);
             exit(127);
         }
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        write_spawn_error(error_pipe.write(), SpawnStage::Exec, exec_ret.syscall_error());
+        report_spawn_error(&error_pipe, SpawnStage::Exec, exec_ret.syscall_error());
         exit(127);
         SpawnError::Invalid!
     } else {
-        close_child_pipe_ends(stdin_pipe, stdout_pipe, stderr_pipe);
-        cleanup_error_pipe = false;
-        _ = error_pipe.write().close();
+        stdin_pipe.close_read();
+        stdout_pipe.close_write();
+        stderr_pipe.close_write();
+        error_pipe.close_write();
         let pid = ProcessId::init(ret as i32);
-        if let ?spawn_error = read_spawn_error(error_pipe.read(), pid).? {
+        let error_read = if let ?fd = error_pipe.take_read() {
+            fd
+        } else null {
+            _ = wait(pid);
+            return SpawnError::Setup!;
+        };
+        if let ?spawn_error = read_spawn_error(error_read, pid).? {
             _ = wait(pid);
             spawn_error!
         } else null {
-            cleanup_stdin_pipe = false;
-            cleanup_stdout_pipe = false;
-            cleanup_stderr_pipe = false;
             !SpawnResult::init(
                 pid,
-                parent_stdin(stdin_pipe),
-                parent_stdout(stdout_pipe),
-                parent_stderr(stderr_pipe),
+                stdin_pipe.take_write(),
+                stdout_pipe.take_read(),
+                stderr_pipe.take_read(),
             )
         }
     }
 }
 
-fn close_pipe(pipe: ?Pipe) void {
-    if let ?value = pipe {
-        _ = value.read().close();
-        _ = value.write().close();
-    } else null {}
-}
-
-fn close_child_pipe_ends(stdin: ?Pipe, stdout: ?Pipe, stderr: ?Pipe) void {
-    if let ?pipe = stdin {
-        _ = pipe.read().close();
-    } else null {}
-    if let ?pipe = stdout {
-        _ = pipe.write().close();
-    } else null {}
-    if let ?pipe = stderr {
-        _ = pipe.write().close();
-    } else null {}
-}
-
-fn parent_stdin(pipe: ?Pipe) ?types::FileDescriptor {
-    if let ?value = pipe {
-        ?value.write()
-    } else null {
-        null
-    }
-}
-
-fn parent_stdout(pipe: ?Pipe) ?types::FileDescriptor {
-    if let ?value = pipe {
-        ?value.read()
-    } else null {
-        null
-    }
-}
-
-fn parent_stderr(pipe: ?Pipe) ?types::FileDescriptor {
-    if let ?value = pipe {
-        ?value.read()
-    } else null {
-        null
+fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) void {
+    if let !fd = pipe.write() {
+        write_spawn_error(fd, stage, errno);
+    } else error! {
+        exit(127);
     }
 }
 
@@ -158,57 +117,44 @@ fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?Spaw
     !(?SpawnError::from_stage(record.stage(), record.errno()))
 }
 
-fn apply_stdio(options: SpawnOptions, stdin_pipe: ?Pipe, stdout_pipe: ?Pipe, stderr_pipe: ?Pipe) Errno!void {
+fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &mut SpawnPipe, stderr_pipe: &mut SpawnPipe) Errno!void {
     var dev_null: ?types::FileDescriptor = null;
     if options.stdin() == StdIo::Ignore {
-        dev_null = ?open_dev_null().?;
-        dup_to(dev_null, types::FileDescriptor::stdin()).?;
+        let fd = open_dev_null().?;
+        dev_null = ?fd;
+        dup_to(fd, types::FileDescriptor::stdin()).?;
     } else if options.stdin() == StdIo::Pipe {
-        dup_to(pipe_read(stdin_pipe), types::FileDescriptor::stdin()).?;
+        dup_to(stdin_pipe.read().?, types::FileDescriptor::stdin()).?;
     }
     if options.stdout() == StdIo::Ignore {
         if let ?fd = dev_null {
-            dup_to(?fd, types::FileDescriptor::stdout()).?;
+            dup_to(fd, types::FileDescriptor::stdout()).?;
         } else null {
-            dev_null = ?open_dev_null().?;
-            dup_to(dev_null, types::FileDescriptor::stdout()).?;
+            let fd = open_dev_null().?;
+            dev_null = ?fd;
+            dup_to(fd, types::FileDescriptor::stdout()).?;
         }
     } else if options.stdout() == StdIo::Pipe {
-        dup_to(pipe_write(stdout_pipe), types::FileDescriptor::stdout()).?;
+        dup_to(stdout_pipe.write().?, types::FileDescriptor::stdout()).?;
     }
     if options.stderr() == StdIo::Ignore {
         if let ?fd = dev_null {
-            dup_to(?fd, types::FileDescriptor::stderr()).?;
+            dup_to(fd, types::FileDescriptor::stderr()).?;
         } else null {
-            dev_null = ?open_dev_null().?;
-            dup_to(dev_null, types::FileDescriptor::stderr()).?;
+            let fd = open_dev_null().?;
+            dev_null = ?fd;
+            dup_to(fd, types::FileDescriptor::stderr()).?;
         }
     } else if options.stderr() == StdIo::Pipe {
-        dup_to(pipe_write(stderr_pipe), types::FileDescriptor::stderr()).?;
+        dup_to(stderr_pipe.write().?, types::FileDescriptor::stderr()).?;
     }
-    close_pipe(stdin_pipe);
-    close_pipe(stdout_pipe);
-    close_pipe(stderr_pipe);
+    stdin_pipe.close_all();
+    stdout_pipe.close_all();
+    stderr_pipe.close_all();
     if let ?fd = dev_null {
         fd.close().?;
     } else null {}
     !{}
-}
-
-fn pipe_read(pipe: ?Pipe) ?types::FileDescriptor {
-    if let ?value = pipe {
-        ?value.read()
-    } else null {
-        null
-    }
-}
-
-fn pipe_write(pipe: ?Pipe) ?types::FileDescriptor {
-    if let ?value = pipe {
-        ?value.write()
-    } else null {
-        null
-    }
 }
 
 fn apply_cwd(options: SpawnOptions) Errno!void {
@@ -240,13 +186,8 @@ fn open_dev_null() Errno!types::FileDescriptor {
     }
 }
 
-fn dup_to(from: ?types::FileDescriptor, to: types::FileDescriptor) Errno!void {
-    let fd = if let ?value = from {
-        value
-    } else null {
-        return Errno::Invalid!;
-    };
-    let ret = syscall::syscall2(syscall::dup2, fd.raw() as usize, to.raw() as usize);
+fn dup_to(from: types::FileDescriptor, to: types::FileDescriptor) Errno!void {
+    let ret = syscall::syscall2(syscall::dup2, from.raw() as usize, to.raw() as usize);
     if ret < 0 {
         ret.syscall_error()!
     } else {
@@ -320,6 +261,70 @@ extend SpawnErrorRecord {
 
     fn errno(&self) Errno {
         Errno::from_code(self.code)
+    }
+}
+
+extend SpawnPipe {
+    fn closed() SpawnPipe {
+        { read: null, write: null }
+    }
+
+    fn init(read: types::FileDescriptor, write: types::FileDescriptor) SpawnPipe {
+        { read: ?read, write: ?write }
+    }
+
+    fn from_pipe(pipe: Pipe) SpawnPipe {
+        SpawnPipe::init(pipe.read(), pipe.write())
+    }
+
+    fn open_close_on_exec() Errno!SpawnPipe {
+        let pipe = linux_fd::pipe_close_on_exec().?;
+        !SpawnPipe::from_pipe(pipe)
+    }
+
+    fn read(&self) Errno!types::FileDescriptor {
+        if let ?fd = self.read {
+            !fd
+        } else null {
+            Errno::Invalid!
+        }
+    }
+
+    fn write(&self) Errno!types::FileDescriptor {
+        if let ?fd = self.write {
+            !fd
+        } else null {
+            Errno::Invalid!
+        }
+    }
+
+    fn take_read(&mut self) ?types::FileDescriptor {
+        let fd = self.read;
+        self.read = null;
+        fd
+    }
+
+    fn take_write(&mut self) ?types::FileDescriptor {
+        let fd = self.write;
+        self.write = null;
+        fd
+    }
+
+    fn close_read(&mut self) void {
+        if let ?fd = self.take_read() {
+            _ = fd.close();
+        } else null {}
+    }
+
+    fn close_write(&mut self) void {
+        if let ?fd = self.take_write() {
+            _ = fd.close();
+        } else null {}
+    }
+
+    fn close_all(&mut self) void {
+        self.close_read();
+        self.close_write();
     }
 }
 

@@ -407,6 +407,88 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_process_failed_spawn_cleans_pipe_handles() {
+    let root = temp_dir("emit_exe_std_process_failed_spawn_cleans_pipe_handles");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    let bad_path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
+    let bad_path = if let ?value = std::CStr::from_bytes(bad_path_bytes) {
+        value
+    } else null {
+        return process::exit(1)!;
+    };
+    var bad_argv: [2]&u8 = [bad_path.raw_ptr(), 0usize as &u8];
+    var index = 0usize;
+    while index < 128usize {
+        var bad = process::Command::init(bad_path, &bad_argv[0], init.raw_envp());
+        bad.set_stdin(process::StdIo::Pipe).exit().?;
+        bad.set_stdout(process::StdIo::Pipe).exit().?;
+        bad.set_stderr(process::StdIo::Pipe).exit().?;
+        let child = if let !value = bad.spawn() {
+            value
+        } else error! {
+            if error == process::Error::SpawnExec {
+                index += 1usize;
+                continue;
+            } else {
+                return process::exit(2)!;
+            }
+        };
+        _ = child;
+        return process::exit(3)!;
+    }
+
+    let good_path_bytes = b"/bin/true\0";
+    let good_path = if let ?value = std::CStr::from_bytes(good_path_bytes) {
+        value
+    } else null {
+        return process::exit(4)!;
+    };
+    var good_argv: [2]&u8 = [good_path.raw_ptr(), 0usize as &u8];
+    var good = process::Command::init(good_path, &good_argv[0], init.raw_envp());
+    good.set_stdin(process::StdIo::Ignore).exit().?;
+    good.set_stdout(process::StdIo::Ignore).exit().?;
+    good.set_stderr(process::StdIo::Ignore).exit().?;
+    let term = if let !value = good.run() {
+        value
+    } else error! {
+        return process::exit(5)!;
+    };
+    if not term.exited_success() {
+        return process::exit(6)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe std process failed spawn cleanup");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let output = Command::new(&exe)
+        .output_timeout("run emitted std process failed spawn cleanup executable");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_process_command_can_pipe_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_pipe_stdout");
     let main = root.join("main.nia");
