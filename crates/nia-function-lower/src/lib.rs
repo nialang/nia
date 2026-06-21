@@ -22,17 +22,37 @@ use nia_function_ir::{
     FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
     FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
     FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
+    validate_function_body,
 };
 
 mod expr;
 mod flow;
+mod input;
 mod support;
 
 #[cfg(test)]
 mod tests;
 
-pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
-    FunctionLowerer::new(ModuleId(0), None).lower_body(body)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionLoweringDiagnostic {
+    pub span: Span,
+    pub message: String,
+}
+
+impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
+    fn from(error: nia_function_ir::FunctionIrError) -> Self {
+        Self {
+            span: error.span,
+            message: error.message,
+        }
+    }
+}
+
+pub fn lower_function_body(body: &TypedBody) -> Result<FunctionBody, FunctionLoweringDiagnostic> {
+    input::validate_function_lowering_input(body)?;
+    let body = FunctionLowerer::new(ModuleId(0), None).lower_body(body);
+    validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
+    Ok(body)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,30 +64,56 @@ pub struct LoweredFunctionBody {
 pub fn lower_function_body_with_interner(
     body: &TypedBody,
     interner: &TyInterner,
-) -> LoweredFunctionBody {
+) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
+    input::validate_function_lowering_input(body)?;
     let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
     let body = lowerer.lower_body(body);
-    LoweredFunctionBody {
+    validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
+    Ok(LoweredFunctionBody {
         interner: lowerer.finish_interner(),
         body,
-    }
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoweredFunctionBodies {
+    pub interner: TyInterner,
+    pub bodies: std::collections::HashMap<nia_ids::GlobalDefId, FunctionBody>,
+    pub diagnostics: Vec<FunctionLoweringDiagnostic>,
 }
 
 pub fn lower_function_bodies_with_interner<'a>(
     bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
     interner: &TyInterner,
-) -> (
-    TyInterner,
-    std::collections::HashMap<nia_ids::GlobalDefId, FunctionBody>,
-) {
+) -> Result<LoweredFunctionBodies, Vec<FunctionLoweringDiagnostic>> {
     let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
     let mut bodies = bodies.into_iter().collect::<Vec<_>>();
     bodies.sort_by_key(|(def_id, _)| **def_id);
-    let bodies = bodies
-        .into_iter()
-        .map(|(def_id, body)| (*def_id, lowerer.lower_body(body)))
-        .collect();
-    (lowerer.finish_interner(), bodies)
+    let mut lowered_bodies = std::collections::HashMap::new();
+    let mut diagnostics = Vec::new();
+    for (def_id, body) in bodies {
+        if let Err(error) = input::validate_function_lowering_input(body) {
+            diagnostics.push(error);
+            continue;
+        }
+        let lowered = lowerer.lower_body(body);
+        match validate_function_body(&lowered) {
+            Ok(()) => {
+                lowered_bodies.insert(*def_id, lowered);
+            }
+            Err(error) => diagnostics.push(FunctionLoweringDiagnostic::from(error)),
+        }
+    }
+    let lowered = LoweredFunctionBodies {
+        interner: lowerer.finish_interner(),
+        bodies: lowered_bodies,
+        diagnostics,
+    };
+    if lowered.diagnostics.is_empty() {
+        Ok(lowered)
+    } else {
+        Err(lowered.diagnostics)
+    }
 }
 
 struct FunctionLowerer {
@@ -156,10 +202,21 @@ impl FunctionLowerer {
                     | TypedExprKind::Trap
                     | TypedExprKind::Discard(_)
             )
+            || matches!(
+                &expr.kind,
+                TypedExprKind::Atomic(atomic) if Self::atomic_lowers_as_effect_only(atomic)
+            )
     }
 
     fn expr_lowers_as_terminating_effect(&self, expr: &TypedExpr) -> bool {
         self.is_never_ty(expr.ty) || matches!(expr.kind, TypedExprKind::Trap)
+    }
+
+    fn atomic_lowers_as_effect_only(atomic: &TypedAtomic) -> bool {
+        matches!(
+            atomic,
+            TypedAtomic::Store { .. } | TypedAtomic::Fence { .. }
+        )
     }
 
     fn reset_function_state(&mut self) {

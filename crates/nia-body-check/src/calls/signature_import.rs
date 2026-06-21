@@ -28,6 +28,12 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<ResolvedFunctionSignature> {
         if def_id.module_id == self.defs.module_id {
+            if let Some(program_signature) = self.program_functions.get(&def_id).cloned() {
+                return Some(ResolvedFunctionSignature {
+                    def_id,
+                    signature: self.import_program_function_signature(&program_signature),
+                });
+            }
             let signature = self.signatures.functions.get(&def_id.def_id)?.clone();
             return Some(ResolvedFunctionSignature {
                 def_id,
@@ -46,7 +52,8 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> FunctionSignature {
         let source = self.type_lowering.interner.clone();
-        self.import_function_signature_from(&source, signature)
+        let signature = self.import_function_signature_from(&source, signature);
+        self.normalize_function_signature_aliases(signature)
     }
 
     pub(crate) fn import_program_function_signature(
@@ -67,7 +74,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         signature.return_type =
             self.import_type_from(&program_signature.interner, signature.return_type);
-        signature
+        self.normalize_function_signature_aliases(signature)
     }
 
     pub(crate) fn resolved_trait_signature(
@@ -128,6 +135,47 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         signature.return_type = self.import_type_from(source, signature.return_type);
+        signature
+    }
+
+    fn normalize_function_signature_aliases(
+        &mut self,
+        mut signature: FunctionSignature,
+    ) -> FunctionSignature {
+        signature.where_predicates = signature
+            .where_predicates
+            .into_iter()
+            .map(|predicate| WherePredicateSignature {
+                ty: self.normalize_aliases_in_type(predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .into_iter()
+                    .map(|bound| WhereBoundSignature {
+                        trait_ty: self.normalize_aliases_in_type(bound.trait_ty),
+                        associated_type_bindings: bound
+                            .associated_type_bindings
+                            .into_iter()
+                            .map(|binding| AssociatedTypeBindingSignature {
+                                name: binding.name,
+                                ty: self.normalize_aliases_in_type(binding.ty),
+                                span: binding.span,
+                            })
+                            .collect(),
+                        span: bound.span,
+                    })
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect();
+        signature.params = signature
+            .params
+            .into_iter()
+            .map(|mut param| {
+                param.ty = self.normalize_aliases_in_type(param.ty);
+                param
+            })
+            .collect();
+        signature.return_type = self.normalize_aliases_in_type(signature.return_type);
         signature
     }
 

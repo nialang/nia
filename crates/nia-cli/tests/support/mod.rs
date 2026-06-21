@@ -17,11 +17,15 @@ use std::{
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 const MAX_COMMAND_LIMIT: usize = 4;
 const MAX_HEAVY_COMPILER_LIMIT: usize = 3;
+const MAX_OBJECT_EMIT_LIMIT: usize = 3;
 const MAX_ARTIFACT_EMIT_LIMIT: usize = 2;
 const COMMAND_SLOT_MEMORY_BYTES: usize = 384 * 1024 * 1024;
 const HEAVY_COMPILER_SLOT_MEMORY_BYTES: usize = 1024 * 1024 * 1024;
+const OBJECT_EMIT_SLOT_MEMORY_BYTES: usize = 1024 * 1024 * 1024;
 const ARTIFACT_EMIT_SLOT_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const GENERAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
+const HEAVY_COMPILER_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const ARTIFACT_EMIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const COMMAND_SLOT_STALE_AFTER: Duration = Duration::from_secs(15 * 60);
 
@@ -33,6 +37,7 @@ struct CommandPermit {
 enum CommandClass {
     General,
     HeavyCompiler,
+    ObjectEmit,
     ArtifactEmit,
 }
 
@@ -40,6 +45,7 @@ enum CommandClass {
 enum SlotClass {
     Command,
     HeavyCompiler,
+    ObjectEmit,
     ArtifactEmit,
 }
 
@@ -49,6 +55,10 @@ fn acquire_command_permit(class: CommandClass) -> CommandPermit {
         CommandClass::General => {}
         CommandClass::HeavyCompiler => {
             slots.push(acquire_slot(SlotClass::HeavyCompiler));
+        }
+        CommandClass::ObjectEmit => {
+            slots.push(acquire_slot(SlotClass::HeavyCompiler));
+            slots.push(acquire_slot(SlotClass::ObjectEmit));
         }
         CommandClass::ArtifactEmit => {
             slots.push(acquire_slot(SlotClass::HeavyCompiler));
@@ -107,8 +117,15 @@ fn workspace_slot_namespace() -> String {
 fn slot_limit(class: SlotClass) -> usize {
     match class {
         SlotClass::Command => command_slot_limit(),
-        SlotClass::HeavyCompiler => heavy_compiler_slot_limit().min(command_slot_limit()),
-        SlotClass::ArtifactEmit => artifact_emit_slot_limit().min(command_slot_limit()),
+        SlotClass::HeavyCompiler => heavy_compiler_slot_limit()
+            .min(child_compiler_check_limit())
+            .min(command_slot_limit()),
+        SlotClass::ObjectEmit => object_emit_slot_limit()
+            .min(child_compiler_check_limit())
+            .min(command_slot_limit()),
+        SlotClass::ArtifactEmit => artifact_emit_slot_limit()
+            .min(child_compiler_check_limit())
+            .min(command_slot_limit()),
     }
 }
 
@@ -155,6 +172,23 @@ fn artifact_emit_slot_limit() -> usize {
     })
 }
 
+fn object_emit_slot_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        if let Some(limit) = env_slot_limit("NIA_CLI_TEST_OBJECT_LIMIT") {
+            return limit;
+        }
+        let cpu_limit = (available_parallelism() / 4).clamp(1, MAX_OBJECT_EMIT_LIMIT);
+        let memory_limit =
+            memory_limited_parallelism(OBJECT_EMIT_SLOT_MEMORY_BYTES).unwrap_or(cpu_limit);
+        cpu_limit.min(memory_limit).clamp(1, MAX_OBJECT_EMIT_LIMIT)
+    })
+}
+
+fn child_compiler_check_limit() -> usize {
+    env_slot_limit("NIA_COMPILER_CHECK_LIMIT").unwrap_or_else(heavy_compiler_slot_limit)
+}
+
 fn env_slot_limit(name: &str) -> Option<usize> {
     std::env::var(name)
         .ok()
@@ -196,13 +230,49 @@ impl SlotClass {
         match self {
             SlotClass::Command => "command",
             SlotClass::HeavyCompiler => "heavy_compiler",
+            SlotClass::ObjectEmit => "object_emit",
             SlotClass::ArtifactEmit => "artifact_emit",
         }
     }
 }
 
+impl CommandClass {
+    fn command_timeout(self) -> Duration {
+        match self {
+            CommandClass::General => GENERAL_COMMAND_TIMEOUT,
+            CommandClass::HeavyCompiler => HEAVY_COMPILER_COMMAND_TIMEOUT,
+            CommandClass::ObjectEmit => ARTIFACT_EMIT_COMMAND_TIMEOUT,
+            CommandClass::ArtifactEmit => ARTIFACT_EMIT_COMMAND_TIMEOUT,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            CommandClass::General => "general",
+            CommandClass::HeavyCompiler => "heavy-compiler",
+            CommandClass::ObjectEmit => "object-emit",
+            CommandClass::ArtifactEmit => "artifact-emit",
+        }
+    }
+
+    fn debug_summary(self) -> String {
+        format!(
+            "class={}, command_limit={}, heavy_limit={}, object_limit={}, artifact_limit={}, child_check_limit={}, NIA_COMPILER_CHECK_LIMIT={:?}",
+            self.name(),
+            command_slot_limit(),
+            heavy_compiler_slot_limit(),
+            object_emit_slot_limit(),
+            artifact_emit_slot_limit(),
+            child_compiler_check_limit(),
+            std::env::var("NIA_COMPILER_CHECK_LIMIT").ok(),
+        )
+    }
+}
+
 fn write_slot_owner(slot: &std::path::Path) {
-    let _ = fs::write(slot.join("owner"), std::process::id().to_string());
+    let pid = std::process::id();
+    let start_time = process_start_time(pid).unwrap_or(0);
+    let _ = fs::write(slot.join("owner"), format!("{pid} {start_time}"));
 }
 
 fn reclaim_stale_slot(slot: &std::path::Path) {
@@ -224,30 +294,56 @@ fn slot_is_stale_by_age(slot: &std::path::Path) -> bool {
 }
 
 fn slot_owner_is_unknown(slot: &std::path::Path) -> bool {
-    fs::read_to_string(slot.join("owner"))
-        .ok()
-        .and_then(|owner| owner.trim().parse::<u32>().ok())
-        .is_none()
+    read_slot_owner(slot).is_none()
 }
 
 fn slot_owner_is_alive(slot: &std::path::Path) -> bool {
-    let Some(pid) = fs::read_to_string(slot.join("owner"))
-        .ok()
-        .and_then(|owner| owner.trim().parse::<u32>().ok())
-    else {
+    let Some((pid, start_time)) = read_slot_owner(slot) else {
         return false;
     };
-    process_is_alive(pid)
+    process_is_alive(pid, start_time)
+}
+
+fn read_slot_owner(slot: &std::path::Path) -> Option<(u32, u64)> {
+    let owner = fs::read_to_string(slot.join("owner")).ok()?;
+    let mut parts = owner.split_whitespace();
+    let pid = parts.next()?.parse().ok()?;
+    let start_time = parts.next()?.parse().ok()?;
+    Some((pid, start_time))
 }
 
 #[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32) -> bool {
-    std::path::Path::new("/proc").join(pid.to_string()).exists()
+fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
+    let Some(start_time) = process_start_time(pid) else {
+        return false;
+    };
+    expected_start_time == 0 || start_time == expected_start_time
 }
 
 #[cfg(not(target_os = "linux"))]
-fn process_is_alive(_pid: u32) -> bool {
+fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
     true
+}
+
+#[cfg(target_os = "linux")]
+fn process_start_time(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(
+        std::path::Path::new("/proc")
+            .join(pid.to_string())
+            .join("stat"),
+    )
+    .ok()?;
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_start_time(_pid: u32) -> Option<u64> {
+    None
 }
 
 impl Drop for CommandPermit {
@@ -268,7 +364,8 @@ pub(crate) trait CommandStatusExt {
 
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
-        let _permit = acquire_command_permit(classify_command(self));
+        let class = classify_command(self);
+        let _permit = acquire_command_permit(class);
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
         let mut child = self
@@ -292,7 +389,7 @@ impl CommandExt for Command {
             let mut bytes = Vec::new();
             stderr.read_to_end(&mut bytes).map(|_| bytes)
         });
-        let status = wait_child_timeout(&mut child, context);
+        let status = wait_child_timeout(&mut child, class, context);
         let stdout = stdout_reader
             .join()
             .unwrap_or_else(|_| panic!("{context}: stdout reader panicked"))
@@ -311,13 +408,14 @@ impl CommandExt for Command {
 
 impl CommandStatusExt for Command {
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
-        let _permit = acquire_command_permit(classify_command(self));
+        let class = classify_command(self);
+        let _permit = acquire_command_permit(class);
         self.stdout(Stdio::null()).stderr(Stdio::null());
         prepare_command(self);
         let mut child = self
             .spawn()
             .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
-        wait_child_timeout(&mut child, context)
+        wait_child_timeout(&mut child, class, context)
     }
 }
 
@@ -325,7 +423,8 @@ fn classify_command(command: &Command) -> CommandClass {
     let mut saw_emit = false;
     let mut saw_check = false;
     let mut saw_heavy_emit_target = false;
-    let mut saw_native_target = false;
+    let mut saw_exe_target = false;
+    let mut saw_obj_target = false;
     for arg in command.get_args().filter_map(|arg| arg.to_str()) {
         if arg == "check" {
             saw_check = true;
@@ -336,12 +435,17 @@ fn classify_command(command: &Command) -> CommandClass {
         if matches!(arg, "--checked" | "--backend" | "--llvm") {
             saw_heavy_emit_target = true;
         }
-        if matches!(arg, "--exe" | "--obj") {
-            saw_native_target = true;
+        if arg == "--exe" {
+            saw_exe_target = true;
+        }
+        if arg == "--obj" {
+            saw_obj_target = true;
         }
     }
-    if saw_emit && saw_native_target {
+    if saw_emit && saw_exe_target {
         CommandClass::ArtifactEmit
+    } else if saw_emit && saw_obj_target {
+        CommandClass::ObjectEmit
     } else if saw_check || (saw_emit && saw_heavy_emit_target) {
         CommandClass::HeavyCompiler
     } else {
@@ -350,6 +454,12 @@ fn classify_command(command: &Command) -> CommandClass {
 }
 
 fn prepare_command(command: &mut Command) {
+    if std::env::var_os("NIA_COMPILER_CHECK_LIMIT").is_none() {
+        command.env(
+            "NIA_COMPILER_CHECK_LIMIT",
+            heavy_compiler_slot_limit().to_string(),
+        );
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -357,15 +467,23 @@ fn prepare_command(command: &mut Command) {
     }
 }
 
-fn wait_child_timeout(child: &mut std::process::Child, context: &str) -> ExitStatus {
+fn wait_child_timeout(
+    child: &mut std::process::Child,
+    class: CommandClass,
+    context: &str,
+) -> ExitStatus {
+    let timeout = class.command_timeout();
     let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return status,
-            Ok(None) if start.elapsed() >= COMMAND_TIMEOUT => {
+            Ok(None) if start.elapsed() >= timeout => {
                 terminate_child(child);
                 let _ = child.wait();
-                panic!("{context}: command timed out after {COMMAND_TIMEOUT:?}");
+                panic!(
+                    "{context}: command timed out after {timeout:?}; {}",
+                    class.debug_summary()
+                );
             }
             Ok(None) => thread::sleep(Duration::from_millis(10)),
             Err(error) => panic!("{context}: failed to wait for command: {error}"),

@@ -22,7 +22,7 @@ fn resolves_break_to_loop_exit_branch() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
         panic!("expected entry branch to loop header");
     };
@@ -68,7 +68,7 @@ fn resolves_continue_to_loop_continue_branch() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
         panic!("expected entry branch to loop header");
     };
@@ -99,7 +99,22 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
     let body = TypedBody {
         span,
-        locals: Vec::new(),
+        locals: vec![
+            TypedLocal {
+                id: LocalId(0),
+                name: "i".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty,
+                span,
+            },
+            TypedLocal {
+                id: LocalId(10),
+                name: "iter".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty,
+                span,
+            },
+        ],
         stmts: vec![for_iterator_stmt(
             LocalId(0),
             TypedBody {
@@ -114,7 +129,7 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(matches!(
         function_body.blocks[0].ops[0],
@@ -215,13 +230,22 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
     let item_ty = interner.primitive(PrimitiveTy::I32);
     let body = TypedBody {
         span,
-        locals: vec![TypedLocal {
-            id: LocalId(0),
-            name: "i".to_string(),
-            kind: TypedLocalKind::Binding,
-            ty: item_ty,
-            span,
-        }],
+        locals: vec![
+            TypedLocal {
+                id: LocalId(0),
+                name: "i".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty: item_ty,
+                span,
+            },
+            TypedLocal {
+                id: LocalId(10),
+                name: "iter".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty: item_ty,
+                span,
+            },
+        ],
         stmts: vec![TypedStmt {
             span,
             kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
@@ -250,7 +274,7 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
             .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
     );
 
-    let lowered = lower_function_body_with_interner(&body, &interner);
+    let lowered = lower_function_body_with_interner(&body, &interner).expect("valid typed body");
 
     assert!(
         lowered
@@ -278,7 +302,7 @@ fn loop_body_gets_child_scope_with_parent_loop_edges() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let root_scope = FunctionScopeId(0);
     let loop_scope = FunctionScopeId(1);
     let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
@@ -354,7 +378,7 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body
@@ -404,7 +428,7 @@ fn nested_loops_resolve_break_and_continue_to_nearest_loop() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let outer_loop = only_next_target(&function_body, function_body.blocks[0].id);
     let FunctionTerminator::Loop {
         body: outer_body, ..
@@ -486,7 +510,7 @@ fn nested_loop_scopes_preserve_parent_chain() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body

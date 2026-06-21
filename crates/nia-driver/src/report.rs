@@ -118,6 +118,12 @@ pub fn render_driver_error(
         DriverError::CodegenDiagnostics(diagnostics) => {
             render_codegen_diagnostics(diagnostics, primary_path, primary_source)
         }
+        DriverError::InternalDiagnostic(diagnostic) => render_diagnostics_with_title(
+            "internal diagnostics:",
+            std::slice::from_ref(diagnostic),
+            primary_path,
+            primary_source,
+        ),
         DriverError::InvalidArtifactRequest(message) => {
             let mut out = String::new();
             out.push_str(message);
@@ -146,9 +152,24 @@ pub fn render_codegen_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
+    render_diagnostics_with_title(
+        "codegen diagnostics:",
+        diagnostics,
+        primary_path,
+        primary_source,
+    )
+}
+
+fn render_diagnostics_with_title(
+    title: &str,
+    diagnostics: &[Diagnostic],
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
     let report = build_diagnostic_report(diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
-    out.push_str("codegen diagnostics:\n");
+    out.push_str(title);
+    out.push('\n');
     let path = primary_path.unwrap_or("<codegen>");
     let source = primary_source.unwrap_or("");
     for diagnostic in report.entries() {

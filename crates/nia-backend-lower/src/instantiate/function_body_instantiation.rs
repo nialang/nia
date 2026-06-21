@@ -186,11 +186,15 @@ impl<'a> ModuleLowerer<'a> {
         expr: FunctionExpr,
         substitutions: TypeSubstitutionId,
     ) -> FunctionExpr {
+        let span = expr.span;
+        let ty = self.instantiate_ty_with_id(expr.ty, substitutions);
         FunctionExpr {
-            span: expr.span,
-            ty: self.instantiate_ty_with_id(expr.ty, substitutions),
+            span,
+            ty,
             kind: match expr.kind {
-                FunctionExprKind::Error => FunctionExprKind::Error,
+                FunctionExprKind::Error => {
+                    crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
+                }
                 FunctionExprKind::Integer(text) => FunctionExprKind::Integer(text),
                 FunctionExprKind::Float(text) => FunctionExprKind::Float(text),
                 FunctionExprKind::String(scalars) => FunctionExprKind::String(scalars),
@@ -428,8 +432,8 @@ impl<'a> ModuleLowerer<'a> {
                                     )
                                 {
                                     return FunctionExpr {
-                                        span: expr.span,
-                                        ty: expr.ty,
+                                        span,
+                                        ty,
                                         kind: FunctionExprKind::Call {
                                             callee: FunctionCallee::Method {
                                                 def_id,
@@ -447,8 +451,8 @@ impl<'a> ModuleLowerer<'a> {
                             }
                             TraitResolution::Assumed(_) => {
                                 return FunctionExpr {
-                                    span: expr.span,
-                                    ty: expr.ty,
+                                    span,
+                                    ty,
                                     kind: FunctionExprKind::Call {
                                         callee: FunctionCallee::BuiltinPlaceMethod {
                                             trait_id,
@@ -463,8 +467,8 @@ impl<'a> ModuleLowerer<'a> {
                             }
                             TraitResolution::Intrinsic(_) => {
                                 return FunctionExpr {
-                                    span: expr.span,
-                                    ty: expr.ty,
+                                    span,
+                                    ty,
                                     kind: FunctionExprKind::Call {
                                         callee: FunctionCallee::BuiltinPlaceMethod {
                                             trait_id,
@@ -486,8 +490,8 @@ impl<'a> ModuleLowerer<'a> {
                                 "no visible implementation found for builtin place method call",
                             ));
                         return FunctionExpr {
-                            span: expr.span,
-                            ty: expr.ty,
+                            span,
+                            ty,
                             kind: FunctionExprKind::Call {
                                 callee: FunctionCallee::BuiltinPlaceMethod {
                                     trait_id,
@@ -1013,7 +1017,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionPlaceBase::Deref(expr) => {
                     FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))
                 }
-                FunctionPlaceBase::Error => FunctionPlaceBase::Error,
+                FunctionPlaceBase::Error => {
+                    crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
+                }
             },
             elems: place
                 .elems
@@ -1023,7 +1029,9 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
                         self.instantiate_expr(*expr, substitutions),
                     )),
-                    FunctionPlaceElem::Error => FunctionPlaceElem::Error,
+                    FunctionPlaceElem::Error => {
+                        crate::input::unreachable_invalid_function_ir("FunctionPlaceElem::Error")
+                    }
                 })
                 .collect(),
         }

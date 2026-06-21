@@ -98,8 +98,17 @@ impl Driver {
         }
     }
 
-    pub fn check(&self, request: CheckRequest) -> CheckedProgram {
-        let _permit = check_test_permit();
+    pub fn check(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
+        DriverOutput::catch_ice(|| {
+            let program = self.check_inner(request);
+            if !program.diagnostics.is_empty() {
+                return DriverOutput::from_check_diagnostics(program);
+            }
+            DriverOutput::success(program)
+        })
+    }
+
+    fn check_inner(&self, request: CheckRequest) -> CheckedProgram {
         let loaded = self.load_program(&request);
         let compile_request = CompileRequest::new(loaded)
             .with_optimization(request.optimization)
@@ -124,50 +133,62 @@ impl Driver {
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
-        let program = self.check(request.check);
-        if !program.diagnostics.is_empty() {
-            return DriverOutput::from_check_diagnostics(program);
-        }
-        self.emit_llvm_ir_from_checked(&program)
+        DriverOutput::catch_ice(|| {
+            let program = match self.check(request.check).result {
+                Ok(program) => program,
+                Err(error) => return DriverOutput::from_error(error),
+            };
+            self.emit_llvm_ir_from_checked(&program)
+        })
     }
 
     pub fn emit_llvm_ir_from_checked(
         &self,
         program: &CheckedProgram,
     ) -> DriverOutput<LlvmIrArtifact> {
-        let output = nia_codegen_llvm::emit_llvm_ir_with_options(
-            &program.backend_lowering.program,
-            codegen_options(program.optimization),
-        );
-        if !output.diagnostics.is_empty() {
-            return DriverOutput::from_error(DriverError::CodegenDiagnostics(output.diagnostics));
-        }
-        DriverOutput::success(LlvmIrArtifact {
-            modules: output.modules,
+        DriverOutput::catch_ice(|| {
+            let output = nia_codegen_llvm::emit_llvm_ir_with_options(
+                &program.backend_lowering.program,
+                codegen_options(program.optimization),
+            );
+            if !output.diagnostics.is_empty() {
+                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                    output.diagnostics,
+                ));
+            }
+            DriverOutput::success(LlvmIrArtifact {
+                modules: output.modules,
+            })
         })
     }
 
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
-        let program = self.check(request.check);
-        if !program.diagnostics.is_empty() {
-            return DriverOutput::from_check_diagnostics(program);
-        }
-        self.emit_native_objects_from_checked(&program)
+        DriverOutput::catch_ice(|| {
+            let program = match self.check(request.check).result {
+                Ok(program) => program,
+                Err(error) => return DriverOutput::from_error(error),
+            };
+            self.emit_native_objects_from_checked(&program)
+        })
     }
 
     pub fn emit_native_objects_from_checked(
         &self,
         program: &CheckedProgram,
     ) -> DriverOutput<ObjectArtifact> {
-        let output = nia_codegen_llvm::emit_native_objects(
-            &program.backend_lowering.program,
-            codegen_options(program.optimization),
-        );
-        if !output.diagnostics.is_empty() {
-            return DriverOutput::from_error(DriverError::CodegenDiagnostics(output.diagnostics));
-        }
-        DriverOutput::success(ObjectArtifact {
-            modules: output.modules,
+        DriverOutput::catch_ice(|| {
+            let output = nia_codegen_llvm::emit_native_objects(
+                &program.backend_lowering.program,
+                codegen_options(program.optimization),
+            );
+            if !output.diagnostics.is_empty() {
+                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                    output.diagnostics,
+                ));
+            }
+            DriverOutput::success(ObjectArtifact {
+                modules: output.modules,
+            })
         })
     }
 
@@ -175,14 +196,16 @@ impl Driver {
         &self,
         request: WriteObjectRequest,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        let output = self.emit_native_objects(EmitObjectRequest {
-            check: request.check,
-        });
-        let objects = match output.result {
-            Ok(objects) => objects,
-            Err(error) => return DriverOutput::from_error(error),
-        };
-        self.write_native_objects_from_artifact(&objects, request.output)
+        DriverOutput::catch_ice(|| {
+            let output = self.emit_native_objects(EmitObjectRequest {
+                check: request.check,
+            });
+            let objects = match output.result {
+                Ok(objects) => objects,
+                Err(error) => return DriverOutput::from_error(error),
+            };
+            self.write_native_objects_from_artifact(&objects, request.output)
+        })
     }
 
     pub fn write_native_objects_from_artifact(
@@ -190,63 +213,67 @@ impl Driver {
         objects: &ObjectArtifact,
         output: ObjectOutput,
     ) -> DriverOutput<WrittenObjectArtifact> {
-        let written = match output {
-            ObjectOutput::Single(path) => {
-                if objects.modules.len() != 1 {
-                    return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
-                        "`-o` can only be used when the program has one codegen unit; use `--out-dir`"
-                            .to_string(),
-                    ));
-                }
-                if let Err(error) = write_output_file(&path, &objects.modules[0].bytes) {
-                    return DriverOutput::from_error(DriverError::Io {
-                        path,
-                        operation: "write object file",
-                        error,
-                    });
-                }
-                vec![path]
-            }
-            ObjectOutput::Directory(dir) => {
-                if let Err(error) = fs::create_dir_all(&dir) {
-                    return DriverOutput::from_error(DriverError::Io {
-                        path: dir,
-                        operation: "create object output directory",
-                        error,
-                    });
-                }
-                let mut paths = Vec::new();
-                for (index, module) in objects.modules.iter().enumerate() {
-                    let path = dir.join(object_file_name(index, &module.name));
-                    if let Err(error) = write_output_file(&path, &module.bytes) {
+        DriverOutput::catch_ice(|| {
+            let written = match output {
+                ObjectOutput::Single(path) => {
+                    if objects.modules.len() != 1 {
+                        return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                            "`-o` can only be used when the program has one codegen unit; use `--out-dir`"
+                                .to_string(),
+                        ));
+                    }
+                    if let Err(error) = write_output_file(&path, &objects.modules[0].bytes) {
                         return DriverOutput::from_error(DriverError::Io {
                             path,
                             operation: "write object file",
                             error,
                         });
                     }
-                    paths.push(path);
+                    vec![path]
                 }
-                paths
-            }
-        };
-        DriverOutput::success(WrittenObjectArtifact { paths: written })
+                ObjectOutput::Directory(dir) => {
+                    if let Err(error) = fs::create_dir_all(&dir) {
+                        return DriverOutput::from_error(DriverError::Io {
+                            path: dir,
+                            operation: "create object output directory",
+                            error,
+                        });
+                    }
+                    let mut paths = Vec::new();
+                    for (index, module) in objects.modules.iter().enumerate() {
+                        let path = dir.join(object_file_name(index, &module.name));
+                        if let Err(error) = write_output_file(&path, &module.bytes) {
+                            return DriverOutput::from_error(DriverError::Io {
+                                path,
+                                operation: "write object file",
+                                error,
+                            });
+                        }
+                        paths.push(path);
+                    }
+                    paths
+                }
+            };
+            DriverOutput::success(WrittenObjectArtifact { paths: written })
+        })
     }
 
     pub fn link_executable(
         &self,
         request: LinkExecutableRequest,
     ) -> DriverOutput<ExecutableArtifact> {
-        let mut request = request;
-        request.link_options.target = LinkTarget::from_target_config(&self.config.target);
-        let output = self.emit_native_objects(EmitObjectRequest {
-            check: request.check.with_runtime(Runtime::Freestanding),
-        });
-        let objects = match output.result {
-            Ok(objects) => objects,
-            Err(error) => return DriverOutput::from_error(error),
-        };
-        self.link_executable_from_objects(&objects, request.output, request.link_options)
+        DriverOutput::catch_ice(|| {
+            let mut request = request;
+            request.link_options.target = LinkTarget::from_target_config(&self.config.target);
+            let output = self.emit_native_objects(EmitObjectRequest {
+                check: request.check.with_runtime(Runtime::Freestanding),
+            });
+            let objects = match output.result {
+                Ok(objects) => objects,
+                Err(error) => return DriverOutput::from_error(error),
+            };
+            self.link_executable_from_objects(&objects, request.output, request.link_options)
+        })
     }
 
     pub fn link_executable_from_objects(
@@ -255,58 +282,60 @@ impl Driver {
         output: PathBuf,
         mut link_options: LinkOptions,
     ) -> DriverOutput<ExecutableArtifact> {
-        link_options.target = LinkTarget::from_target_config(&self.config.target);
-        let temp = TempDir::new("nia_emit_exe");
-        if let Err(error) = fs::create_dir_all(temp.path()) {
-            return DriverOutput::from_error(DriverError::Io {
-                path: temp.path().to_path_buf(),
-                operation: "create temporary object directory",
-                error,
-            });
-        }
-        let mut object_paths = Vec::new();
-        for (index, module) in objects.modules.iter().enumerate() {
-            let object_path = temp.path().join(object_file_name(index, &module.name));
-            if let Err(error) = write_output_file(&object_path, &module.bytes) {
+        DriverOutput::catch_ice(|| {
+            link_options.target = LinkTarget::from_target_config(&self.config.target);
+            let temp = TempDir::new("nia_emit_exe");
+            if let Err(error) = fs::create_dir_all(temp.path()) {
                 return DriverOutput::from_error(DriverError::Io {
-                    path: object_path,
-                    operation: "write temporary object file",
+                    path: temp.path().to_path_buf(),
+                    operation: "create temporary object directory",
                     error,
                 });
             }
-            object_paths.push(object_path);
-        }
-        if let Some(parent) = output.parent()
-            && !parent.as_os_str().is_empty()
-            && let Err(error) = fs::create_dir_all(parent)
-        {
-            return DriverOutput::from_error(DriverError::Io {
-                path: parent.to_path_buf(),
-                operation: "create executable output directory",
-                error,
-            });
-        }
-
-        let invocation = match link_options.invocation(&object_paths, output.clone()) {
-            Ok(invocation) => invocation,
-            Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
-        };
-        match Command::new(&invocation.program)
-            .args(&invocation.args)
-            .status()
-        {
-            Ok(status) if status.success() => {
-                DriverOutput::success(ExecutableArtifact { path: output })
+            let mut object_paths = Vec::new();
+            for (index, module) in objects.modules.iter().enumerate() {
+                let object_path = temp.path().join(object_file_name(index, &module.name));
+                if let Err(error) = write_output_file(&object_path, &module.bytes) {
+                    return DriverOutput::from_error(DriverError::Io {
+                        path: object_path,
+                        operation: "write temporary object file",
+                        error,
+                    });
+                }
+                object_paths.push(object_path);
             }
-            Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
-                program: invocation.program,
-                status,
-            }),
-            Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
-                program: invocation.program,
-                error,
-            }),
-        }
+            if let Some(parent) = output.parent()
+                && !parent.as_os_str().is_empty()
+                && let Err(error) = fs::create_dir_all(parent)
+            {
+                return DriverOutput::from_error(DriverError::Io {
+                    path: parent.to_path_buf(),
+                    operation: "create executable output directory",
+                    error,
+                });
+            }
+
+            let invocation = match link_options.invocation(&object_paths, output.clone()) {
+                Ok(invocation) => invocation,
+                Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
+            };
+            match Command::new(&invocation.program)
+                .args(&invocation.args)
+                .status()
+            {
+                Ok(status) if status.success() => {
+                    DriverOutput::success(ExecutableArtifact { path: output })
+                }
+                Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
+                    program: invocation.program,
+                    status,
+                }),
+                Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
+                    program: invocation.program,
+                    error,
+                }),
+            }
+        })
     }
 
     fn load_program(&self, request: &CheckRequest) -> LoadedProgram {
@@ -505,12 +534,20 @@ impl<T> DriverOutput<T> {
     fn from_check_diagnostics(program: CheckedProgram) -> Self {
         Self::from_error(DriverError::CheckDiagnostics(program))
     }
+
+    pub(crate) fn catch_ice(f: impl FnOnce() -> Self) -> Self {
+        match nia_ice::catch_ice(f) {
+            Ok(output) => output,
+            Err(ice) => Self::from_error(DriverError::InternalDiagnostic(ice.diagnostic())),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum DriverError {
     CheckDiagnostics(CheckedProgram),
     CodegenDiagnostics(Vec<Diagnostic>),
+    InternalDiagnostic(Diagnostic),
     InvalidArtifactRequest(String),
     Io {
         path: PathBuf,
@@ -586,48 +623,4 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
     }
-}
-
-#[cfg(test)]
-fn check_test_permit() -> CheckTestPermit {
-    const MAX_CHECKS: usize = 4;
-
-    let (running, available) = check_test_limit();
-    let mut count = running
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    while *count >= MAX_CHECKS {
-        count = available
-            .wait(count)
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-    }
-    *count += 1;
-    CheckTestPermit
-}
-
-#[cfg(not(test))]
-fn check_test_permit() -> CheckTestPermit {
-    CheckTestPermit
-}
-
-struct CheckTestPermit;
-
-#[cfg(test)]
-impl Drop for CheckTestPermit {
-    fn drop(&mut self) {
-        let (running, available) = check_test_limit();
-        let mut count = running
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *count -= 1;
-        available.notify_one();
-    }
-}
-
-#[cfg(test)]
-fn check_test_limit() -> &'static (std::sync::Mutex<usize>, std::sync::Condvar) {
-    use std::sync::{Condvar, Mutex, OnceLock};
-
-    static LIMIT: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
-    LIMIT.get_or_init(|| (Mutex::new(0), Condvar::new()))
 }

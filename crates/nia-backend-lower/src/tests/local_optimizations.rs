@@ -227,7 +227,7 @@ fn main() i32 {
                         lhs: Box::new(nia_function_ir::FunctionExpr {
                             span,
                             ty,
-                            kind: FunctionExprKind::Local(LocalId(0)),
+                            kind: FunctionExprKind::Integer("0".to_string()),
                         }),
                         op: nia_ast::BinaryOp::Add,
                         rhs: Box::new(nia_function_ir::FunctionExpr {
@@ -271,7 +271,7 @@ fn main() i32 {
                         lhs: Box::new(nia_function_ir::FunctionExpr {
                             span,
                             ty,
-                            kind: FunctionExprKind::Local(LocalId(0)),
+                            kind: FunctionExprKind::Integer("0".to_string()),
                         }),
                         op: nia_ast::BinaryOp::Add,
                         rhs: Box::new(nia_function_ir::FunctionExpr {

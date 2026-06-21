@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    TypedBody, TypedExpr, TypedExprKind, TypedForBinding, TypedForIn, TypedIfPattern,
-    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedPattern, TypedPatternKind,
-    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    AtomicOrder, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr, TypedExprKind,
+    TypedForBinding, TypedForIn, TypedIfPattern, TypedIfPatternArm, TypedLocal, TypedLocalKind,
+    TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
+    TypedPlace, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
 };
-pub(super) use nia_function_ir::*;
+pub(super) use nia_function_ir::{
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
+    FunctionExprKind, FunctionForHeader, FunctionLocalKind, FunctionOp, FunctionPlaceBase,
+    FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
+};
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
 pub(super) use nia_span::Span;
 pub(super) use nia_ty::{PrimitiveTy, TyInterner, TyKind};

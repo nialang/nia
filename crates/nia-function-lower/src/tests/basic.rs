@@ -23,7 +23,7 @@ fn lowers_body_to_entry_block_with_tail() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.entry, FunctionBlockId(0));
     assert_eq!(function_body.blocks.len(), 1);
@@ -54,7 +54,7 @@ fn non_terminal_ops_branch_to_tail_block() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.blocks.len(), 2);
     assert_eq!(function_body.blocks[0].ops.len(), 1);
@@ -105,7 +105,9 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         ty: i32_ty,
     };
 
-    let function_body = lower_function_body_with_interner(&body, &interner).body;
+    let function_body = lower_function_body_with_interner(&body, &interner)
+        .expect("valid typed body")
+        .body;
 
     assert!(function_body.blocks.iter().any(|block| {
         matches!(
@@ -160,7 +162,7 @@ fn lowers_address_of_places_to_function_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -202,7 +204,7 @@ fn address_of_rvalue_materializes_temp_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -280,7 +282,7 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -325,7 +327,7 @@ fn return_terminates_block_before_later_statements() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.blocks.len(), 1);
     assert!(function_body.blocks[0].ops.is_empty());

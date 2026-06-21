@@ -133,6 +133,13 @@ impl<'a> ModuleLowerer<'a> {
         {
             return ty;
         }
+        if let Some(interner) = self.instantiation.body_interner
+            && ty.interner_id == interner.interner_id()
+            && let Some(kind) = interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
+        }
         if let Some(interner) = self.known_interner_containing_ty(ty).cloned()
             && let Some(kind) = interner.get(ty)
             && !matches!(kind, TyKind::Error)
@@ -141,18 +148,11 @@ impl<'a> ModuleLowerer<'a> {
         }
         if let Some(interner) = self.instantiation.body_interner
             && ty.interner_id == interner.interner_id()
-            && let Some(kind) = interner.get(ty)
-            && !matches!(kind, TyKind::Error)
         {
             return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
         }
         if let Some(interner) = self.known_interner_containing_ty(ty).cloned() {
             return nia_ty::import_type_into(&mut self.type_context.interner, &interner, ty);
-        }
-        if let Some(interner) = self.instantiation.body_interner
-            && ty.interner_id == interner.interner_id()
-        {
-            return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
         }
         if ty.interner_id == self.type_context.interner.interner_id()
             && self.type_context.interner.get(ty).is_some()

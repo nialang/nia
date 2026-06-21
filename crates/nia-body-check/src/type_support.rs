@@ -24,6 +24,15 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn is_error_ty(&self, ty: InternedTyId) -> bool {
+        matches!(self.interner.get(ty), Some(TyKind::Error))
+            || matches!(self.normalization.interner.get(ty), Some(TyKind::Error))
+    }
+
+    pub(crate) fn non_error_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        (!self.is_error_ty(ty)).then_some(ty)
+    }
+
     pub(crate) fn normalize_aliases(&mut self, ty: InternedTyId) -> InternedTyId {
         if self
             .interner

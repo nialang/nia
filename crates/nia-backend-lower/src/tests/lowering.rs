@@ -157,7 +157,12 @@ fn main() i32 {
         .ir
         .function_bodies
         .iter()
-        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .map(|(def_id, body)| {
+            (
+                *def_id,
+                lower_function_body(body).expect("valid typed body"),
+            )
+        })
         .collect::<HashMap<_, _>>();
     let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
 

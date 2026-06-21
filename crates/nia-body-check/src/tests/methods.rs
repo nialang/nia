@@ -191,6 +191,38 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
 }
 
 #[test]
+fn lowers_current_module_extension_self_fields_without_visible_extension_seed() {
+    let checked = pipeline_without_visible_extensions(
+        r#"
+struct Init {
+    argc: usize,
+    argv: &&u8,
+}
+
+extend Init {
+    pub fn argc(&self) usize {
+        self.argc
+    }
+
+    pub fn argv(&self) &&u8 {
+        self.argv
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .ir
+            .function_bodies
+            .values()
+            .all(|body| !typed_body_has_error_expr(body)),
+        "{:?}",
+        checked.ir.function_bodies
+    );
+}
+
+#[test]
 fn resolves_associated_functions_through_type_aliases() {
     let checked = pipeline(
         r#"
@@ -213,6 +245,54 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+fn typed_body_has_error_expr(body: &nia_body_ir::TypedBody) -> bool {
+    body.stmts.iter().any(typed_stmt_has_error_expr)
+        || body.tail.as_deref().is_some_and(typed_expr_has_error_expr)
+}
+
+fn typed_stmt_has_error_expr(stmt: &nia_body_ir::TypedStmt) -> bool {
+    match &stmt.kind {
+        nia_body_ir::TypedStmtKind::Binding(binding) => binding
+            .value
+            .as_ref()
+            .is_some_and(typed_expr_has_error_expr),
+        nia_body_ir::TypedStmtKind::Expr(expr)
+        | nia_body_ir::TypedStmtKind::Defer(expr)
+        | nia_body_ir::TypedStmtKind::Return(Some(expr)) => typed_expr_has_error_expr(expr),
+        nia_body_ir::TypedStmtKind::ForIn(for_in) => {
+            typed_expr_has_error_expr(&for_in.iter) || typed_body_has_error_expr(&for_in.body)
+        }
+        nia_body_ir::TypedStmtKind::While(while_stmt) => {
+            typed_expr_has_error_expr(&while_stmt.cond)
+                || typed_body_has_error_expr(&while_stmt.body)
+        }
+        nia_body_ir::TypedStmtKind::Loop(loop_stmt) => typed_body_has_error_expr(&loop_stmt.body),
+        nia_body_ir::TypedStmtKind::Return(None)
+        | nia_body_ir::TypedStmtKind::Break
+        | nia_body_ir::TypedStmtKind::Continue => false,
+    }
+}
+
+fn typed_expr_has_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
+    match &expr.kind {
+        nia_body_ir::TypedExprKind::Error => true,
+        nia_body_ir::TypedExprKind::Unary { expr, .. }
+        | nia_body_ir::TypedExprKind::OptionalSome { expr }
+        | nia_body_ir::TypedExprKind::ErrorOk { expr }
+        | nia_body_ir::TypedExprKind::ErrorErr { expr }
+        | nia_body_ir::TypedExprKind::Try { expr }
+        | nia_body_ir::TypedExprKind::Discard(expr)
+        | nia_body_ir::TypedExprKind::Cast { expr, .. } => typed_expr_has_error_expr(expr),
+        nia_body_ir::TypedExprKind::Binary { lhs, rhs, .. } => {
+            typed_expr_has_error_expr(lhs) || typed_expr_has_error_expr(rhs)
+        }
+        nia_body_ir::TypedExprKind::Call { args, .. } => args.iter().any(typed_expr_has_error_expr),
+        nia_body_ir::TypedExprKind::Field { lhs, .. } => typed_expr_has_error_expr(lhs),
+        nia_body_ir::TypedExprKind::Block(body) => typed_body_has_error_expr(body),
+        _ => false,
+    }
 }
 
 #[test]

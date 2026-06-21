@@ -46,17 +46,22 @@ pub(crate) struct VisibleExtensionsForModule {
     pub(crate) interner: TyInterner,
 }
 
-pub(crate) fn collect_program_functions(
+pub(crate) fn collect_program_functions_excluding(
     modules: &[ModuleSignatureInput<'_>],
+    excluded: &HashSet<GlobalDefId>,
 ) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
     let mut functions = HashMap::new();
     for module in modules {
         for (def_id, signature) in &module.signatures.functions {
+            let global_def_id = GlobalDefId {
+                module_id: module.module_id,
+                def_id: *def_id,
+            };
+            if excluded.contains(&global_def_id) {
+                continue;
+            }
             functions.insert(
-                GlobalDefId {
-                    module_id: module.module_id,
-                    def_id: *def_id,
-                },
+                global_def_id,
                 ProgramFunctionSignature {
                     name: module
                         .defs
@@ -250,6 +255,63 @@ pub(crate) fn collect_program_trait_impls(
     trait_impls
 }
 
+pub(crate) fn collect_valid_program_trait_impls(
+    modules: &[ExtensionModuleInput<'_>],
+) -> Vec<ProgramTraitImplSignature> {
+    collect_program_trait_impls(
+        &modules
+            .iter()
+            .map(|module| ModuleSignatureInput {
+                module_id: module.module_id,
+                defs: module.defs,
+                lowering: module.lowering,
+                signatures: module.signatures,
+            })
+            .collect::<Vec<_>>(),
+    )
+    .into_iter()
+    .filter(|impl_signature| {
+        let Some(module) = modules
+            .iter()
+            .find(|module| module.module_id == impl_signature.module_id)
+        else {
+            return false;
+        };
+        !matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
+        if builtin_trait_impl_overlaps_intrinsic(
+            module,
+            impl_signature.target_ty,
+            trait_id,
+            &module.signatures.trait_impls[impl_signature.local_index],
+        ))
+    })
+    .collect()
+}
+
+pub(crate) fn collect_invalid_trait_impl_method_ids(
+    modules: &[ExtensionModuleInput<'_>],
+) -> HashSet<GlobalDefId> {
+    let mut invalid_methods = HashSet::new();
+    for module in modules {
+        for impl_signature in &module.signatures.trait_impls {
+            let target_ty = module.normalization.normalize(impl_signature.target_ty);
+            let trait_id = impl_signature.trait_ty.and_then(|trait_ty| {
+                trait_id_and_args(&module.lowering.interner, trait_ty).map(|(trait_id, _)| trait_id)
+            });
+            let is_invalid = matches!(trait_id, Some(TraitId::Builtin(trait_id))
+                if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature));
+            if !is_invalid {
+                continue;
+            }
+            invalid_methods.extend(impl_signature.methods.iter().map(|method| GlobalDefId {
+                module_id: module.module_id,
+                def_id: method.def_id,
+            }));
+        }
+    }
+    invalid_methods
+}
+
 fn trait_id_and_args(
     interner: &TyInterner,
     ty: nia_ids::InternedTyId,
@@ -320,29 +382,28 @@ pub(crate) fn collect_extension_methods(
                     ));
                 }
             }
-            match trait_id {
-                Some(TraitId::Source(trait_id)) => {
-                    validate_trait_impl(
-                        module,
-                        impl_signature,
-                        target_ty,
-                        trait_id,
-                        &trait_signatures,
-                        &trait_impls,
-                        &mut diagnostics,
-                    );
-                }
-                Some(TraitId::Builtin(trait_id)) => {
-                    validate_builtin_trait_impl(
-                        module,
-                        impl_signature,
-                        target_ty,
-                        trait_id,
-                        &trait_impls,
-                        &mut diagnostics,
-                    );
-                }
-                None => {}
+            let valid_trait_impl = match trait_id {
+                Some(TraitId::Source(trait_id)) => validate_trait_impl(
+                    module,
+                    impl_signature,
+                    target_ty,
+                    trait_id,
+                    &trait_signatures,
+                    &trait_impls,
+                    &mut diagnostics,
+                ),
+                Some(TraitId::Builtin(trait_id)) => validate_builtin_trait_impl(
+                    module,
+                    impl_signature,
+                    target_ty,
+                    trait_id,
+                    &trait_impls,
+                    &mut diagnostics,
+                ),
+                None => true,
+            };
+            if !valid_trait_impl {
+                continue;
             }
             for method in &impl_signature.methods {
                 let mut impl_generics = impl_signature.generics.clone();
@@ -514,16 +575,7 @@ fn validate_supertraits(
 fn collect_extension_trait_impls(
     modules: &[ExtensionModuleInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {
-    let signature_inputs = modules
-        .iter()
-        .map(|module| ModuleSignatureInput {
-            module_id: module.module_id,
-            defs: module.defs,
-            lowering: module.lowering,
-            signatures: module.signatures,
-        })
-        .collect::<Vec<_>>();
-    collect_program_trait_impls(&signature_inputs)
+    collect_valid_program_trait_impls(modules)
 }
 
 fn supertrait_id(
@@ -572,10 +624,11 @@ fn validate_trait_impl(
     trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
     trait_impls: &[ProgramTraitImplSignature],
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> bool {
     let Some(trait_signature) = trait_signatures.get(&trait_id).copied() else {
-        return;
+        return false;
     };
+    let start_len = diagnostics.len();
     for associated_type in &impl_signature.associated_types {
         if !trait_signature
             .signature
@@ -688,6 +741,7 @@ fn validate_trait_impl(
             ));
         }
     }
+    diagnostics.len() == start_len
 }
 
 fn validate_builtin_trait_impl(
@@ -697,7 +751,8 @@ fn validate_builtin_trait_impl(
     trait_id: BuiltinTrait,
     trait_impls: &[ProgramTraitImplSignature],
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> bool {
+    let start_len = diagnostics.len();
     if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature) {
         diagnostics.push(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
@@ -707,7 +762,7 @@ fn validate_builtin_trait_impl(
                 trait_id.name()
             ),
         ));
-        return;
+        return false;
     }
     for associated_type in &impl_signature.associated_types {
         if !trait_id.has_associated_type(&associated_type.name) {
@@ -780,7 +835,7 @@ fn validate_builtin_trait_impl(
             )),
             [method] => {
                 let Some(actual) = module.signatures.functions.get(&method.def_id) else {
-                    return;
+                    return false;
                 };
                 if !builtin_trait_method_signature_matches(
                     module,
@@ -808,6 +863,7 @@ fn validate_builtin_trait_impl(
             )),
         }
     }
+    diagnostics.len() == start_len
 }
 
 fn validate_builtin_supertrait_impls(

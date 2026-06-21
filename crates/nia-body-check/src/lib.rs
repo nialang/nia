@@ -402,9 +402,13 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         .cloned()
         .unwrap_or_else(|| input.normalization.interner.clone());
     let extension_methods_by_id = BodyChecker::extension_method_lookup(
+        module_id,
+        input.signatures,
         input.extensions,
         input.program_extension_methods,
         &mut interner,
+        &input.lowered.interner,
+        input.normalization,
         input.program.type_normalizations,
     );
     let void_ty = interner.primitive(PrimitiveTy::Void);
@@ -631,21 +635,40 @@ struct ReceiverBase {
 
 impl<'a> BodyChecker<'a> {
     fn extension_method_lookup(
+        module_id: ModuleId,
+        signatures: &ItemSignatures,
         extensions: &VisibleExtensionMethods,
         program_extensions: &ExtensionMethods,
         interner: &mut TyInterner,
+        local_type_interner: &TyInterner,
+        local_normalization: &TypeNormalization,
         program_normalizations: Option<&HashMap<ModuleId, TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
-        for target in extensions.targets() {
-            for method in &target.methods {
+        for impl_signature in &signatures.trait_impls {
+            let target_ty = local_normalization.normalize(impl_signature.target_ty);
+            let target_ty = nia_ty::import_type_into(interner, local_type_interner, target_ty);
+            for method in &impl_signature.methods {
                 methods.insert(
-                    method.def_id,
+                    GlobalDefId {
+                        module_id,
+                        def_id: method.def_id,
+                    },
                     ExtensionMethodLookup {
-                        target_ty: target.target_ty,
-                        impl_generics: method.impl_generics.clone(),
+                        target_ty,
+                        impl_generics: impl_signature.generics.clone(),
                     },
                 );
+            }
+        }
+        for target in extensions.targets() {
+            for method in &target.methods {
+                methods
+                    .entry(method.def_id)
+                    .or_insert_with(|| ExtensionMethodLookup {
+                        target_ty: target.target_ty,
+                        impl_generics: method.impl_generics.clone(),
+                    });
             }
         }
         for method in program_extensions.all_methods() {
@@ -814,6 +837,11 @@ impl<'a> BodyChecker<'a> {
 
     fn expr_ty(&mut self, expr: &Expr) -> Option<InternedTyId> {
         if let Some(ty) = self.node_expr_types.get(&expr.node_key).copied() {
+            return Some(ty);
+        }
+        if let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.local_use(expr)
+            && let Some(ty) = self.local_types.get(&local_id).copied()
+        {
             return Some(ty);
         }
         let ty = self.node_type_uses.get(&expr.node_key).copied()?;
@@ -1132,10 +1160,21 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
-        let Some(raw_signature) = self.signatures.functions.get(&def_id).cloned() else {
+        let global_def_id = self.global_def_id(def_id);
+        if !self.program_functions.is_empty()
+            && !self.program_functions.contains_key(&global_def_id)
+        {
             return;
+        }
+        let signature = if let Some(program_signature) = self.program_functions.get(&global_def_id)
+        {
+            self.import_program_function_signature(&program_signature.clone())
+        } else {
+            let Some(raw_signature) = self.signatures.functions.get(&def_id).cloned() else {
+                return;
+            };
+            self.import_local_function_signature(&raw_signature)
         };
-        let signature = self.import_local_function_signature(&raw_signature);
         time_body_stage_if_slow(
             self.timing,
             "body_check.function.projection_obligations",
@@ -1150,7 +1189,7 @@ impl<'a> BodyChecker<'a> {
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
-        self.current_def_id = Some(self.global_def_id(def_id));
+        self.current_def_id = Some(global_def_id);
         let self_ty = self.method_self_type(def_id, &signature);
         time_body_stage_if_slow(
             self.timing,

@@ -58,6 +58,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 
 pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) checked_modules: &'a [CheckedModule],
+    pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [ActiveModuleItemTree],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
@@ -96,7 +97,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_comptime: &input.indexes.program_comptime,
                     layouts: &checked_module.layouts,
                     function_bodies: &function_bodies.bodies,
-                    roots: backend_function_roots(),
+                    roots: backend_function_roots(input.runtime),
                     program_function_bodies: &input.indexes.program_function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: &input.extension_methods.methods,
@@ -115,6 +116,11 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .collect()
 }
 
-fn backend_function_roots() -> nia_backend_lower::BackendFunctionRoots {
-    nia_backend_lower::BackendFunctionRoots::FunctionBodies
+fn backend_function_roots(runtime: RuntimeModel) -> nia_backend_lower::BackendFunctionRoots {
+    match runtime {
+        RuntimeModel::Bare => nia_backend_lower::BackendFunctionRoots::FunctionBodies,
+        RuntimeModel::FreestandingExecutable => {
+            nia_backend_lower::BackendFunctionRoots::EntryPoints
+        }
+    }
 }

@@ -2,6 +2,45 @@
 use super::*;
 
 #[test]
+fn invalid_function_ir_is_rejected_before_backend_lowering() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let value = first_terminal_value_mut(body);
+            value.kind = FunctionExprKind::Error;
+        },
+        nia_opt::OptimizationPolicy::default(),
+    );
+
+    assert!(
+        lowering.program.modules.is_empty(),
+        "{:?}",
+        lowering.program
+    );
+    assert_eq!(lowering.diagnostics.len(), 1, "{:?}", lowering.diagnostics);
+    assert_eq!(lowering.diagnostics[0].code.as_str(), "I0201");
+    assert!(
+        lowering.diagnostics[0]
+            .summary
+            .contains("invalid function IR passed to backend lowering"),
+        "{:?}",
+        lowering.diagnostics
+    );
+    assert!(
+        lowering.diagnostics[0]
+            .primary_message()
+            .is_some_and(|message| message.contains("error expression escaped")),
+        "{:?}",
+        lowering.diagnostics
+    );
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime let N: usize = 3;

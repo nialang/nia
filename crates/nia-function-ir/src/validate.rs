@@ -354,6 +354,16 @@ impl<'a> FunctionIrValidator<'a> {
         matches!(
             expr.kind,
             FunctionExprKind::Trap | FunctionExprKind::InlineAsm(_) | FunctionExprKind::Discard(_)
+        ) || matches!(
+            &expr.kind,
+            FunctionExprKind::Atomic(atomic) if Self::atomic_is_effect_only(atomic)
+        )
+    }
+
+    fn atomic_is_effect_only(atomic: &FunctionAtomic) -> bool {
+        matches!(
+            atomic,
+            FunctionAtomic::Store { .. } | FunctionAtomic::Fence { .. }
         )
     }
 
@@ -728,47 +738,65 @@ mod tests {
     fn rejects_effect_only_expression_in_value_position() {
         let span = Span::default();
         let ty = test_ty();
-        let body = FunctionBody {
-            span,
-            locals: vec![FunctionLocal {
-                id: LocalId(0),
-                name: "value".to_string(),
-                kind: crate::FunctionLocalKind::Binding,
+        for kind in [
+            FunctionExprKind::Trap,
+            FunctionExprKind::Atomic(FunctionAtomic::Store {
                 ty,
+                ptr: Box::new(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("0".to_string()),
+                }),
+                value: Box::new(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("1".to_string()),
+                }),
+                order: crate::AtomicOrder::Monotonic,
+            }),
+            FunctionExprKind::Atomic(FunctionAtomic::Fence {
+                order: crate::AtomicOrder::SeqCst,
+            }),
+        ] {
+            let body = FunctionBody {
                 span,
-            }],
-            scopes: vec![FunctionScope {
-                id: FunctionScopeId(0),
-                parent: None,
-                span,
-            }],
-            blocks: vec![FunctionBlock {
-                id: FunctionBlockId(0),
-                scope: FunctionScopeId(0),
-                span,
-                ops: vec![FunctionOp::StoreLocal {
-                    local_id: LocalId(0),
-                    value: FunctionExpr {
-                        span,
-                        ty,
-                        kind: FunctionExprKind::Trap,
-                    },
+                locals: vec![FunctionLocal {
+                    id: LocalId(0),
+                    name: "value".to_string(),
+                    kind: crate::FunctionLocalKind::Binding,
+                    ty,
                     span,
                 }],
-                terminator: FunctionTerminator::Tail { value: None, span },
-            }],
-            entry: FunctionBlockId(0),
-            ty,
-        };
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![FunctionBlock {
+                    id: FunctionBlockId(0),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: vec![FunctionOp::StoreLocal {
+                        local_id: LocalId(0),
+                        value: FunctionExpr { span, ty, kind },
+                        span,
+                    }],
+                    terminator: FunctionTerminator::Tail { value: None, span },
+                }],
+                entry: FunctionBlockId(0),
+                ty,
+            };
 
-        let error = validate_function_body(&body).expect_err("trap cannot produce a value");
+            let error =
+                validate_function_body(&body).expect_err("effect-only expr cannot produce a value");
 
-        assert!(
-            error
-                .message
-                .contains("effect-only expression used where a value is required"),
-            "{error:?}"
-        );
+            assert!(
+                error
+                    .message
+                    .contains("effect-only expression used where a value is required"),
+                "{error:?}"
+            );
+        }
     }
 
     #[test]

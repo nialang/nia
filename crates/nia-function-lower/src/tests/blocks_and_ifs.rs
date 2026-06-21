@@ -34,7 +34,7 @@ fn lowers_statement_block_expression_into_child_scope() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.scopes[1].parent, Some(FunctionScopeId(0)));
     assert!(matches!(
@@ -99,7 +99,7 @@ fn return_from_statement_block_exits_block_and_root_scopes() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(matches!(
         function_body.blocks[1].terminator,
@@ -143,7 +143,7 @@ fn collects_unique_locals_from_statement_block_expressions() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body
@@ -187,7 +187,7 @@ fn collects_locals_from_deferred_block_expressions() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(function_body.locals.iter().any(|local| {
         local.id == LocalId(3)
@@ -250,7 +250,7 @@ fn collects_unique_locals_from_statement_if_arms() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body
@@ -294,7 +294,7 @@ fn lowers_statement_if_into_if_terminator_and_child_scope() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::If {
         then_target,
         else_target,
@@ -352,7 +352,7 @@ fn statement_if_without_else_uses_merge_as_false_edge() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::If { else_target, .. } = function_body.blocks[0].terminator else {
         panic!("expected if terminator");
     };
@@ -398,7 +398,7 @@ fn statement_if_with_else_block_exits_else_scope_to_merge() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::If { else_target, .. } = function_body.blocks[0].terminator else {
         panic!("expected if terminator");
     };
@@ -455,7 +455,7 @@ fn return_from_statement_if_arm_exits_arm_and_root_scopes() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
     let FunctionTerminator::If { then_target, .. } = function_body.blocks[0].terminator else {
         panic!("expected if terminator");
     };

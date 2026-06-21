@@ -28,7 +28,7 @@ fn validates_lowered_function_body() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     validate_function_body(&function_body).expect("valid function body");
 }
@@ -59,7 +59,7 @@ fn validates_defer_body_references_to_enclosing_locals() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     validate_function_body(&function_body).expect("valid defer local capture");
 }
@@ -79,7 +79,7 @@ fn trap_tail_lowers_as_effect_only_even_with_value_type() {
         ty,
     };
 
-    let function_body = lower_function_body(&body);
+    let function_body = lower_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body.blocks.iter().any(|block| {
@@ -103,6 +103,145 @@ fn trap_tail_lowers_as_effect_only_even_with_value_type() {
         "{function_body:#?}"
     );
     validate_function_body(&function_body).expect("trap tail should be valid effect IR");
+}
+
+#[test]
+fn rejects_error_expr_before_function_ir_is_built() {
+    let ty = test_ty();
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Error,
+        })),
+        ty,
+    };
+
+    let error = lower_function_body(&body).expect_err("error expr must not lower");
+
+    assert!(
+        error
+            .message
+            .contains("error expression escaped into function lowering input"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn rejects_error_place_before_function_ir_is_built() {
+    let ty = test_ty();
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty,
+                    base: PlaceBase::Error,
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(int_expr(1)),
+            },
+        })),
+        ty,
+    };
+
+    let error = lower_function_body(&body).expect_err("error place must not lower");
+
+    assert!(
+        error
+            .message
+            .contains("error place escaped into function lowering input"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn rejects_memory_intrinsic_in_value_position_before_function_ir_is_built() {
+    let ty = test_ty();
+    let memory = TypedExpr {
+        span: Span::default(),
+        ty,
+        kind: TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+            op: MemoryIntrinsicOp::Copy,
+            elem_ty: ty,
+            dest: Box::new(int_expr(0)),
+            source: TypedMemoryIntrinsicSource::Slice(Box::new(int_expr(1))),
+        }),
+    };
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::OptionalSome {
+                expr: Box::new(memory),
+            },
+        })),
+        ty,
+    };
+
+    let error = lower_function_body(&body).expect_err("memory intrinsic must not be a value");
+
+    assert!(
+        error
+            .message
+            .contains("memory intrinsic expression used where a value is required"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn rejects_atomic_store_and_fence_in_value_position_before_function_ir_is_built() {
+    let ty = test_ty();
+    for atomic in [
+        nia_body_ir::TypedAtomic::Store {
+            ty,
+            ptr: Box::new(int_expr(0)),
+            value: Box::new(int_expr(1)),
+            order: AtomicOrder::Monotonic,
+        },
+        nia_body_ir::TypedAtomic::Fence {
+            order: AtomicOrder::SeqCst,
+        },
+    ] {
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: Vec::new(),
+            tail: Some(Box::new(TypedExpr {
+                span: Span::default(),
+                ty,
+                kind: TypedExprKind::OptionalSome {
+                    expr: Box::new(TypedExpr {
+                        span: Span::default(),
+                        ty,
+                        kind: TypedExprKind::Atomic(atomic),
+                    }),
+                },
+            })),
+            ty,
+        };
+
+        let error = lower_function_body(&body).expect_err("effect-only atomic must not be a value");
+
+        assert!(
+            error
+                .message
+                .contains("expression used where a value is required"),
+            "{error:?}"
+        );
+    }
 }
 
 #[test]

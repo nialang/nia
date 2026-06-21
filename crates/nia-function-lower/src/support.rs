@@ -60,7 +60,9 @@ impl FunctionLowerer {
                 PlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.lower_value_expr(expr, scope, current, ops, blocks),
                 )),
-                PlaceBase::Error => FunctionPlaceBase::Error,
+                PlaceBase::Error => unreachable!(
+                    "function lowering input validation rejects error places before lowering"
+                ),
             },
             elems: place
                 .elems
@@ -70,7 +72,9 @@ impl FunctionLowerer {
                     PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
                         self.lower_value_expr(index, scope, current, ops, blocks),
                     )),
-                    PlaceElem::Error => FunctionPlaceElem::Error,
+                    PlaceElem::Error => unreachable!(
+                        "function lowering input validation rejects error place elements before lowering"
+                    ),
                 })
                 .collect(),
         }

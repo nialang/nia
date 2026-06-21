@@ -573,14 +573,14 @@ fn check_file(path_ptr: *const u8, path_len: usize) -> NiaResult {
 
 fn check_with_driver(driver: &nia_driver::Driver, request: nia_driver::CheckRequest) -> NiaResult {
     let path = request.root_path.clone();
-    let program = driver.check(request);
-    if program.diagnostics.is_empty() {
-        return NiaResult::new(NiaStatus::Ok, String::new());
+    let output = driver.check(request);
+    match output.result {
+        Ok(_) => NiaResult::new(NiaStatus::Ok, String::new()),
+        Err(error) => NiaResult::new(
+            status_from_driver_error(&error),
+            nia_driver::render_driver_error(&error, Some(&path), None),
+        ),
     }
-    NiaResult::new(
-        NiaStatus::Diagnostics,
-        nia_driver::render_program_diagnostics(&program, Some(&path), None),
-    )
 }
 
 fn result_from_driver_output<T>(
@@ -600,6 +600,7 @@ fn status_from_driver_error(error: &nia_driver::DriverError) -> NiaStatus {
     match error {
         nia_driver::DriverError::CheckDiagnostics(_) => NiaStatus::Diagnostics,
         nia_driver::DriverError::CodegenDiagnostics(_) => NiaStatus::Diagnostics,
+        nia_driver::DriverError::InternalDiagnostic(_) => NiaStatus::InternalError,
         nia_driver::DriverError::InvalidArtifactRequest(_) => NiaStatus::InvalidArtifactRequest,
         nia_driver::DriverError::Io { .. } => NiaStatus::IoError,
         nia_driver::DriverError::LinkerStatus { .. }
