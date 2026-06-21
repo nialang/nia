@@ -53,18 +53,17 @@ fn finish_project(prepared: PreparedProject) void {
 pub(pkg) fn run(
     stderr: &mut io::FileWriter,
     init: process::Init,
-    root: process::Arg,
-    output: process::Arg,
+    root: &[u8],
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_build_executable(stderr, root, output, graph_bytes)
+    emit_build_executable(stderr, root, graph_bytes)
 }
 
 pub(pkg) fn check(
     stderr: &mut io::FileWriter,
     init: process::Init,
-    root: process::Arg,
+    root: &[u8],
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
@@ -74,18 +73,17 @@ pub(pkg) fn check(
 pub(pkg) fn objects(
     stderr: &mut io::FileWriter,
     init: process::Init,
-    root: process::Arg,
-    output: process::Arg,
+    root: &[u8],
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    emit_project_objects(stderr, root, output, graph_bytes)
+    emit_project_objects(stderr, root, graph_bytes)
 }
 
 fn read_build_graph(
     stderr: &mut io::FileWriter,
     init: process::Init,
-    root: process::Arg,
+    root: &[u8],
     graph_storage: &mut [u8],
 ) process::ExitCode!&[u8] {
     var cwd = if let !value = fs::Dir::cwd() {
@@ -112,7 +110,7 @@ fn read_build_graph(
         cwd.delete_file(runner_path.path()).exit().?;
     };
     compile_build_runner(stderr, root, runner_path.path(), graph_path.path()).?;
-    run_build_runner(stderr, init, runner_path.path()).?;
+    run_build_runner(stderr, init, root, runner_path.path()).?;
     build_graph::read(init, stderr, graph_path.path(), graph_storage)
 }
 
@@ -126,7 +124,7 @@ fn build_runner_source(graph_path: fs::Path, out: &mut [u8]) process::ExitCode!&
 
 fn compile_build_runner(
     stderr: &mut io::FileWriter,
-    root: process::Arg,
+    root: &[u8],
     runner_path: fs::Path,
     graph_path: fs::Path,
 ) process::ExitCode!void {
@@ -168,8 +166,9 @@ fn compile_build_runner(
     !{}
 }
 
-fn run_build_runner(stderr: &mut io::FileWriter, init: process::Init, runner_path: fs::Path) process::ExitCode!void {
+fn run_build_runner(stderr: &mut io::FileWriter, init: process::Init, root: &[u8], runner_path: fs::Path) process::ExitCode!void {
     var path_storage: [4096]u8 = [0; 4096];
+    var cwd_storage: [4096]u8 = [0; 4096];
     let encoded = runner_path.encode(&mut path_storage[..]).exit().?;
     let path = encoded.nul_terminated_bytes();
     let cpath = if let ?value = std::CStr::from_bytes(path) {
@@ -179,7 +178,15 @@ fn run_build_runner(stderr: &mut io::FileWriter, init: process::Init, runner_pat
         return process::exit(2)!;
     };
     var argv: [2]&u8 = [&path[0], 0usize as &u8];
-    let command = process::Command::init(cpath, &argv[0], init.raw_envp());
+    let cwd = nul_terminate(root, &mut cwd_storage).?;
+    let ccwd = if let ?value = std::CStr::from_bytes(cwd) {
+        value
+    } else null {
+        stderr.print("paw: invalid package root path\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    var command = process::Command::init(cpath, &argv[0], init.raw_envp());
+    command.set_cwd(ccwd);
     let term = if let !value = command.run() {
         value
     } else error! {
@@ -199,14 +206,31 @@ fn run_build_runner(stderr: &mut io::FileWriter, init: process::Init, runner_pat
     !{}
 }
 
+fn nul_terminate(bytes: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    if bytes.len() + 1usize > out.len() {
+        return process::exit(2)!;
+    }
+    var index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] == 0u8 {
+            return process::exit(2)!;
+        }
+        out[index] = bytes[index];
+        index += 1usize;
+    }
+    out[index] = 0u8;
+    !&out[0..(bytes.len() + 1usize)]
+}
+
 fn emit_build_executable(
     stderr: &mut io::FileWriter,
-    root: process::Arg,
-    output: process::Arg,
+    root: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
     defer finish_project(prepared);
+    var output_storage: [4096]u8 = [0; 4096];
+    let output = executable_output_path(root, prepared.executable_name(graph_bytes), &mut output_storage).?;
     let link_options = if let ?value = abi::LinkOptions::init() {
         value
     } else null {
@@ -214,14 +238,14 @@ fn emit_build_executable(
         return process::exit(255)!;
     };
     defer link_options.free();
-    build_graph::apply_link_options(stderr, graph_bytes, prepared.executable_name(graph_bytes), &link_options).?;
-    let result = prepared.session().emit_executable_with_options(prepared.request(), output.bytes(), &link_options);
+    build_graph::apply_link_options(stderr, graph_bytes, root, prepared.executable_name(graph_bytes), &link_options).?;
+    let result = prepared.session().emit_executable_with_options(prepared.request(), output, &link_options);
     requests::finish_result(stderr, result, b"paw: executable emit returned null result")
 }
 
 fn check_project(
     stderr: &mut io::FileWriter,
-    root: process::Arg,
+    root: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
@@ -232,19 +256,20 @@ fn check_project(
 
 fn emit_project_objects(
     stderr: &mut io::FileWriter,
-    root: process::Arg,
-    output: process::Arg,
+    root: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!process::ExitCode {
     let prepared = prepare_project(stderr, root, graph_bytes).?;
     defer finish_project(prepared);
-    let result = prepared.session().emit_object_directory(prepared.request(), output.bytes());
+    var output_storage: [4096]u8 = [0; 4096];
+    let output = objects_output_path(root, &mut output_storage).?;
+    let result = prepared.session().emit_object_directory(prepared.request(), output);
     requests::finish_result(stderr, result, b"paw: object directory emit returned null result")
 }
 
 fn prepare_project(
     stderr: &mut io::FileWriter,
-    root: process::Arg,
+    root: &[u8],
     graph_bytes: &[u8],
 ) process::ExitCode!PreparedProject {
     let parsed = build_graph::parse(stderr, graph_bytes).?;
@@ -257,4 +282,25 @@ fn prepare_project(
 
     let check = requests::prepare_package_check(stderr, package_name, main_path, root_path, abi::runtime_freestanding).?;
     !{ check: check, graph: parsed }
+}
+
+fn executable_output_path(root: &[u8], name: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(b".nia-build/").exit().?;
+    writer.write_all(name).exit().?;
+    !writer.written()
+}
+
+fn objects_output_path(root: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(b".nia-build/objects").exit().?;
+    !writer.written()
 }

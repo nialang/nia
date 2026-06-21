@@ -3,8 +3,8 @@ using paw;
 pub fn build(build: &mut paw::Build) paw::Error!void {
     build.package({ name: "paw", version: "0.1.0" }).?;
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
-    exe.library_path("target/release/deps").?;
+    exe.library_path("../../target/release/deps").?;
     exe.library("nia_capi").?;
-    exe.rpath("target/release/deps").?;
+    exe.rpath("../../target/release/deps").?;
     exe.dynamic_linker_auto()
 }

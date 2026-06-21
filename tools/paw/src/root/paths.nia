@@ -13,9 +13,9 @@ extend TempPath {
     }
 }
 
-pub(pkg) fn path_join(root: process::Arg, suffix: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+pub(pkg) fn path_join(root: &[u8], suffix: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
     var writer = io::FixedBufferWriter::init(out);
-    writer.write_all(root.bytes()).exit().?;
+    writer.write_all(root).exit().?;
     if writer.len() != 0 and writer.written()[writer.len() - 1] != b'/' {
         writer.write_all(b"/").exit().?;
     }

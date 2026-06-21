@@ -40,23 +40,21 @@ extend Cli {
     }
 
     fn check(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.arg(args).?;
+        let root = self.optional_root(args).?;
         self.finish_args(args).?;
         build::check(self.stderr, self.init, root)
     }
 
     fn objects(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.arg(args).?;
-        let output = self.arg(args).?;
+        let root = self.optional_root(args).?;
         self.finish_args(args).?;
-        build::objects(self.stderr, self.init, root, output)
+        build::objects(self.stderr, self.init, root)
     }
 
     fn build(&mut self, args: &mut process::ArgsIter) process::ExitCode!ExitCode {
-        let root = self.arg(args).?;
-        let output = self.arg(args).?;
+        let root = self.optional_root(args).?;
         self.finish_args(args).?;
-        build::run(self.stderr, self.init, root, output)
+        build::run(self.stderr, self.init, root)
     }
 
     fn arg(&mut self, args: &mut process::ArgsIter) process::ExitCode!process::Arg {
@@ -75,6 +73,14 @@ extend Cli {
             return process::exit(2)!;
         }
         !{}
+    }
+
+    fn optional_root(&mut self, args: &mut process::ArgsIter) process::ExitCode!&[u8] {
+        if let ?value = args.next() {
+            !value.bytes()
+        } else null {
+            !b"."
+        }
     }
 
     fn print_usage_error(&mut self) process::ExitCode!void {
@@ -110,9 +116,9 @@ extend Command {
 
 fn usage(stderr: &mut io::FileWriter) process::ExitCode!void {
     stderr.print(
-        \\usage: paw build <root> <out>
-        \\       paw check <root>
-        \\       paw objects <root> <out-dir>
+        \\usage: paw build [root]
+        \\       paw check [root]
+        \\       paw objects [root]
         \\
         ,
         &[],

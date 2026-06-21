@@ -1,2 +1,4 @@
 /target/
 /build/
+/.nia-build/
+**/.nia-build/
