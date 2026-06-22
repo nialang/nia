@@ -75,17 +75,17 @@ impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramTypeLoweringsQuery;
+pub(super) struct ProgramDeclarationTypeLoweringsQuery;
 
-impl QueryKey<CompilerContext> for ProgramTypeLoweringsQuery {
+impl QueryKey<CompilerContext> for ProgramDeclarationTypeLoweringsQuery {
     type Value = ProgramTypeLowerings;
 
     fn name() -> &'static str {
-        "program_type_lowerings"
+        "program_declaration_type_lowerings"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_type_lowerings)(db)
+        (db.context().providers.program_declaration_type_lowerings)(db)
     }
 }
 
