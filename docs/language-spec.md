@@ -3013,11 +3013,13 @@ runner, so it can use the standard library. The runner passes a `std::build::Bui
 value with explicit `package_root()`, `build_dir()`, `cache_dir()`, and
 `toolchain_executable()` accessors instead of requiring scripts to infer those
 paths.
-`Build::executable(name, path)` declares an executable target, and
-`Build::check_executable(name)` checks that target through the same toolchain as
+`Build::add_executable(name, path)` declares an executable artifact and returns
+an executable handle. `Build::add_check_executable_step(name, target)` adds a
+graph step that checks that artifact through the same toolchain as
 `nia check --exe <path>` with the package root as the working directory.
-`Build::emit_executable(name)` emits the target to `.nia-build/<name>` through
-the same toolchain as `nia emit --exe <path> -o .nia-build/<name>`.
+`Build::add_emit_executable_step(name, target)` adds a graph step that emits the
+artifact to `.nia-build/<name>` through the same toolchain as
+`nia emit --exe <path> -o .nia-build/<name>`.
 
 Module-map options are accepted before or after the command:
 

@@ -8,6 +8,12 @@ using error::Error;
 
 pub type StepFn = &fn(&mut Build) Error!void;
 
+pub enum StepKind: i32 {
+    Custom = 1,
+    CheckExecutable = 2,
+    EmitExecutable = 3,
+}
+
 pub enum StepState: i32 {
     Pending = 1,
     Running = 2,
@@ -20,9 +26,27 @@ pub struct StepHandle {
     index: usize,
 }
 
+pub struct ExecutableHandle {
+    index: usize,
+}
+
+pub struct CustomStep {
+    run: StepFn,
+}
+
+pub struct ExecutableStep {
+    target: ExecutableHandle,
+}
+
+pub union StepPayload {
+    custom: CustomStep,
+    executable: ExecutableStep,
+}
+
 pub struct Step {
     name: &[char],
-    run: StepFn,
+    kind: StepKind,
+    payload: StepPayload,
     state: StepState,
 }
 

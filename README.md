@@ -151,10 +151,11 @@ the build script runs. `build.nia` is ordinary Nia code and can use the standard
 library. The `std::build::Build` value passed to
 `build.nia` exposes `package_root()`, `build_dir()`, `cache_dir()`, and
 `toolchain_executable()` so build scripts use toolchain-owned paths explicitly.
-The initial build API includes `executable(name, path)`,
-`check_executable(name)`, and `emit_executable(name)` for declaring executable
-targets, checking them, and emitting `.nia-build/<name>` with the current
-toolchain from the package root without hand-written subprocess setup.
+The initial build API includes `add_executable(name, path)` for declaring an
+executable artifact and `add_check_executable_step(name, target)` /
+`add_emit_executable_step(name, target)` for adding compiler-backed graph steps.
+Those steps use the current toolchain from the package root and emit executable
+artifacts to `.nia-build/<name>` without hand-written subprocess setup.
 
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`
