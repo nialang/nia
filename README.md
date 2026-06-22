@@ -146,8 +146,9 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 Nia toolchain rather than a separate bootstrap builder. The current command
 resolves package roots, compiles `build.nia` through a toolchain-owned build
 runner, and reserves `.nia-build/` for build output and `.nia-cache/` for
-reusable package or compiler cache entries. `build.nia` is ordinary Nia code and
-can use the standard library. The `std::build::Build` value passed to
+reusable package or compiler cache entries. Those directories are created before
+the build script runs. `build.nia` is ordinary Nia code and can use the standard
+library. The `std::build::Build` value passed to
 `build.nia` exposes `package_root()`, `build_dir()`, and `cache_dir()` so build
 scripts use toolchain-owned paths explicitly.
 

@@ -77,6 +77,14 @@ pub enum BuildError {
     CurrentDirectory {
         error: io::Error,
     },
+    CreateBuildDirectory {
+        path: PathBuf,
+        error: io::Error,
+    },
+    CreateCacheDirectory {
+        path: PathBuf,
+        error: io::Error,
+    },
     NonUtf8Path {
         role: &'static str,
         path: PathBuf,
@@ -108,6 +116,20 @@ impl fmt::Display for BuildError {
         match self {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
+            }
+            Self::CreateBuildDirectory { path, error } => {
+                write!(
+                    f,
+                    "failed to create build directory `{}`: {error}",
+                    path.display()
+                )
+            }
+            Self::CreateCacheDirectory { path, error } => {
+                write!(
+                    f,
+                    "failed to create build cache directory `{}`: {error}",
+                    path.display()
+                )
             }
             Self::NonUtf8Path { role, path } => {
                 write!(
@@ -161,6 +183,7 @@ impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     let plan = resolve_build_plan(request)?;
+    prepare_build_directories(&plan)?;
     compile_build_runner(&plan)?;
     run_build_runner(&plan)
 }
@@ -262,6 +285,17 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
             source: runner.source,
             error,
         })
+}
+
+fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
+    fs::create_dir_all(&plan.build_dir).map_err(|error| BuildError::CreateBuildDirectory {
+        path: plan.build_dir.clone(),
+        error,
+    })?;
+    fs::create_dir_all(&plan.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
+        path: plan.cache_dir.clone(),
+        error,
+    })
 }
 
 fn nia_path_literal(role: &'static str, path: &Path) -> Result<String, BuildError> {
@@ -412,6 +446,18 @@ mod tests {
             .expect_err("missing build script");
 
         assert!(matches!(error, BuildError::MissingBuildScript { start } if start == root));
+    }
+
+    #[test]
+    fn prepares_build_and_cache_directories() {
+        let root = temp_root("prepares_build_and_cache_directories");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+
+        prepare_build_directories(&plan).expect("prepare build directories");
+
+        assert!(plan.build_dir.is_dir());
+        assert!(plan.cache_dir.is_dir());
     }
 
     #[test]
