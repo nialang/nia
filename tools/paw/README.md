@@ -33,8 +33,10 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
     exe.library_path("../../target/release/deps").?;
     exe.library("nia_capi").?;
-    exe.rpath("../../target/release/deps").?;
+    exe.dynamic_link().?;
+    exe.rpath("$ORIGIN/../lib").?;
     exe.dynamic_linker_auto().?;
+    exe.runtime_library("../../target/release/deps/libnia_capi.so", "libnia_capi.so").?;
     var build_step = build.step("build").?;
     build_step.build(&exe).?;
     build_step.default().?;
@@ -47,11 +49,14 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
 }
 ```
 
-Link options belong to the executable handle. They are not global package
-options. The current graph format accepts exactly one package and one
-executable; duplicate package entries, multiple executables, and link options
-that reference an unknown artifact are rejected. The default step must have a
-build action. Relative paths in `build.nia` are resolved from the package root.
+Link options and runtime library declarations belong to the executable handle.
+They are not global package options. The current graph format accepts exactly
+one package and one executable; duplicate package entries, multiple
+executables, and link/runtime options that reference an unknown artifact are
+rejected. Build-time library paths and runtime library source paths are resolved
+from the package root. Rpath values are linker/runtime strings and are passed
+through unchanged, so values such as `$ORIGIN/../lib` keep their ELF meaning.
+The default step must have a build action.
 
 ## Commands
 
@@ -95,14 +100,16 @@ Use the seed to build the normal `paw` binary:
 
 ```sh
 build/paw-bootstrap/paw-step1 build --root tools/paw
-cp tools/paw/.nia-build/paw build/paw-bootstrap/paw
+build/paw-bootstrap/paw-step1 install --root tools/paw
+cp -r tools/paw/.nia-build/install/. build/paw-bootstrap/
 ```
 
 A basic self-hosting check builds one more generation and verifies object output:
 
 ```sh
 build/paw-bootstrap/paw build --root tools/paw
-cp tools/paw/.nia-build/paw build/paw-bootstrap/paw-step2
+build/paw-bootstrap/paw install --root tools/paw
+cp tools/paw/.nia-build/install/bin/paw build/paw-bootstrap/paw-step2
 build/paw-bootstrap/paw objects --root tools/paw
 build/paw-bootstrap/paw install --root tools/paw
 ```

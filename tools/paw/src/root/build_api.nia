@@ -124,6 +124,14 @@ extend Executable {
         self.writer.print("dynamic-linker\t{}\tauto\n", &[self.name]).as_paw_fmt_error()
     }
 
+    pub fn static_link(&mut self) Error!void {
+        self.writer.print("link-mode\t{}\tstatic\n", &[self.name]).as_paw_fmt_error()
+    }
+
+    pub fn dynamic_link(&mut self) Error!void {
+        self.writer.print("link-mode\t{}\tdynamic\n", &[self.name]).as_paw_fmt_error()
+    }
+
     pub fn no_dynamic_linker(&mut self) Error!void {
         self.writer.print("dynamic-linker\t{}\tnone\n", &[self.name]).as_paw_fmt_error()
     }
@@ -133,6 +141,13 @@ extend Executable {
             return Error::InvalidInput!;
         }
         self.writer.print("dynamic-linker\t{}\tpath\t{}\n", &[self.name, path]).as_paw_fmt_error()
+    }
+
+    pub fn runtime_library(&mut self, source: &[char], name: &[char]) Error!void {
+        if not is_graph_field(source) or not is_graph_field(name) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("runtime-library\t{}\t{}\t{}\n", &[self.name, source, name]).as_paw_fmt_error()
     }
 }
 

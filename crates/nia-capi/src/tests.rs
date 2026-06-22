@@ -214,6 +214,8 @@ fn link_options_accept_structured_linker_options() {
         nia_link_options_set_linker(options, b"ld".as_ptr(), 2),
         NiaStatus::Ok
     );
+    assert_eq!(nia_link_options_set_static_mode(options), NiaStatus::Ok);
+    assert_eq!(nia_link_options_set_dynamic_mode(options), NiaStatus::Ok);
     assert_eq!(
         nia_link_options_set_dynamic_linker_auto(options),
         NiaStatus::Ok

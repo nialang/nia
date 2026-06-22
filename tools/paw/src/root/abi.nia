@@ -73,6 +73,8 @@ extern fn nia_session_emit_object_directory(
 ) &void;
 extern fn nia_link_options_new() &void;
 extern fn nia_link_options_free(options: &void) void;
+extern fn nia_link_options_set_static_mode(options: &void) i32;
+extern fn nia_link_options_set_dynamic_mode(options: &void) i32;
 extern fn nia_link_options_set_dynamic_linker_auto(options: &void) i32;
 extern fn nia_link_options_set_no_dynamic_linker(options: &void) i32;
 extern fn nia_link_options_set_dynamic_linker_path(options: &void, path_ptr: &u8, path_len: usize) i32;
@@ -230,6 +232,14 @@ extend LinkOptions {
 
     pub fn free(self) void {
         nia_link_options_free(self.raw)
+    }
+
+    pub fn set_static_mode(&self) i32 {
+        nia_link_options_set_static_mode(self.raw)
+    }
+
+    pub fn set_dynamic_mode(&self) i32 {
+        nia_link_options_set_dynamic_mode(self.raw)
     }
 
     pub fn set_dynamic_auto(&self) i32 {
