@@ -14,6 +14,8 @@ pub enum Error: i32 {
     Report = 4,
     Internal = 5,
     CommandFailed = 6,
+    UnknownTarget = 7,
+    InvalidTarget = 8,
     _,
 }
 
@@ -24,6 +26,11 @@ pub struct Step {
     run: StepFn,
 }
 
+pub struct ExecutableTarget {
+    name: &[char],
+    source: fs::Path,
+}
+
 pub struct Build {
     init: process::Init,
     allocator: &mut mem::Allocator,
@@ -32,6 +39,7 @@ pub struct Build {
     cache_dir: fs::Path,
     toolchain_executable: fs::Path,
     steps: collections::ArrayList[Step],
+    executables: collections::ArrayList[ExecutableTarget],
 }
 
 pub fn noop_step(b: &mut Build) Error!void {
@@ -56,10 +64,12 @@ extend Build {
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
             steps: collections::ArrayList[Step]::init(),
+            executables: collections::ArrayList[ExecutableTarget]::init(),
         }
     }
 
     pub fn deinit(&mut self) Error!void {
+        self.executables.deinit(self.allocator).as_build_error().?;
         self.steps.deinit(self.allocator).as_build_error()
     }
 
@@ -92,6 +102,30 @@ extend Build {
             return Error::InvalidStep!;
         } else null {}
         self.steps.push(self.allocator, Step::init(name, run)).as_build_error()
+    }
+
+    pub fn executable(&mut self, name: &[char], source: fs::Path) Error!void {
+        if name.len() == 0usize {
+            return Error::InvalidTarget!;
+        }
+        if let ?old = self.find_executable(name) {
+            _ = old;
+            return Error::InvalidTarget!;
+        } else null {}
+        self.executables.push(
+            self.allocator,
+            ExecutableTarget::init(name, source),
+        ).as_build_error()
+    }
+
+    pub fn check_executable(&mut self, name: &[char]) Error!void {
+        let target = if let ?target = self.find_executable(name) {
+            target
+        } else null {
+            self.report_unknown_target(name).?;
+            return Error::UnknownTarget!;
+        };
+        self.check_exe(target.source)
     }
 
     pub fn check_exe(&mut self, source: fs::Path) Error!void {
@@ -171,10 +205,29 @@ extend Build {
         null
     }
 
+    fn find_executable(&self, name: &[char]) ?ExecutableTarget {
+        var index = 0usize;
+        while index < self.executables.len() {
+            let target = self.executables.as_slice()[index];
+            if text_equal(target.name, name) {
+                return ?target;
+            }
+            index += 1usize;
+        }
+        null
+    }
+
     fn report_unknown_step(&mut self, step: process::Arg) Error!void {
         var buffer: [256]u8 = [_]u8[0; 256];
         var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
         stderr.print("unknown build step `{}`\n", &[&step]).as_build_error().?;
+        stderr.flush().as_build_error()
+    }
+
+    fn report_unknown_target(&mut self, name: &[char]) Error!void {
+        var buffer: [256]u8 = [_]u8[0; 256];
+        var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        stderr.print("unknown executable target `{}`\n", &[name]).as_build_error().?;
         stderr.flush().as_build_error()
     }
 }
@@ -182,6 +235,12 @@ extend Build {
 extend Step {
     pub fn init(name: &[char], run: StepFn) Step {
         { name: name, run: run }
+    }
+}
+
+extend ExecutableTarget {
+    pub fn init(name: &[char], source: fs::Path) ExecutableTarget {
+        { name: name, source: source }
     }
 }
 
@@ -194,6 +253,8 @@ extend Error {
             Error::Report => process::exit(5),
             Error::Internal => process::exit(255),
             Error::CommandFailed => process::exit(1),
+            Error::UnknownTarget => process::exit(2),
+            Error::InvalidTarget => process::exit(22),
             _ => process::exit(255),
         }
     }
