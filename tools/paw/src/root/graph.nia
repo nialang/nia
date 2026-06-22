@@ -85,12 +85,7 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
     var exe_root_len = 0usize;
     var default_step_start = 0usize;
     var default_step_len = 0usize;
-    var selected_step_len = 0usize;
-    var selected_step_exe_start = 0usize;
-    var selected_step_exe_len = 0usize;
-    var selected_action_path_start = 0usize;
-    var selected_action_path_len = 0usize;
-    var selected_action: ?StepAction = null;
+    var selected = SelectedStepState::init();
     var has_package = false;
     var has_executable = false;
     var has_default_step = false;
@@ -137,21 +132,18 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                 EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable => {
                     let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
                     if requested_step.len() != 0usize and mem::equal[u8](step, requested_step) {
-                        if selected_step_len != 0usize {
-                            stderr.print("paw: build graph has duplicate step actions\n", &[]).exit().?;
-                            return process::exit(2)!;
-                        }
-                        selected_step_len = parsed.first_value_len();
-                        selected_step_exe_start = index + parsed.second_value_start();
-                        selected_step_exe_len = parsed.second_value_len();
-                        selected_action_path_start = index + parsed.third_value_start();
-                        selected_action_path_len = parsed.third_value_len();
-                        selected_action = parsed.kind().step_action();
+                        selected.record_action(stderr, index, parsed).?;
                     }
                 },
-                EntryKind::Step => {},
+                EntryKind::Step => {
+                    if requested_step.len() != 0usize {
+                        let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
+                        if mem::equal[u8](step, requested_step) {
+                            selected.record_declaration();
+                        }
+                    }
+                },
                 EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker => {},
-                _ => {},
             };
         }
         index = line_end + 1;
@@ -183,54 +175,39 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                 if parsed.kind().is_step_action() {
                     let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
                     if mem::equal[u8](step, default_step) {
-                        if selected_step_len != 0usize {
-                            stderr.print("paw: build graph has duplicate step actions\n", &[]).exit().?;
-                            return process::exit(2)!;
-                        }
-                        selected_step_len = parsed.first_value_len();
-                        selected_step_exe_start = scan + parsed.second_value_start();
-                        selected_step_exe_len = parsed.second_value_len();
-                        selected_action_path_start = scan + parsed.third_value_start();
-                        selected_action_path_len = parsed.third_value_len();
-                        selected_action = parsed.kind().step_action();
+                        selected.record_action(stderr, scan, parsed).?;
+                    }
+                } else if parsed.kind() == EntryKind::Step {
+                    let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
+                    if mem::equal[u8](step, default_step) {
+                        selected.record_declaration();
                     }
                 }
             }
             scan = line_end + 1;
         }
     }
-    let action = if let ?value = selected_action {
-        value
-    } else null {
-        stderr.print("paw: requested step has no action\n", &[]).exit().?;
-        return process::exit(2)!;
-    };
-    if selected_step_exe_len == 0usize {
+    let action = selected.action(stderr).?;
+    if selected.action_exe_len() == 0usize {
         stderr.print("paw: requested step action has no executable\n", &[]).exit().?;
         return process::exit(2)!;
     }
-    let selected_step = if requested_step.len() == 0usize {
-        &graph[default_step_start..(default_step_start + default_step_len)]
-    } else {
-        requested_step
-    };
-    let selected_step_declarations = count_step_declarations(stderr, graph, selected_step).?;
-    if selected_step_declarations == 0usize {
+    if selected.declarations() == 0usize {
         stderr.print("paw: requested step is not declared\n", &[]).exit().?;
         return process::exit(2)!;
     }
-    if selected_step_declarations != 1usize {
+    if selected.declarations() != 1usize {
         stderr.print("paw: build graph has duplicate step declarations\n", &[]).exit().?;
         return process::exit(2)!;
     }
     let exe_name = &graph[exe_name_start..(exe_name_start + exe_name_len)];
-    let selected_step_exe = &graph[selected_step_exe_start..(selected_step_exe_start + selected_step_exe_len)];
+    let selected_step_exe = &graph[selected.action_exe_start()..(selected.action_exe_start() + selected.action_exe_len())];
     if not mem::equal[u8](exe_name, selected_step_exe) {
         stderr.print("paw: requested step references unknown executable\n", &[]).exit().?;
         return process::exit(2)!;
     }
     if action == StepAction::InstallExecutable {
-        let install_path = &graph[selected_action_path_start..(selected_action_path_start + selected_action_path_len)];
+        let install_path = &graph[selected.action_path_start()..(selected.action_path_start() + selected.action_path_len())];
         validate_install_path(stderr, install_path).?;
     }
     !{
@@ -241,33 +218,80 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
         exe_root_start: exe_root_start,
         exe_root_len: exe_root_len,
         action: action,
-        action_path_start: selected_action_path_start,
-        action_path_len: selected_action_path_len,
+        action_path_start: selected.action_path_start(),
+        action_path_len: selected.action_path_len(),
     }
 }
 
-fn count_step_declarations(stderr: &mut io::FileWriter, graph: &[u8], name: &[u8]) process::ExitCode!usize {
-    var count = 0usize;
-    var scan = 0usize;
-    while scan < graph.len() {
-        let line_end = if let ?value = find_byte(graph, scan, b'\n') {
-            value
-        } else null {
-            graph.len()
-        };
-        let line = &graph[scan..line_end];
-        if line.len() != 0 {
-            let parsed = parse_line(stderr, line).?;
-            if parsed.kind() == EntryKind::Step {
-                let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
-                if mem::equal[u8](step, name) {
-                    count += 1usize;
-                }
-            }
+struct SelectedStepState {
+    declarations: usize,
+    action_step_len: usize,
+    action_exe_start: usize,
+    action_exe_len: usize,
+    action_path_start: usize,
+    action_path_len: usize,
+    action: ?StepAction,
+}
+
+extend SelectedStepState {
+    fn init() SelectedStepState {
+        {
+            declarations: 0usize,
+            action_step_len: 0usize,
+            action_exe_start: 0usize,
+            action_exe_len: 0usize,
+            action_path_start: 0usize,
+            action_path_len: 0usize,
+            action: null,
         }
-        scan = line_end + 1;
     }
-    !count
+
+    fn record_declaration(&mut self) void {
+        self.declarations += 1usize;
+    }
+
+    fn record_action(&mut self, stderr: &mut io::FileWriter, line_start: usize, parsed: ParsedLine) process::ExitCode!void {
+        if self.action_step_len != 0usize {
+            stderr.print("paw: build graph has duplicate step actions\n", &[]).exit().?;
+            return process::exit(2)!;
+        }
+        self.action_step_len = parsed.first_value_len();
+        self.action_exe_start = line_start + parsed.second_value_start();
+        self.action_exe_len = parsed.second_value_len();
+        self.action_path_start = line_start + parsed.third_value_start();
+        self.action_path_len = parsed.third_value_len();
+        self.action = parsed.kind().step_action();
+        !{}
+    }
+
+    fn action(&self, stderr: &mut io::FileWriter) process::ExitCode!StepAction {
+        if let ?value = self.action {
+            !value
+        } else null {
+            stderr.print("paw: requested step has no action\n", &[]).exit().?;
+            return process::exit(2)!;
+        }
+    }
+
+    fn declarations(&self) usize {
+        self.declarations
+    }
+
+    fn action_exe_start(&self) usize {
+        self.action_exe_start
+    }
+
+    fn action_exe_len(&self) usize {
+        self.action_exe_len
+    }
+
+    fn action_path_start(&self) usize {
+        self.action_path_start
+    }
+
+    fn action_path_len(&self) usize {
+        self.action_path_len
+    }
 }
 
 fn validate_install_path(stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!void {
@@ -363,10 +387,6 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
         EntryKind::StepInstallExecutable => parse_three_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::DynamicLinker => parse_dynamic_linker_line(stderr, line, kind, first_tab, second_tab),
-        _ => {
-            stderr.print("paw: unknown build graph entry\n", &[]).exit().?;
-            return process::exit(2)!;
-        },
     }
 }
 
@@ -620,7 +640,6 @@ fn apply_link_option_line(
             )
         },
         EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, root, options),
-        _ => !{},
     }
 }
 
