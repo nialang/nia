@@ -258,6 +258,7 @@ fn build_command_compiles_and_runs_build_script() {
         root.join("build.nia"),
         r#"
 using std::build;
+using std::io;
 
 fn check(b: &mut build::Build) build::Error!void {
     _ = b;
@@ -265,6 +266,12 @@ fn check(b: &mut build::Build) build::Error!void {
 }
 
 pub fn build(b: &mut build::Build) build::Error!void {
+    var buffer: [1024]u8 = [_]u8[0; 1024];
+    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print("root={}\n", &[b.package_root().text()]).as_build_error().?;
+    stdout.print("build={}\n", &[b.build_dir().text()]).as_build_error().?;
+    stdout.print("cache={}\n", &[b.cache_dir().text()]).as_build_error().?;
+    stdout.flush().as_build_error().?;
     b.step("check", &check).?;
     !{}
 }
@@ -286,7 +293,18 @@ pub fn build(b: &mut build::Build) build::Error!void {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.is_empty(), "{stdout}");
+    assert!(
+        stdout.contains(&format!("root={}\n", root.display())),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("build={}\n", root.join(".nia-build").display())),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("cache={}\n", root.join(".nia-cache").display())),
+        "{stdout}"
+    );
     assert!(stderr.is_empty(), "{stderr}");
     assert!(root.join(".nia-build/runner/nia-build-runner").is_file());
 

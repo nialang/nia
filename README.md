@@ -147,7 +147,9 @@ Nia toolchain rather than a separate bootstrap builder. The current command
 resolves package roots, compiles `build.nia` through a toolchain-owned build
 runner, and reserves `.nia-build/` for build output and `.nia-cache/` for
 reusable package or compiler cache entries. `build.nia` is ordinary Nia code and
-can use the standard library.
+can use the standard library. The `std::build::Build` value passed to
+`build.nia` exposes `package_root()`, `build_dir()`, and `cache_dir()` so build
+scripts use toolchain-owned paths explicitly.
 
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`
