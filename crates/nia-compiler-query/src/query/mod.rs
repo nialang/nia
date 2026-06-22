@@ -1026,6 +1026,24 @@ mod tests {
             .map(|module| module.id)
     }
 
+    fn query_executions(trace: &QueryTrace, name: &'static str) -> usize {
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == name)
+            .map(|query| query.stats.executions)
+            .sum()
+    }
+
+    fn query_cache_hits(trace: &QueryTrace, name: &'static str) -> usize {
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == name)
+            .map(|query| query.stats.cache_hits)
+            .sum()
+    }
+
     #[test]
     fn public_options_flow_through_compiler_query_context() {
         for level in [
@@ -1337,9 +1355,24 @@ fn main() i32 {
             !invalidated.contains(&"program_signatures"),
             "{invalidated:?}"
         );
+        let before_second_check = database.query_trace();
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let after_second_check = database.query_trace();
+
+        assert_eq!(
+            query_executions(&before_second_check, "declaration_type_lowering"),
+            query_executions(&after_second_check, "declaration_type_lowering"),
+        );
+        assert_eq!(
+            query_executions(&before_second_check, "item_signatures"),
+            query_executions(&after_second_check, "item_signatures"),
+        );
+        assert!(
+            query_cache_hits(&after_second_check, "item_signatures")
+                > query_cache_hits(&before_second_check, "item_signatures"),
+        );
     }
 
     #[test]

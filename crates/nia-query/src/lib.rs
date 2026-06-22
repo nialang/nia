@@ -30,6 +30,7 @@ struct QueryDbInner<C> {
     caches: Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>,
     slots: Mutex<HashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
     dependencies: Mutex<QueryDependencyGraph>,
+    stats: Mutex<QueryStatsTable>,
 }
 
 struct QuerySlot<V> {
@@ -185,6 +186,31 @@ pub type QueryResult<T> = Result<T, QueryError>;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct QueryTrace {
     pub dependencies: Vec<QueryDependency>,
+    pub queries: Vec<QueryTraceQuery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QueryFrameStats {
+    pub executions: usize,
+    pub cache_hits: usize,
+    pub waits: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryTraceQuery {
+    pub frame: QueryFrame,
+    pub stats: QueryFrameStats,
+}
+
+#[derive(Debug, Default)]
+struct QueryStatsTable {
+    entries: HashMap<QueryFrameIdentity, QueryStatsEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct QueryStatsEntry {
+    frame: QueryFrame,
+    stats: QueryFrameStats,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +237,7 @@ impl<C> QueryDb<C> {
                 caches: Mutex::new(HashMap::new()),
                 slots: Mutex::new(HashMap::new()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
+                stats: Mutex::new(QueryStatsTable::default()),
             }),
         }
     }
@@ -246,9 +273,13 @@ impl<C> QueryDb<C> {
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
-                QueryState::Ready(value) => return Ok(value.clone()),
+                QueryState::Ready(value) => {
+                    self.record_cache_hit::<K>(&key);
+                    return Ok(value.clone());
+                }
                 QueryState::Computing { .. } => {
                     self.check_not_recursive::<K>(&key)?;
+                    self.record_wait::<K>(&key);
                     drop(
                         slot.ready
                             .wait(state)
@@ -263,6 +294,7 @@ impl<C> QueryDb<C> {
                     let identity = entry.identity.clone();
                     self.clear_dependencies_from(&identity);
                     let _guard = self.enter_query(entry)?;
+                    self.record_execution::<K>(&key);
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         key.execute(self)
                     })) {
@@ -372,6 +404,12 @@ impl<C> QueryDb<C> {
                 .iter()
                 .map(|edge| edge.dependency.clone())
                 .collect(),
+            queries: self
+                .inner
+                .stats
+                .lock()
+                .expect("query stats lock poisoned")
+                .queries(),
         }
     }
 
@@ -492,6 +530,40 @@ impl<C> QueryDb<C> {
         self.record_dependency_from_stack(query_stack_entry::<C, K>(key));
     }
 
+    fn record_execution<K>(&self, key: &K)
+    where
+        K: QueryKey<C>,
+    {
+        self.record_query_stat::<K>(key, |stats| stats.executions += 1);
+    }
+
+    fn record_cache_hit<K>(&self, key: &K)
+    where
+        K: QueryKey<C>,
+    {
+        self.record_query_stat::<K>(key, |stats| stats.cache_hits += 1);
+    }
+
+    fn record_wait<K>(&self, key: &K)
+    where
+        K: QueryKey<C>,
+    {
+        self.record_query_stat::<K>(key, |stats| stats.waits += 1);
+    }
+
+    fn record_query_stat<K>(&self, key: &K, update: impl FnOnce(&mut QueryFrameStats))
+    where
+        K: QueryKey<C>,
+    {
+        let identity = query_frame_identity::<K>(key);
+        let frame = query_frame::<C, K>(key);
+        self.inner
+            .stats
+            .lock()
+            .expect("query stats lock poisoned")
+            .record(identity, frame, update);
+    }
+
     fn record_dependency_from_stack(&self, to: QueryStackEntry) {
         QUERY_STACK.with(|stack| {
             let Some(from) = stack.borrow().last().cloned() else {
@@ -520,6 +592,36 @@ impl<C> QueryDb<C> {
             .lock()
             .expect("query dependency lock poisoned")
             .remove_dependencies_from(from);
+    }
+}
+
+impl QueryStatsTable {
+    fn record(
+        &mut self,
+        identity: QueryFrameIdentity,
+        frame: QueryFrame,
+        update: impl FnOnce(&mut QueryFrameStats),
+    ) {
+        let entry = self.entries.entry(identity).or_insert(QueryStatsEntry {
+            frame,
+            stats: QueryFrameStats::default(),
+        });
+        update(&mut entry.stats);
+    }
+
+    fn queries(&self) -> Vec<QueryTraceQuery> {
+        let mut queries = self
+            .entries
+            .values()
+            .map(|entry| QueryTraceQuery {
+                frame: entry.frame.clone(),
+                stats: entry.stats.clone(),
+            })
+            .collect::<Vec<_>>();
+        queries.sort_by(|lhs, rhs| {
+            (lhs.frame.name, lhs.frame.key.as_str()).cmp(&(rhs.frame.name, rhs.frame.key.as_str()))
+        });
+        queries
     }
 }
 
@@ -891,6 +993,27 @@ mod tests {
         assert_eq!(trace.dependencies.len(), 1);
         assert_eq!(trace.dependencies[0].from.name, "double_twice");
         assert_eq!(trace.dependencies[0].to.description, "double(7)");
+    }
+
+    #[test]
+    fn records_query_execution_and_cache_hit_stats() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(db.query(Double(21)), 42);
+        assert_eq!(db.query(Double(21)), 42);
+        let trace = db.query_trace();
+        let stats = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.description == "double(21)")
+            .map(|query| &query.stats)
+            .expect("double query stats");
+
+        assert_eq!(stats.executions, 1);
+        assert_eq!(stats.cache_hits, 1);
+        assert_eq!(stats.waits, 0);
     }
 
     #[test]
