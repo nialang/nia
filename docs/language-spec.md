@@ -3004,8 +3004,11 @@ outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
 Both directories are created before the build script runs. `build.nia` is
 compiled and run as ordinary Nia code through a generated toolchain-owned
 runner, so it can use the standard library. The runner passes a `std::build::Build`
-value with explicit `package_root()`, `build_dir()`, and `cache_dir()` accessors
-instead of requiring scripts to infer those paths.
+value with explicit `package_root()`, `build_dir()`, `cache_dir()`, and
+`toolchain_executable()` accessors instead of requiring scripts to infer those
+paths.
+`Build::check_exe(path)` runs the same toolchain as `nia check --exe <path>`
+with the package root as the working directory.
 
 Module-map options are accepted before or after the command:
 

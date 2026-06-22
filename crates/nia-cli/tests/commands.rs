@@ -258,10 +258,11 @@ fn build_command_compiles_and_runs_build_script() {
         root.join("build.nia"),
         r#"
 using std::build;
+using std::fs;
 using std::io;
 
 fn check(b: &mut build::Build) build::Error!void {
-    _ = b;
+    b.check_exe(fs::Path::init("src/main.nia")).?;
     !{}
 }
 
@@ -271,6 +272,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("root={}\n", &[b.package_root().text()]).as_build_error().?;
     stdout.print("build={}\n", &[b.build_dir().text()]).as_build_error().?;
     stdout.print("cache={}\n", &[b.cache_dir().text()]).as_build_error().?;
+    stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
     b.step("check", &check).?;
     !{}
@@ -279,6 +281,18 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
     std::fs::create_dir_all(root.join("src").join("nested")).expect("create nested dir");
+    std::fs::write(
+        root.join("src").join("main.nia"),
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("build")
@@ -303,6 +317,10 @@ pub fn build(b: &mut build::Build) build::Error!void {
     );
     assert!(
         stdout.contains(&format!("cache={}\n", root.join(".nia-cache").display())),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia"))),
         "{stdout}"
     );
     assert!(stderr.is_empty(), "{stderr}");

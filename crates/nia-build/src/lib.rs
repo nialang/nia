@@ -44,6 +44,7 @@ impl Default for BuildRequest {
 pub struct BuildPlan {
     pub package_root: PathBuf,
     pub build_script: PathBuf,
+    pub toolchain_executable: PathBuf,
     pub build_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub runner_dir: PathBuf,
@@ -75,6 +76,9 @@ pub struct BuildRunnerSource {
 #[derive(Debug)]
 pub enum BuildError {
     CurrentDirectory {
+        error: io::Error,
+    },
+    CurrentExecutable {
         error: io::Error,
     },
     CreateBuildDirectory {
@@ -116,6 +120,12 @@ impl fmt::Display for BuildError {
         match self {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
+            }
+            Self::CurrentExecutable { error } => {
+                write!(
+                    f,
+                    "failed to read current toolchain executable path: {error}"
+                )
             }
             Self::CreateBuildDirectory { path, error } => {
                 write!(
@@ -193,6 +203,8 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
         Some(root) => root,
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
+    let toolchain_executable =
+        env::current_exe().map_err(|error| BuildError::CurrentExecutable { error })?;
     let package_root = find_package_root(&start)?;
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
@@ -202,6 +214,7 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
         runner_executable: runner_dir.join("nia-build-runner"),
         runner_dir,
         build_dir,
+        toolchain_executable,
         package_root,
         build_script,
         step: request
@@ -227,6 +240,8 @@ fn build_runner_source_for_path(
     let package_root = nia_path_literal("package root", &plan.package_root)?;
     let build_dir = nia_path_literal("build dir", &plan.build_dir)?;
     let cache_dir = nia_path_literal("cache dir", &plan.cache_dir)?;
+    let toolchain_executable =
+        nia_path_literal("toolchain executable", &plan.toolchain_executable)?;
     let source = r#"
 using std::build;
 using std::fs;
@@ -245,6 +260,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         fs::Path::init({package_root}),
         fs::Path::init({build_dir}),
         fs::Path::init({cache_dir}),
+        fs::Path::init({toolchain_executable}),
     );
     defer api.deinit().exit().?;
 
@@ -256,7 +272,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     .trim_start()
     .replace("{package_root}", &package_root)
     .replace("{build_dir}", &build_dir)
-    .replace("{cache_dir}", &cache_dir);
+    .replace("{cache_dir}", &cache_dir)
+    .replace("{toolchain_executable}", &toolchain_executable);
     Ok(BuildRunnerSource { path, source })
 }
 
@@ -378,6 +395,7 @@ mod tests {
 
         assert_eq!(plan.package_root, root);
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
+        assert!(plan.toolchain_executable.is_file());
         assert_eq!(plan.build_dir, plan.package_root.join(".nia-build"));
         assert_eq!(plan.cache_dir, plan.package_root.join(".nia-cache"));
         assert_eq!(plan.runner_dir, plan.package_root.join(".nia-build/runner"));
@@ -417,6 +435,14 @@ mod tests {
         assert!(runner.source.contains(&format!(
             "fs::Path::init({})",
             nia_string_literal(root.join(".nia-cache").to_str().expect("utf-8 cache path"))
+        )));
+        assert!(runner.source.contains(&format!(
+            "fs::Path::init({})",
+            nia_string_literal(
+                plan.toolchain_executable
+                    .to_str()
+                    .expect("utf-8 toolchain executable path")
+            )
         )));
         assert!(
             runner

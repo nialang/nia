@@ -1,4 +1,5 @@
 using pkg::collections;
+using pkg::cstr;
 using pkg::process;
 using pkg::fmt;
 using pkg::fs;
@@ -12,6 +13,7 @@ pub enum Error: i32 {
     OutOfMemory = 3,
     Report = 4,
     Internal = 5,
+    CommandFailed = 6,
     _,
 }
 
@@ -28,6 +30,7 @@ pub struct Build {
     package_root: fs::Path,
     build_dir: fs::Path,
     cache_dir: fs::Path,
+    toolchain_executable: fs::Path,
     steps: collections::ArrayList[Step],
 }
 
@@ -43,6 +46,7 @@ extend Build {
         package_root: fs::Path,
         build_dir: fs::Path,
         cache_dir: fs::Path,
+        toolchain_executable: fs::Path,
     ) Build {
         {
             init: init,
@@ -50,6 +54,7 @@ extend Build {
             package_root: package_root,
             build_dir: build_dir,
             cache_dir: cache_dir,
+            toolchain_executable: toolchain_executable,
             steps: collections::ArrayList[Step]::init(),
         }
     }
@@ -74,6 +79,10 @@ extend Build {
         self.cache_dir
     }
 
+    pub fn toolchain_executable(&self) fs::Path {
+        self.toolchain_executable
+    }
+
     pub fn step(&mut self, name: &[char], run: StepFn) Error!void {
         if name.len() == 0usize {
             return Error::InvalidStep!;
@@ -83,6 +92,33 @@ extend Build {
             return Error::InvalidStep!;
         } else null {}
         self.steps.push(self.allocator, Step::init(name, run)).as_build_error()
+    }
+
+    pub fn check_exe(&mut self, source: fs::Path) Error!void {
+        var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
+        let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
+        let toolchain_cstr = if let ?value = cstr::CStr::from_bytes(toolchain.nul_terminated_bytes()) {
+            value
+        } else null {
+            return Error::Internal!;
+        };
+        let check_arg = b"check\0";
+        let exe_arg = b"--exe\0";
+        var argv: [5]&u8 = [
+            toolchain.ptr(),
+            &check_arg.*[0],
+            &exe_arg.*[0],
+            source_arg.ptr(),
+            0usize as &u8,
+        ];
+        var command = process::Command::init(toolchain_cstr, &argv[0], self.init.raw_envp());
+        let term = command.run().as_build_error().?;
+        if not term.exited_success() {
+            return Error::CommandFailed!;
+        }
+        !{}
     }
 
     pub fn requested_step(&self) ?process::Arg {
@@ -157,6 +193,7 @@ extend Error {
             Error::OutOfMemory => process::exit(12),
             Error::Report => process::exit(5),
             Error::Internal => process::exit(255),
+            Error::CommandFailed => process::exit(1),
             _ => process::exit(255),
         }
     }
@@ -203,6 +240,30 @@ extend[T] fs::Error!T {
                 fs::Error::IsDir => Error::Report!,
                 fs::Error::NoSpace => Error::Report!,
                 fs::Error::OutOfMemory => Error::OutOfMemory!,
+                _ => Error::Report!,
+            }
+        }
+    }
+}
+
+extend[T] process::Error!T {
+    pub fn as_build_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            switch error {
+                process::Error::Invalid => Error::InvalidStep!,
+                process::Error::SpawnSetup => Error::Report!,
+                process::Error::SpawnStdio => Error::Report!,
+                process::Error::SpawnCwd => Error::Report!,
+                process::Error::SpawnExec => Error::Report!,
+                process::Error::Wait => Error::Report!,
+                process::Error::TryWait => Error::Report!,
+                process::Error::Kill => Error::Report!,
+                process::Error::CloseStdin => Error::Report!,
+                process::Error::CloseStdout => Error::Report!,
+                process::Error::CloseStderr => Error::Report!,
+                process::Error::System => Error::Report!,
                 _ => Error::Report!,
             }
         }
