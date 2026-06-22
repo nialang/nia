@@ -347,7 +347,7 @@ fn inc(value: i32) i32 {
 
 fn main() i32 {
     let step = Step { run: &inc };
-    (step.run)(41)
+    step.run(41)
 }
 "#,
     )

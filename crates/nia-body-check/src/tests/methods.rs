@@ -954,3 +954,54 @@ fn main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn receiver_method_calls_take_precedence_over_function_pointer_fields() {
+    let checked = pipeline(
+        r#"
+type RunFn = &fn() i32;
+
+struct MethodBox {
+    run: RunFn,
+}
+
+struct FieldBox {
+    run: RunFn,
+}
+
+fn field_run() i32 {
+    1
+}
+
+extend MethodBox {
+    fn run(self) i32 {
+        _ = self;
+        2
+    }
+}
+
+fn main() i32 {
+    let method_box = MethodBox { run: &field_run };
+    let field_box = FieldBox { run: &field_run };
+    method_box.run() + field_box.run()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let mut saw_method = false;
+    let mut saw_function_pointer = false;
+    for call in checked.facts.node_resolved_calls.values() {
+        match call {
+            nia_sema_ir::ResolvedCall::Method { .. } => saw_method = true,
+            nia_sema_ir::ResolvedCall::FunctionPointer => saw_function_pointer = true,
+            _ => {}
+        }
+    }
+    assert!(saw_method, "{:?}", checked.facts.node_resolved_calls);
+    assert!(
+        saw_function_pointer,
+        "{:?}",
+        checked.facts.node_resolved_calls
+    );
+}
