@@ -1,0 +1,15 @@
+pub trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+extend[T, Source, Target] Source!T
+where Source: IntoError[Target]
+{
+    pub fn cast_error(self) Target!T {
+        if let !ok = self {
+            !ok
+        } else error! {
+            error.into_error()!
+        }
+    }
+}

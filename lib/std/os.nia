@@ -2,6 +2,7 @@ pub(pkg) module linux;
 
 @[if os == "linux"]
 using pkg::os::linux as platform;
+using pkg::error;
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
 
@@ -273,8 +274,8 @@ pub fn exit(code: i32) void {
     platform::exit(code);
 }
 
-extend platform::Errno {
-    fn as_os_error(self) Error {
+extend platform::Errno : error::IntoError[Error] {
+    fn into_error(self) Error {
         switch self {
             platform::Errno::PermissionDenied => Error::PermissionDenied,
             platform::Errno::NoEntry => Error::NotFound,
@@ -302,8 +303,14 @@ extend platform::Errno {
     }
 }
 
-extend platform::SpawnError {
-    fn as_spawn_error(self) SpawnError {
+extend platform::Errno {
+    fn as_os_error(self) Error {
+        self.into_error()
+    }
+}
+
+extend platform::SpawnError : error::IntoError[SpawnError] {
+    fn into_error(self) SpawnError {
         switch self {
             platform::SpawnError::PermissionDenied => SpawnError::PermissionDenied,
             platform::SpawnError::NoEntry => SpawnError::NotFound,
@@ -335,23 +342,21 @@ extend platform::SpawnError {
     }
 }
 
+extend platform::SpawnError {
+    fn as_spawn_error(self) SpawnError {
+        self.into_error()
+    }
+}
+
 extend[T] platform::SpawnError!T {
     fn as_spawn_error(self) SpawnError!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_spawn_error()!
-        }
+        self.cast_error()
     }
 }
 
 extend[T] platform::Errno!T {
     fn as_os_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_os_error()!
-        }
+        self.cast_error()
     }
 }
 

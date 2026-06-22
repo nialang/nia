@@ -30,6 +30,7 @@ pub(super) struct MethodGenericContext<'a> {
     pub(super) expected: Option<InternedTyId>,
 }
 
+#[derive(Clone)]
 pub(super) struct TraitMethodCandidate {
     pub(super) trait_id: GlobalDefId,
     pub(super) method_id: GlobalDefId,
@@ -174,7 +175,8 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
-        let candidate = self.single_method_candidate(call.span, call.name, &candidates)?;
+        let viable_candidates = self.viable_method_candidates(&call, &candidates);
+        let candidate = self.single_method_candidate(call.span, call.name, &viable_candidates)?;
         let method_id = candidate.method.def_id;
         let Some(signature) = self
             .resolved_function_signature(method_id)
@@ -257,6 +259,7 @@ impl<'a> BodyChecker<'a> {
                 .map(|param| self.substitute_generics(param.ty, &substitutions))
                 .collect();
         }
+        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, call.span);
         self.check_direct_call_args(call.span, call.args, &params, false);
         let target_args = self.extension_target_instance_args(method_id, &substitutions);
         if !target_args.is_empty() || !method_instantiation_args.is_empty() {

@@ -1,4 +1,5 @@
 using pkg::cstr;
+using pkg::error;
 using pkg::os;
 using pkg::process::types;
 
@@ -113,8 +114,8 @@ pub fn run(command: &Command) Error!Term {
     command.run()
 }
 
-extend os::SpawnError {
-    fn as_process_error(self) Error {
+extend os::SpawnError : error::IntoError[Error] {
+    fn into_error(self) Error {
         switch self {
             os::SpawnError::Invalid => Error::Invalid,
             os::SpawnError::Setup => Error::SpawnSetup,
@@ -127,18 +128,20 @@ extend os::SpawnError {
     }
 }
 
-extend[T] os::SpawnError!T {
-    fn as_process_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_process_error()!
-        }
+extend os::SpawnError {
+    fn as_process_error(self) Error {
+        self.into_error()
     }
 }
 
-extend os::Error {
-    fn as_process_setup_error(self) Error {
+extend[T] os::SpawnError!T {
+    fn as_process_error(self) Error!T {
+        self.cast_error()
+    }
+}
+
+extend os::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
         switch self {
             os::Error::Invalid => Error::Invalid,
             os::Error::System => Error::System,
@@ -147,12 +150,14 @@ extend os::Error {
     }
 }
 
+extend os::Error {
+    fn as_process_setup_error(self) Error {
+        self.into_error()
+    }
+}
+
 extend[T] os::Error!T {
     fn as_process_setup_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_process_setup_error()!
-        }
+        self.cast_error()
     }
 }

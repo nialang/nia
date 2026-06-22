@@ -1,10 +1,11 @@
+using pkg::error;
 using pkg::fs::types;
 using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Timestamp};
 
-extend os::Error {
-    pub(pkg) fn as_fs_error(self) Error {
+extend os::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
         switch self {
             os::Error::PermissionDenied => Error::PermissionDenied,
             os::Error::NotFound => Error::NotFound,
@@ -32,13 +33,15 @@ extend os::Error {
     }
 }
 
+extend os::Error {
+    pub(pkg) fn as_fs_error(self) Error {
+        self.into_error()
+    }
+}
+
 extend[T] os::Error!T {
     pub(pkg) fn as_fs_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_fs_error()!
-        }
+        self.cast_error()
     }
 }
 
