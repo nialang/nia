@@ -13,6 +13,8 @@ pub enum Error: i32 {
     CommandFailed = 6,
     UnknownTarget = 7,
     InvalidTarget = 8,
+    StepCycle = 9,
+    StepFailed = 10,
     _,
 }
 
@@ -27,6 +29,8 @@ extend Error {
             Error::CommandFailed => process::exit(1),
             Error::UnknownTarget => process::exit(2),
             Error::InvalidTarget => process::exit(22),
+            Error::StepCycle => process::exit(22),
+            Error::StepFailed => process::exit(1),
             _ => process::exit(255),
         }
     }

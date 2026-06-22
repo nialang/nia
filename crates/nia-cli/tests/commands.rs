@@ -317,8 +317,8 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
     b.executable("app", fs::Path::init("src/main.nia")).?;
-    b.step("build", &build_app).?;
-    b.step("check", &check).?;
+    _ = b.add_step("build", &build_app).?;
+    _ = b.add_step("check", &check).?;
     !{}
 }
 "#,
@@ -391,6 +391,110 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn build_command_runs_step_dependencies_once_before_dependant() {
+    let root = temp_dir("build_command_runs_step_dependencies_once_before_dependant");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::io;
+
+fn prepare(b: &mut build::Build) build::Error!void {
+    var buffer: [128]u8 = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print("prepare\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+fn build_app(b: &mut build::Build) build::Error!void {
+    var buffer: [128]u8 = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print("build\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+fn check(b: &mut build::Build) build::Error!void {
+    var buffer: [128]u8 = [_]u8[0; 128];
+    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    stdout.print("check\n", &[]).as_build_error().?;
+    stdout.flush().as_build_error().?;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let prepare_step = b.add_step("prepare", &prepare).?;
+    let build_step = b.add_step("build", &build_app).?;
+    let check_step = b.add_step("check", &check).?;
+    b.depend_on(build_step, prepare_step).?;
+    b.depend_on(check_step, prepare_step).?;
+    b.depend_on(check_step, build_step).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build check with dependencies");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "prepare\nbuild\ncheck\n");
+}
+
+#[test]
+fn build_command_reports_step_dependency_cycle() {
+    let root = temp_dir("build_command_reports_step_dependency_cycle");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+fn first(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+
+fn second(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let first_step = b.add_step("first", &first).?;
+    let second_step = b.add_step("second", &second).?;
+    b.depend_on(first_step, second_step).?;
+    b.depend_on(second_step, first_step).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("first")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build first with dependency cycle");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 22"), "{stderr}");
+}
+
+#[test]
 fn build_command_reports_unknown_named_step() {
     let root = temp_dir("build_command_reports_unknown_named_step");
     std::fs::write(
@@ -404,7 +508,7 @@ fn check(b: &mut build::Build) build::Error!void {
 }
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    b.step("check", &check).?;
+    _ = b.add_step("check", &check).?;
     !{}
 }
 "#,
@@ -439,7 +543,7 @@ fn check(b: &mut build::Build) build::Error!void {
 }
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    b.step("check", &check).?;
+    _ = b.add_step("check", &check).?;
     !{}
 }
 "#,
