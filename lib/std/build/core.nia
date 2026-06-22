@@ -89,22 +89,12 @@ extend Build {
     }
 
     pub fn check_executable(&mut self, name: &[char]) Error!void {
-        let target = if let ?target = self.find_executable(name) {
-            target
-        } else null {
-            self.report_unknown_target(name).?;
-            return Error::UnknownTarget!;
-        };
+        let target = self.executable_target(name).?;
         self.check_exe(target.source)
     }
 
     pub fn emit_executable(&mut self, name: &[char]) Error!void {
-        let target = if let ?target = self.find_executable(name) {
-            target
-        } else null {
-            self.report_unknown_target(name).?;
-            return Error::UnknownTarget!;
-        };
+        let target = self.executable_target(name).?;
         var output_text = collections::ArrayList[char]::init();
         defer output_text.deinit(self.allocator).as_build_error().?;
         let output_path = self.build_dir.join_component_into(
@@ -122,11 +112,6 @@ extend Build {
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
         let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
-        let toolchain_cstr = if let ?value = cstr::CStr::from_bytes(toolchain.nul_terminated_bytes()) {
-            value
-        } else null {
-            return Error::Internal!;
-        };
         let check_arg = b"check\0";
         let exe_arg = b"--exe\0";
         var argv: [5]&u8 = [
@@ -136,12 +121,7 @@ extend Build {
             source_arg.ptr(),
             0usize as &u8,
         ];
-        var command = process::Command::init(toolchain_cstr, &argv[0], self.init.raw_envp());
-        let term = command.run().as_build_error().?;
-        if not term.exited_success() {
-            return Error::CommandFailed!;
-        }
-        !{}
+        self.run_toolchain_argv(toolchain, &argv[0])
     }
 
     pub fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
@@ -149,11 +129,6 @@ extend Build {
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
         let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
-        let toolchain_cstr = if let ?value = cstr::CStr::from_bytes(toolchain.nul_terminated_bytes()) {
-            value
-        } else null {
-            return Error::Internal!;
-        };
         let emit_arg = b"emit\0";
         let exe_arg = b"--exe\0";
         let output_arg = b"-o\0";
@@ -166,7 +141,20 @@ extend Build {
             output.ptr(),
             0usize as &u8,
         ];
-        var command = process::Command::init(toolchain_cstr, &argv[0], self.init.raw_envp());
+        self.run_toolchain_argv(toolchain, &argv[0])
+    }
+
+    fn executable_target(&mut self, name: &[char]) Error!ExecutableTarget {
+        if let ?target = self.find_executable(name) {
+            !target
+        } else null {
+            self.report_unknown_target(name).?;
+            Error::UnknownTarget!
+        }
+    }
+
+    fn run_toolchain_argv(&mut self, toolchain: fs::EncodedPath, argv: &&u8) Error!void {
+        var command = process::Command::init(cstr::CStr::from_ptr(toolchain.ptr()), argv, self.init.raw_envp());
         let term = command.run().as_build_error().?;
         if not term.exited_success() {
             return Error::CommandFailed!;
