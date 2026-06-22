@@ -211,6 +211,37 @@ fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
 }
 
 #[test]
+fn type_alias_to_function_pointer_is_callable_and_assignable() {
+    let root = temp_dir("type_alias_to_function_pointer_is_callable_and_assignable");
+    write(
+        &root.join("main.nia"),
+        r#"
+type StepFn = &fn(i32) i32;
+
+struct Step {
+    run: StepFn,
+}
+
+fn inc(value: i32) i32 {
+    value + 1
+}
+
+fn call_direct(run: StepFn, value: i32) i32 {
+    run(value)
+}
+
+fn main() i32 {
+    let step = Step { run: &inc };
+    call_direct(step.run, 1) + (step.run)(1)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn supports_for_discard_pattern_without_binding_local() {
     let root = temp_dir("supports_for_discard_pattern_without_binding_local");
     write(

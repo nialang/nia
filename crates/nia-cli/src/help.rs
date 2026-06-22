@@ -104,8 +104,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             notes: &[
                 "`nia build` searches for build.nia in the selected directory and then each parent directory.",
+                "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
                 "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
-                "The native build runner is reserved here and will be implemented in the Nia toolchain instead of a separate paw binary.",
+                "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
             ],
         },
         HelpTopic::Check => HelpDoc {

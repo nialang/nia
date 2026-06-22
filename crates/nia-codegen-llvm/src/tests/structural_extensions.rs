@@ -329,6 +329,40 @@ fn main(p: & Point) i32 {
 }
 
 #[test]
+fn emits_function_pointer_type_alias_fields() {
+    let root = temp_dir("emits_function_pointer_type_alias_fields");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+type StepFn = &fn(i32) i32;
+
+struct Step {
+    run: StepFn,
+}
+
+fn inc(value: i32) i32 {
+    value + 1
+}
+
+fn main() i32 {
+    let step = Step { run: &inc };
+    (step.run)(41)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i32 %"), "{ir}");
+}
+
+#[test]
 fn emits_structural_associated_calls_and_function_pointers() {
     let root = temp_dir("emits_structural_associated_calls_and_function_pointers");
     let main = root.join("main.nia");

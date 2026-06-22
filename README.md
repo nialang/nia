@@ -144,9 +144,10 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 
 `nia build` is the package-build entry point for `build.nia`. It is owned by the
 Nia toolchain rather than a separate bootstrap builder. The current command
-resolves package roots and reserves `.nia-build/` for build output and
-`.nia-cache/` for reusable package or compiler cache entries; the native build
-runner is still being implemented.
+resolves package roots, compiles `build.nia` through a toolchain-owned build
+runner, and reserves `.nia-build/` for build output and `.nia-cache/` for
+reusable package or compiler cache entries. `build.nia` is ordinary Nia code and
+can use the standard library.
 
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`

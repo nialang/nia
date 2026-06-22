@@ -185,6 +185,11 @@ dependencies = [
 [[package]]
 name = "nia-build"
 version = "0.4.3"
+dependencies = [
+ "nia-driver",
+ "nia-imports",
+ "nia-source",
+]
 
 [[package]]
 name = "nia-cli"

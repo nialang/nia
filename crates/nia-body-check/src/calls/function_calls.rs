@@ -348,6 +348,7 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
     ) -> InternedTyId {
         let span = expr.span;
+        let callee_ty = self.normalize_aliases_in_type(callee_ty);
         match self.interner.get(callee_ty).cloned() {
             Some(TyKind::FunctionPointer {
                 params,

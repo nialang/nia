@@ -1366,6 +1366,7 @@ module present;
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
         for relative in [
             "lib/std/atomic.nia",
+            "lib/std/build.nia",
             "lib/std/collections.nia",
             "lib/std/hash.nia",
             "lib/std/range.nia",
