@@ -81,16 +81,12 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Build => HelpDoc {
             title: "nia build",
             about: "Run a package build script from the Nia toolchain.",
-            usage: &["nia build [step] [--root <dir>] [options]"],
+            usage: &["nia build [step] [--root <dir>]"],
             commands: &[],
             options: &[
                 HelpRow {
                     left: "--root <dir>",
                     right: "select the package root search start; defaults to the current directory",
-                },
-                HelpRow {
-                    left: TIMINGS_OPTION_HELP,
-                    right: "reserved for build stage timings",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -104,6 +100,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             notes: &[
                 "`nia build` searches for build.nia in the selected directory and then each parent directory.",
+                "Global options such as --timings may appear before or after `build`.",
                 "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
                 "std::build::Build exposes package_root(), build_dir(), cache_dir(), and toolchain_executable() so scripts do not guess toolchain paths.",
                 "std::build::Build::executable(name, path), check_executable(name), and emit_executable(name) route executable targets through the current toolchain.",

@@ -185,6 +185,11 @@ fn help_and_version_use_nia_command_name() {
     assert!(build_stdout.contains("nia build [step]"), "{build_stdout}");
     assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
+    assert!(
+        build_stdout
+            .contains("Global options such as --timings may appear before or after `build`"),
+        "{build_stdout}"
+    );
     assert!(build_stdout.contains(".nia-build/"), "{build_stdout}");
     assert!(build_stdout.contains(".nia-cache/"), "{build_stdout}");
 
@@ -249,6 +254,38 @@ fn help_and_version_use_nia_command_name() {
         .arg("--version")
         .status_timeout("run nia --version status");
     assert!(version_status.success());
+}
+
+#[test]
+fn build_command_accepts_timings_after_build_command() {
+    let root = temp_dir("build_command_accepts_timings_after_build_command");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--timings")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build with timings");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("timing"), "{stderr}");
 }
 
 #[test]

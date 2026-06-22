@@ -5,9 +5,10 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
+    time::Instant,
 };
 
-use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest};
+use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest, TimingMode};
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 
@@ -15,6 +16,7 @@ use nia_source::SourcePath;
 pub struct BuildRequest {
     pub root: Option<PathBuf>,
     pub step: Option<String>,
+    pub timings: TimingMode,
 }
 
 impl BuildRequest {
@@ -22,6 +24,7 @@ impl BuildRequest {
         Self {
             root: None,
             step: None,
+            timings: TimingMode::Off,
         }
     }
 
@@ -32,6 +35,11 @@ impl BuildRequest {
 
     pub fn with_step(mut self, step: impl Into<String>) -> Self {
         self.step = Some(step.into());
+        self
+    }
+
+    pub fn with_timings(mut self, timings: TimingMode) -> Self {
+        self.timings = timings;
         self
     }
 }
@@ -52,6 +60,7 @@ pub struct BuildPlan {
     pub runner_dir: PathBuf,
     pub runner_executable: PathBuf,
     pub step: BuildStepSelection,
+    pub timings: TimingMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,10 +203,17 @@ impl fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
-    let plan = resolve_build_plan(request)?;
-    prepare_build_directories(&plan)?;
-    compile_build_runner(&plan)?;
-    run_build_runner(&plan)
+    let timings = request.timings;
+    let plan = time_stage(timings, "build_resolve_plan", || {
+        resolve_build_plan(request)
+    })?;
+    time_stage(timings, "build_prepare_directories", || {
+        prepare_build_directories(&plan)
+    })?;
+    time_stage(timings, "build_compile_runner", || {
+        compile_build_runner(&plan)
+    })?;
+    time_stage(timings, "build_run_runner", || run_build_runner(&plan))
 }
 
 pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError> {
@@ -223,6 +239,7 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
             .step
             .map(BuildStepSelection::Named)
             .unwrap_or(BuildStepSelection::Default),
+        timings: request.timings,
     })
 }
 
@@ -302,7 +319,9 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
         SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
     );
     let output = driver.link_executable(LinkExecutableRequest::new(
-        CheckRequest::new(runner.path.clone()).with_module_map(module_map),
+        CheckRequest::new(runner.path.clone())
+            .with_module_map(module_map)
+            .with_timings(plan.timings),
         &plan.runner_executable,
     ));
     output
@@ -389,6 +408,16 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
             });
         }
     }
+}
+
+fn time_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    if !timings.enabled() {
+        return f();
+    }
+    let start = Instant::now();
+    let result = f();
+    eprintln!("timing {name}: {:.3}s", start.elapsed().as_secs_f64());
+    result
 }
 
 #[cfg(test)]
