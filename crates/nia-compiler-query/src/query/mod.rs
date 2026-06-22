@@ -1472,6 +1472,68 @@ fn main() i32 {
     }
 
     #[test]
+    fn function_body_type_update_keeps_declaration_program_type_context_cached() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "fn main() i32 { let value: i32 = 0; value }",
+                ),
+                loaded_module(ModuleId(1), "helper.nia", "fn helper() i32 { 1 }"),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "fn main() i32 { let value: u8 = 0; value as i32 }",
+                SourceRevision(1),
+            ),
+            loaded_module(ModuleId(1), "helper.nia", "fn helper() i32 { 1 }"),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            invalidated.contains(&"type_lowering"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"declaration_type_lowering"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"program_declaration_type_lowerings"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"program_declaration_type_normalizations"),
+            "{invalidated:?}"
+        );
+        let before_second_check = database.query_trace();
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let after_second_check = database.query_trace();
+
+        assert_eq!(
+            query_executions(&before_second_check, "program_declaration_type_lowerings"),
+            query_executions(&after_second_check, "program_declaration_type_lowerings"),
+        );
+        assert!(
+            query_cache_hits(&after_second_check, "program_declaration_type_lowerings")
+                > query_cache_hits(&before_second_check, "program_declaration_type_lowerings"),
+        );
+    }
+
+    #[test]
     fn source_identity_update_invalidates_module_dependent_queries() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
