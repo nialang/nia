@@ -55,7 +55,6 @@ members = [
     "crates/nia-flow-check",
     "crates/nia-opt",
     "crates/nia-cli",
-    "crates/nia-capi",
 ]
 
 [workspace.package]
@@ -118,5 +117,4 @@ nia-layout = { path = "crates/nia-layout" }
 nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
-nia-capi = { path = "crates/nia-capi" }
 llvm-sys = { version = "221.0.1", features = ["prefer-dynamic"] }

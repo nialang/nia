@@ -1373,7 +1373,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg("-L")
         .arg("/native/lib")
         .arg("-l")
-        .arg("nia_capi")
+        .arg("native_api")
         .arg("--rpath")
         .arg("$ORIGIN")
         .arg("-o")
@@ -1391,7 +1391,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(args.lines().any(|arg| arg == "-L"), "{args}");
     assert!(args.lines().any(|arg| arg == "/native/lib"), "{args}");
     assert!(args.lines().any(|arg| arg == "-l"), "{args}");
-    assert!(args.lines().any(|arg| arg == "nia_capi"), "{args}");
+    assert!(args.lines().any(|arg| arg == "native_api"), "{args}");
     assert!(args.lines().any(|arg| arg == "-rpath"), "{args}");
     assert!(args.lines().any(|arg| arg == "$ORIGIN"), "{args}");
 }
