@@ -36,6 +36,8 @@ enum EntryKind: i32 {
     StepCheckExecutable = 10,
     StepObjectDirectory = 11,
     StepInstallExecutable = 12,
+    LinkMode = 13,
+    RuntimeLibrary = 14,
 }
 
 extend BuildPlan {
@@ -143,7 +145,7 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                         }
                     }
                 },
-                EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker => {},
+                EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary => {},
             };
         }
         index = line_end + 1;
@@ -384,8 +386,8 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
         EntryKind::Package, EntryKind::Executable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::Step, EntryKind::DefaultStep => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
-        EntryKind::StepInstallExecutable => parse_three_field_line(stderr, line, kind, first_tab, second_tab),
-        EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::StepInstallExecutable, EntryKind::RuntimeLibrary => parse_three_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::LinkMode => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::DynamicLinker => parse_dynamic_linker_line(stderr, line, kind, first_tab, second_tab),
     }
 }
@@ -536,6 +538,10 @@ extend EntryKind {
             ?EntryKind::Rpath
         } else if mem::equal[u8](text, b"dynamic-linker") {
             ?EntryKind::DynamicLinker
+        } else if mem::equal[u8](text, b"link-mode") {
+            ?EntryKind::LinkMode
+        } else if mem::equal[u8](text, b"runtime-library") {
+            ?EntryKind::RuntimeLibrary
         } else if mem::equal[u8](text, b"step") {
             ?EntryKind::Step
         } else if mem::equal[u8](text, b"step-build-executable") {
@@ -563,7 +569,7 @@ extend EntryKind {
             EntryKind::StepCheckExecutable => ?StepAction::CheckExecutable,
             EntryKind::StepObjectDirectory => ?StepAction::ObjectDirectory,
             EntryKind::StepInstallExecutable => ?StepAction::InstallExecutable,
-            EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::Step, EntryKind::DefaultStep => null,
+            EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary, EntryKind::Step, EntryKind::DefaultStep => null,
         }
     }
 }
@@ -610,14 +616,15 @@ fn apply_link_option_line(
         stderr.print("paw: unknown build graph entry\n", &[]).exit().?;
         return process::exit(2)!;
     };
-    if kind == EntryKind::LibraryPath or kind == EntryKind::Library or kind == EntryKind::Rpath or kind == EntryKind::DynamicLinker {
+    if kind == EntryKind::LibraryPath or kind == EntryKind::Library or kind == EntryKind::Rpath or kind == EntryKind::DynamicLinker or kind == EntryKind::LinkMode or kind == EntryKind::RuntimeLibrary {
         if not artifact_matches(line, first_tab, executable_name) {
             stderr.print("paw: build graph references unknown artifact\n", &[]).exit().?;
             return process::exit(2)!;
         }
     }
     switch kind {
-        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable, EntryKind::DefaultStep => !{},
+        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable, EntryKind::DefaultStep, EntryKind::RuntimeLibrary => !{},
+        EntryKind::LinkMode => apply_link_mode(stderr, line, first_tab, options),
         EntryKind::LibraryPath => {
             var path_storage: [4096]u8 = [0; 4096];
             apply_single_field_link_option(
@@ -632,15 +639,39 @@ fn apply_link_option_line(
             b"paw: failed to add native library",
         ),
         EntryKind::Rpath => {
-            var path_storage: [4096]u8 = [0; 4096];
             apply_single_field_link_option(
                 stderr,
-                options.add_rpath(root_relative_path(root, require_artifact_payload(stderr, line, first_tab).?, &mut path_storage).?),
+                options.add_rpath(require_artifact_payload(stderr, line, first_tab).?),
                 b"paw: failed to add runtime library path",
             )
         },
         EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, root, options),
     }
+}
+
+fn apply_link_mode(
+    stderr: &mut io::FileWriter,
+    line: &[u8],
+    first_tab: usize,
+    options: &abi::LinkOptions,
+) process::ExitCode!void {
+    let value = require_artifact_payload(stderr, line, first_tab).?;
+    if mem::equal[u8](value, b"static") {
+        return apply_single_field_link_option(
+            stderr,
+            options.set_static_mode(),
+            b"paw: failed to set static link mode",
+        );
+    }
+    if mem::equal[u8](value, b"dynamic") {
+        return apply_single_field_link_option(
+            stderr,
+            options.set_dynamic_mode(),
+            b"paw: failed to set dynamic link mode",
+        );
+    }
+    stderr.print("paw: invalid link mode\n", &[]).exit().?;
+    return process::exit(2)!;
 }
 
 fn artifact_matches(line: &[u8], first_tab: usize, executable_name: &[u8]) bool {

@@ -211,6 +211,12 @@ impl LinkOptions {
                 .iter()
                 .map(|path| path.to_string_lossy().into_owned()),
         );
+        match self.mode {
+            LinkMode::Static => {
+                args.push("-static".to_string());
+            }
+            LinkMode::Dynamic => {}
+        }
         for path in self.default_library_paths_for_linker(linker) {
             args.push("-L".to_string());
             args.push(path);
@@ -717,7 +723,7 @@ mod tests {
         assert_eq!(invocation.program, "ld");
         assert_eq!(
             invocation.args,
-            vec!["-e", "_start", "main.o", "-o", "main"]
+            vec!["-e", "_start", "main.o", "-static", "-o", "main"]
         );
     }
 
@@ -755,6 +761,34 @@ mod tests {
                 "-o",
                 "main"
             ]
+        );
+    }
+
+    #[test]
+    fn static_gnu_invocation_selects_static_libraries_before_library_search() {
+        let options = LinkOptions {
+            linker: ExecutableLinker::with_program("ld"),
+            ..LinkOptions::default()
+        }
+        .add_library_path("/lib")
+        .add_library("nia_capi");
+        let invocation = options
+            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .expect("link invocation");
+        let static_index = invocation
+            .args
+            .iter()
+            .position(|arg| arg == "-static")
+            .expect("-static argument");
+        let library_index = invocation
+            .args
+            .iter()
+            .position(|arg| arg == "-l")
+            .expect("-l argument");
+        assert!(
+            static_index < library_index,
+            "static mode must be selected before library lookup: {:?}",
+            invocation.args
         );
     }
 

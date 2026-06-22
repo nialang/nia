@@ -5,6 +5,7 @@ using pkg::requests;
 using std;
 using std::fs;
 using std::io;
+using std::mem;
 using std::process;
 
 comptime let build_api_source_path = b"<paw:build-api>";
@@ -266,6 +267,7 @@ fn install_executable_action(
     let target = install_output_path(root, install_path, &mut target_storage).?;
     ensure_install_parent_dirs(stderr, root, install_path).?;
     copy_file(init, stderr, source, target).?;
+    install_runtime_libraries(stderr, init, root, graph_bytes, prepared.executable_name(graph_bytes)).?;
     !process::exit(0)
 }
 
@@ -338,6 +340,121 @@ fn install_output_path(root: &[u8], path: &[u8], out: &mut [u8]) process::ExitCo
     !writer.written()
 }
 
+fn install_library_output_path(root: &[u8], name: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(b".nia-build/install/lib/").exit().?;
+    writer.write_all(name).exit().?;
+    !writer.written()
+}
+
+fn install_runtime_libraries(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: &[u8],
+    graph: &[u8],
+    executable_name: &[u8],
+) process::ExitCode!void {
+    var index = 0usize;
+    while index < graph.len() {
+        let line_end = if let ?value = find_byte(graph, index, b'\n') {
+            value
+        } else null {
+            graph.len()
+        };
+        let line = &graph[index..line_end];
+        if line.len() != 0usize {
+            install_runtime_library_line(stderr, init, root, line, executable_name).?;
+        }
+        index = line_end + 1usize;
+    }
+    !{}
+}
+
+fn install_runtime_library_line(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: &[u8],
+    line: &[u8],
+    executable_name: &[u8],
+) process::ExitCode!void {
+    let first_tab = if let ?value = find_byte(line, 0usize, b'\t') {
+        value
+    } else null {
+        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    if not mem::equal[u8](&line[0..first_tab], b"runtime-library") {
+        return !{};
+    }
+    let second_tab = if let ?value = find_byte(line, first_tab + 1usize, b'\t') {
+        value
+    } else null {
+        stderr.print("paw: invalid runtime library entry\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    let third_tab = if let ?value = find_byte(line, second_tab + 1usize, b'\t') {
+        value
+    } else null {
+        stderr.print("paw: invalid runtime library entry\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    if let ?extra = find_byte(line, third_tab + 1usize, b'\t') {
+        _ = extra;
+        stderr.print("paw: invalid runtime library entry\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    let artifact = &line[(first_tab + 1usize)..second_tab];
+    if not mem::equal[u8](artifact, executable_name) {
+        return !{};
+    }
+    let source = &line[(second_tab + 1usize)..third_tab];
+    let name = &line[(third_tab + 1usize)..line.len()];
+    validate_runtime_library_name(stderr, name).?;
+    var source_storage: [4096]u8 = [0; 4096];
+    var target_storage: [4096]u8 = [0; 4096];
+    let source_path = root_relative_path(root, source, &mut source_storage).?;
+    let target_path = install_library_output_path(root, name, &mut target_storage).?;
+    ensure_install_lib_dir(stderr, root).?;
+    copy_file(init, stderr, source_path, target_path)
+}
+
+fn validate_runtime_library_name(stderr: &mut io::FileWriter, name: &[u8]) process::ExitCode!void {
+    if name.len() == 0usize {
+        stderr.print("paw: invalid runtime library name\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    var index = 0usize;
+    while index < name.len() {
+        let byte = name[index];
+        if byte == 0u8 or byte == b'/' {
+            stderr.print("paw: invalid runtime library name\n", &[]).exit().?;
+            return process::exit(2)!;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+
+fn ensure_install_lib_dir(stderr: &mut io::FileWriter, root: &[u8]) process::ExitCode!void {
+    var cwd = if let !value = fs::Dir::cwd() {
+        value
+    } else error! {
+        stderr.print("paw: failed to open current directory\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    defer cwd.close().exit().?;
+    var install_storage: [4096]u8 = [0; 4096];
+    var lib_storage: [4096]u8 = [0; 4096];
+    let install_dir = install_output_path(root, b"", &mut install_storage).?;
+    let lib_dir = install_output_path(root, b"lib", &mut lib_storage).?;
+    ensure_dir(&cwd, stderr, install_dir).?;
+    ensure_dir(&cwd, stderr, lib_dir)
+}
+
 fn copy_file(
     init: process::Init,
     stderr: &mut io::FileWriter,
@@ -390,6 +507,34 @@ fn copy_file(
     }
     writer.flush().exit().?;
     !{}
+}
+
+fn root_relative_path(root: &[u8], path: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    if is_absolute(path) {
+        return !path;
+    }
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(path).exit().?;
+    !writer.written()
+}
+
+fn is_absolute(path: &[u8]) bool {
+    path.len() != 0usize and path[0] == b'/'
+}
+
+fn find_byte(bytes: &[u8], start: usize, value: u8) ?usize {
+    var index = start;
+    while index < bytes.len() {
+        if bytes[index] == value {
+            return ?index;
+        }
+        index += 1usize;
+    }
+    null
 }
 
 fn ensure_install_parent_dirs(stderr: &mut io::FileWriter, root: &[u8], path: &[u8]) process::ExitCode!void {

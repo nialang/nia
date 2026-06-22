@@ -52,6 +52,7 @@ pub struct NiaCheckRequest {
 pub struct NiaLinkOptions {
     link_args: Vec<String>,
     linker_program: Option<String>,
+    mode: Option<nia_linker::LinkMode>,
     dynamic_linker: Option<nia_linker::DynamicLinker>,
     library_paths: Vec<String>,
     rpaths: Vec<String>,
@@ -64,7 +65,7 @@ pub struct NiaResult {
     message: Vec<u8>,
 }
 
-pub const NIA_CAPI_ABI_VERSION: u32 = 2;
+pub const NIA_CAPI_ABI_VERSION: u32 = 3;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nia_capi_abi_version() -> u32 {
@@ -210,6 +211,7 @@ pub extern "C" fn nia_link_options_new() -> *mut NiaLinkOptions {
         Box::into_raw(Box::new(NiaLinkOptions {
             link_args: Vec::new(),
             linker_program: None,
+            mode: None,
             dynamic_linker: None,
             library_paths: Vec::new(),
             rpaths: Vec::new(),
@@ -262,6 +264,28 @@ pub extern "C" fn nia_link_options_set_linker(
             Err(_) => return NiaStatus::InvalidInput,
         };
         options.linker_program = Some(program);
+        NiaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nia_link_options_set_static_mode(options: *mut NiaLinkOptions) -> NiaStatus {
+    catch_status(|| {
+        let Some(options) = (unsafe { options.as_mut() }) else {
+            return NiaStatus::InvalidInput;
+        };
+        options.mode = Some(nia_linker::LinkMode::Static);
+        NiaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nia_link_options_set_dynamic_mode(options: *mut NiaLinkOptions) -> NiaStatus {
+    catch_status(|| {
+        let Some(options) = (unsafe { options.as_mut() }) else {
+            return NiaStatus::InvalidInput;
+        };
+        options.mode = Some(nia_linker::LinkMode::Dynamic);
         NiaStatus::Ok
     })
 }
@@ -489,6 +513,12 @@ pub extern "C" fn nia_session_emit_executable_with_options(
             if let Some(program) = &options.linker_program {
                 link_options = link_options
                     .with_linker(nia_linker::ExecutableLinker::with_program(program.clone()));
+            }
+            if let Some(mode) = options.mode {
+                link_options = match mode {
+                    nia_linker::LinkMode::Static => link_options,
+                    nia_linker::LinkMode::Dynamic => link_options.with_dynamic_mode(),
+                };
             }
             if let Some(dynamic_linker) = &options.dynamic_linker {
                 link_options = link_options
