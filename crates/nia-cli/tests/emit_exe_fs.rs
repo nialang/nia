@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 mod support;
@@ -659,6 +661,60 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .current_dir(&root)
         .status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_fs_file_set_permissions() {
+    let root = temp_dir("emit_exe_std_fs_file_set_permissions");
+    let data_path = root.join("data.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var path = fs::Path::init("data.txt");
+    var file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
+    defer file.close().exit().?;
+    file.set_permissions(0o755).exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe fs set permissions");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(&data_path)
+            .expect("data metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
 }
 
 #[test]

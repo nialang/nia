@@ -69,6 +69,15 @@ extend FileDescriptor {
         }
     }
 
+    pub fn set_permissions(&self, permissions: u32) Errno!void {
+        let ret = syscall::syscall2(syscall::fchmod, self.fd as usize, permissions as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    }
+
     pub fn sync(&self) Errno!void {
         let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
         if ret < 0 {

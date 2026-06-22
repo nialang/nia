@@ -595,6 +595,10 @@ extend FileHandle {
         self.platform().truncate(len).as_os_error()
     }
 
+    pub fn set_permissions(&self, permissions: u32) Error!void {
+        self.platform().set_permissions(permissions).as_os_error()
+    }
+
     pub fn sync(&self) Error!void {
         self.platform().sync().as_os_error()
     }
