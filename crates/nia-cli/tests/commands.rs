@@ -266,6 +266,11 @@ fn check(b: &mut build::Build) build::Error!void {
     !{}
 }
 
+fn build_app(b: &mut build::Build) build::Error!void {
+    b.emit_executable("app").?;
+    !{}
+}
+
 pub fn build(b: &mut build::Build) build::Error!void {
     var buffer: [1024]u8 = [_]u8[0; 1024];
     var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
@@ -275,6 +280,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
     b.executable("app", fs::Path::init("src/main.nia")).?;
+    b.step("build", &build_app).?;
     b.step("check", &check).?;
     !{}
 }
@@ -327,6 +333,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(stderr.is_empty(), "{stderr}");
     assert!(root.join(".nia-build/runner/nia-build-runner").is_file());
     assert!(root.join(".nia-cache").is_dir());
+    assert!(root.join(".nia-build/app").is_file());
+
+    let status =
+        Command::new(root.join(".nia-build/app")).status_timeout("run emitted build target");
+    assert_eq!(status.code(), Some(0));
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("build")
@@ -413,6 +424,36 @@ pub fn build(b: &mut build::Build) build::Error!void {
     );
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(stderr.contains("exit status: 2"), "{stderr}");
+}
+
+#[test]
+fn build_command_rejects_invalid_executable_target_name() {
+    let root = temp_dir("build_command_rejects_invalid_executable_target_name");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    b.executable("../bad", fs::Path::init("src/main.nia")).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build invalid target");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 22"), "{stderr}");
+    assert!(!root.join("bad").exists());
 }
 
 #[test]

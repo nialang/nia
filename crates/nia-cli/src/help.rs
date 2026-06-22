@@ -106,7 +106,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "`nia build` searches for build.nia in the selected directory and then each parent directory.",
                 "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
                 "std::build::Build exposes package_root(), build_dir(), cache_dir(), and toolchain_executable() so scripts do not guess toolchain paths.",
-                "std::build::Build::executable(name, path) and check_executable(name) route executable targets through the current toolchain.",
+                "std::build::Build::executable(name, path), check_executable(name), and emit_executable(name) route executable targets through the current toolchain.",
                 "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
                 "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
             ],
