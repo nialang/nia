@@ -11,10 +11,9 @@ pub enum Error: i32 {
     Report = 4,
     Internal = 5,
     CommandFailed = 6,
-    UnknownTarget = 7,
-    InvalidTarget = 8,
-    StepCycle = 9,
-    StepFailed = 10,
+    InvalidTarget = 7,
+    StepCycle = 8,
+    StepFailed = 9,
     _,
 }
 
@@ -27,7 +26,6 @@ extend Error {
             Error::Report => process::exit(5),
             Error::Internal => process::exit(255),
             Error::CommandFailed => process::exit(1),
-            Error::UnknownTarget => process::exit(2),
             Error::InvalidTarget => process::exit(22),
             Error::StepCycle => process::exit(22),
             Error::StepFailed => process::exit(1),

@@ -10,7 +10,20 @@ using pkg::build::error;
 using pkg::build::types;
 
 using error::Error;
-using types::{Build, Step, StepFn, StepHandle, StepDependency, StepState, ExecutableTarget};
+using types::{
+    Build,
+    Step,
+    StepFn,
+    StepHandle,
+    StepDependency,
+    StepKind,
+    StepState,
+    CustomStep,
+    ExecutableHandle,
+    ExecutableStep,
+    ExecutableTarget,
+    StepPayload,
+};
 
 pub fn noop_step(b: &mut Build) Error!void {
     _ = b;
@@ -66,16 +79,17 @@ extend Build {
     }
 
     pub fn add_step(&mut self, name: &[char], run: StepFn) Error!StepHandle {
-        if name.len() == 0usize {
-            return Error::InvalidStep!;
-        }
-        if let ?old = self.find_step(name) {
-            _ = old;
-            return Error::InvalidStep!;
-        } else null {}
-        let handle = StepHandle::init(self.steps.len());
-        self.steps.push(self.allocator, Step::init(name, run)).as_build_error().?;
-        !handle
+        self.add_step_record(Step::custom(name, run))
+    }
+
+    pub fn add_check_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.validate_executable_handle(target).?;
+        self.add_step_record(Step::check_executable(name, target))
+    }
+
+    pub fn add_emit_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.validate_executable_handle(target).?;
+        self.add_step_record(Step::emit_executable(name, target))
     }
 
     pub fn depend_on(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
@@ -99,7 +113,7 @@ extend Build {
         ).as_build_error()
     }
 
-    pub fn executable(&mut self, name: &[char], source: fs::Path) Error!void {
+    pub fn add_executable(&mut self, name: &[char], source: fs::Path) Error!ExecutableHandle {
         if not is_valid_target_name(name) {
             return Error::InvalidTarget!;
         }
@@ -107,19 +121,21 @@ extend Build {
             _ = old;
             return Error::InvalidTarget!;
         } else null {}
+        let handle = ExecutableHandle::init(self.executables.len());
         self.executables.push(
             self.allocator,
             ExecutableTarget::init(name, source),
-        ).as_build_error()
+        ).as_build_error().?;
+        !handle
     }
 
-    pub fn check_executable(&mut self, name: &[char]) Error!void {
-        let target = self.executable_target(name).?;
+    fn check_executable(&mut self, handle: ExecutableHandle) Error!void {
+        let target = self.executable_target(handle).?;
         self.check_exe(target.source)
     }
 
-    pub fn emit_executable(&mut self, name: &[char]) Error!void {
-        let target = self.executable_target(name).?;
+    fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
+        let target = self.executable_target(handle).?;
         var output_text = collections::ArrayList[char]::init();
         defer output_text.deinit(self.allocator).as_build_error().?;
         let output_path = self.build_dir.join_component_into(
@@ -132,7 +148,7 @@ extend Build {
         self.emit_exe(target.source, output)
     }
 
-    pub fn check_exe(&mut self, source: fs::Path) Error!void {
+    fn check_exe(&mut self, source: fs::Path) Error!void {
         var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
@@ -149,7 +165,7 @@ extend Build {
         self.run_toolchain_argv(toolchain, &argv[0])
     }
 
-    pub fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
+    fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
         var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
@@ -169,13 +185,11 @@ extend Build {
         self.run_toolchain_argv(toolchain, &argv[0])
     }
 
-    fn executable_target(&mut self, name: &[char]) Error!ExecutableTarget {
-        if let ?target = self.find_executable(name) {
-            !target
-        } else null {
-            self.report_unknown_target(name).?;
-            Error::UnknownTarget!
+    fn executable_target(&self, handle: ExecutableHandle) Error!ExecutableTarget {
+        if handle.index() >= self.executables.len() {
+            return Error::InvalidTarget!;
         }
+        !self.executables.as_slice()[handle.index()]
     }
 
     fn run_toolchain_argv(&mut self, toolchain: fs::EncodedPath, argv: &&u8) Error!void {
@@ -233,8 +247,8 @@ extend Build {
             index += 1usize;
         }
 
-        let run = self.steps.as_slice()[handle.index()].run;
-        if let !ok = run(self) {
+        let step = self.steps.as_slice()[handle.index()];
+        if let !ok = self.run_step_payload(step) {
             _ = ok;
         } else err! {
             self.set_step_state(handle, StepState::Failed);
@@ -243,6 +257,14 @@ extend Build {
 
         self.set_step_state(handle, StepState::Done);
         !{}
+    }
+
+    fn run_step_payload(&mut self, step: Step) Error!void {
+        switch step.kind {
+            StepKind::Custom => (step.payload.custom.run)(self),
+            StepKind::CheckExecutable => self.check_executable(step.payload.executable.target),
+            StepKind::EmitExecutable => self.emit_executable(step.payload.executable.target),
+        }
     }
 
     fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
@@ -294,6 +316,13 @@ extend Build {
         null
     }
 
+    fn validate_executable_handle(&self, handle: ExecutableHandle) Error!void {
+        if handle.index() >= self.executables.len() {
+            return Error::InvalidTarget!;
+        }
+        !{}
+    }
+
     fn report_unknown_step(&mut self, step: process::Arg) Error!void {
         var buffer: [256]u8 = [_]u8[0; 256];
         var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
@@ -301,30 +330,36 @@ extend Build {
         stderr.flush().as_build_error()
     }
 
-    fn report_unknown_target(&mut self, name: &[char]) Error!void {
-        var buffer: [256]u8 = [_]u8[0; 256];
-        var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
-        stderr.print("unknown executable target `{}`\n", &[name]).as_build_error().?;
-        stderr.flush().as_build_error()
-    }
-}
-
-extend Step {
-    pub fn init(name: &[char], run: StepFn) Step {
-        {
-            name: name,
-            run: run,
-            state: StepState::Pending,
+    fn add_step_record(&mut self, step: Step) Error!StepHandle {
+        if step.name.len() == 0usize {
+            return Error::InvalidStep!;
         }
+        if let ?old = self.find_step(step.name) {
+            _ = old;
+            return Error::InvalidStep!;
+        } else null {}
+        let handle = StepHandle::init(self.steps.len());
+        self.steps.push(self.allocator, step).as_build_error().?;
+        !handle
     }
 }
 
 extend StepHandle {
-    pub fn init(index: usize) StepHandle {
+    fn init(index: usize) StepHandle {
         { index: index }
     }
 
-    pub fn index(&self) usize {
+    fn index(&self) usize {
+        self.index
+    }
+}
+
+extend ExecutableHandle {
+    fn init(index: usize) ExecutableHandle {
+        { index: index }
+    }
+
+    fn index(&self) usize {
         self.index
     }
 }
@@ -332,6 +367,41 @@ extend StepHandle {
 extend StepDependency {
     pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
         { step: step, dependency: dependency }
+    }
+}
+
+extend CustomStep {
+    fn init(run: StepFn) CustomStep {
+        { run: run }
+    }
+}
+
+extend ExecutableStep {
+    fn init(target: ExecutableHandle) ExecutableStep {
+        { target: target }
+    }
+}
+
+extend Step {
+    fn init(name: &[char], kind: StepKind, payload: StepPayload) Step {
+        {
+            name: name,
+            kind: kind,
+            payload: payload,
+            state: StepState::Pending,
+        }
+    }
+
+    fn custom(name: &[char], run: StepFn) Step {
+        Step::init(name, StepKind::Custom, { custom: CustomStep::init(run) })
+    }
+
+    fn check_executable(name: &[char], target: ExecutableHandle) Step {
+        Step::init(name, StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
+    }
+
+    fn emit_executable(name: &[char], target: ExecutableHandle) Step {
+        Step::init(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
     }
 }
 

@@ -1124,13 +1124,14 @@ logic stays in the Nia build script and can use `std`, including
 `toolchain_executable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
 The current `std::build` surface is intentionally small:
-`executable(name, path)` records a script-owned executable target, and
-`check_executable(name)` and `emit_executable(name)` route that target through
-the current toolchain without forcing scripts to construct raw process
-arguments. Emitted executables currently land at `.nia-build/<name>`, with target
-names validated so artifact paths cannot escape the build directory. This
-surface will grow into explicit step and artifact APIs rather than a Rust-side
-manifest parser.
+`add_executable(name, path)` records a script-owned executable artifact and
+returns an executable handle. `add_check_executable_step(name, target)` and
+`add_emit_executable_step(name, target)` register graph steps that route that
+artifact through the current toolchain without forcing scripts to construct raw
+process arguments. Emitted executables currently land at `.nia-build/<name>`,
+with target names validated so artifact paths cannot escape the build directory.
+This surface grows the build system through explicit step and artifact APIs
+rather than a Rust-side manifest parser.
 
 Path construction follows the standard-library convention that `fs::Path` is a
 borrowed `&[char]` view. Owned path text is supplied by the caller, typically an
