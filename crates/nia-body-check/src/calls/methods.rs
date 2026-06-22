@@ -13,7 +13,7 @@ use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
-    pub(super) node_key: &'a nia_node_id::NodeKey,
+    pub(super) node_key: &'a nia_node_id::VersionedNodeKey,
     pub(super) receiver: &'a Expr,
     pub(super) receiver_ty: InternedTyId,
     pub(super) name: &'a str,

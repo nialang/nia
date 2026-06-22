@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{
+    DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TypeOwner,
+};
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
@@ -17,7 +19,7 @@ use nia_type_normalize::TypeNormalization;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Monomorphization {
     pub instances: Vec<MonoInstance>,
-    pub type_interners: HashMap<ModuleId, TyInterner>,
+    pub type_interners: HashMap<TyInternerId, TyInterner>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -104,7 +106,11 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
     }
     Monomorphization {
         instances: collector.instances,
-        type_interners: collector.working_interners_by_module,
+        type_interners: collector
+            .working_interners_by_module
+            .into_values()
+            .map(|interner| (interner.interner_id(), interner))
+            .collect(),
         diagnostics: collector.diagnostics,
     }
 }
@@ -190,6 +196,10 @@ const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
 const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl MonoCollector<'_> {
+    fn type_owner(ty: InternedTyId) -> TypeOwner {
+        ty.owner()
+    }
+
     fn collect_module(&mut self, input: &MonomorphizeModuleInput<'_>) {
         let mut pending = VecDeque::new();
         for instantiation in input.instantiations {
@@ -949,17 +959,20 @@ impl MonoCollector<'_> {
         target_module_id: ModuleId,
         ty: InternedTyId,
     ) -> InternedTyId {
-        if ty.interner_id == target_module_id {
+        let source_module_id = Self::type_owner(ty).module_id();
+        if source_module_id == target_module_id {
             return ty;
         }
         let Some(kind) = self
             .working_interners_by_module
-            .get(&ty.interner_id)
-            .or_else(|| self.interners_by_module.get(&ty.interner_id).copied())
+            .get(&source_module_id)
+            .or_else(|| self.interners_by_module.get(&source_module_id).copied())
             .and_then(|interner| interner.get(ty))
             .cloned()
         else {
-            return self.intern_working_ty(target_module_id, TyKind::Error);
+            panic!(
+                "Nia ICE: cannot import type {ty:?} from missing source module interner {source_module_id:?}"
+            );
         };
         let imported = match kind {
             TyKind::Error => TyKind::Error,
@@ -1110,7 +1123,7 @@ impl MonoCollector<'_> {
             return interner.intern(kind);
         }
         let Some(interner) = self.interners_by_module.get(&module_id).cloned() else {
-            return InternedTyId::new(module_id, nia_ids::TyInternerIndex::from_interner_index(0));
+            panic!("Nia ICE: cannot intern working type for missing module interner {module_id:?}");
         };
         let mut interner = interner.clone();
         let ty = interner.intern(kind);
@@ -1179,10 +1192,10 @@ impl MonoCollector<'_> {
             .get(&module_id)
             .or_else(|| self.interners_by_module.get(&module_id).copied())
         else {
-            return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
+            panic!("Nia ICE: cannot mangle type {ty:?} without module interner {module_id:?}");
         };
         if interner.get(ty).is_none() {
-            return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
+            panic!("Nia ICE: cannot mangle missing type {ty:?} in module interner {module_id:?}");
         }
         let defs_by_module = &self.defs_by_module;
         let def_names = &mut self.def_names;
@@ -1819,11 +1832,11 @@ fn wrap[T](value: T) T { value }
     fn ordered_type_substitutions_reuse_existing_ids() {
         let mut collector = empty_collector();
         let i32_ty = InternedTyId::new(
-            ModuleId(0),
+            TyInternerId::for_module(ModuleId(0)),
             nia_ids::TyInternerIndex::from_interner_index(1),
         );
         let bool_ty = InternedTyId::new(
-            ModuleId(0),
+            TyInternerId::for_module(ModuleId(0)),
             nia_ids::TyInternerIndex::from_interner_index(2),
         );
 

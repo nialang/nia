@@ -21,7 +21,7 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
 use nia_sema_ir::{SemanticFacts, SemanticUseTable};
-use nia_source::{SourcePath, SourceVersion};
+use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
 use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
@@ -71,6 +71,7 @@ pub enum RuntimeModel {
 pub struct LoadedModule {
     pub id: ModuleId,
     pub path: SourcePath,
+    pub source_identity: SourceIdentity,
     pub source_version: SourceVersion,
     pub item_tree: ModuleItemTree,
     pub active_item_tree: ActiveModuleItemTree,

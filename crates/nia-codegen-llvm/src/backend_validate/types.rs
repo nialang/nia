@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use nia_backend_ir::BackendField;
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{InternedTyId, TypeOwner};
 use nia_layout::TypeLayout;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEquivalence};
@@ -11,6 +11,10 @@ use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEq
 use super::{BackendValidator, align_to, primitive_layout};
 
 impl BackendValidator<'_> {
+    fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
+        ty.owner()
+    }
+
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
         if self.layout_of(ty).is_none() {
@@ -35,7 +39,7 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_trait_object_self_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
-        let Some(module) = self.index.module(ty.interner_id) else {
+        let Some(module) = self.index.module(self.type_owner(ty).module_id()) else {
             return;
         };
         if matches!(
@@ -57,14 +61,12 @@ impl BackendValidator<'_> {
         if !self.seen_types.insert(ty) {
             return;
         }
-        let Some(module) = self.index.module(ty.interner_id) else {
+        let owner_module = self.type_owner(ty).module_id();
+        let Some(module) = self.index.module(owner_module) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
-                format!(
-                    "backend IR type {ty:?} belongs to missing module {:?}",
-                    ty.interner_id
-                ),
+                format!("backend IR type {ty:?} belongs to missing module {owner_module:?}"),
             ));
             return;
         };
@@ -274,7 +276,7 @@ impl BackendValidator<'_> {
         ty: InternedTyId,
         active: &mut HashSet<InternedTyId>,
     ) -> Option<TypeLayout> {
-        let owner = self.index.module(ty.interner_id)?;
+        let owner = self.index.module(self.type_owner(ty).module_id())?;
         if let Some(layout) = self.index.type_layout(ty) {
             return Some(layout.clone());
         }
@@ -511,7 +513,10 @@ impl BackendValidator<'_> {
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        self.index.module(ty.interner_id)?.interner.get(ty)
+        self.index
+            .module(self.type_owner(ty).module_id())?
+            .interner
+            .get(ty)
     }
 }
 

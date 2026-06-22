@@ -49,29 +49,38 @@ pub enum NodePosition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct NodeKey {
+pub struct NodeSite {
     pub source_id: SourceId,
-    pub revision: SourceRevision,
     pub kind: SyntaxKind,
     pub position: NodePosition,
 }
 
-impl NodeKey {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VersionedNodeKey {
+    pub site: NodeSite,
+    pub revision: SourceRevision,
+}
+
+impl VersionedNodeKey {
     pub fn span(version: SourceVersion, kind: SyntaxKind, span: Span) -> Self {
         Self {
-            source_id: version.id,
+            site: NodeSite {
+                source_id: version.id,
+                kind,
+                position: NodePosition::Span(span),
+            },
             revision: version.revision,
-            kind,
-            position: NodePosition::Span(span),
         }
     }
 
     pub fn child_path(version: SourceVersion, kind: SyntaxKind, path: NodeChildPath) -> Self {
         Self {
-            source_id: version.id,
+            site: NodeSite {
+                source_id: version.id,
+                kind,
+                position: NodePosition::ChildPath(path),
+            },
             revision: version.revision,
-            kind,
-            position: NodePosition::ChildPath(path),
         }
     }
 
@@ -82,32 +91,46 @@ impl NodeKey {
         end: NodeChildPath,
     ) -> Self {
         Self {
-            source_id: version.id,
+            site: NodeSite {
+                source_id: version.id,
+                kind,
+                position: NodePosition::ChildPathRange { start, end },
+            },
             revision: version.revision,
-            kind,
-            position: NodePosition::ChildPathRange { start, end },
         }
     }
 
     pub fn source_version(&self) -> SourceVersion {
         SourceVersion {
-            id: self.source_id,
+            id: self.site.source_id,
             revision: self.revision,
         }
+    }
+
+    pub fn site(&self) -> &NodeSite {
+        &self.site
+    }
+
+    pub fn kind(&self) -> SyntaxKind {
+        self.site.kind
+    }
+
+    pub fn position(&self) -> &NodePosition {
+        &self.site.position
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NodeOriginTable {
-    keys: HashMap<(SyntaxKind, Span), NodeKey>,
+    keys: HashMap<(SyntaxKind, Span), VersionedNodeKey>,
 }
 
 impl NodeOriginTable {
-    pub fn insert(&mut self, kind: SyntaxKind, span: Span, key: NodeKey) {
+    pub fn insert(&mut self, kind: SyntaxKind, span: Span, key: VersionedNodeKey) {
         self.keys.insert((kind, span), key);
     }
 
-    pub fn get(&self, kind: SyntaxKind, span: Span) -> Option<&NodeKey> {
+    pub fn get(&self, kind: SyntaxKind, span: Span) -> Option<&VersionedNodeKey> {
         self.keys.get(&(kind, span))
     }
 
@@ -131,11 +154,11 @@ mod tests {
             id: SourceId(3),
             revision: SourceRevision(9),
         };
-        let key = NodeKey::span(version, SyntaxKind::Expr, Span::new(4, 8));
+        let key = VersionedNodeKey::span(version, SyntaxKind::Expr, Span::new(4, 8));
 
         assert_eq!(key.source_version(), version);
-        assert_eq!(key.kind, SyntaxKind::Expr);
-        assert_eq!(key.position, NodePosition::Span(Span::new(4, 8)));
+        assert_eq!(key.kind(), SyntaxKind::Expr);
+        assert_eq!(key.position(), &NodePosition::Span(Span::new(4, 8)));
     }
 
     #[test]
@@ -145,9 +168,9 @@ mod tests {
             revision: SourceRevision::INITIAL,
         };
         let path = NodeChildPath::from_steps([0, 2, 1]);
-        let key = NodeKey::child_path(version, SyntaxKind::Type, path.clone());
+        let key = VersionedNodeKey::child_path(version, SyntaxKind::Type, path.clone());
 
-        assert_eq!(key.position, NodePosition::ChildPath(path));
+        assert_eq!(key.position(), &NodePosition::ChildPath(path));
     }
 
     #[test]
@@ -158,9 +181,14 @@ mod tests {
         };
         let start = NodeChildPath::from_steps([0, 1]);
         let end = NodeChildPath::from_steps([0, 3]);
-        let key = NodeKey::child_path_range(version, SyntaxKind::Expr, start.clone(), end.clone());
+        let key = VersionedNodeKey::child_path_range(
+            version,
+            SyntaxKind::Expr,
+            start.clone(),
+            end.clone(),
+        );
 
-        assert_eq!(key.position, NodePosition::ChildPathRange { start, end });
+        assert_eq!(key.position(), &NodePosition::ChildPathRange { start, end });
     }
 
     #[test]
@@ -170,7 +198,7 @@ mod tests {
             revision: SourceRevision(1),
         };
         let span = Span::new(4, 9);
-        let key = NodeKey::span(version, SyntaxKind::Expr, span);
+        let key = VersionedNodeKey::span(version, SyntaxKind::Expr, span);
         let mut origins = NodeOriginTable::default();
 
         origins.insert(SyntaxKind::Expr, span, key.clone());
@@ -190,8 +218,26 @@ mod tests {
         };
 
         assert_ne!(
-            NodeKey::span(first, SyntaxKind::Expr, Span::new(0, 1)),
-            NodeKey::span(second, SyntaxKind::Expr, Span::new(0, 1))
+            VersionedNodeKey::span(first, SyntaxKind::Expr, Span::new(0, 1)),
+            VersionedNodeKey::span(second, SyntaxKind::Expr, Span::new(0, 1))
         );
+    }
+
+    #[test]
+    fn node_site_keeps_source_position_identity_across_revisions() {
+        let first = SourceVersion {
+            id: SourceId(0),
+            revision: SourceRevision::INITIAL,
+        };
+        let second = SourceVersion {
+            id: SourceId(0),
+            revision: SourceRevision(1),
+        };
+
+        let first_key = VersionedNodeKey::span(first, SyntaxKind::Type, Span::new(4, 9));
+        let second_key = VersionedNodeKey::span(second, SyntaxKind::Type, Span::new(4, 9));
+
+        assert_ne!(first_key, second_key);
+        assert_eq!(first_key.site(), second_key.site());
     }
 }

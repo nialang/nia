@@ -195,7 +195,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn compute_layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
-        let owner = self.program.module(ty.interner_id)?;
+        let owner = self.program.module(self.type_owner(ty).module_id())?;
         if let Some(layout) = self.program.type_layout(ty) {
             return Some(layout.clone());
         }
@@ -442,8 +442,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(mangled) = self.mangled_types.borrow().get(&ty) {
             return mangled.clone();
         }
-        let Some(owner) = self.program.module(ty.interner_id) else {
-            return "ty_error".to_string();
+        let Some(owner) = self.program.module(self.type_owner(ty).module_id()) else {
+            panic!("Nia ICE: cannot mangle type {ty:?} without owner module");
         };
         let mangled = mangle_type_with(
             &owner.interner,

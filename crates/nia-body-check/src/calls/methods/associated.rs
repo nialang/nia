@@ -542,7 +542,7 @@ impl<'a> BodyChecker<'a> {
             .defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
             .map(|def| def.name.as_str())
-            .unwrap_or("<unknown>");
+            .unwrap_or("<unavailable type name>");
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             span,

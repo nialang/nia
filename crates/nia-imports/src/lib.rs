@@ -5,6 +5,7 @@ use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
+use nia_source::{SourceIdentity, normalize_path};
 use nia_span::Span;
 
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
@@ -98,7 +99,7 @@ impl ModulePath {
 pub struct ModuleGraph {
     entry: ModuleId,
     modules: Vec<ModuleNode>,
-    by_path: HashMap<String, ModuleId>,
+    by_source_identity: HashMap<SourceIdentity, ModuleId>,
     by_module_path: HashMap<ModulePath, ModuleId>,
     package_roots: HashMap<String, ModuleId>,
     active_package_facades: HashMap<String, ModuleId>,
@@ -109,8 +110,8 @@ impl ModuleGraph {
     pub fn new(entry_path: SourcePath) -> Self {
         let entry = ModuleId(0);
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
-        let mut by_path = HashMap::new();
-        by_path.insert(entry_path.as_str().to_string(), entry);
+        let mut by_source_identity = HashMap::new();
+        by_source_identity.insert(entry_path.identity(), entry);
         let mut by_module_path = HashMap::new();
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = HashMap::new();
@@ -125,7 +126,7 @@ impl ModuleGraph {
                 children: HashMap::new(),
                 declarations: Vec::new(),
             }],
-            by_path,
+            by_source_identity,
             by_module_path,
             package_roots,
             active_package_facades: HashMap::new(),
@@ -142,7 +143,11 @@ impl ModuleGraph {
     }
 
     pub fn module_id_for_path(&self, path: &str) -> Option<ModuleId> {
-        self.by_path.get(path).copied()
+        self.module_id_for_source_identity(&SourceIdentity::new(path))
+    }
+
+    pub fn module_id_for_source_identity(&self, identity: &SourceIdentity) -> Option<ModuleId> {
+        self.by_source_identity.get(identity).copied()
     }
 
     pub fn module_id_for_module_path(&self, path: &ModulePath) -> Option<ModuleId> {
@@ -251,7 +256,8 @@ impl ModuleGraph {
         if let Some(id) = self.by_module_path.get(&module_path).copied() {
             return id;
         }
-        if let Some(id) = self.by_path.get(path.as_str()).copied() {
+        let identity = path.identity();
+        if let Some(id) = self.by_source_identity.get(&identity).copied() {
             self.by_module_path.insert(module_path, id);
             return id;
         }
@@ -259,7 +265,7 @@ impl ModuleGraph {
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package.clone(), id);
         }
-        self.by_path.insert(path.as_str().to_string(), id);
+        self.by_source_identity.insert(identity, id);
         self.by_module_path.insert(module_path.clone(), id);
         self.modules.push(ModuleNode {
             id,
@@ -413,22 +419,23 @@ fn child_source_path(parent: &ModuleNode, child: &str) -> SourcePath {
     SourcePath::new(normalize_path(&joined))
 }
 
-pub fn normalize_path(path: &str) -> String {
-    let absolute = path.starts_with('/');
-    let mut parts = Vec::new();
-    for part in path.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            _ => parts.push(part),
-        }
-    }
-    let normalized = parts.join("/");
-    if absolute {
-        format!("/{normalized}")
-    } else {
-        normalized
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_graph_indexes_paths_by_source_identity() {
+        let mut graph = ModuleGraph::new(SourcePath::new("src/./main.nia"));
+
+        assert_eq!(graph.module_id_for_path("src/main.nia"), Some(ModuleId(0)));
+        assert_eq!(
+            graph.intern_package_root("pkg", SourcePath::new("pkg/./root.nia")),
+            ModuleId(1)
+        );
+        assert_eq!(
+            graph.intern_package_root("pkg_alias", SourcePath::new("pkg/root.nia")),
+            ModuleId(1)
+        );
+        assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(ModuleId(1)));
     }
 }

@@ -25,16 +25,61 @@ pub struct SourceVersion {
     pub revision: SourceRevision,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourceIdentity {
+    normalized_path: String,
+}
+
+impl SourceIdentity {
+    pub fn new(path: impl AsRef<str>) -> Self {
+        Self {
+            normalized_path: normalize_path(path.as_ref()),
+        }
+    }
+
+    pub fn from_path(path: &SourcePath) -> Self {
+        Self::new(path.as_str())
+    }
+
+    pub fn normalized_path(&self) -> &str {
+        &self.normalized_path
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourcePath(String);
 
 impl SourcePath {
     pub fn new(path: impl Into<String>) -> Self {
-        Self(path.into())
+        Self(normalize_path(&path.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn identity(&self) -> SourceIdentity {
+        SourceIdentity::from_path(self)
+    }
+}
+
+pub fn normalize_path(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            _ => parts.push(part),
+        }
+    }
+    let normalized = parts.join("/");
+    if absolute {
+        format!("/{normalized}")
+    } else {
+        normalized
     }
 }
 
@@ -102,6 +147,15 @@ impl SourceTable {
         inner.paths.insert(path.clone(), id);
         id
     }
+
+    pub fn existing_id_for_path(&self, path: &SourcePath) -> Option<SourceId> {
+        self.inner
+            .lock()
+            .expect("source table lock poisoned")
+            .paths
+            .get(path)
+            .copied()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -120,7 +174,7 @@ impl SourceDatabase {
     }
 
     pub fn source_for_path(&self, path: &SourcePath) -> Option<SourceFile> {
-        let id = self.id_for_path(path);
+        let id = self.table.existing_id_for_path(path)?;
         self.source_for_id(id)
     }
 
@@ -198,6 +252,15 @@ mod tests {
     }
 
     #[test]
+    fn source_path_identity_uses_normalized_path_text() {
+        let path = SourcePath::new("src/./root.nia");
+        let identity = path.identity();
+
+        assert_eq!(identity.normalized_path(), "src/root.nia");
+        assert_eq!(identity, SourceIdentity::from_path(&path));
+    }
+
+    #[test]
     fn source_table_reuses_path_ids() {
         let table = SourceTable::new();
         let main = SourcePath::new("main.nia");
@@ -218,6 +281,19 @@ mod tests {
         assert_eq!(file.id, SourceId(0));
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(sources.source_for_path(&path), Some(file));
+    }
+
+    #[test]
+    fn source_database_path_lookup_does_not_allocate_missing_ids() {
+        let sources = SourceDatabase::new();
+        let missing = SourcePath::new("missing.nia");
+        let main = SourcePath::new("main.nia");
+
+        assert_eq!(sources.source_for_path(&missing), None);
+
+        let file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
+        assert_eq!(file.id, SourceId(0));
+        assert_eq!(sources.id_for_path(&missing), SourceId(1));
     }
 
     #[test]

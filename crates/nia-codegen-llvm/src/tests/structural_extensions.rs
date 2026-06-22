@@ -32,10 +32,18 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("%nia__m0__d0__Box__inst__t_i32"));
-    assert!(ir.contains("@nia__m0__d2__make__inst__i32"));
-    assert!(ir.contains("call void @nia__m0__d2__make__inst__i32(ptr %b, i32 42"));
-    assert!(ir.contains("define void @nia__m0__d2__make__inst__i32(ptr %0, i32 %1)"));
+    let box_ty = mangled_symbol(ir, '%', 0, "Box__inst__t_i32");
+    let make = mangled_symbol(ir, '@', 0, "make__inst__i32");
+    assert!(ir.contains(&box_ty), "{ir}");
+    assert!(ir.contains(&make), "{ir}");
+    assert!(
+        ir.contains(&format!("call void {make}(ptr %b, i32 42")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!("define void {make}(ptr %0, i32 %1)")),
+        "{ir}"
+    );
     assert!(ir.contains("ret i32"));
 }
 
@@ -97,16 +105,16 @@ fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d1__is_zero"));
-    assert!(ir.contains("@nia__m0__d2__is_null__inst__i32"));
-    assert!(ir.contains("@nia__m0__d3__size__inst__i32"));
-    assert!(ir.contains("@nia__m0__d4__first__inst__i32"));
-    assert!(ir.contains("@nia__m0__d5__apply"));
-    assert!(ir.contains("call i1 @nia__m0__d1__is_zero"));
-    assert!(ir.contains("call i1 @nia__m0__d2__is_null__inst__i32"));
-    assert!(ir.contains("call i64 @nia__m0__d3__size__inst__i32"));
-    assert!(ir.contains("call i32 @nia__m0__d4__first__inst__i32"));
-    assert!(ir.contains("call i32 @nia__m0__d5__apply"));
+    let is_zero = mangled_symbol(ir, '@', 0, "is_zero");
+    let is_null = mangled_symbol(ir, '@', 0, "is_null__inst__i32");
+    let size = mangled_symbol(ir, '@', 0, "size__inst__i32");
+    let first = mangled_symbol(ir, '@', 0, "first__inst__i32");
+    let apply = mangled_symbol(ir, '@', 0, "apply");
+    assert!(ir.contains(&format!("call i1 {is_zero}")), "{ir}");
+    assert!(ir.contains(&format!("call i1 {is_null}")), "{ir}");
+    assert!(ir.contains(&format!("call i64 {size}")), "{ir}");
+    assert!(ir.contains(&format!("call i32 {first}")), "{ir}");
+    assert!(ir.contains(&format!("call i32 {apply}")), "{ir}");
 }
 
 #[test]
@@ -208,8 +216,16 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @nia__m0__d3__make(ptr %a, i32 41"));
-    assert!(ir.contains("call void @nia__m0__d2__make__inst__bool(ptr %b, i1 true"));
+    let specialized_make = mangled_symbol(ir, '@', 0, "make");
+    let generic_make = mangled_symbol(ir, '@', 0, "make__inst__bool");
+    assert!(
+        ir.contains(&format!("call void {specialized_make}(ptr %a, i32 41")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!("call void {generic_make}(ptr %b, i1 true")),
+        "{ir}"
+    );
 }
 
 #[test]
@@ -247,7 +263,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d2__get"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "get");
     assert!(ir.contains("call i32 %"), "{ir}");
 }
 
@@ -286,7 +302,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d2__get__inst__i32"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "get__inst__i32");
     assert!(ir.contains("call i32 %"), "{ir}");
 }
 
@@ -322,8 +338,10 @@ fn main(p: & Point) i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let get_ptr = mangled_symbol(ir, '@', 0, "get_ptr");
+    let get = mangled_symbol(ir, '@', 0, "get");
     assert!(
-        ir.contains("@nia__m0__d3__get_ptr = constant ptr @nia__m0__d2__get"),
+        ir.contains(&format!("{get_ptr} = constant ptr {get}")),
         "{ir}"
     );
 }
@@ -437,7 +455,7 @@ fn main(ptr: &&&&&& &&i32) bool {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d0__is_null"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "is_null");
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
 }
@@ -468,6 +486,7 @@ fn main() usize {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d0__plus_one"));
-    assert!(ir.contains("call i64 @nia__m0__d0__plus_one(i64 10"));
+    let plus_one = mangled_symbol(ir, '@', 0, "plus_one");
+    assert!(ir.contains(&plus_one), "{ir}");
+    assert!(ir.contains(&format!("call i64 {plus_one}(i64 10")), "{ir}");
 }

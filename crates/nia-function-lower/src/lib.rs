@@ -62,11 +62,12 @@ pub struct LoweredFunctionBody {
 }
 
 pub fn lower_function_body_with_interner(
+    module_id: ModuleId,
     body: &TypedBody,
     interner: &TyInterner,
 ) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
     input::validate_function_lowering_input(body)?;
-    let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
+    let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
     Ok(LoweredFunctionBody {
@@ -83,10 +84,11 @@ pub struct LoweredFunctionBodies {
 }
 
 pub fn lower_function_bodies_with_interner<'a>(
+    module_id: ModuleId,
     bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
     interner: &TyInterner,
 ) -> Result<LoweredFunctionBodies, Vec<FunctionLoweringDiagnostic>> {
-    let mut lowerer = FunctionLowerer::new(interner.interner_id(), Some(interner));
+    let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
     let mut bodies = bodies.into_iter().collect::<Vec<_>>();
     bodies.sort_by_key(|(def_id, _)| **def_id);
     let mut lowered_bodies = std::collections::HashMap::new();

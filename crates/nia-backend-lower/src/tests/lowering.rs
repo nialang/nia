@@ -96,8 +96,9 @@ fn main() i32 {
             .then_some(ty_id)
         })
         .expect("Point type");
+    let impl_id = signatures.trait_impls[0].impl_id;
     extensions.insert(
-        0,
+        impl_id,
         point_ty,
         VisibleExtensionMethod {
             name: "make".to_string(),
@@ -105,7 +106,7 @@ fn main() i32 {
                 module_id: ModuleId(0),
                 def_id: make_id,
             },
-            impl_index: 0,
+            impl_id,
             impl_generics: Vec::new(),
             trait_id: None,
             trait_args: Vec::new(),
@@ -169,6 +170,7 @@ fn main() i32 {
         })
         .collect::<HashMap<_, _>>();
     let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
+    let program_function_body_interners = ProgramFunctionBodyInterners::default();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -194,7 +196,7 @@ fn main() i32 {
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &HashMap::new(),
-        program_type_interners: &HashMap::new(),
+        program_function_body_interners: &program_function_body_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),

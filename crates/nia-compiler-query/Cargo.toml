@@ -35,6 +35,7 @@ nia-sema-ir.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
 nia-static-check.workspace = true
+nia-syntax.workspace = true
 nia-target-config.workspace = true
 nia-ty.workspace = true
 nia-trait-solve.workspace = true

@@ -9,16 +9,10 @@ impl Analyzer<'_> {
         actual_ty: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> Result<(), ComptimeError> {
-        let Some(pattern_kind) = self
-            .source_interner_for_module(pattern_ty.interner_id)
-            .and_then(|interner| interner.get(pattern_ty))
-            .cloned()
-        else {
-            return Ok(());
-        };
+        let pattern_kind = self.active_ty_kind(pattern_ty);
         match pattern_kind {
             TyKind::GenericParam(name) => {
-                let imported = self.import_ty_into_module(span, actual_ty, target_module_id)?;
+                let imported = self.import_ty_into_module(actual_ty, target_module_id)?;
                 if let Some(existing) = substitutions.get(&name) {
                     if *existing != imported {
                         return Err(ComptimeError {
@@ -310,33 +304,15 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<TyKind> {
-        self.working_interners
-            .get(&ty.interner_id)
-            .and_then(|interner| interner.get(ty).cloned())
-            .or_else(|| {
-                self.source_interner_for_module(ty.interner_id)
-                    .and_then(|interner| interner.get(ty).cloned())
-            })
+        Some(self.active_ty_kind(ty))
     }
 
     pub(super) fn import_ty_into_module(
         &mut self,
-        span: Span,
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Result<InternedTyId, ComptimeError> {
-        let Some(source_interner) = self
-            .working_interners
-            .get(&ty.interner_id)
-            .cloned()
-            .or_else(|| self.source_interner_for_module(ty.interner_id).cloned())
-        else {
-            return Err(ComptimeError {
-                span,
-                message: "cannot resolve comptime generic function type argument interner"
-                    .to_string(),
-            });
-        };
+        let source_interner = self.active_interner_for_type(ty).clone();
         let target = self
             .working_interners
             .get_mut(&target_module_id)
@@ -349,14 +325,10 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
-        if ty.interner_id == target_module_id {
+        if self.type_owner(ty).module_id() == target_module_id {
             return Some(ty);
         }
-        let source_interner = self
-            .working_interners
-            .get(&ty.interner_id)
-            .cloned()
-            .or_else(|| self.source_interner_for_module(ty.interner_id).cloned())?;
+        let source_interner = self.active_interner_for_type(ty).clone();
         let target = self.working_interners.get_mut(&target_module_id)?;
         Some(import_type_into(target, &source_interner, ty))
     }

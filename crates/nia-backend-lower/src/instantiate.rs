@@ -82,13 +82,13 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn normalize_type_in_current_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if let Some(normalization) = self
-            .input
-            .program_type_normalizations
-            .get(&ty.interner_id)
-            .filter(|normalization| {
-                normalization.interner.interner_id() == self.type_context.interner.interner_id()
-            })
+        if let Some(normalization) =
+            self.input
+                .program_type_normalizations
+                .values()
+                .find(|normalization| {
+                    normalization.interner.interner_id() == self.type_context.interner.interner_id()
+                })
             && let Some(kind) = normalization.interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
@@ -262,18 +262,13 @@ impl<'a> ModuleLowerer<'a> {
         {
             return self.import_type_from_known_interner(interner, ty);
         }
-        if let Some(interner) = self.known_interner_containing_ty(ty).cloned()
-            && let Some(kind) = interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            return self.import_type_from_known_interner(&interner, ty);
-        }
-        if let Some(interner) = self.instantiation.body_interner
-            && ty.interner_id == interner.interner_id()
-        {
-            return self.import_type_from_known_interner(interner, ty);
-        }
-        if let Some(interner) = self.known_interner_containing_ty(ty).cloned() {
+        if ty.interner_id != self.type_context.interner.interner_id() {
+            let interner = self.active_interner_for_type(ty).clone();
+            if let Some(kind) = interner.get(ty)
+                && !matches!(kind, TyKind::Error)
+            {
+                return self.import_type_from_known_interner(&interner, ty);
+            }
             return self.import_type_from_known_interner(&interner, ty);
         }
         if ty.interner_id == self.type_context.interner.interner_id()
@@ -281,7 +276,11 @@ impl<'a> ModuleLowerer<'a> {
         {
             return ty;
         }
-        ty
+        panic!(
+            "Nia ICE: backend type {:?} is missing from current interner {:?}",
+            ty,
+            self.type_context.interner.interner_id()
+        )
     }
 
     pub(crate) fn instantiate_params(
@@ -314,12 +313,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
         let instantiation_snapshot = self.instantiation.take_snapshot();
-        let body_interner = self
-            .input
-            .program_type_interners
-            .get(&function.module_id)
-            .copied()
-            .or(Some(&self.input.body_ir.interner));
+        let body_interner = self.type_context.function_body_interner(function.module_id);
         let substitutions = self.intern_type_substitutions(substitutions);
         self.instantiation.set_instance_scope(
             function,
@@ -582,14 +576,12 @@ impl<'a> ModuleLowerer<'a> {
                 return interner.get(ty).cloned();
             }
             if let Some(current) = self.instantiation.function
-                && let Some(interner) = self.input.program_type_interners.get(&current.module_id)
+                && let Some(interner) = self.type_context.function_body_interner(current.module_id)
                 && ty.interner_id == interner.interner_id()
             {
                 return interner.get(ty).cloned();
             }
-            self.known_interner_containing_ty(ty)
-                .and_then(|interner| interner.get(ty).cloned())
-                .or_else(|| Some(TyKind::GenericParam("<unknown>".to_string())))
+            Some(self.type_context.active_ty_kind(ty).clone())
         };
         crate::function_instances::contains_generic_param(ty, &mut ty_kind, None)
     }

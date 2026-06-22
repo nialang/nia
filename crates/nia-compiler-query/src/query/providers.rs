@@ -19,17 +19,26 @@ pub(super) struct CompilerQueryProviders {
     pub(super) full_active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
+    pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
     pub(super) program_defs_by_id: fn(&QueryDb<CompilerContext>) -> ProgramDefsById,
+    pub(super) program_full_defs_by_id: fn(&QueryDb<CompilerContext>) -> ProgramFullDefsById,
     pub(super) program_source_paths: fn(&QueryDb<CompilerContext>) -> ProgramSourcePaths,
     pub(super) public_surface: fn(&QueryDb<CompilerContext>) -> PublicSurfaceQueryValue,
     pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
+    pub(super) declaration_type_resolution:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
+    pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) program_type_lowerings: fn(&QueryDb<CompilerContext>) -> ProgramTypeLowerings,
     pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
     pub(super) program_item_signatures: fn(&QueryDb<CompilerContext>) -> ProgramItemSignaturesById,
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
+    pub(super) declaration_type_normalization:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
+        fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
+    pub(super) program_declaration_type_normalizations:
         fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
     pub(super) program_signatures: fn(&QueryDb<CompilerContext>) -> ProgramSignaturesValue,
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
@@ -68,17 +77,24 @@ impl Default for CompilerQueryProviders {
             full_module_item_tree: provide_full_module_item_tree,
             full_active_module_item_tree: provide_full_active_module_item_tree,
             module_defs: provide_module_defs,
+            full_module_defs: provide_full_module_defs,
             defs_by_module: provide_defs_by_module,
             program_defs_by_id: provide_program_defs_by_id,
+            program_full_defs_by_id: provide_program_full_defs_by_id,
             program_source_paths: provide_program_source_paths,
             public_surface: provide_public_surface,
             type_resolution: provide_type_resolution,
+            declaration_type_resolution: provide_declaration_type_resolution,
             type_lowering: provide_type_lowering,
+            declaration_type_lowering: provide_declaration_type_lowering,
             program_type_lowerings: provide_program_type_lowerings,
             item_signatures: provide_item_signatures,
             program_item_signatures: provide_program_item_signatures,
             type_normalization: provide_type_normalization,
+            declaration_type_normalization: provide_declaration_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
+            program_declaration_type_normalizations:
+                provide_program_declaration_type_normalizations,
             program_signatures: provide_program_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -246,6 +262,14 @@ pub(super) fn provide_module_defs(
     nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
 }
 
+pub(super) fn provide_full_module_defs(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> DefCollection {
+    let item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
+}
+
 pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
     db.query_many(
         db.query(ParseOkModuleIdsQuery)
@@ -259,6 +283,17 @@ pub(super) fn provide_program_defs_by_id(db: &QueryDb<CompilerContext>) -> Progr
         db.query(ParseOkModuleIdsQuery)
             .into_iter()
             .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
+            .collect(),
+    )
+}
+
+pub(super) fn provide_program_full_defs_by_id(
+    db: &QueryDb<CompilerContext>,
+) -> ProgramFullDefsById {
+    Arc::new(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(|module_id| (module_id, db.query(FullModuleDefsQuery(module_id))))
             .collect(),
     )
 }
@@ -282,13 +317,38 @@ pub(super) fn provide_type_resolution(
 ) -> TypeResolution {
     time_module_provider(db, "type_resolution", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = defs_by_module_id(db);
+        let defs = db.query(FullModuleDefsQuery(module_id));
+        let program_defs = full_defs_by_module_id(db);
         let graph = db.query(ModuleGraphQuery);
         let public = db.query(PublicSurfaceQuery);
         let empty_using = ModuleUsingScope::default();
         let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
         nia_type_resolve::resolve_module_types_from_active_item_tree(
+            &active_item_tree,
+            &defs,
+            nia_type_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public.surfaces,
+            using_scope,
+        )
+    })
+}
+
+pub(super) fn provide_declaration_type_resolution(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> TypeResolution {
+    time_module_provider(db, "declaration_type_resolution", module_id, || {
+        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_defs = db.query(ProgramDefsByIdQuery);
+        let graph = db.query(ModuleGraphQuery);
+        let public = db.query(PublicSurfaceQuery);
+        let empty_using = ModuleUsingScope::default();
+        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -307,8 +367,25 @@ pub(super) fn provide_type_lowering(
 ) -> TypeLowering {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
-    let program_defs = defs_by_module_id(db);
+    let program_defs = full_defs_by_module_id(db);
     nia_type_lower::lower_module_types_from_active_item_tree(
+        module_id,
+        &active_item_tree,
+        &type_resolution,
+        nia_type_lower::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
+    )
+}
+
+pub(super) fn provide_declaration_type_lowering(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> TypeLowering {
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let type_resolution = db.query(DeclarationTypeResolutionQuery(module_id));
+    let program_defs = db.query(ProgramDefsByIdQuery);
+    nia_type_lower::lower_module_declaration_types_from_active_item_tree(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -322,9 +399,9 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     nia_item_signatures::collect_item_signatures_from_active_item_tree(
         &active_item_tree,
         &defs,
@@ -354,6 +431,15 @@ pub(super) fn provide_type_normalization(
     module_id: ModuleId,
 ) -> TypeNormalization {
     let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+}
+
+pub(super) fn provide_declaration_type_normalization(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> TypeNormalization {
+    let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
@@ -392,13 +478,35 @@ pub(super) fn provide_program_type_normalizations(
     )
 }
 
+pub(super) fn provide_program_declaration_type_normalizations(
+    db: &QueryDb<CompilerContext>,
+) -> ProgramTypeNormalizations {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_declaration_type_normalizations",
+        || {
+            Arc::new(
+                db.query(ParseOkModuleIdsQuery)
+                    .into_iter()
+                    .map(|module_id| {
+                        (
+                            module_id,
+                            db.query(DeclarationTypeNormalizationQuery(module_id)),
+                        )
+                    })
+                    .collect(),
+            )
+        },
+    )
+}
+
 pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> ProgramSignaturesValue {
     time_provider(db.query(CompilerTimingsQuery), "program_signatures", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
         let type_lowerings = module_ids
             .iter()
             .copied()
-            .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+            .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
             .collect::<Vec<_>>();
         let item_signatures = module_ids
             .iter()
@@ -410,7 +518,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
             .copied()
             .map(|module_id| db.query(ModuleDefsQuery(module_id)))
             .collect::<Vec<_>>();
-        let normalizations = db.query(ProgramTypeNormalizationsQuery);
+        let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
         let modules = module_ids
             .iter()
             .copied()
@@ -475,14 +583,14 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
         let type_lowerings = module_ids
             .iter()
             .copied()
-            .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+            .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
             .collect::<Vec<_>>();
         let item_signatures = module_ids
             .iter()
             .copied()
             .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
             .collect::<Vec<_>>();
-        let normalizations = db.query(ProgramTypeNormalizationsQuery);
+        let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
         let inputs = module_ids
             .iter()
             .zip(defs.iter())
@@ -517,11 +625,11 @@ pub(super) fn provide_visible_extensions(
     module_id: ModuleId,
 ) -> VisibleExtensionsValue {
     let graph = db.query(ModuleGraphQuery);
-    let defs = defs_by_module_id(db);
+    let defs = db.query(ProgramDefsByIdQuery);
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let normalizations = db.query(ProgramTypeNormalizationsQuery);
+    let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
@@ -543,8 +651,8 @@ pub(super) fn provide_value_resolution(
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = defs_by_module_id(db);
+        let defs = db.query(FullModuleDefsQuery(module_id));
+        let program_defs = full_defs_by_module_id(db);
         let graph = db.query(ModuleGraphQuery);
         let public = db.query(PublicSurfaceQuery);
         let empty_using = ModuleUsingScope::default();
@@ -570,7 +678,7 @@ pub(super) fn provide_local_resolution(
     module_id: ModuleId,
 ) -> LocalResolution {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins(
         &active_item_tree,
@@ -646,7 +754,7 @@ pub(super) fn provide_comptime_module(
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -687,10 +795,10 @@ pub(super) fn provide_comptime(
 ) -> ComptimeCheck {
     time_module_provider(db, "comptime", module_id, || {
         let module = db.query(ComptimeModuleQuery(module_id));
-        let defs = db.query(ModuleDefsQuery(module_id));
+        let defs = db.query(FullModuleDefsQuery(module_id));
         let program_modules = db.query(ProgramComptimeModulesQuery);
         let program_source_paths = db.query(ProgramSourcePathsQuery);
-        let program_defs = db.query(ProgramDefsByIdQuery);
+        let program_defs = db.query(ProgramFullDefsByIdQuery);
         let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
         let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
         let program_signatures = db.query(ProgramSignaturesQuery);
@@ -741,7 +849,7 @@ pub(super) fn provide_layouts(
     module_id: ModuleId,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "layouts", module_id, || {
-        let defs = db.query(ModuleDefsQuery(module_id));
+        let defs = db.query(FullModuleDefsQuery(module_id));
         let type_normalization = db.query(TypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let comptime = db.query(ComptimeQuery(module_id));
@@ -771,7 +879,7 @@ pub(super) fn provide_abi_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query(FullModuleDefsQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     let program = db.query(ProgramSignaturesQuery);
@@ -807,13 +915,13 @@ pub(super) fn provide_static_check(
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let comptime = db.query(ComptimeQuery(module_id));
-    let program_defs = db.query(ProgramDefsByIdQuery);
+    let program_defs = db.query(ProgramFullDefsByIdQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_static_check::check_module_static_initializers(nia_static_check::StaticCheckInput {
         active_item_tree: &active_item_tree,
@@ -860,8 +968,8 @@ fn body_check_with_filter(
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
-    let program_defs = defs_by_module_id(db);
+    let defs = db.query(FullModuleDefsQuery(module_id));
+    let program_defs = full_defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -945,7 +1053,7 @@ fn checked_module_with_body_check(
     CheckedModule {
         id: module_id,
         path,
-        defs: db.query(ModuleDefsQuery(module_id)),
+        defs: db.query(FullModuleDefsQuery(module_id)),
         type_resolution: db.query(TypeResolutionQuery(module_id)),
         type_lowering: db.query(TypeLoweringQuery(module_id)),
         value_resolution: db.query(ValueResolutionQuery(module_id)),
@@ -1018,7 +1126,7 @@ pub(super) fn provide_executable_checked_modules(
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
-    let defs_by_id = defs_by_module_id(db);
+    let defs_by_id = full_defs_by_module_id(db);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let extension_methods = db.query(ExtensionMethodsQuery);
     let checked_modules = db.query(CheckedModulesQuery);
@@ -1126,6 +1234,7 @@ fn function_bodies_from_checked_modules(
         .iter()
         .map(|module| {
             let lowered = nia_function_lower::lower_function_bodies_with_interner(
+                module.id,
                 module.body_ir.function_bodies.iter(),
                 &module.body_ir.interner,
             )
@@ -1203,7 +1312,7 @@ fn provide_backend_lowering_inner(
             )
         },
     );
-    let program_defs = db.query(ProgramDefsByIdQuery);
+    let program_defs = db.query(ProgramFullDefsByIdQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = time_provider(
         db.query(CompilerTimingsQuery),
@@ -1271,7 +1380,7 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
         .query(ParseOkModuleIdsQuery)
         .first()
         .map(|module_id| db.query(ModulePathQuery(*module_id)))
-        .unwrap_or_else(|| SourcePath::new("<unknown>"));
+        .unwrap_or_else(synthetic_diagnostic_path);
     diagnostics.extend(
         db.query(ExtensionMethodsQuery)
             .diagnostics

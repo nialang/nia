@@ -477,7 +477,7 @@ mod tests {
         );
     }
 
-    fn global(module_id: ModuleId, def_id: u32) -> GlobalDefId {
+    fn global(module_id: ModuleId, def_id: u64) -> GlobalDefId {
         GlobalDefId {
             module_id,
             def_id: DefId(def_id),

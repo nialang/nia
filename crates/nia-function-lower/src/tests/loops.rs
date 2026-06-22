@@ -4,7 +4,10 @@ use super::common::*;
 #[test]
 fn resolves_break_to_loop_exit_branch() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: Vec::new(),
@@ -50,7 +53,10 @@ fn resolves_break_to_loop_exit_branch() {
 #[test]
 fn resolves_continue_to_loop_continue_branch() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: Vec::new(),
@@ -96,7 +102,10 @@ fn resolves_continue_to_loop_continue_branch() {
 #[test]
 fn lowers_for_in_iterator_next_payload_and_edges() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: vec![
@@ -274,7 +283,8 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
             .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
     );
 
-    let lowered = lower_function_body_with_interner(&body, &interner).expect("valid typed body");
+    let lowered =
+        lower_function_body_with_interner(ModuleId(0), &body, &interner).expect("valid typed body");
 
     assert!(
         lowered
@@ -287,7 +297,10 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
 #[test]
 fn loop_body_gets_child_scope_with_parent_loop_edges() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: Vec::new(),
@@ -349,7 +362,10 @@ fn loop_body_gets_child_scope_with_parent_loop_edges() {
 #[test]
 fn preserves_unique_locals_from_flattened_loop_bodies() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let outer_local = TypedLocal {
         id: LocalId(0),
         name: "outer".to_string(),
@@ -393,7 +409,10 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
 #[test]
 fn nested_loops_resolve_break_and_continue_to_nearest_loop() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let inner_continue_loop = loop_stmt(TypedBody {
         span,
         locals: Vec::new(),
@@ -489,7 +508,10 @@ fn nested_loops_resolve_break_and_continue_to_nearest_loop() {
 #[test]
 fn nested_loop_scopes_preserve_parent_chain() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: Vec::new(),

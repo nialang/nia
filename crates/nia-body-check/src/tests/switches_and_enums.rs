@@ -3,7 +3,7 @@ use super::common::*;
 use nia_ast::{ExprKind, ItemKind};
 use nia_body_ir::TypedExprKind;
 use nia_ids::GlobalDefId;
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 
 #[test]
@@ -127,7 +127,7 @@ fn value(input: ?S) ?i32 {
     );
 }
 
-fn if_pattern_payload_field_lhs_key(module: &nia_ast::Module) -> NodeKey {
+fn if_pattern_payload_field_lhs_key(module: &nia_ast::Module) -> VersionedNodeKey {
     module
         .items
         .iter()

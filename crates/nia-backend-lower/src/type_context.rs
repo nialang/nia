@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{InternedTyId, ModuleId};
+use nia_ids::{InternedTyId, ModuleId, TyInternerId};
 use nia_ty::TyKind;
 
 use crate::{
@@ -13,7 +13,7 @@ pub(crate) struct BackendTypeContext<'input, 'shared> {
     input: &'input BackendLowerModuleInput<'input>,
     shared: &'shared BackendLowerShared,
     pub(crate) interner: nia_ty::TyInterner,
-    dynamic_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
+    dynamic_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
@@ -44,40 +44,81 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         {
             return extension_interner.get(ty);
         }
-        self.known_interner_containing_ty(ty)
-            .and_then(|interner| interner.get(ty))
+        Some(self.active_ty_kind(ty))
     }
 
-    pub(crate) fn known_interner_containing_ty(
-        &self,
-        ty: InternedTyId,
-    ) -> Option<&nia_ty::TyInterner> {
-        let mut error_candidate = None;
-        let dynamic_interners = self
-            .dynamic_type_interners
-            .get(&ty.interner_id)
-            .into_iter()
-            .flat_map(|interners| interners.iter().rev());
-        let shared_interners = self
-            .shared
-            .known_type_interners
-            .get(&ty.interner_id)
-            .into_iter()
-            .flat_map(|interners| interners.iter().rev());
-        for interner in dynamic_interners.chain(shared_interners) {
-            match interner.get(ty) {
-                Some(TyKind::Error) => {
-                    error_candidate.get_or_insert(interner);
-                }
-                Some(_) => return Some(interner),
-                None => {}
+    pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
+        if ty.interner_id == self.interner.interner_id() {
+            if self.interner.get(ty).is_none() {
+                panic!(
+                    "Nia ICE: backend type {:?} is not present in current interner {:?}",
+                    ty,
+                    self.interner.interner_id()
+                );
             }
+            return &self.interner;
         }
-        error_candidate
+        if let Some(extension_interner) = self.input.extension_interner
+            && ty.interner_id == extension_interner.interner_id()
+        {
+            if extension_interner.get(ty).is_none() {
+                panic!(
+                    "Nia ICE: backend type {:?} is not present in extension interner {:?}",
+                    ty,
+                    extension_interner.interner_id()
+                );
+            }
+            return extension_interner;
+        }
+        let shared = self.shared.known_type_interners.get(&ty.interner_id);
+        let active = if let Some(dynamic) = self.dynamic_type_interners.get(&ty.interner_id) {
+            if let Some(shared) = shared
+                && !shared.is_prefix_of(dynamic)
+            {
+                panic!(
+                    "Nia ICE: backend dynamic type interner {:?} diverged from shared snapshot",
+                    ty.interner_id
+                );
+            }
+            dynamic
+        } else {
+            shared.unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: missing backend type interner {:?} for type {:?}",
+                    ty.interner_id, ty
+                )
+            })
+        };
+        if active.get(ty).is_none() {
+            panic!(
+                "Nia ICE: backend type {:?} is not present in active interner {:?}",
+                ty,
+                active.interner_id()
+            );
+        }
+        active
+    }
+
+    pub(crate) fn active_ty_kind(&self, ty: InternedTyId) -> &TyKind {
+        self.active_interner_for_type(ty)
+            .get(ty)
+            .unwrap_or_else(|| panic!("Nia ICE: backend type {:?} is missing", ty))
     }
 
     pub(crate) fn remember_interner(&mut self, interner: &nia_ty::TyInterner) {
         insert_known_type_interner(&mut self.dynamic_type_interners, interner);
+    }
+
+    pub(crate) fn function_body_interner(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&'input nia_ty::TyInterner> {
+        if module_id == self.input.module_id {
+            return Some(&self.input.body_ir.interner);
+        }
+        self.input
+            .program_function_body_interners
+            .for_module(module_id)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {

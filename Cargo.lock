@@ -261,6 +261,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-check",
+ "nia-syntax",
  "nia-target-config",
  "nia-trait-solve",
  "nia-ty",
@@ -489,7 +490,9 @@ dependencies = [
  "nia-ast",
  "nia-node-id",
  "nia-parser",
+ "nia-source",
  "nia-span",
+ "nia-syntax",
 ]
 
 [[package]]

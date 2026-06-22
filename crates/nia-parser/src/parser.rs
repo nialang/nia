@@ -12,7 +12,7 @@ use nia_ast::{
     WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
-use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
+use nia_node_id::{NodeOriginTable, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
@@ -49,7 +49,7 @@ pub fn parse_module_syntax_with_origins(
 pub struct ParseError {
     pub span: Span,
     pub message: String,
-    pub node_key: Option<NodeKey>,
+    pub node_key: Option<VersionedNodeKey>,
 }
 
 pub struct Parser {
@@ -122,7 +122,7 @@ impl Parser {
         (Module { items }, self.errors, self.origins)
     }
 
-    fn node_key(&mut self, kind: NodeSyntaxKind, span: Span) -> NodeKey {
+    fn node_key(&mut self, kind: NodeSyntaxKind, span: Span) -> VersionedNodeKey {
         let start = self.tokens.token_at_or_after(span.start);
         let end = self.tokens.token_before_or_at(span.end);
         let (Some(start), Some(end)) = (start, end) else {
@@ -136,7 +136,7 @@ impl Parser {
             Some(version),
             "parser produced {kind:?} AST node spanning multiple source versions at {span:?}"
         );
-        let key = NodeKey::child_path_range(
+        let key = VersionedNodeKey::child_path_range(
             version,
             kind,
             start.child_path().clone(),

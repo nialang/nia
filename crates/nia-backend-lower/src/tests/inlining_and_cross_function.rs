@@ -930,13 +930,14 @@ fn main() i32 {
         i32_ty.set(Some(
             type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32),
         ));
+        let impl_id = _signatures.trait_impls[0].impl_id;
         extensions.insert(
-            0,
+            impl_id,
             counter_type,
             VisibleExtensionMethod {
                 name: "add".to_string(),
                 def_id: add_id,
-                impl_index: 0,
+                impl_id,
                 impl_generics: Vec::new(),
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
@@ -1120,13 +1121,14 @@ fn main() i32 {
         box_i32_ty.set(Some(box_i32_type));
         source_object_ty.set(Some(source_object));
         i32_ty.set(Some(i32_type));
+        let impl_id = signatures.trait_impls[0].impl_id;
         extensions.insert(
-            0,
+            impl_id,
             box_pattern,
             VisibleExtensionMethod {
                 name: "add".to_string(),
                 def_id: add_id,
-                impl_index: 0,
+                impl_id,
                 impl_generics: vec!["T".to_string()],
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),

@@ -572,6 +572,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         LoadedModule {
             id,
             path: self.0.clone(),
+            source_identity: self.0.identity(),
             source_version: parsed.source.version(),
             item_tree: parsed.item_tree,
             active_item_tree: parsed.active_item_tree,
@@ -1496,8 +1497,8 @@ module present;
         assert!(!program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/process.nia");
         assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
-        assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
-        assert_module_not_loaded(&program, "lib/std/collections/array_list/list.nia");
+        assert_module_not_loaded(&program, "lib/std/build/core.nia");
+        assert_module_not_loaded(&program, "lib/std/atomic.nia");
         assert_module_not_loaded(&program, "lib/std/debug.nia");
     }
 

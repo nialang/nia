@@ -80,9 +80,10 @@ pub fn take(value: Empty) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
+    let take = mangled_symbol(&main_ir.ir, '@', 1, "take");
     assert!(main_ir.ir.contains("__take_local()"), "{}", main_ir.ir);
     assert!(
-        main_ir.ir.contains("call i32 @nia__m1__d1__take()"),
+        main_ir.ir.contains(&format!("call i32 {take}()")),
         "{}",
         main_ir.ir
     );
@@ -327,10 +328,12 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let effect = mangled_symbol(ir, '@', 0, "effect");
+    let value = mangled_symbol(ir, '@', 0, "value");
     assert!(ir.contains("declare void @printf"));
     assert!(ir.contains("call void (ptr, ...) @printf"));
-    assert!(ir.contains("call void @nia__m0__d1__effect"));
-    assert!(ir.contains("call i32 @nia__m0__d2__value"));
+    assert!(ir.contains(&format!("call void {effect}")), "{ir}");
+    assert!(ir.contains(&format!("call i32 {value}")), "{ir}");
 }
 
 #[test]
@@ -400,16 +403,16 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let effect = mangled_symbol(ir, '@', 0, "effect");
+    let take = mangled_symbol(ir, '@', 0, "take");
+    let take_array = mangled_symbol(ir, '@', 0, "take_array");
     for value in 1..=5 {
         assert!(
-            ir.contains(&format!("call void @nia__m0__d3__effect(i32 {value})")),
+            ir.contains(&format!("call void {effect}(i32 {value})")),
             "{ir}"
         );
     }
-    assert_eq!(
-        ir.matches("call void @nia__m0__d3__effect(i32 5)").count(),
-        2
-    );
-    assert!(ir.contains("call void @nia__m0__d4__take()"), "{ir}");
-    assert!(ir.contains("call void @nia__m0__d5__take_array()"), "{ir}");
+    assert_eq!(ir.matches(&format!("call void {effect}(i32 5)")).count(), 2);
+    assert!(ir.contains(&format!("call void {take}()")), "{ir}");
+    assert!(ir.contains(&format!("call void {take_array}()")), "{ir}");
 }

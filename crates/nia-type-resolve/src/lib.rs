@@ -15,14 +15,14 @@ use nia_imports::{
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, PrimitiveTypeSpelling};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
-    pub node_type_names: HashMap<NodeKey, TypeNameResolution>,
-    pub node_qualified_type_names: HashMap<NodeKey, GlobalDefId>,
+    pub node_type_names: HashMap<VersionedNodeKey, TypeNameResolution>,
+    pub node_qualified_type_names: HashMap<VersionedNodeKey, GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -124,6 +124,24 @@ pub fn resolve_module_types_from_active_item_tree(
     )
 }
 
+pub fn resolve_module_declaration_types_from_active_item_tree(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+) -> TypeResolution {
+    resolve_module_types_from_items_with_mode(
+        &item_tree.items,
+        defs,
+        program_defs.graph,
+        program_defs,
+        Some(public_surfaces),
+        Some(using_scope),
+        TypeResolveMode::Declarations,
+    )
+}
+
 fn resolve_module_types_from_item_tree_inner(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
@@ -132,13 +150,14 @@ fn resolve_module_types_from_item_tree_inner(
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
 ) -> TypeResolution {
-    resolve_module_types_from_items(
+    resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
         graph,
         program_defs,
         public_surfaces,
         using_scope,
+        TypeResolveMode::All,
     )
 }
 
@@ -149,6 +168,26 @@ fn resolve_module_types_from_items(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+) -> TypeResolution {
+    resolve_module_types_from_items_with_mode(
+        items,
+        defs,
+        graph,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        TypeResolveMode::All,
+    )
+}
+
+fn resolve_module_types_from_items_with_mode(
+    items: &[ItemTreeNode],
+    defs: &DefCollection,
+    graph: Option<&ModuleGraph>,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: Option<&PublicSurfaces>,
+    using_scope: Option<&ModuleUsingScope>,
+    mode: TypeResolveMode,
 ) -> TypeResolution {
     let mut resolver = TypeResolver {
         defs,
@@ -163,6 +202,7 @@ fn resolve_module_types_from_items(
         self_type_stack: Vec::new(),
         associated_type_stack: Vec::new(),
         suppress_unknown_type_errors: false,
+        mode,
     };
     for item in items {
         resolver.visit_item_tree_node(item);
@@ -174,19 +214,26 @@ fn resolve_module_types_from_items(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeResolveMode {
+    All,
+    Declarations,
+}
+
 struct TypeResolver<'a> {
     defs: &'a DefCollection,
     graph: Option<&'a ModuleGraph>,
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    node_type_names: HashMap<NodeKey, TypeNameResolution>,
-    node_qualified_type_names: HashMap<NodeKey, GlobalDefId>,
+    node_type_names: HashMap<VersionedNodeKey, TypeNameResolution>,
+    node_qualified_type_names: HashMap<VersionedNodeKey, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<Span>,
     associated_type_stack: Vec<Vec<String>>,
     suppress_unknown_type_errors: bool,
+    mode: TypeResolveMode,
 }
 
 impl TypeResolver<'_> {
@@ -309,7 +356,9 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                             if let Some(ty) = &associated_value.binding.ty {
                                 resolver.visit_type(ty);
                             }
-                            if let Some(value) = &associated_value.binding.value {
+                            if resolver.mode == TypeResolveMode::All
+                                && let Some(value) = &associated_value.binding.value
+                            {
                                 resolver.visit_expr(value);
                             }
                         }
@@ -498,9 +547,11 @@ impl TypeResolver<'_> {
                 if let Some(backing_type) = &item_enum.backing_type {
                     self.visit_type(backing_type);
                 }
-                for variant in &item_enum.variants {
-                    if let Some(value) = &variant.value {
-                        self.visit_expr(value);
+                if self.mode == TypeResolveMode::All {
+                    for variant in &item_enum.variants {
+                        if let Some(value) = &variant.value {
+                            self.visit_expr(value);
+                        }
                     }
                 }
             }
@@ -508,7 +559,9 @@ impl TypeResolver<'_> {
                 if let Some(ty) = &binding.ty {
                     self.visit_type(ty);
                 }
-                if let Some(value) = &binding.value {
+                if self.mode == TypeResolveMode::All
+                    && let Some(value) = &binding.value
+                {
                     self.visit_expr(value);
                 }
             }
@@ -524,6 +577,25 @@ impl TypeResolver<'_> {
                 self.visit_type(bound);
             }
         }
+    }
+
+    fn visit_function(&mut self, function: &FunctionItem) {
+        self.with_generics(&function.generics, |resolver| {
+            resolver.visit_where_clause(&function.where_clause);
+            for param in &function.params {
+                if let Some(ty) = &param.ty {
+                    resolver.visit_type(ty);
+                }
+            }
+            if let Some(return_type) = &function.return_type {
+                resolver.visit_type(return_type);
+            }
+            if resolver.mode == TypeResolveMode::All
+                && let Some(body) = &function.body
+            {
+                resolver.visit_block(body);
+            }
+        });
     }
 }
 
@@ -570,7 +642,7 @@ impl<'a> TypeResolver<'a> {
     fn resolve_qualified_type_path(
         &mut self,
         span: Span,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         segments: &[TypePathSegment],
     ) -> TypeNameResolution {
         let Some((last, prefix)) = segments.split_last() else {
@@ -728,7 +800,7 @@ impl<'a> TypeResolver<'a> {
     fn resolve_module_type(
         &mut self,
         span: Span,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         module_id: ModuleId,
         segment: &TypePathSegment,
         path_text: &str,
@@ -797,7 +869,7 @@ impl<'a> TypeResolver<'a> {
         &mut self,
         segment: &TypePathSegment,
         span: Span,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
     ) -> TypeNameResolution {
         if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
             return TypeNameResolution::Primitive(primitive);

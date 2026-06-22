@@ -586,6 +586,9 @@ mod tests {
     }
 
     fn test_ty(index: u32) -> InternedTyId {
-        InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(index))
+        InternedTyId::new(
+            nia_ids::TyInternerId::for_module(ModuleId(0)),
+            TyInternerIndex::from_interner_index(index),
+        )
     }
 }

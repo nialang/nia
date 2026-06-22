@@ -209,10 +209,7 @@ impl Analyzer<'_> {
             array_lengths: input.array_lengths.clone(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(
-                input.interner.interner_id(),
-                input.interner.clone(),
-            )]),
+            working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
             resolved_call_type_substitutions: HashMap::new(),
         }
     }

@@ -577,7 +577,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_substrings_in_order(ir, &["call void @nia__m0__d0__cleanup()", "ret i32 0"]);
+    let cleanup = mangled_symbol(ir, '@', 0, "cleanup");
+    assert_substrings_in_order(ir, &[&format!("call void {cleanup}()"), "ret i32 0"]);
 }
 
 #[test]
@@ -740,14 +741,9 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(
-        ir.contains("define i32 @nia__m0__d1__id__inst__i32"),
-        "{ir}"
-    );
-    assert!(
-        ir.contains("call i32 @nia__m0__d1__id__inst__i32(i32 7)"),
-        "{ir}"
-    );
+    let id = mangled_symbol(ir, '@', 0, "id__inst__i32");
+    assert!(ir.contains(&format!("define i32 {id}")), "{ir}");
+    assert!(ir.contains(&format!("call i32 {id}(i32 7)")), "{ir}");
     assert!(ir.contains("call void @log(i32 %calltmp)"), "{ir}");
     assert!(ir.contains("ret i32 0"), "{ir}");
 }

@@ -221,7 +221,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let len = self.extract_slice_len(span, slice)?;
                 Ok((ptr, len, *elem))
             }
-            Some(TyKind::Error) | None => Err(self.error(span, "invalid slice base")),
+            Some(TyKind::Error) => Err(self.error(span, "invalid slice base")),
+            None => Err(self.error(
+                span,
+                "slice base type is missing from backend type interner",
+            )),
             _ => Err(self.error(span, "slice base must be an array, pointer, or slice")),
         }
     }

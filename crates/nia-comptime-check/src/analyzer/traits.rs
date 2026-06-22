@@ -64,7 +64,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn normalized_ty(&self, ty: InternedTyId) -> InternedTyId {
-        self.normalized_for_module(ty.interner_id)
+        self.normalized_for_module(self.type_owner(ty).module_id())
             .and_then(|normalized| normalized.get(&ty).copied())
             .unwrap_or(ty)
     }
@@ -153,10 +153,10 @@ impl Analyzer<'_> {
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
     ) -> Option<ModuleId> {
-        let module_id = self_ty.interner_id;
+        let module_id = self.type_owner(self_ty).module_id();
         self.ensure_working_interner(module_id)?;
         for arg in trait_args {
-            self.ensure_working_interner(arg.interner_id)?;
+            self.ensure_working_interner(self.type_owner(*arg).module_id())?;
         }
         Some(module_id)
     }
@@ -210,7 +210,7 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> InternedTyId {
-        let module_id = ty.interner_id;
+        let module_id = self.type_owner(ty).module_id();
         if self.ensure_working_interner(module_id).is_none() {
             return ty;
         }

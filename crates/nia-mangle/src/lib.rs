@@ -331,7 +331,12 @@ where
         }
         Some(TyKind::GenericParam(name)) => format!("gen__{}", sanitize_symbol_part(name)),
         Some(TyKind::ComptimeOnly) => "comptime_only".to_string(),
-        Some(TyKind::Error) | None => "ty_error".to_string(),
+        Some(TyKind::Error) => "ty_error".to_string(),
+        None => panic!(
+            "Nia ICE: cannot mangle type {:?} with interner {:?}",
+            ty,
+            interner.interner_id()
+        ),
     }
 }
 
@@ -371,5 +376,33 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
     match primitive {
         PrimitiveTy::Never => "never".to_string(),
         _ => primitive.name().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ModuleId, TyInternerIndex};
+
+    #[test]
+    fn mangles_real_error_type_for_diagnostic_recovery() {
+        let interner = TyInterner::new(ModuleId(0));
+
+        assert_eq!(
+            mangle_type_with(&interner, interner.error(), |_| "item".into(), |_| None),
+            "ty_error"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Nia ICE: cannot mangle type")]
+    fn rejects_missing_type_id_instead_of_mangling_fallback_symbol() {
+        let interner = TyInterner::new(ModuleId(0));
+        let missing = InternedTyId::new(
+            interner.interner_id(),
+            TyInternerIndex::from_interner_index(999),
+        );
+
+        let _ = mangle_type_with(&interner, missing, |_| "item".into(), |_| None);
     }
 }

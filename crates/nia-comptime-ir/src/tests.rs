@@ -7,7 +7,7 @@ use crate::{
     lower_expr_early_with_context, lower_expr_resolved_with_context,
 };
 use nia_ids::{LayoutBuiltin, LocalId};
-use nia_node_id::{NodeChildPath, NodeKey, SyntaxKind};
+use nia_node_id::{NodeChildPath, SyntaxKind, VersionedNodeKey};
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
@@ -27,8 +27,8 @@ fn int_expr(value: &str) -> EarlyComptimeExpr {
     }
 }
 
-fn node_key(kind: SyntaxKind, ordinal: u32) -> NodeKey {
-    NodeKey::child_path(
+fn node_key(kind: SyntaxKind, ordinal: u32) -> VersionedNodeKey {
+    VersionedNodeKey::child_path(
         SourceVersion {
             id: SourceId(0),
             revision: SourceRevision::INITIAL,
@@ -38,15 +38,15 @@ fn node_key(kind: SyntaxKind, ordinal: u32) -> NodeKey {
     )
 }
 
-fn expr_key(ordinal: u32) -> NodeKey {
+fn expr_key(ordinal: u32) -> VersionedNodeKey {
     node_key(SyntaxKind::Expr, ordinal)
 }
 
-fn stmt_key(ordinal: u32) -> NodeKey {
+fn stmt_key(ordinal: u32) -> VersionedNodeKey {
     node_key(SyntaxKind::Stmt, ordinal)
 }
 
-fn type_key(ordinal: u32) -> NodeKey {
+fn type_key(ordinal: u32) -> VersionedNodeKey {
     node_key(SyntaxKind::Type, ordinal)
 }
 

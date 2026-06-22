@@ -29,7 +29,7 @@ use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId, TyInternerId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
@@ -40,7 +40,7 @@ use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
 use nia_ty::TyKind;
@@ -124,7 +124,7 @@ pub struct BackendLowerModuleInput<'a> {
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
     pub program_defs: &'a std::collections::HashMap<ModuleId, DefCollection>,
-    pub program_type_interners: &'a std::collections::HashMap<ModuleId, &'a nia_ty::TyInterner>,
+    pub program_function_body_interners: &'a ProgramFunctionBodyInterners<'a>,
     pub program_type_normalizations:
         &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -135,6 +135,29 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_type_aliases:
         &'a std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ProgramFunctionBodyInterners<'a> {
+    by_module: HashMap<ModuleId, &'a nia_ty::TyInterner>,
+}
+
+impl<'a> ProgramFunctionBodyInterners<'a> {
+    pub fn from_modules(
+        modules: impl IntoIterator<Item = (ModuleId, &'a nia_ty::TyInterner)>,
+    ) -> Self {
+        Self {
+            by_module: modules.into_iter().collect(),
+        }
+    }
+
+    pub fn for_module(&self, module_id: ModuleId) -> Option<&'a nia_ty::TyInterner> {
+        self.by_module.get(&module_id).copied()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &'a nia_ty::TyInterner> + '_ {
+        self.by_module.values().copied()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -436,7 +459,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
 pub(crate) struct BackendLowerShared {
     program_extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    known_type_interners: HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
+    known_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
 }
 
 impl BackendLowerShared {
@@ -1100,7 +1123,7 @@ impl<'a> ModuleLowerer<'a> {
             .and_then(|param| param.receiver)
     }
 
-    fn def_id_for_node(&mut self, node_key: &NodeKey, expected: DefKind) -> Option<DefId> {
+    fn def_id_for_node(&mut self, node_key: &VersionedNodeKey, expected: DefKind) -> Option<DefId> {
         let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         if def.kind == expected {
@@ -1110,7 +1133,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn def_id_for_node_any_function(&mut self, node_key: &NodeKey) -> Option<DefId> {
+    fn def_id_for_node_any_function(&mut self, node_key: &VersionedNodeKey) -> Option<DefId> {
         let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         matches!(
@@ -1213,11 +1236,8 @@ impl<'a> ModuleLowerer<'a> {
         self.type_context.ty_kind(ty)
     }
 
-    pub(crate) fn known_interner_containing_ty(
-        &self,
-        ty: InternedTyId,
-    ) -> Option<&nia_ty::TyInterner> {
-        self.type_context.known_interner_containing_ty(ty)
+    pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
+        self.type_context.active_interner_for_type(ty)
     }
 
     fn remember_type_interner(&mut self, interner: &nia_ty::TyInterner) {
@@ -1259,7 +1279,7 @@ fn index_extension_generics_by_method(
 fn index_shared_known_type_interners(
     modules: &[BackendLowerModuleInput<'_>],
     monomorphization: &Monomorphization,
-) -> HashMap<ModuleId, Vec<nia_ty::TyInterner>> {
+) -> HashMap<TyInternerId, nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     for input in modules {
         insert_known_type_interner(&mut interners, &input.body_ir.interner);
@@ -1267,7 +1287,7 @@ fn index_shared_known_type_interners(
         if let Some(interner) = input.extension_interner {
             insert_known_type_interner(&mut interners, interner);
         }
-        for interner in input.program_type_interners.values() {
+        for interner in input.program_function_body_interners.values() {
             insert_known_type_interner(&mut interners, interner);
         }
         for (_, interner) in input.program_extensions.values() {
@@ -1281,12 +1301,21 @@ fn index_shared_known_type_interners(
 }
 
 fn insert_known_type_interner(
-    interners: &mut HashMap<ModuleId, Vec<nia_ty::TyInterner>>,
+    interners: &mut HashMap<TyInternerId, nia_ty::TyInterner>,
     interner: &nia_ty::TyInterner,
 ) {
-    let candidates = interners.entry(interner.interner_id()).or_default();
-    if !candidates.iter().any(|candidate| candidate == interner) {
-        candidates.push(interner.clone());
+    let interner_id = interner.interner_id();
+    if let Some(existing) = interners.get(&interner_id) {
+        if existing.is_prefix_of(interner) {
+            interners.insert(interner_id, interner.clone());
+        } else if !interner.is_prefix_of(existing) {
+            panic!(
+                "conflicting type interner snapshots share id {:?}",
+                interner_id
+            );
+        }
+    } else {
+        interners.insert(interner_id, interner.clone());
     }
 }
 
@@ -1297,7 +1326,7 @@ fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<G
         .enumerate()
         .map(|(program_index, impl_signature)| {
             (
-                (impl_signature.module_id, impl_signature.local_index),
+                (impl_signature.module_id, impl_signature.impl_id),
                 program_index,
             )
         })
@@ -1305,8 +1334,7 @@ fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<G
     let mut impls_by_method = HashMap::new();
     for target in input.extensions.targets() {
         for method in &target.methods {
-            let Some(program_index) = impls.get(&(input.module_id, method.impl_index)).copied()
-            else {
+            let Some(program_index) = impls.get(&(input.module_id, method.impl_id)).copied() else {
                 continue;
             };
             impls_by_method.insert(method.def_id, program_index);
@@ -1314,7 +1342,7 @@ fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<G
     }
     for method in input.program_extension_methods.all_methods() {
         let Some(program_index) = impls
-            .get(&(method.def_id.module_id, method.impl_index))
+            .get(&(method.def_id.module_id, method.impl_id))
             .copied()
         else {
             continue;
@@ -1369,7 +1397,7 @@ fn index_program_extension_trait_method_candidates(
         .iter()
         .map(|impl_signature| {
             (
-                (impl_signature.module_id, impl_signature.local_index),
+                (impl_signature.module_id, impl_signature.impl_id),
                 impl_signature,
             )
         })
@@ -1380,7 +1408,7 @@ fn index_program_extension_trait_method_candidates(
         let Some(trait_id) = method.trait_id else {
             continue;
         };
-        let Some(impl_signature) = impls.get(&(method.def_id.module_id, method.impl_index)) else {
+        let Some(impl_signature) = impls.get(&(method.def_id.module_id, method.impl_id)) else {
             continue;
         };
         candidates

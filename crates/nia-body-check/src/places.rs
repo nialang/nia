@@ -395,7 +395,7 @@ impl<'a> BodyChecker<'a> {
         is_readonly: bool,
         range_ty: InternedTyId,
     ) -> InternedTyId {
-        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+        if self.is_error_ty(lhs_ty) {
             return self.error();
         }
         if is_readonly {
@@ -458,7 +458,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         index_ty: InternedTyId,
     ) -> InternedTyId {
-        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+        if self.is_error_ty(lhs_ty) {
             return self.error();
         }
         let trait_args = vec![index_ty];
@@ -493,7 +493,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         index_ty: InternedTyId,
     ) -> InternedTyId {
-        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+        if self.is_error_ty(lhs_ty) {
             return self.error();
         }
         let trait_args = vec![index_ty];
@@ -618,8 +618,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::DerefRead),
             Vec::new(),
         );
-        match self.interner.get(ty) {
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. })
+        match self.expect_ty_kind(ty) {
+            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -629,7 +629,7 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }
-            Some(TyKind::Error) | None => self.error(),
+            TyKind::Error => self.error(),
             _ if has_deref_read => {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,
@@ -664,8 +664,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::Deref),
             Vec::new(),
         );
-        match self.interner.get(ty) {
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. })
+        match self.expect_ty_kind(ty) {
+            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
                 if self.normalization.normalize(*elem) == self.void() =>
             {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -675,7 +675,7 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }
-            Some(TyKind::Error) | None => self.error(),
+            TyKind::Error => self.error(),
             _ if has_deref => {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,

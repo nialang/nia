@@ -4,7 +4,10 @@ use super::common::*;
 #[test]
 fn lowers_statement_block_expression_into_child_scope() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let expr = TypedExpr {
         span,
         ty,
@@ -69,7 +72,10 @@ fn lowers_statement_block_expression_into_child_scope() {
 #[test]
 fn return_from_statement_block_exits_block_and_root_scopes() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let expr = TypedExpr {
         span,
         ty,
@@ -114,7 +120,10 @@ fn return_from_statement_block_exits_block_and_root_scopes() {
 #[test]
 fn collects_unique_locals_from_statement_block_expressions() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let inner_local = TypedLocal {
         id: LocalId(1),
         name: "inner".to_string(),

@@ -1,7 +1,7 @@
 use crate::*;
 
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
@@ -46,25 +46,25 @@ impl<'a> ResolvedComptimeLowerInputs<'a> {
 pub(crate) trait ComptimeLowerContext {
     fn resolve_name(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError>;
 
     fn lower_local_use(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError>;
 
     fn lower_local_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError>;
 
     fn lower_type_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<InternedTyId>, ComptimeLowerError>;
 }
@@ -72,7 +72,7 @@ pub(crate) trait ComptimeLowerContext {
 impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
     fn resolve_name(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         Ok(self.semantic_uses.and_then(|semantic_uses| {
@@ -89,7 +89,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
 
     fn lower_local_use(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError> {
         Ok(self
@@ -103,7 +103,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
 
     fn lower_local_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError> {
         Ok(self
@@ -113,7 +113,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
 
     fn lower_type_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
         Ok(self
@@ -125,7 +125,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
 impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
     fn resolve_name(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         if let Some(value) = self.semantic_uses.node_builtin_associated_value(key) {
@@ -140,7 +140,7 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
 
     fn lower_local_use(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError> {
         match self.semantic_uses.node_value_use(key) {
@@ -153,7 +153,7 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
 
     fn lower_local_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<LocalId>, ComptimeLowerError> {
         self.semantic_uses
@@ -164,7 +164,7 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
 
     fn lower_type_id(
         &self,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
         self.semantic_uses
@@ -682,7 +682,7 @@ fn lower_array_elements_with_context(
 
 fn resolve_name(
     context: &dyn ComptimeLowerContext,
-    key: &NodeKey,
+    key: &VersionedNodeKey,
     span: Span,
 ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
     context.resolve_name(key, span)
@@ -690,7 +690,7 @@ fn resolve_name(
 
 fn lower_comptime_name(
     name: &str,
-    key: &NodeKey,
+    key: &VersionedNodeKey,
     span: Span,
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeName, ComptimeLowerError> {
@@ -702,7 +702,7 @@ fn lower_comptime_name(
 
 fn lower_local_id(
     context: &dyn ComptimeLowerContext,
-    key: &NodeKey,
+    key: &VersionedNodeKey,
     span: Span,
 ) -> Result<Option<LocalId>, ComptimeLowerError> {
     context.lower_local_id(key, span)
@@ -710,7 +710,7 @@ fn lower_local_id(
 
 fn lower_local_use(
     context: &dyn ComptimeLowerContext,
-    key: &NodeKey,
+    key: &VersionedNodeKey,
     span: Span,
 ) -> Result<Option<LocalId>, ComptimeLowerError> {
     context.lower_local_use(key, span)
@@ -718,7 +718,7 @@ fn lower_local_use(
 
 pub(crate) fn lower_type_id(
     context: &dyn ComptimeLowerContext,
-    key: &NodeKey,
+    key: &VersionedNodeKey,
     span: Span,
 ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
     context.lower_type_id(key, span)

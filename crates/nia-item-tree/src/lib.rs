@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    Attribute, AttributeKind, BindingItem, ConditionExpr, EnumItem, ExtendItem, FunctionItem, Item,
-    ItemKind, Module, ModuleItem, StructItem, TraitItem, TypeAliasItem, UnionItem, UsingItem,
-    Visibility,
+    Attribute, AttributeKind, BindingItem, ConditionExpr, EnumItem, EnumVariant,
+    ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
+    Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType, TraitItem,
+    TraitMethod, TypeAliasItem, UnionItem, UsingItem, Visibility, option_type_ref_decl_eq,
+    type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
 };
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use std::collections::HashSet;
 
@@ -16,7 +18,7 @@ pub struct ModuleItemTree {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemTreeNode {
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub kind: ItemTreeNodeKind,
@@ -132,9 +134,7 @@ fn item_tree_nodes_declaration_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) ->
 }
 
 fn item_tree_node_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
-    lhs.node_key == rhs.node_key
-        && item_tree_span_declaration_eq(lhs, rhs)
-        && lhs.attributes == rhs.attributes
+    item_attributes_declaration_eq(&lhs.attributes, &rhs.attributes)
         && lhs.visibility == rhs.visibility
         && item_tree_node_kind_declaration_eq(&lhs.kind, &rhs.kind)
 }
@@ -142,73 +142,190 @@ fn item_tree_node_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool
 fn item_tree_node_kind_declaration_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeKind) -> bool {
     match (lhs, rhs) {
         (ItemTreeNodeKind::Module(lhs), ItemTreeNodeKind::Module(rhs)) => lhs == rhs,
-        (ItemTreeNodeKind::Using(lhs), ItemTreeNodeKind::Using(rhs)) => lhs == rhs,
-        (ItemTreeNodeKind::Struct(lhs), ItemTreeNodeKind::Struct(rhs)) => lhs == rhs,
-        (ItemTreeNodeKind::Union(lhs), ItemTreeNodeKind::Union(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Using(lhs), ItemTreeNodeKind::Using(rhs)) => using_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::Struct(lhs), ItemTreeNodeKind::Struct(rhs)) => struct_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::Union(lhs), ItemTreeNodeKind::Union(rhs)) => union_decl_eq(lhs, rhs),
         (ItemTreeNodeKind::Trait(lhs), ItemTreeNodeKind::Trait(rhs)) => trait_decl_eq(lhs, rhs),
         (ItemTreeNodeKind::Extend(lhs), ItemTreeNodeKind::Extend(rhs)) => extend_decl_eq(lhs, rhs),
-        (ItemTreeNodeKind::Enum(lhs), ItemTreeNodeKind::Enum(rhs)) => lhs == rhs,
-        (ItemTreeNodeKind::TypeAlias(lhs), ItemTreeNodeKind::TypeAlias(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Enum(lhs), ItemTreeNodeKind::Enum(rhs)) => enum_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::TypeAlias(lhs), ItemTreeNodeKind::TypeAlias(rhs)) => {
+            type_alias_decl_eq(lhs, rhs)
+        }
         (ItemTreeNodeKind::Function(lhs), ItemTreeNodeKind::Function(rhs)) => {
             function_decl_eq(lhs, rhs)
         }
-        (ItemTreeNodeKind::Binding(lhs), ItemTreeNodeKind::Binding(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Binding(lhs), ItemTreeNodeKind::Binding(rhs)) => {
+            binding_decl_eq(lhs, rhs)
+        }
         _ => false,
     }
 }
 
-fn item_tree_span_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
-    if matches!(
-        (&lhs.kind, &rhs.kind),
-        (ItemTreeNodeKind::Function(_), ItemTreeNodeKind::Function(_))
-            | (ItemTreeNodeKind::Trait(_), ItemTreeNodeKind::Trait(_))
-            | (ItemTreeNodeKind::Extend(_), ItemTreeNodeKind::Extend(_))
-    ) {
-        true
-    } else {
-        lhs.span == rhs.span
-    }
+fn item_attributes_declaration_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+}
+
+fn using_decl_eq(lhs: &UsingItem, rhs: &UsingItem) -> bool {
+    lhs == rhs
+}
+
+fn struct_decl_eq(lhs: &StructItem, rhs: &StructItem) -> bool {
+    lhs.name == rhs.name
+        && lhs.generics == rhs.generics
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && fields_decl_eq(&lhs.fields, &rhs.fields)
+        && lhs.is_extern == rhs.is_extern
+}
+
+fn union_decl_eq(lhs: &UnionItem, rhs: &UnionItem) -> bool {
+    lhs.name == rhs.name
+        && lhs.generics == rhs.generics
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && fields_decl_eq(&lhs.fields, &rhs.fields)
+        && lhs.is_extern == rhs.is_extern
+}
+
+fn fields_decl_eq(lhs: &[Field], rhs: &[Field]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| field_decl_eq(lhs, rhs))
+}
+
+fn field_decl_eq(lhs: &Field, rhs: &Field) -> bool {
+    lhs.name == rhs.name
+        && type_ref_decl_eq(&lhs.ty, &rhs.ty)
+        && item_attributes_declaration_eq(&lhs.attributes, &rhs.attributes)
 }
 
 fn trait_decl_eq(lhs: &TraitItem, rhs: &TraitItem) -> bool {
     lhs.name == rhs.name
         && lhs.generics == rhs.generics
-        && lhs.supertraits == rhs.supertraits
-        && lhs.where_clause == rhs.where_clause
-        && lhs.associated_types == rhs.associated_types
+        && type_refs_decl_eq(&lhs.supertraits, &rhs.supertraits)
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && trait_associated_types_decl_eq(&lhs.associated_types, &rhs.associated_types)
         && lhs.methods.len() == rhs.methods.len()
         && lhs
             .methods
             .iter()
             .zip(rhs.methods.iter())
-            .all(|(lhs, rhs)| function_decl_eq(&lhs.function, &rhs.function))
+            .all(|(lhs, rhs)| trait_method_decl_eq(lhs, rhs))
+}
+
+fn trait_associated_types_decl_eq(
+    lhs: &[TraitAssociatedType],
+    rhs: &[TraitAssociatedType],
+) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.name == rhs.name)
+}
+
+fn trait_method_decl_eq(lhs: &TraitMethod, rhs: &TraitMethod) -> bool {
+    function_decl_eq(&lhs.function, &rhs.function)
 }
 
 fn extend_decl_eq(lhs: &ExtendItem, rhs: &ExtendItem) -> bool {
     lhs.generics == rhs.generics
-        && lhs.target == rhs.target
-        && lhs.trait_ref == rhs.trait_ref
-        && lhs.where_clause == rhs.where_clause
-        && lhs.associated_types == rhs.associated_types
-        && lhs.associated_values == rhs.associated_values
+        && type_ref_decl_eq(&lhs.target, &rhs.target)
+        && option_type_ref_decl_eq(lhs.trait_ref.as_ref(), rhs.trait_ref.as_ref())
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && extend_associated_types_decl_eq(&lhs.associated_types, &rhs.associated_types)
+        && extend_associated_values_decl_eq(&lhs.associated_values, &rhs.associated_values)
         && lhs.methods.len() == rhs.methods.len()
         && lhs
             .methods
             .iter()
             .zip(rhs.methods.iter())
-            .all(|(lhs, rhs)| lhs.vis == rhs.vis && function_decl_eq(&lhs.function, &rhs.function))
+            .all(|(lhs, rhs)| extend_method_decl_eq(lhs, rhs))
+}
+
+fn extend_associated_types_decl_eq(
+    lhs: &[ExtendAssociatedType],
+    rhs: &[ExtendAssociatedType],
+) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.name == rhs.name && type_ref_decl_eq(&lhs.ty, &rhs.ty))
+}
+
+fn extend_associated_values_decl_eq(
+    lhs: &[ExtendAssociatedValue],
+    rhs: &[ExtendAssociatedValue],
+) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.vis == rhs.vis && binding_decl_eq(&lhs.binding, &rhs.binding))
+}
+
+fn extend_method_decl_eq(lhs: &ExtendMethod, rhs: &ExtendMethod) -> bool {
+    lhs.vis == rhs.vis && function_decl_eq(&lhs.function, &rhs.function)
+}
+
+fn enum_decl_eq(lhs: &EnumItem, rhs: &EnumItem) -> bool {
+    lhs.name == rhs.name
+        && option_type_ref_decl_eq(lhs.backing_type.as_ref(), rhs.backing_type.as_ref())
+        && lhs.is_open == rhs.is_open
+        && enum_variants_decl_eq(&lhs.variants, &rhs.variants)
+}
+
+fn enum_variants_decl_eq(lhs: &[EnumVariant], rhs: &[EnumVariant]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.name == rhs.name && lhs.value == rhs.value)
+}
+
+fn type_alias_decl_eq(lhs: &TypeAliasItem, rhs: &TypeAliasItem) -> bool {
+    lhs.name == rhs.name
+        && lhs.generics == rhs.generics
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && type_ref_decl_eq(&lhs.ty, &rhs.ty)
 }
 
 fn function_decl_eq(lhs: &FunctionItem, rhs: &FunctionItem) -> bool {
     lhs.name == rhs.name
         && lhs.generics == rhs.generics
-        && lhs.where_clause == rhs.where_clause
-        && lhs.params == rhs.params
-        && lhs.return_type == rhs.return_type
+        && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
+        && params_decl_eq(&lhs.params, &rhs.params)
+        && option_type_ref_decl_eq(lhs.return_type.as_ref(), rhs.return_type.as_ref())
         && lhs.is_extern == rhs.is_extern
         && lhs.is_comptime == rhs.is_comptime
         && lhs.is_variadic == rhs.is_variadic
-        && lhs.node_key == rhs.node_key
+}
+
+fn params_decl_eq(lhs: &[Param], rhs: &[Param]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| param_decl_eq(lhs, rhs))
+}
+
+fn param_decl_eq(lhs: &Param, rhs: &Param) -> bool {
+    lhs.receiver == rhs.receiver
+        && lhs.name == rhs.name
+        && option_type_ref_decl_eq(lhs.ty.as_ref(), rhs.ty.as_ref())
+}
+
+fn binding_decl_eq(lhs: &BindingItem, rhs: &BindingItem) -> bool {
+    lhs.name == rhs.name
+        && option_type_ref_decl_eq(lhs.ty.as_ref(), rhs.ty.as_ref())
+        && lhs.is_let == rhs.is_let
+        && lhs.is_comptime == rhs.is_comptime
+        && lhs.is_extern == rhs.is_extern
 }
 
 pub fn lower_module_items(module: &Module) -> ModuleItemTree {
@@ -270,6 +387,7 @@ fn item_is_active(
 mod tests {
     use super::*;
     use nia_parser::parse_module;
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
 
     #[test]
     fn keeps_conditional_attributes_as_item_attributes() {
@@ -352,6 +470,67 @@ fn selected() i32 { 2 }
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn source_revision_changes_do_not_change_item_tree_declaration_shape() {
+        let source = "pub fn main(value: i32) i32 { value }";
+        let before_tree = parse_versioned_item_tree(source, SourceRevision::INITIAL);
+        let after_tree = parse_versioned_item_tree(source, SourceRevision(1));
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn body_change_with_new_source_revision_keeps_function_declaration_shape() {
+        let before_tree =
+            parse_versioned_item_tree("pub fn main() i32 { 0 }", SourceRevision::INITIAL);
+        let after_tree = parse_versioned_item_tree("pub fn main() i32 { 1 }", SourceRevision(1));
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn type_formatting_changes_do_not_change_item_tree_declaration_shape() {
+        let (before, before_errors) = parse_module(
+            r#"
+struct Box[T] { value: T }
+extend[T] &Box[T] {
+    fn get(self) T { self.value }
+}
+fn main(items: &[Box[i32]]) &Box[i32] { &items[0] }
+"#,
+        );
+        let (after, after_errors) = parse_module(
+            r#"
+struct Box[T] { value: T }
+extend[T] & Box[ T ] {
+    fn get(self) T { self.value }
+}
+fn main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
+"#,
+        );
+        assert!(before_errors.is_empty(), "{before_errors:?}");
+        assert!(after_errors.is_empty(), "{after_errors:?}");
+
+        let before_tree = lower_module_items(&before);
+        let after_tree = lower_module_items(&after);
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    fn parse_versioned_item_tree(source: &str, revision: SourceRevision) -> ModuleItemTree {
+        let version = SourceVersion {
+            id: SourceId(0),
+            revision,
+        };
+        let syntax = nia_syntax::parse_source(source, Some(version));
+        let (module, errors) = nia_parser::parse_module_syntax(&syntax);
+        assert!(errors.is_empty(), "{errors:?}");
+        lower_module_items(&module)
     }
 
     struct BoolResolver;

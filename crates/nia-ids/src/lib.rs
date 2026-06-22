@@ -3,13 +3,16 @@
 pub struct ModuleId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DefId(pub u32);
+pub struct DefId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalDefId {
     pub module_id: ModuleId,
     pub def_id: DefId,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TraitImplId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConstExprId(pub u32);
@@ -26,6 +29,32 @@ pub struct LocalId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TyInternerIndex(u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TyInternerId(pub u32);
+
+impl TyInternerId {
+    pub const fn for_module(module_id: ModuleId) -> Self {
+        Self(module_id.0)
+    }
+
+    pub const fn module_id(self) -> ModuleId {
+        ModuleId(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TypeOwner {
+    Module(ModuleId),
+}
+
+impl TypeOwner {
+    pub const fn module_id(self) -> ModuleId {
+        match self {
+            Self::Module(module_id) => module_id,
+        }
+    }
+}
+
 impl TyInternerIndex {
     #[doc(hidden)]
     pub const fn from_interner_index(index: u32) -> Self {
@@ -39,13 +68,17 @@ impl TyInternerIndex {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InternedTyId {
-    pub interner_id: ModuleId,
+    pub interner_id: TyInternerId,
     pub index: TyInternerIndex,
 }
 
 impl InternedTyId {
-    pub const fn new(interner_id: ModuleId, index: TyInternerIndex) -> Self {
+    pub const fn new(interner_id: TyInternerId, index: TyInternerIndex) -> Self {
         Self { interner_id, index }
+    }
+
+    pub const fn owner(self) -> TypeOwner {
+        TypeOwner::Module(self.interner_id.module_id())
     }
 }
 

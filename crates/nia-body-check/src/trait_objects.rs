@@ -318,7 +318,7 @@ impl<'a> BodyChecker<'a> {
             }
             let Some(impl_signature) = self.program_trait_impls.iter().find(|impl_signature| {
                 impl_signature.module_id == method.def_id.module_id
-                    && impl_signature.local_index == method.impl_index
+                    && impl_signature.impl_id == method.impl_id
             }) else {
                 continue;
             };

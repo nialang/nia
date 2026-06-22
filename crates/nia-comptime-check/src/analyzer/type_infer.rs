@@ -91,8 +91,7 @@ impl Analyzer<'_> {
             }
         } else {
             for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let imported =
-                    self.import_ty_into_module(arg.span(), arg.ty(), signature_module_id)?;
+                let imported = self.import_ty_into_module(arg.ty(), signature_module_id)?;
                 substitutions.insert(generic.clone(), imported);
             }
         }

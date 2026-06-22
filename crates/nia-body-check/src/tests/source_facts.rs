@@ -109,8 +109,8 @@ fn main() i32 {
     assert!(!checked.facts.node_expr_types.is_empty());
     assert!(checked.facts.node_expr_types.keys().any(|key| {
         key.source_version() == version
-            && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::ChildPathRange { .. })
+            && key.kind() == SyntaxKind::Expr
+            && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
 }
 
@@ -246,23 +246,23 @@ fn main() i32 {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.node_expr_types.keys().any(|key| {
         key.source_version() == version
-            && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::ChildPathRange { .. })
+            && key.kind() == SyntaxKind::Expr
+            && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
     assert!(checked.facts.node_builtin_values.keys().any(|key| {
         key.source_version() == version
-            && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::ChildPathRange { .. })
+            && key.kind() == SyntaxKind::Expr
+            && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
     assert!(checked.facts.node_resolved_calls.keys().any(|key| {
         key.source_version() == version
-            && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::ChildPathRange { .. })
+            && key.kind() == SyntaxKind::Expr
+            && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
     assert!(checked.facts.node_function_references.keys().any(|key| {
         key.source_version() == version
-            && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::ChildPathRange { .. })
+            && key.kind() == SyntaxKind::Expr
+            && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
     assert!(
         checked
@@ -271,8 +271,8 @@ fn main() i32 {
             .keys()
             .any(|key| {
                 key.source_version() == version
-                    && key.kind == SyntaxKind::Expr
-                    && matches!(key.position, NodePosition::ChildPathRange { .. })
+                    && key.kind() == SyntaxKind::Expr
+                    && matches!(key.position(), NodePosition::ChildPathRange { .. })
             })
     );
 }

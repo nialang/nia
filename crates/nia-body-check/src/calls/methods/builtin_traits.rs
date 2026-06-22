@@ -3,7 +3,7 @@ use super::*;
 
 struct BuiltinAssociatedPlaceMethodCall<'a> {
     span: Span,
-    node_key: &'a nia_node_id::NodeKey,
+    node_key: &'a nia_node_id::VersionedNodeKey,
     target_ty: InternedTyId,
     name: &'a str,
     method: BuiltinTraitMethod,
@@ -13,7 +13,7 @@ struct BuiltinAssociatedPlaceMethodCall<'a> {
 
 struct BuiltinAssociatedIntrinsicMethodCall<'a> {
     span: Span,
-    node_key: &'a nia_node_id::NodeKey,
+    node_key: &'a nia_node_id::VersionedNodeKey,
     target_ty: InternedTyId,
     name: &'a str,
     method: BuiltinTraitMethod,
