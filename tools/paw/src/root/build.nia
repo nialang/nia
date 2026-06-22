@@ -48,6 +48,10 @@ extend PreparedProject {
     fn action(&self) build_graph::StepAction {
         self.plan.action()
     }
+
+    fn action_path(&self, graph_bytes: &[u8]) &[u8] {
+        &graph_bytes[self.plan.action_path_start()..(self.plan.action_path_start() + self.plan.action_path_len())]
+    }
 }
 
 fn finish_project(prepared: PreparedProject) void {
@@ -62,7 +66,7 @@ pub(pkg) fn run_step(
 ) process::ExitCode!process::ExitCode {
     var graph_storage: [8192]u8 = [0; 8192];
     let graph_bytes = read_build_graph(stderr, init, root, &mut graph_storage).?;
-    execute_step(stderr, root, step, graph_bytes)
+    execute_step(stderr, init, root, step, graph_bytes)
 }
 
 fn read_build_graph(
@@ -209,6 +213,7 @@ fn nul_terminate(bytes: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
 
 fn execute_step(
     stderr: &mut io::FileWriter,
+    init: process::Init,
     root: &[u8],
     step: &[u8],
     graph_bytes: &[u8],
@@ -219,6 +224,7 @@ fn execute_step(
         build_graph::StepAction::BuildExecutable => emit_executable_action(stderr, root, graph_bytes, &prepared),
         build_graph::StepAction::CheckExecutable => check_executable_action(stderr, &prepared),
         build_graph::StepAction::ObjectDirectory => emit_object_directory_action(stderr, root, &prepared),
+        build_graph::StepAction::InstallExecutable => install_executable_action(stderr, init, root, graph_bytes, &prepared),
     }
 }
 
@@ -240,6 +246,27 @@ fn emit_executable_action(
     build_graph::apply_link_options(stderr, graph_bytes, root, prepared.executable_name(graph_bytes), &link_options).?;
     let result = prepared.session().emit_executable_with_options(prepared.request(), output, &link_options);
     requests::finish_result(stderr, result, b"paw: executable emit returned null result")
+}
+
+fn install_executable_action(
+    stderr: &mut io::FileWriter,
+    init: process::Init,
+    root: &[u8],
+    graph_bytes: &[u8],
+    prepared: &PreparedProject,
+) process::ExitCode!process::ExitCode {
+    let code = emit_executable_action(stderr, root, graph_bytes, prepared).?;
+    if code != process::exit(0) {
+        return code!;
+    }
+    var source_storage: [4096]u8 = [0; 4096];
+    var target_storage: [4096]u8 = [0; 4096];
+    let install_path = prepared.action_path(graph_bytes);
+    let source = executable_output_path(root, prepared.executable_name(graph_bytes), &mut source_storage).?;
+    let target = install_output_path(root, install_path, &mut target_storage).?;
+    ensure_install_parent_dirs(stderr, root, install_path).?;
+    copy_file(init, stderr, source, target).?;
+    !process::exit(0)
 }
 
 fn check_executable_action(
@@ -298,4 +325,123 @@ fn objects_output_path(root: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
     }
     writer.write_all(b".nia-build/objects").exit().?;
     !writer.written()
+}
+
+fn install_output_path(root: &[u8], path: &[u8], out: &mut [u8]) process::ExitCode!&[u8] {
+    var writer = io::FixedBufferWriter::init(out);
+    writer.write_all(root).exit().?;
+    if writer.len() != 0usize and writer.written()[writer.len() - 1usize] != b'/' {
+        writer.write_all(b"/").exit().?;
+    }
+    writer.write_all(b".nia-build/install/").exit().?;
+    writer.write_all(path).exit().?;
+    !writer.written()
+}
+
+fn copy_file(
+    init: process::Init,
+    stderr: &mut io::FileWriter,
+    source: &[u8],
+    target: &[u8],
+) process::ExitCode!void {
+    var source_storage: [4096]u8 = [0; 4096];
+    var target_storage: [4096]u8 = [0; 4096];
+    let source_path = encoded_path(source, &mut source_storage).?;
+    let target_path = encoded_path(target, &mut target_storage).?;
+    var cwd = if let !value = fs::Dir::cwd() {
+        value
+    } else error! {
+        stderr.print("paw: failed to open current directory\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    defer cwd.close().exit().?;
+    var source_file = if let !value = cwd.open_encoded_file(source_path, fs::OpenOptions::read_only()) {
+        value
+    } else error! {
+        stderr.print("paw: failed to open install source\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    defer source_file.close().exit().?;
+    var target_file = if let !value = cwd.create_encoded_file(target_path, fs::CreateOptions::init()) {
+        value
+    } else error! {
+        stderr.print("paw: failed to create install target\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    defer target_file.close().exit().?;
+    let source_metadata = source_file.metadata().exit().?;
+    target_file.set_permissions(source_metadata.permissions()).exit().?;
+    var read_buffer: [8192]u8 = [0; 8192];
+    var source_io_buffer: [1024]u8 = [0; 1024];
+    var target_io_buffer: [1024]u8 = [0; 1024];
+    var reader = source_file.reader(init.io(), &mut source_io_buffer[..]).exit().?;
+    var writer = target_file.writer(init.io(), &mut target_io_buffer[..]).exit().?;
+    while true {
+        let count = if let !value = reader.read(&mut read_buffer[..]) {
+            value
+        } else error! {
+            stderr.print("paw: failed to read install source\n", &[]).exit().?;
+            return error.as_exit_code()!;
+        };
+        if count == 0usize {
+            break;
+        }
+        writer.write_all(&read_buffer[0..count]).exit().?;
+    }
+    writer.flush().exit().?;
+    !{}
+}
+
+fn ensure_install_parent_dirs(stderr: &mut io::FileWriter, root: &[u8], path: &[u8]) process::ExitCode!void {
+    var cwd = if let !value = fs::Dir::cwd() {
+        value
+    } else error! {
+        stderr.print("paw: failed to open current directory\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    };
+    defer cwd.close().exit().?;
+    var base_storage: [4096]u8 = [0; 4096];
+    let base = install_output_path(root, b"", &mut base_storage).?;
+    ensure_dir(&cwd, stderr, base).?;
+    var index = 0usize;
+    while index < path.len() {
+        if path[index] == b'/' {
+            var dir_storage: [4096]u8 = [0; 4096];
+            let dir = install_output_path(root, &path[0..index], &mut dir_storage).?;
+            ensure_dir(&cwd, stderr, dir).?;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+
+fn ensure_dir(cwd: &fs::Dir, stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!void {
+    var storage: [4096]u8 = [0; 4096];
+    let encoded = encoded_path(path, &mut storage).?;
+    if let !ok = cwd.create_encoded_dir(encoded, fs::CreateDirOptions::init()) {
+        _ = ok;
+    } else error! {
+        if error == fs::Error::AlreadyExists {
+            return !{};
+        }
+        stderr.print("paw: failed to create install directory\n", &[]).exit().?;
+        return error.as_exit_code()!;
+    }
+    !{}
+}
+
+fn encoded_path(path: &[u8], out: &mut [u8]) process::ExitCode!fs::EncodedPath {
+    if path.len() + 1usize > out.len() {
+        return process::exit(2)!;
+    }
+    var index = 0usize;
+    while index < path.len() {
+        if path[index] == 0u8 {
+            return process::exit(2)!;
+        }
+        out[index] = path[index];
+        index += 1usize;
+    }
+    out[index] = 0u8;
+    !fs::EncodedPath::init(out.get_ptr_read(), path.len())
 }

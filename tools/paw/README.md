@@ -41,7 +41,9 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     var check_step = build.step("check").?;
     check_step.check(&exe).?;
     var objects_step = build.step("objects").?;
-    objects_step.objects(&exe)
+    objects_step.objects(&exe).?;
+    var install_step = build.step("install").?;
+    install_step.install(&exe, "bin/paw")
 }
 ```
 
@@ -59,13 +61,14 @@ paw [step] [--root <dir>]
 
 - `paw` runs the default step from `build.nia`.
 - `paw build` runs the step named `build`.
-- `paw check` and `paw objects` work when those steps are declared by
+- `paw check`, `paw objects`, and `paw install` work when those steps are declared by
   `build.nia`.
 - `--root <dir>` selects the package root. If omitted, `paw` uses the current
   directory.
 
 The current executable build output is written into `<root>/.nia-build/`.
 Object directory output is written into `<root>/.nia-build/objects`.
+Install output is staged under `<root>/.nia-build/install/`.
 
 ## Bootstrapping
 
@@ -101,6 +104,7 @@ A basic self-hosting check builds one more generation and verifies object output
 build/paw-bootstrap/paw build --root tools/paw
 cp tools/paw/.nia-build/paw build/paw-bootstrap/paw-step2
 build/paw-bootstrap/paw objects --root tools/paw
+build/paw-bootstrap/paw install --root tools/paw
 ```
 
 The `build/` directory is ignored by this repository and is used here for
@@ -117,7 +121,7 @@ shape for that cache, but `paw` does not own it yet.
 - executable build, check, and object directory step actions;
 - no dependency resolver;
 - no package cache;
-- no install or publish workflow;
+- no system install or publish workflow;
 - no dedicated test action.
 
 Those limits are represented directly in the implementation instead of being

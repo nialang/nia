@@ -149,6 +149,13 @@ extend Step {
         self.writer.print("step-object-directory\t{}\t{}\n", &[self.name, executable.name]).as_paw_fmt_error()
     }
 
+    pub fn install(&mut self, executable: &Executable, path: &[char]) Error!void {
+        if not is_graph_field(path) {
+            return Error::InvalidInput!;
+        }
+        self.writer.print("step-install-executable\t{}\t{}\t{}\n", &[self.name, executable.name, path]).as_paw_fmt_error()
+    }
+
     pub fn default(&mut self) Error!void {
         self.writer.print("default-step\t{}\n", &[self.name]).as_paw_fmt_error()
     }
