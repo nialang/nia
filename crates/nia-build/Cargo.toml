@@ -1,16 +1,12 @@
 [package]
-name = "nia-cli"
+name = "nia-build"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-build.workspace = true
-nia-driver.workspace = true
-nia-ice.workspace = true
 nia-linker.workspace = true
 
-[[bin]]
-name = "nia"
-path = "src/main.rs"
+[lib]
+path = "src/lib.rs"

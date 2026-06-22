@@ -18,6 +18,11 @@ The current surface is intentionally small:
 - emit an executable, optionally with linker options;
 - read and free result messages.
 
+The C API is an embedding boundary, not the package-build interface. Nia-owned
+build flows should use the Rust toolchain/build crates so compiler API, LLVM,
+C runtime, unwind runtime, and dynamic linker details stay inside the toolchain
+link plan.
+
 All string inputs are passed as `const uint8_t *` plus byte length and must be
 valid UTF-8. Returned `NiaString` values are owned by the caller and must be
 released with `nia_string_free`. `NiaResult`, `NiaSession`,

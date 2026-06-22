@@ -2,3 +2,5 @@
 /build/
 /.nia-build/
 **/.nia-build/
+/.nia-cache/
+**/.nia-cache/

@@ -2987,6 +2987,7 @@ A conforming Nia compiler supports:
 The CLI surface is:
 
 ```text
+nia build [step] [--root dir]
 nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
@@ -2996,6 +2997,10 @@ nia emit --llvm <file.nia> [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
+
+`nia build` is reserved as the toolchain-owned package build entry point for
+`build.nia`. It resolves package roots before build execution and keeps build
+outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
 
 Module-map options are accepted before or after the command:
 
