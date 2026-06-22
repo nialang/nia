@@ -1293,6 +1293,56 @@ fn main() i32 {
     }
 
     #[test]
+    fn revision_only_update_keeps_declaration_and_type_queries_cached() {
+        let source = "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }";
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module_with_revision(ModuleId(0), "main.nia", source, SourceRevision(0)),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(ModuleId(0), "main.nia", source, SourceRevision(1)),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            invalidated.contains(&"module_source_version"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"full_module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"body_check"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"declaration_type_lowering"),
+            "{invalidated:?}"
+        );
+        assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"program_signatures"),
+            "{invalidated:?}"
+        );
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    }
+
+    #[test]
     fn function_body_update_keeps_public_surface_cached() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
