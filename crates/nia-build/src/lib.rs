@@ -77,6 +77,10 @@ pub enum BuildError {
     CurrentDirectory {
         error: io::Error,
     },
+    NonUtf8Path {
+        role: &'static str,
+        path: PathBuf,
+    },
     CreateRunnerDirectory {
         path: PathBuf,
         error: io::Error,
@@ -104,6 +108,13 @@ impl fmt::Display for BuildError {
         match self {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
+            }
+            Self::NonUtf8Path { role, path } => {
+                write!(
+                    f,
+                    "failed to encode {role} path `{}` as Nia source: path is not valid UTF-8",
+                    path.display()
+                )
             }
             Self::CreateRunnerDirectory { path, error } => {
                 write!(
@@ -177,14 +188,25 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
     })
 }
 
-pub fn build_runner_source(plan: &BuildPlan) -> BuildRunnerSource {
+pub fn build_runner_source(plan: &BuildPlan) -> Result<BuildRunnerSource, BuildError> {
     let path = plan
         .runner_dir
         .join("root.nia")
         .to_string_lossy()
         .into_owned();
+    build_runner_source_for_path(plan, path)
+}
+
+fn build_runner_source_for_path(
+    plan: &BuildPlan,
+    path: String,
+) -> Result<BuildRunnerSource, BuildError> {
+    let package_root = nia_path_literal("package root", &plan.package_root)?;
+    let build_dir = nia_path_literal("build dir", &plan.build_dir)?;
+    let cache_dir = nia_path_literal("cache dir", &plan.cache_dir)?;
     let source = r#"
 using std::build;
+using std::fs;
 using std::mem;
 using std::process;
 using build_script;
@@ -194,7 +216,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
     defer allocator.deinit().ok().exit().?;
 
-    var api = build::Build::init(init, &mut allocator);
+    var api = build::Build::init(
+        init,
+        &mut allocator,
+        fs::Path::init({package_root}),
+        fs::Path::init({build_dir}),
+        fs::Path::init({cache_dir}),
+    );
     defer api.deinit().exit().?;
 
     build_script::build(&mut api).exit().?;
@@ -203,8 +231,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 "#
     .trim_start()
-    .to_string();
-    BuildRunnerSource { path, source }
+    .replace("{package_root}", &package_root)
+    .replace("{build_dir}", &build_dir)
+    .replace("{cache_dir}", &cache_dir);
+    Ok(BuildRunnerSource { path, source })
 }
 
 fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
@@ -212,7 +242,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
         path: plan.runner_dir.clone(),
         error,
     })?;
-    let runner = build_runner_source(plan);
+    let runner = build_runner_source(plan)?;
     let driver = Driver::new();
     driver.set_source(runner.path.clone(), runner.source.clone());
     let mut module_map = ModuleMap::new();
@@ -232,6 +262,38 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
             source: runner.source,
             error,
         })
+}
+
+fn nia_path_literal(role: &'static str, path: &Path) -> Result<String, BuildError> {
+    let Some(text) = path.to_str() else {
+        return Err(BuildError::NonUtf8Path {
+            role,
+            path: path.to_path_buf(),
+        });
+    };
+    Ok(nia_string_literal(text))
+}
+
+fn nia_string_literal(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\0' => out.push_str("\\0"),
+            ch if ch.is_control() => {
+                use std::fmt::Write;
+                write!(&mut out, "\\u{{{:x}}}", ch as u32).expect("writing to String cannot fail");
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn run_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
@@ -298,20 +360,30 @@ mod tests {
         std::fs::write(root.join("build.nia"), "").expect("write build script");
         let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
 
-        let runner = build_runner_source(&plan);
+        let runner = build_runner_source(&plan).expect("build runner source");
 
         assert_eq!(
             runner.path,
             plan.runner_dir.join("root.nia").to_string_lossy()
         );
         assert!(runner.source.contains("using std::build;"));
+        assert!(runner.source.contains("using std::fs;"));
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using build_script;"));
-        assert!(
-            runner
-                .source
-                .contains("var api = build::Build::init(init, &mut allocator);")
-        );
+        assert!(runner.source.contains("var api = build::Build::init("));
+        assert!(runner.source.contains("fs::Path::init("));
+        assert!(runner.source.contains(&format!(
+            "fs::Path::init({})",
+            nia_string_literal(root.to_str().expect("utf-8 temp path"))
+        )));
+        assert!(runner.source.contains(&format!(
+            "fs::Path::init({})",
+            nia_string_literal(root.join(".nia-build").to_str().expect("utf-8 build path"))
+        )));
+        assert!(runner.source.contains(&format!(
+            "fs::Path::init({})",
+            nia_string_literal(root.join(".nia-cache").to_str().expect("utf-8 cache path"))
+        )));
         assert!(
             runner
                 .source
@@ -340,6 +412,22 @@ mod tests {
             .expect_err("missing build script");
 
         assert!(matches!(error, BuildError::MissingBuildScript { start } if start == root));
+    }
+
+    #[test]
+    fn escapes_paths_in_generated_runner_source() {
+        let root = temp_root("escapes_paths_in_generated_runner_source");
+        let package_root = root.join("quote\"slash\\tab\t");
+        std::fs::create_dir_all(&package_root).expect("create package root");
+        std::fs::write(package_root.join("build.nia"), "").expect("write build script");
+
+        let plan =
+            resolve_build_plan(BuildRequest::new().with_root(&package_root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+
+        assert!(runner.source.contains("\\\""));
+        assert!(runner.source.contains("\\\\"));
+        assert!(runner.source.contains("\\t"));
     }
 
     fn temp_root(name: &str) -> PathBuf {

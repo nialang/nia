@@ -4,6 +4,7 @@ using pkg::fmt;
 using pkg::fs;
 using pkg::io;
 using pkg::mem;
+using pkg::os;
 
 pub enum Error: i32 {
     UnknownStep = 1,
@@ -24,6 +25,9 @@ pub struct Step {
 pub struct Build {
     init: process::Init,
     allocator: &mut mem::Allocator,
+    package_root: fs::Path,
+    build_dir: fs::Path,
+    cache_dir: fs::Path,
     steps: collections::ArrayList[Step],
 }
 
@@ -33,12 +37,41 @@ pub fn noop_step(b: &mut Build) Error!void {
 }
 
 extend Build {
-    pub fn init(init: process::Init, allocator: &mut mem::Allocator) Build {
-        { init: init, allocator: allocator, steps: collections::ArrayList[Step]::init() }
+    pub fn init(
+        init: process::Init,
+        allocator: &mut mem::Allocator,
+        package_root: fs::Path,
+        build_dir: fs::Path,
+        cache_dir: fs::Path,
+    ) Build {
+        {
+            init: init,
+            allocator: allocator,
+            package_root: package_root,
+            build_dir: build_dir,
+            cache_dir: cache_dir,
+            steps: collections::ArrayList[Step]::init(),
+        }
     }
 
     pub fn deinit(&mut self) Error!void {
         self.steps.deinit(self.allocator).as_build_error()
+    }
+
+    pub fn io(&self) &mut io::Io[Error = os::Error] {
+        self.init.io()
+    }
+
+    pub fn package_root(&self) fs::Path {
+        self.package_root
+    }
+
+    pub fn build_dir(&self) fs::Path {
+        self.build_dir
+    }
+
+    pub fn cache_dir(&self) fs::Path {
+        self.cache_dir
     }
 
     pub fn step(&mut self, name: &[char], run: StepFn) Error!void {
@@ -140,7 +173,7 @@ extend[T] Error!T {
 }
 
 extend[T] fmt::Error!T {
-    fn as_build_error(self) Error!T {
+    pub fn as_build_error(self) Error!T {
         if let !value = self {
             !value
         } else error! {
@@ -156,7 +189,7 @@ extend[T] fmt::Error!T {
 }
 
 extend[T] fs::Error!T {
-    fn as_build_error(self) Error!T {
+    pub fn as_build_error(self) Error!T {
         if let !value = self {
             !value
         } else error! {
@@ -177,7 +210,7 @@ extend[T] fs::Error!T {
 }
 
 extend[T] mem::Error!T {
-    fn as_build_error(self) Error!T {
+    pub fn as_build_error(self) Error!T {
         if let !value = self {
             !value
         } else error! {
