@@ -29,6 +29,42 @@ pub enum DynamicLinker {
     Path(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryLinkMode {
+    Default,
+    Static,
+    Dynamic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeLibrary {
+    pub name: String,
+    pub mode: LibraryLinkMode,
+}
+
+impl NativeLibrary {
+    pub fn default(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            mode: LibraryLinkMode::Default,
+        }
+    }
+
+    pub fn static_(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            mode: LibraryLinkMode::Static,
+        }
+    }
+
+    pub fn dynamic(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            mode: LibraryLinkMode::Dynamic,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableLinker {
     pub program: String,
@@ -111,7 +147,7 @@ pub struct LinkOptions {
     pub sysroot: Option<String>,
     pub library_paths: Vec<String>,
     pub rpaths: Vec<String>,
-    pub libraries: Vec<String>,
+    pub libraries: Vec<NativeLibrary>,
     pub raw_args: Vec<String>,
 }
 
@@ -172,7 +208,17 @@ impl LinkOptions {
     }
 
     pub fn add_library(mut self, library: impl Into<String>) -> Self {
-        self.libraries.push(library.into());
+        self.libraries.push(NativeLibrary::default(library));
+        self
+    }
+
+    pub fn add_static_library(mut self, library: impl Into<String>) -> Self {
+        self.libraries.push(NativeLibrary::static_(library));
+        self
+    }
+
+    pub fn add_dynamic_library(mut self, library: impl Into<String>) -> Self {
+        self.libraries.push(NativeLibrary::dynamic(library));
         self
     }
 
@@ -229,10 +275,7 @@ impl LinkOptions {
             args.push("-rpath".to_string());
             args.push(rpath.clone());
         }
-        for library in &self.libraries {
-            args.push("-l".to_string());
-            args.push(library.clone());
-        }
+        self.push_gnu_like_libraries(&mut args);
         match self.mode {
             LinkMode::Static => {}
             LinkMode::Dynamic => match &self.dynamic_linker {
@@ -260,6 +303,44 @@ impl LinkOptions {
             program: linker.program.clone(),
             args,
         })
+    }
+
+    fn push_gnu_like_libraries(&self, args: &mut Vec<String>) {
+        let mut current_mode = LibraryLinkMode::Default;
+        for library in &self.libraries {
+            if library.mode != current_mode {
+                match library.mode {
+                    LibraryLinkMode::Default => {
+                        args.push(
+                            match self.mode {
+                                LinkMode::Static => "-Bstatic",
+                                LinkMode::Dynamic => "-Bdynamic",
+                            }
+                            .to_string(),
+                        );
+                    }
+                    LibraryLinkMode::Static => args.push("-Bstatic".to_string()),
+                    LibraryLinkMode::Dynamic => args.push("-Bdynamic".to_string()),
+                }
+                current_mode = library.mode;
+            }
+            args.push("-l".to_string());
+            args.push(library.name.clone());
+        }
+        if current_mode != LibraryLinkMode::Default {
+            let default_flag = match self.mode {
+                LinkMode::Static => "-Bstatic",
+                LinkMode::Dynamic => "-Bdynamic",
+            };
+            let current_flag = match current_mode {
+                LibraryLinkMode::Default => default_flag,
+                LibraryLinkMode::Static => "-Bstatic",
+                LibraryLinkMode::Dynamic => "-Bdynamic",
+            };
+            if current_flag != default_flag {
+                args.push(default_flag.to_string());
+            }
+        }
     }
 
     fn default_library_paths_for_linker(&self, linker: &ResolvedLinker) -> Vec<String> {
@@ -789,6 +870,46 @@ mod tests {
             static_index < library_index,
             "static mode must be selected before library lookup: {:?}",
             invocation.args
+        );
+    }
+
+    #[test]
+    fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
+        let options = LinkOptions {
+            linker: ExecutableLinker::with_program("ld"),
+            ..LinkOptions::default()
+        }
+        .with_dynamic_mode()
+        .add_static_library("nia_capi")
+        .add_dynamic_library("LLVM")
+        .add_dynamic_library(":libgcc_s.so.1")
+        .add_dynamic_library("c");
+        let invocation = options
+            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .expect("link invocation");
+        let dynamic_linker =
+            standard_dynamic_linker().unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_string());
+        assert_eq!(
+            invocation.args,
+            vec![
+                "-e",
+                "_start",
+                "main.o",
+                "-Bstatic",
+                "-l",
+                "nia_capi",
+                "-Bdynamic",
+                "-l",
+                "LLVM",
+                "-l",
+                ":libgcc_s.so.1",
+                "-l",
+                "c",
+                "--dynamic-linker",
+                dynamic_linker.as_str(),
+                "-o",
+                "main"
+            ]
         );
     }
 

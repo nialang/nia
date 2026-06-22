@@ -38,6 +38,7 @@ enum EntryKind: i32 {
     StepInstallExecutable = 12,
     LinkMode = 13,
     RuntimeLibrary = 14,
+    NiaCompiler = 15,
 }
 
 extend BuildPlan {
@@ -145,7 +146,7 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                         }
                     }
                 },
-                EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary => {},
+                EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary, EntryKind::NiaCompiler => {},
             };
         }
         index = line_end + 1;
@@ -384,7 +385,7 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
     let second_tab = find_byte(line, first_tab + 1, b'\t');
     switch kind {
         EntryKind::Package, EntryKind::Executable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
-        EntryKind::Step, EntryKind::DefaultStep => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::Step, EntryKind::DefaultStep, EntryKind::NiaCompiler => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::StepInstallExecutable, EntryKind::RuntimeLibrary => parse_three_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::LinkMode => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
@@ -542,6 +543,8 @@ extend EntryKind {
             ?EntryKind::LinkMode
         } else if mem::equal[u8](text, b"runtime-library") {
             ?EntryKind::RuntimeLibrary
+        } else if mem::equal[u8](text, b"nia-compiler") {
+            ?EntryKind::NiaCompiler
         } else if mem::equal[u8](text, b"step") {
             ?EntryKind::Step
         } else if mem::equal[u8](text, b"step-build-executable") {
@@ -569,7 +572,7 @@ extend EntryKind {
             EntryKind::StepCheckExecutable => ?StepAction::CheckExecutable,
             EntryKind::StepObjectDirectory => ?StepAction::ObjectDirectory,
             EntryKind::StepInstallExecutable => ?StepAction::InstallExecutable,
-            EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary, EntryKind::Step, EntryKind::DefaultStep => null,
+            EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::LinkMode, EntryKind::RuntimeLibrary, EntryKind::NiaCompiler, EntryKind::Step, EntryKind::DefaultStep => null,
         }
     }
 }
@@ -622,8 +625,13 @@ fn apply_link_option_line(
             return process::exit(2)!;
         }
     }
+    if kind == EntryKind::NiaCompiler and not first_value_matches(line, first_tab, executable_name) {
+        stderr.print("paw: build graph references unknown artifact\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
     switch kind {
         EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable, EntryKind::DefaultStep, EntryKind::RuntimeLibrary => !{},
+        EntryKind::NiaCompiler => apply_nia_compiler_options(stderr, root, options),
         EntryKind::LinkMode => apply_link_mode(stderr, line, first_tab, options),
         EntryKind::LibraryPath => {
             var path_storage: [4096]u8 = [0; 4096];
@@ -647,6 +655,49 @@ fn apply_link_option_line(
         },
         EntryKind::DynamicLinker => apply_dynamic_linker(stderr, line, first_tab, root, options),
     }
+}
+
+fn apply_nia_compiler_options(
+    stderr: &mut io::FileWriter,
+    root: &[u8],
+    options: &abi::LinkOptions,
+) process::ExitCode!void {
+    var path_storage: [4096]u8 = [0; 4096];
+    apply_single_field_link_option(
+        stderr,
+        options.add_library_path(root_relative_path(root, b"../../target/release/deps", &mut path_storage).?),
+        b"paw: failed to add Nia compiler library path",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.set_dynamic_mode(),
+        b"paw: failed to set Nia compiler executable link mode",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.set_dynamic_auto(),
+        b"paw: failed to set Nia compiler dynamic linker",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.add_static_library(b"nia_capi"),
+        b"paw: failed to add Nia compiler library",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.add_dynamic_library(b"LLVM"),
+        b"paw: failed to add LLVM runtime library",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.add_dynamic_library(b":libgcc_s.so.1"),
+        b"paw: failed to add unwind runtime library",
+    ).?;
+    apply_single_field_link_option(
+        stderr,
+        options.add_dynamic_library(b"c"),
+        b"paw: failed to add C runtime library",
+    )
 }
 
 fn apply_link_mode(
@@ -681,6 +732,14 @@ fn artifact_matches(line: &[u8], first_tab: usize, executable_name: &[u8]) bool 
         return false;
     };
     mem::equal[u8](&line[(first_tab + 1)..second_tab], executable_name)
+}
+
+fn first_value_matches(line: &[u8], first_tab: usize, executable_name: &[u8]) bool {
+    if let ?extra = find_byte(line, first_tab + 1usize, b'\t') {
+        _ = extra;
+        return false;
+    }
+    mem::equal[u8](&line[(first_tab + 1usize)..line.len()], executable_name)
 }
 
 fn artifact_payload(line: &[u8], first_tab: usize) ?&[u8] {

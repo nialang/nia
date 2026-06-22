@@ -56,7 +56,7 @@ pub struct NiaLinkOptions {
     dynamic_linker: Option<nia_linker::DynamicLinker>,
     library_paths: Vec<String>,
     rpaths: Vec<String>,
-    libraries: Vec<String>,
+    libraries: Vec<nia_linker::NativeLibrary>,
 }
 
 #[repr(C)]
@@ -65,7 +65,7 @@ pub struct NiaResult {
     message: Vec<u8>,
 }
 
-pub const NIA_CAPI_ABI_VERSION: u32 = 3;
+pub const NIA_CAPI_ABI_VERSION: u32 = 4;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nia_capi_abi_version() -> u32 {
@@ -387,7 +387,51 @@ pub extern "C" fn nia_link_options_add_library(
             Ok(name) => name,
             Err(_) => return NiaStatus::InvalidInput,
         };
-        options.libraries.push(name);
+        options
+            .libraries
+            .push(nia_linker::NativeLibrary::default(name));
+        NiaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nia_link_options_add_static_library(
+    options: *mut NiaLinkOptions,
+    name_ptr: *const u8,
+    name_len: usize,
+) -> NiaStatus {
+    catch_status(|| {
+        let Some(options) = (unsafe { options.as_mut() }) else {
+            return NiaStatus::InvalidInput;
+        };
+        let name = match string_from_abi(name_ptr, name_len) {
+            Ok(name) => name,
+            Err(_) => return NiaStatus::InvalidInput,
+        };
+        options
+            .libraries
+            .push(nia_linker::NativeLibrary::static_(name));
+        NiaStatus::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nia_link_options_add_dynamic_library(
+    options: *mut NiaLinkOptions,
+    name_ptr: *const u8,
+    name_len: usize,
+) -> NiaStatus {
+    catch_status(|| {
+        let Some(options) = (unsafe { options.as_mut() }) else {
+            return NiaStatus::InvalidInput;
+        };
+        let name = match string_from_abi(name_ptr, name_len) {
+            Ok(name) => name,
+            Err(_) => return NiaStatus::InvalidInput,
+        };
+        options
+            .libraries
+            .push(nia_linker::NativeLibrary::dynamic(name));
         NiaStatus::Ok
     })
 }
@@ -532,7 +576,7 @@ pub extern "C" fn nia_session_emit_executable_with_options(
                 link_options = link_options.add_rpath(path.clone());
             }
             for library in &options.libraries {
-                link_options = link_options.add_library(library.clone());
+                link_options.libraries.push(library.clone());
             }
             link_request.link_options = link_options;
         }

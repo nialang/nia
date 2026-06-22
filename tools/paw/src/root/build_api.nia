@@ -149,6 +149,10 @@ extend Executable {
         }
         self.writer.print("runtime-library\t{}\t{}\t{}\n", &[self.name, source, name]).as_paw_fmt_error()
     }
+
+    pub fn use_nia_compiler(&mut self) Error!void {
+        self.writer.print("nia-compiler\t{}\n", &[self.name]).as_paw_fmt_error()
+    }
 }
 
 extend Step {
