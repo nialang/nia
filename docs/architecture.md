@@ -1095,6 +1095,7 @@ The package is `nia-cli`. The compiler binary name is `nia`.
 The CLI supports:
 
 ```text
+nia build [step] [--root dir]
 nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
@@ -1104,6 +1105,19 @@ nia emit --llvm <file.nia> [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
+
+`nia build` is the package-build entry point and searches for `build.nia` from
+the selected root directory and then each parent directory. Build outputs belong
+under `.nia-build/`; reusable package or compiler cache entries belong under
+`.nia-cache/`. The build runner is part of the Nia toolchain boundary so package
+build scripts do not spell out compiler C API, LLVM, C runtime, or linker
+dependency details.
+
+The build system consumes a toolchain link plan rather than raw linker flags.
+The current compiler-hosted development plan links the compiler API into the
+host executable and records the LLVM, unwind, and C runtime dependencies as
+toolchain dependencies. Installed, bundled, and static-LLVM layouts should add
+new toolchain layouts instead of changing package build scripts.
 
 Global module-map options:
 

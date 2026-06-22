@@ -55,6 +55,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &["nia [options] <command> [args]", "nia help [command]"],
             commands: &[
                 HelpRow {
+                    left: "build [step]",
+                    right: "run a package build graph from build.nia",
+                },
+                HelpRow {
                     left: "check <file.nia>",
                     right: "run semantic checks",
                 },
@@ -65,12 +69,44 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             options: GLOBAL_OPTIONS,
             examples: &[
+                "nia build",
+                "nia build install --root .",
                 "nia check src/main.nia",
                 "nia emit --ast src/main.nia",
                 "nia -O2 emit --obj src/main.nia --out-dir build/obj",
                 "nia emit --exe src/main.nia -o build/main -M share=share/share.nia",
             ],
             notes: &["Use `nia help <command>` for command-specific details."],
+        },
+        HelpTopic::Build => HelpDoc {
+            title: "nia build",
+            about: "Run a package build script from the Nia toolchain.",
+            usage: &["nia build [step] [--root <dir>] [options]"],
+            commands: &[],
+            options: &[
+                HelpRow {
+                    left: "--root <dir>",
+                    right: "select the package root search start; defaults to the current directory",
+                },
+                HelpRow {
+                    left: TIMINGS_OPTION_HELP,
+                    right: "reserved for build stage timings",
+                },
+                HelpRow {
+                    left: "-h, --help",
+                    right: "show this help text",
+                },
+            ],
+            examples: &[
+                "nia build",
+                "nia build check",
+                "nia build install --root tools/example",
+            ],
+            notes: &[
+                "`nia build` searches for build.nia in the selected directory and then each parent directory.",
+                "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
+                "The native build runner is reserved here and will be implemented in the Nia toolchain instead of a separate paw binary.",
+            ],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",
@@ -231,7 +267,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --obj src/main.nia --out-dir build/obj",
                 "nia emit --obj src/main.nia --runtime freestanding -o build/startup.o",
                 "nia emit --exe src/main.nia -o build/main",
-                "nia emit --exe src/main.nia -L target/debug/deps -l nia_capi --rpath target/debug/deps --dynamic-linker auto -o build/main",
             ],
             notes: &[
                 "Use exactly one emit target flag.",

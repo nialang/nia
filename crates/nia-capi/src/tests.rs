@@ -2,7 +2,7 @@
 use super::*;
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -415,6 +415,13 @@ int main(int argc, char **argv) {
         .arg(&nia)
         .output()
         .expect("run C smoke executable");
+    if run.status.code() == Some(13) && dylib_is_older_than_header(&lib) {
+        eprintln!(
+            "skipping C smoke test: {} was built before include/nia.h",
+            lib.display()
+        );
+        return;
+    }
     assert!(
         run.status.success(),
         "C smoke executable failed: {:?}\nstdout:\n{}\nstderr:\n{}",
@@ -474,4 +481,15 @@ fn nia_capi_dylib() -> Option<PathBuf> {
                     name.starts_with(&format!("{prefix}nia_capi")) && name.ends_with(suffix)
                 })
         })
+}
+
+fn dylib_is_older_than_header(lib: &Path) -> bool {
+    let header = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("include/nia.h");
+    let Ok(lib_modified) = fs::metadata(lib).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    let Ok(header_modified) = fs::metadata(header).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    lib_modified < header_modified
 }

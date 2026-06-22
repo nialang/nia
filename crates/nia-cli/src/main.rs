@@ -62,6 +62,10 @@ struct Cli {
 
 #[derive(Debug)]
 enum CliCommand {
+    Build {
+        root: Option<PathBuf>,
+        step: Option<String>,
+    },
     Check {
         path: String,
         opt_report: bool,
@@ -94,6 +98,7 @@ enum CliAction {
 #[derive(Clone, Copy)]
 enum HelpTopic {
     Main,
+    Build,
     Check,
     Emit,
 }
@@ -123,53 +128,63 @@ impl CliError {
 }
 
 fn run_cli(cli: Cli) -> ExitCode {
-    let (path, source) = match read_source_for_command(&cli.command) {
-        Ok((path, source)) => (path, source),
-        Err(message) => {
-            eprintln!("error: {message}");
-            return ExitCode::FAILURE;
-        }
-    };
-
     match cli.command {
+        CliCommand::Build { root, step } => run_build(root, step),
         CliCommand::Check {
+            path,
             opt_report,
             runtime,
-            ..
-        } => run_check(
-            &path,
-            &source,
-            cli.module_map,
-            cli.optimization,
-            cli.timings,
-            opt_report,
-            runtime,
-        ),
+        } => {
+            let source = match read_source(&path) {
+                Ok(source) => source,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            run_check(
+                &path,
+                &source,
+                cli.module_map,
+                cli.optimization,
+                cli.timings,
+                opt_report,
+                runtime,
+            )
+        }
         CliCommand::Emit {
-            target, opt_report, ..
-        } => run_emit(
-            &path,
-            &source,
+            path,
             target,
-            cli.module_map,
-            cli.optimization,
-            cli.timings,
             opt_report,
-        ),
+        } => {
+            let source = match read_source(&path) {
+                Ok(source) => source,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            run_emit(
+                &path,
+                &source,
+                target,
+                cli.module_map,
+                cli.optimization,
+                cli.timings,
+                opt_report,
+            )
+        }
     }
 }
 
-fn read_source_for_command(command: &CliCommand) -> Result<(String, String), String> {
-    let path = match command {
-        CliCommand::Check { path, .. } | CliCommand::Emit { path, .. } => path,
-    };
+fn read_source(path: &str) -> Result<String, String> {
     let source = match fs::read_to_string(path) {
         Ok(source) => source,
         Err(err) => {
             return Err(format!("failed to read `{path}`: {err}"));
         }
     };
-    Ok((path.clone(), source))
+    Ok(source)
 }
 
 fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
@@ -344,6 +359,7 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
     let rest = args.collect::<Vec<_>>();
     match command.as_str() {
         "help" => Ok(ParsedCommand::Help(help_topic_from_args(&rest))),
+        "build" => parse_build_command(rest).map(ParsedCommand::Run),
         "check" => parse_check_command(rest).map(ParsedCommand::Run),
         "emit" => parse_emit_command(rest).map(ParsedCommand::Run),
         _ => Err(CliError::new(
@@ -356,6 +372,7 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
 fn help_topic_from_args(args: &[String]) -> HelpTopic {
     match args {
         [] => HelpTopic::Main,
+        [command] if command == "build" => HelpTopic::Build,
         [command] if command == "check" => HelpTopic::Check,
         [command] if command == "emit" => HelpTopic::Emit,
         [command, target] if command == "emit" && emit_target_flag(target).is_some() => {
@@ -363,6 +380,49 @@ fn help_topic_from_args(args: &[String]) -> HelpTopic {
         }
         _ => HelpTopic::Main,
     }
+}
+
+fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
+    if has_help_flag(&args) {
+        return Err(CliError::help(HelpTopic::Build));
+    }
+    let mut root = None::<PathBuf>;
+    let mut step = None::<String>;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--root=") {
+            if value.is_empty() {
+                return Err(CliError::new("`--root` cannot be empty", HelpTopic::Build));
+            }
+            root = Some(PathBuf::from(value));
+            continue;
+        }
+        match arg.as_str() {
+            "--root" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing path after `--root`",
+                        HelpTopic::Build,
+                    ));
+                };
+                root = Some(PathBuf::from(value));
+            }
+            _ if arg.starts_with('-') => {
+                return Err(CliError::new(
+                    format!("unknown `nia build` option `{arg}`"),
+                    HelpTopic::Build,
+                ));
+            }
+            _ if step.is_none() => step = Some(arg),
+            _ => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{arg}` for `nia build`"),
+                    HelpTopic::Build,
+                ));
+            }
+        }
+    }
+    Ok(CliCommand::Build { root, step })
 }
 
 fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -749,6 +809,23 @@ fn run_emit(
             timings,
             opt_report,
         ),
+    }
+}
+
+fn run_build(root: Option<PathBuf>, step: Option<String>) -> ExitCode {
+    let mut request = nia_build::BuildRequest::new();
+    if let Some(root) = root {
+        request = request.with_root(root);
+    }
+    if let Some(step) = step {
+        request = request.with_step(step);
+    }
+    match nia_build::run_build(request) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
     }
 }
 

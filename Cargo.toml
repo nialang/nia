@@ -20,6 +20,7 @@ members = [
     "crates/nia-query",
     "crates/nia-compiler-query",
     "crates/nia-loader-query",
+    "crates/nia-build",
     "crates/nia-linker",
     "crates/nia-driver",
     "crates/nia-type-resolve",
@@ -83,6 +84,7 @@ nia-imports = { path = "crates/nia-imports" }
 nia-query = { path = "crates/nia-query" }
 nia-compiler-query = { path = "crates/nia-compiler-query" }
 nia-loader-query = { path = "crates/nia-loader-query" }
+nia-build = { path = "crates/nia-build" }
 nia-linker = { path = "crates/nia-linker" }
 nia-driver = { path = "crates/nia-driver" }
 nia-type-resolve = { path = "crates/nia-type-resolve" }

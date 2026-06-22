@@ -130,6 +130,7 @@ fn help_and_version_use_nia_command_name() {
         help_stdout.contains("emit --<target> <file.nia>"),
         "{help_stdout}"
     );
+    assert!(help_stdout.contains("build [step]"), "{help_stdout}");
     assert!(!help_stdout.contains("lex <file.nia>"), "{help_stdout}");
     assert!(!help_stdout.contains("parse <file.nia>"), "{help_stdout}");
     assert!(
@@ -170,6 +171,22 @@ fn help_and_version_use_nia_command_name() {
         check_stdout.contains("Timing reports are written to stderr"),
         "{check_stdout}"
     );
+
+    let build_help = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("help")
+        .arg("build")
+        .output_timeout("run nia help build");
+    assert!(
+        build_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&build_help.stderr)
+    );
+    let build_stdout = String::from_utf8_lossy(&build_help.stdout);
+    assert!(build_stdout.contains("nia build [step]"), "{build_stdout}");
+    assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
+    assert!(build_stdout.contains("build.nia"), "{build_stdout}");
+    assert!(build_stdout.contains(".nia-build/"), "{build_stdout}");
+    assert!(build_stdout.contains(".nia-cache/"), "{build_stdout}");
 
     let emit_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
@@ -232,6 +249,50 @@ fn help_and_version_use_nia_command_name() {
         .arg("--version")
         .status_timeout("run nia --version status");
     assert!(version_status.success());
+}
+
+#[test]
+fn build_command_resolves_build_script_and_reports_reserved_runner() {
+    let root = temp_dir("build_command_resolves_build_script_and_reports_reserved_runner");
+    std::fs::write(root.join("build.nia"), "pub fn build() void {}\n").expect("write build script");
+    std::fs::create_dir_all(root.join("src").join("nested")).expect("create nested dir");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(root.join("src").join("nested"))
+        .output_timeout("run nia build");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("error:"), "{stderr}");
+    assert!(stderr.contains("build.nia"), "{stderr}");
+    assert!(
+        stderr.contains("native build runner is not implemented yet"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn build_command_reports_missing_build_script() {
+    let root = temp_dir("build_command_reports_missing_build_script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build without build script");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed to find `build.nia`"), "{stderr}");
+    assert!(
+        stderr.contains(&root.to_string_lossy().to_string()),
+        "{stderr}"
+    );
 }
 
 #[test]

@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define NIA_CAPI_ABI_VERSION 2
+#define NIA_CAPI_ABI_VERSION 4
 
 typedef enum NiaStatus {
     NIA_STATUS_OK = 0,
@@ -81,6 +81,8 @@ NiaStatus nia_link_options_set_linker(
     NiaLinkOptions *options,
     const uint8_t *program_ptr,
     size_t program_len);
+NiaStatus nia_link_options_set_static_mode(NiaLinkOptions *options);
+NiaStatus nia_link_options_set_dynamic_mode(NiaLinkOptions *options);
 NiaStatus nia_link_options_set_dynamic_linker_auto(NiaLinkOptions *options);
 NiaStatus nia_link_options_set_no_dynamic_linker(NiaLinkOptions *options);
 NiaStatus nia_link_options_set_dynamic_linker_path(
@@ -96,6 +98,14 @@ NiaStatus nia_link_options_add_rpath(
     const uint8_t *path_ptr,
     size_t path_len);
 NiaStatus nia_link_options_add_library(
+    NiaLinkOptions *options,
+    const uint8_t *name_ptr,
+    size_t name_len);
+NiaStatus nia_link_options_add_static_library(
+    NiaLinkOptions *options,
+    const uint8_t *name_ptr,
+    size_t name_len);
+NiaStatus nia_link_options_add_dynamic_library(
     NiaLinkOptions *options,
     const uint8_t *name_ptr,
     size_t name_len);

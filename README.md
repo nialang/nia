@@ -131,6 +131,7 @@ Relocatable toolchain installation is planned for a later release.
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
+nia build [step] [--root dir]
 nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
@@ -140,6 +141,12 @@ nia emit --llvm <file.nia> [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
+
+`nia build` is the package-build entry point for `build.nia`. It is owned by the
+Nia toolchain rather than a separate bootstrap builder. The current command
+resolves package roots and reserves `.nia-build/` for build output and
+`.nia-cache/` for reusable package or compiler cache entries; the native build
+runner is still being implemented.
 
 Module aliases can be supplied with `-M name=path` or
 `--module name=path`. Optimization options and `--timings[=summary|detail]`
