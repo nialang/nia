@@ -3,12 +3,7 @@ using paw;
 pub fn build(build: &mut paw::Build) paw::Error!void {
     build.package({ name: "paw", version: "0.1.0" }).?;
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
-    exe.library_path("../../target/release/deps").?;
-    exe.library("nia_capi").?;
-    exe.dynamic_link().?;
-    exe.rpath("$ORIGIN/../lib").?;
-    exe.dynamic_linker_auto().?;
-    exe.runtime_library("../../target/release/deps/libnia_capi.so", "libnia_capi.so").?;
+    exe.use_nia_compiler().?;
     var build_step = build.step("build").?;
     build_step.build(&exe).?;
     build_step.default().?;

@@ -81,6 +81,8 @@ extern fn nia_link_options_set_dynamic_linker_path(options: &void, path_ptr: &u8
 extern fn nia_link_options_add_library_path(options: &void, path_ptr: &u8, path_len: usize) i32;
 extern fn nia_link_options_add_rpath(options: &void, path_ptr: &u8, path_len: usize) i32;
 extern fn nia_link_options_add_library(options: &void, name_ptr: &u8, name_len: usize) i32;
+extern fn nia_link_options_add_static_library(options: &void, name_ptr: &u8, name_len: usize) i32;
+extern fn nia_link_options_add_dynamic_library(options: &void, name_ptr: &u8, name_len: usize) i32;
 extern fn nia_result_status(result: &void) i32;
 extern fn nia_result_message(result: &void) NiaString;
 extern fn nia_result_free(result: &void) void;
@@ -264,5 +266,13 @@ extend LinkOptions {
 
     pub fn add_library(&self, name: &[u8]) i32 {
         nia_link_options_add_library(self.raw, name.get_ptr_read(), name.len())
+    }
+
+    pub fn add_static_library(&self, name: &[u8]) i32 {
+        nia_link_options_add_static_library(self.raw, name.get_ptr_read(), name.len())
+    }
+
+    pub fn add_dynamic_library(&self, name: &[u8]) i32 {
+        nia_link_options_add_dynamic_library(self.raw, name.get_ptr_read(), name.len())
     }
 }

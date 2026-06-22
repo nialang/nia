@@ -31,12 +31,7 @@ using paw;
 pub fn build(build: &mut paw::Build) paw::Error!void {
     build.package({ name: "paw", version: "0.1.0" }).?;
     var exe = build.executable({ name: "paw", root: "src/main.nia" }).?;
-    exe.library_path("../../target/release/deps").?;
-    exe.library("nia_capi").?;
-    exe.dynamic_link().?;
-    exe.rpath("$ORIGIN/../lib").?;
-    exe.dynamic_linker_auto().?;
-    exe.runtime_library("../../target/release/deps/libnia_capi.so", "libnia_capi.so").?;
+    exe.use_nia_compiler().?;
     var build_step = build.step("build").?;
     build_step.build(&exe).?;
     build_step.default().?;
@@ -49,14 +44,19 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
 }
 ```
 
-Link options and runtime library declarations belong to the executable handle.
-They are not global package options. The current graph format accepts exactly
-one package and one executable; duplicate package entries, multiple
-executables, and link/runtime options that reference an unknown artifact are
-rejected. Build-time library paths and runtime library source paths are resolved
-from the package root. Rpath values are linker/runtime strings and are passed
-through unchanged, so values such as `$ORIGIN/../lib` keep their ELF meaning.
-The default step must have a build action.
+Executable requirements belong to the executable handle. `use_nia_compiler`
+means the executable uses the Nia compiler API; paw expands that requirement
+into the current toolchain link plan instead of making package build scripts
+name `nia_capi`, LLVM, rpaths, or runtime library staging by hand. The current
+toolchain plan links `nia_capi` into the executable and leaves system-level LLVM
+and C runtime libraries dynamic.
+
+The current graph format accepts exactly one package and one executable;
+duplicate package entries, multiple executables, and link/runtime options that
+reference an unknown artifact are rejected. Build-time library paths and runtime
+library source paths are resolved from the package root. Rpath values are
+linker/runtime strings and are passed through unchanged. The default step must
+have a build action.
 
 ## Commands
 

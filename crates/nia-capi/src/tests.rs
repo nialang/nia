@@ -241,6 +241,14 @@ fn link_options_accept_structured_linker_options() {
         NiaStatus::Ok
     );
     assert_eq!(
+        nia_link_options_add_static_library(options, b"nia_capi".as_ptr(), 8),
+        NiaStatus::Ok
+    );
+    assert_eq!(
+        nia_link_options_add_dynamic_library(options, b"LLVM".as_ptr(), 4),
+        NiaStatus::Ok
+    );
+    assert_eq!(
         nia_link_options_add_arg(std::ptr::null_mut(), b"-lc".as_ptr(), 3),
         NiaStatus::InvalidInput
     );
