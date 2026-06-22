@@ -13,5 +13,7 @@ pub fn build(build: &mut paw::Build) paw::Error!void {
     var check_step = build.step("check").?;
     check_step.check(&exe).?;
     var objects_step = build.step("objects").?;
-    objects_step.objects(&exe)
+    objects_step.objects(&exe).?;
+    var install_step = build.step("install").?;
+    install_step.install(&exe, "bin/paw")
 }

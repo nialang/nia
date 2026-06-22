@@ -12,12 +12,15 @@ pub(pkg) struct BuildPlan {
     exe_root_start: usize,
     exe_root_len: usize,
     action: StepAction,
+    action_path_start: usize,
+    action_path_len: usize,
 }
 
 pub(pkg) enum StepAction: i32 {
     BuildExecutable = 1,
     CheckExecutable = 2,
     ObjectDirectory = 3,
+    InstallExecutable = 4,
 }
 
 enum EntryKind: i32 {
@@ -32,6 +35,7 @@ enum EntryKind: i32 {
     DefaultStep = 9,
     StepCheckExecutable = 10,
     StepObjectDirectory = 11,
+    StepInstallExecutable = 12,
 }
 
 extend BuildPlan {
@@ -62,6 +66,14 @@ extend BuildPlan {
     pub(pkg) fn action(&self) StepAction {
         self.action
     }
+
+    pub(pkg) fn action_path_start(&self) usize {
+        self.action_path_start
+    }
+
+    pub(pkg) fn action_path_len(&self) usize {
+        self.action_path_len
+    }
 }
 
 pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u8]) process::ExitCode!BuildPlan {
@@ -76,6 +88,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
     var selected_step_len = 0usize;
     var selected_step_exe_start = 0usize;
     var selected_step_exe_len = 0usize;
+    var selected_action_path_start = 0usize;
+    var selected_action_path_len = 0usize;
     var selected_action: ?StepAction = null;
     var has_package = false;
     var has_executable = false;
@@ -120,7 +134,7 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                     default_step_start = index + parsed.first_value_start();
                     default_step_len = parsed.first_value_len();
                 },
-                EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => {
+                EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable => {
                     let step = &line[parsed.first_value_start()..(parsed.first_value_start() + parsed.first_value_len())];
                     if requested_step.len() != 0usize and mem::equal[u8](step, requested_step) {
                         if selected_step_len != 0usize {
@@ -130,6 +144,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                         selected_step_len = parsed.first_value_len();
                         selected_step_exe_start = index + parsed.second_value_start();
                         selected_step_exe_len = parsed.second_value_len();
+                        selected_action_path_start = index + parsed.third_value_start();
+                        selected_action_path_len = parsed.third_value_len();
                         selected_action = parsed.kind().step_action();
                     }
                 },
@@ -174,6 +190,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
                         selected_step_len = parsed.first_value_len();
                         selected_step_exe_start = scan + parsed.second_value_start();
                         selected_step_exe_len = parsed.second_value_len();
+                        selected_action_path_start = scan + parsed.third_value_start();
+                        selected_action_path_len = parsed.third_value_len();
                         selected_action = parsed.kind().step_action();
                     }
                 }
@@ -211,6 +229,10 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
         stderr.print("paw: requested step references unknown executable\n", &[]).exit().?;
         return process::exit(2)!;
     }
+    if action == StepAction::InstallExecutable {
+        let install_path = &graph[selected_action_path_start..(selected_action_path_start + selected_action_path_len)];
+        validate_install_path(stderr, install_path).?;
+    }
     !{
         package_name_start: package_name_start,
         package_name_len: package_name_len,
@@ -219,6 +241,8 @@ pub(pkg) fn parse(stderr: &mut io::FileWriter, graph: &[u8], requested_step: &[u
         exe_root_start: exe_root_start,
         exe_root_len: exe_root_len,
         action: action,
+        action_path_start: selected_action_path_start,
+        action_path_len: selected_action_path_len,
     }
 }
 
@@ -246,12 +270,46 @@ fn count_step_declarations(stderr: &mut io::FileWriter, graph: &[u8], name: &[u8
     !count
 }
 
+fn validate_install_path(stderr: &mut io::FileWriter, path: &[u8]) process::ExitCode!void {
+    if path.len() == 0usize or path[0] == b'/' {
+        stderr.print("paw: invalid install path\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    var component_start = 0usize;
+    var index = 0usize;
+    while index <= path.len() {
+        if index == path.len() or path[index] == b'/' {
+            let component = &path[component_start..index];
+            if component.len() == 0usize or is_dot_component(component) or is_dot_dot_component(component) {
+                stderr.print("paw: invalid install path\n", &[]).exit().?;
+                return process::exit(2)!;
+            }
+            component_start = index + 1usize;
+        } else if path[index] == 0u8 {
+            stderr.print("paw: invalid install path\n", &[]).exit().?;
+            return process::exit(2)!;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+
+fn is_dot_component(component: &[u8]) bool {
+    component.len() == 1usize and component[0] == b'.'
+}
+
+fn is_dot_dot_component(component: &[u8]) bool {
+    component.len() == 2usize and component[0] == b'.' and component[1] == b'.'
+}
+
 struct ParsedLine {
     kind: EntryKind,
     first_value_start: usize,
     first_value_len: usize,
     second_value_start: usize,
     second_value_len: usize,
+    third_value_start: usize,
+    third_value_len: usize,
 }
 
 extend ParsedLine {
@@ -274,6 +332,14 @@ extend ParsedLine {
     fn second_value_len(&self) usize {
         self.second_value_len
     }
+
+    fn third_value_start(&self) usize {
+        self.third_value_start
+    }
+
+    fn third_value_len(&self) usize {
+        self.third_value_len
+    }
 }
 
 fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!ParsedLine {
@@ -294,6 +360,7 @@ fn parse_line(stderr: &mut io::FileWriter, line: &[u8]) process::ExitCode!Parsed
         EntryKind::Package, EntryKind::Executable => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::Step, EntryKind::DefaultStep => parse_one_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
+        EntryKind::StepInstallExecutable => parse_three_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath => parse_two_field_line(stderr, line, kind, first_tab, second_tab),
         EntryKind::DynamicLinker => parse_dynamic_linker_line(stderr, line, kind, first_tab, second_tab),
         _ => {
@@ -321,6 +388,8 @@ fn parse_one_field_line(
         first_value_len: line.len() - first_tab - 1,
         second_value_start: line.len(),
         second_value_len: 0usize,
+        third_value_start: line.len(),
+        third_value_len: 0usize,
     }
 }
 
@@ -348,6 +417,43 @@ fn parse_two_field_line(
         first_value_len: second - first_tab - 1,
         second_value_start: second + 1,
         second_value_len: line.len() - second - 1,
+        third_value_start: line.len(),
+        third_value_len: 0usize,
+    }
+}
+
+fn parse_three_field_line(
+    stderr: &mut io::FileWriter,
+    line: &[u8],
+    kind: EntryKind,
+    first_tab: usize,
+    second_tab: ?usize,
+) process::ExitCode!ParsedLine {
+    let second = if let ?value = second_tab {
+        value
+    } else null {
+        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    let third = if let ?value = find_byte(line, second + 1, b'\t') {
+        value
+    } else null {
+        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
+        return process::exit(2)!;
+    };
+    if let ?extra = find_byte(line, third + 1, b'\t') {
+        _ = extra;
+        stderr.print("paw: invalid build graph line\n", &[]).exit().?;
+        return process::exit(2)!;
+    }
+    !{
+        kind: kind,
+        first_value_start: first_tab + 1,
+        first_value_len: second - first_tab - 1,
+        second_value_start: second + 1,
+        second_value_len: third - second - 1,
+        third_value_start: third + 1,
+        third_value_len: line.len() - third - 1,
     }
 }
 
@@ -376,6 +482,8 @@ fn parse_dynamic_linker_line(
             first_value_len: second - first_tab - 1,
             second_value_start: second + 1,
             second_value_len: line.len() - second - 1,
+            third_value_start: line.len(),
+            third_value_len: 0usize,
         };
     }
     if let ?extra = find_byte(line, second + 1, b'\t') {
@@ -389,6 +497,8 @@ fn parse_dynamic_linker_line(
         first_value_len: second - first_tab - 1,
         second_value_start: second + 1,
         second_value_len: line.len() - second - 1,
+        third_value_start: line.len(),
+        third_value_len: 0usize,
     }
 }
 
@@ -414,6 +524,8 @@ extend EntryKind {
             ?EntryKind::StepCheckExecutable
         } else if mem::equal[u8](text, b"step-object-directory") {
             ?EntryKind::StepObjectDirectory
+        } else if mem::equal[u8](text, b"step-install-executable") {
+            ?EntryKind::StepInstallExecutable
         } else if mem::equal[u8](text, b"default-step") {
             ?EntryKind::DefaultStep
         } else {
@@ -422,7 +534,7 @@ extend EntryKind {
     }
 
     fn is_step_action(self) bool {
-        self == EntryKind::StepBuildExecutable or self == EntryKind::StepCheckExecutable or self == EntryKind::StepObjectDirectory
+        self == EntryKind::StepBuildExecutable or self == EntryKind::StepCheckExecutable or self == EntryKind::StepObjectDirectory or self == EntryKind::StepInstallExecutable
     }
 
     fn step_action(self) ?StepAction {
@@ -430,6 +542,7 @@ extend EntryKind {
             EntryKind::StepBuildExecutable => ?StepAction::BuildExecutable,
             EntryKind::StepCheckExecutable => ?StepAction::CheckExecutable,
             EntryKind::StepObjectDirectory => ?StepAction::ObjectDirectory,
+            EntryKind::StepInstallExecutable => ?StepAction::InstallExecutable,
             EntryKind::Package, EntryKind::Executable, EntryKind::LibraryPath, EntryKind::Library, EntryKind::Rpath, EntryKind::DynamicLinker, EntryKind::Step, EntryKind::DefaultStep => null,
         }
     }
@@ -484,7 +597,7 @@ fn apply_link_option_line(
         }
     }
     switch kind {
-        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::DefaultStep => !{},
+        EntryKind::Package, EntryKind::Executable, EntryKind::Step, EntryKind::StepBuildExecutable, EntryKind::StepCheckExecutable, EntryKind::StepObjectDirectory, EntryKind::StepInstallExecutable, EntryKind::DefaultStep => !{},
         EntryKind::LibraryPath => {
             var path_storage: [4096]u8 = [0; 4096];
             apply_single_field_link_option(
