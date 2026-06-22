@@ -52,6 +52,35 @@ impl<'a> ModuleLowerer<'a> {
         nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
     }
 
+    fn instantiate_external_type_alias(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        substitutions: TypeSubstitutionId,
+        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+    ) -> Option<InternedTyId> {
+        let alias = self.input.program_type_aliases.get(&def_id)?.clone();
+        if alias.signature.generics.len() != args.len() {
+            return Some(self.type_context.interner.error());
+        }
+        let alias_substitutions = alias
+            .signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect::<HashMap<_, _>>();
+        let alias_substitutions = self.intern_type_substitutions(&alias_substitutions);
+        let target = self.import_normalized_type_from_module(
+            def_id.module_id,
+            &alias.interner,
+            alias.signature.target,
+        );
+        let target =
+            self.instantiate_ty_with_id_inner(target, alias_substitutions, active_projections);
+        Some(self.instantiate_ty_with_id_inner(target, substitutions, active_projections))
+    }
+
     fn normalize_type_in_current_interner(&mut self, ty: InternedTyId) -> InternedTyId {
         if let Some(normalization) = self
             .input
@@ -723,6 +752,14 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
                     })
                     .collect::<Vec<_>>();
+                if let Some(instantiated) = self.instantiate_external_type_alias(
+                    def_id,
+                    &args,
+                    substitutions,
+                    active_projections,
+                ) {
+                    return self.finish_type_instantiation(key, instantiated, can_use_cache);
+                }
                 let instantiated = self
                     .type_context
                     .interner

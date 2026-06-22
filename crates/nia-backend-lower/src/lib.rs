@@ -132,6 +132,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_unions: &'a std::collections::HashMap<GlobalDefId, ProgramUnionSignature>,
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub program_type_aliases:
+        &'a std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 

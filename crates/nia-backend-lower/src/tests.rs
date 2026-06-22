@@ -334,6 +334,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_unions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
+        program_type_aliases: &HashMap::new(),
         trait_impls: &[],
     };
     lower_backend_program(&[input], &monomorphization, optimization)

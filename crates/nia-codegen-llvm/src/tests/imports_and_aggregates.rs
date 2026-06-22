@@ -2,6 +2,95 @@
 use super::common::*;
 
 #[test]
+fn emits_cross_module_function_pointer_type_alias_fields() {
+    let root = temp_dir("emits_cross_module_function_pointer_type_alias_fields");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+module build;
+module types;
+using entry::build;
+using entry::types;
+
+fn inc(value: i32) i32 {
+    value + 1
+}
+
+fn main() i32 {
+    var build = build::Build::init();
+    build.step("run", &inc);
+    let step = types::Step::init("run", &inc);
+    step.run(41) + build.run(0)
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("types.nia"),
+        r#"
+pub type StepFn = &fn(i32) i32;
+
+pub struct Step {
+    name: &[char],
+    run: StepFn,
+}
+
+extend Step {
+    pub fn init(name: &[char], run: StepFn) Step {
+        { name: name, run: run }
+    }
+}
+"#,
+    )
+    .expect("write types source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using entry::types;
+
+pub struct Build {
+    registered: types::Step,
+}
+
+extend Build {
+    pub fn init() Build {
+        {
+            registered: types::Step::init("noop", &noop),
+        }
+    }
+
+    pub fn step(&mut self, name: &[char], run: types::StepFn) void {
+        self.registered = types::Step::init(name, run);
+    }
+
+    pub fn run(&self, value: i32) i32 {
+        (self.registered.run)(value)
+    }
+}
+
+fn noop(value: i32) i32 {
+    value
+}
+"#,
+    )
+    .expect("write build source");
+
+    let checked = check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("call i32 %"), "{ir}");
+}
+
+#[test]
 fn emits_imported_open_enum_as_error_union_payload() {
     let root = temp_dir("emits_imported_open_enum_as_error_union_payload");
     let main = root.join("main.nia");

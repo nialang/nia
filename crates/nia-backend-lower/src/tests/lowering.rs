@@ -201,6 +201,7 @@ fn main() i32 {
         program_unions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
+        program_type_aliases: &HashMap::new(),
         trait_impls: &[],
     };
     let lowering = lower_backend_program(
