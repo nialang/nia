@@ -3007,8 +3007,9 @@ runner, so it can use the standard library. The runner passes a `std::build::Bui
 value with explicit `package_root()`, `build_dir()`, `cache_dir()`, and
 `toolchain_executable()` accessors instead of requiring scripts to infer those
 paths.
-`Build::check_exe(path)` runs the same toolchain as `nia check --exe <path>`
-with the package root as the working directory.
+`Build::executable(name, path)` declares an executable target, and
+`Build::check_executable(name)` checks that target through the same toolchain as
+`nia check --exe <path>` with the package root as the working directory.
 
 Module-map options are accepted before or after the command:
 

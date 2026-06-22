@@ -262,7 +262,7 @@ using std::fs;
 using std::io;
 
 fn check(b: &mut build::Build) build::Error!void {
-    b.check_exe(fs::Path::init("src/main.nia")).?;
+    b.check_executable("app").?;
     !{}
 }
 
@@ -274,6 +274,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("cache={}\n", &[b.cache_dir().text()]).as_build_error().?;
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
+    b.executable("app", fs::Path::init("src/main.nia")).?;
     b.step("check", &check).?;
     !{}
 }
@@ -372,6 +373,44 @@ pub fn build(b: &mut build::Build) build::Error!void {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("unknown build step `missing`"), "{stderr}");
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 2"), "{stderr}");
+}
+
+#[test]
+fn build_command_reports_unknown_executable_target() {
+    let root = temp_dir("build_command_reports_unknown_executable_target");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+fn check(b: &mut build::Build) build::Error!void {
+    b.check_executable("missing").?;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    b.step("check", &check).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build check missing target");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown executable target `missing`"),
+        "{stderr}"
+    );
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(stderr.contains("exit status: 2"), "{stderr}");
 }

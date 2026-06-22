@@ -1123,10 +1123,12 @@ logic stays in the Nia build script and can use `std`, including
 `build_dir()` is `.nia-build/`, `cache_dir()` is `.nia-cache/`, and
 `toolchain_executable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
-The current `std::build` surface is intentionally small: `check_exe(path)`
-already routes a script-owned source path through the current toolchain without
-forcing scripts to construct raw process arguments. This surface will grow into
-explicit step and artifact APIs rather than a Rust-side manifest parser.
+The current `std::build` surface is intentionally small:
+`executable(name, path)` records a script-owned executable target, and
+`check_executable(name)` routes that target through the current toolchain
+without forcing scripts to construct raw process arguments. This surface will
+grow into explicit step and artifact APIs rather than a Rust-side manifest
+parser.
 
 Global module-map options:
 
