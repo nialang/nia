@@ -307,6 +307,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     );
     assert!(stderr.is_empty(), "{stderr}");
     assert!(root.join(".nia-build/runner/nia-build-runner").is_file());
+    assert!(root.join(".nia-cache").is_dir());
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("build")

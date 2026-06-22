@@ -1120,7 +1120,8 @@ owns package-root discovery, runner generation, and compiler invocation; build
 logic stays in the Nia build script and can use `std`, including
 `std::process`. The generated runner injects package-root context into
 `std::build::Build`: `package_root()` is the directory containing `build.nia`,
-`build_dir()` is `.nia-build/`, and `cache_dir()` is `.nia-cache/`. The current
+`build_dir()` is `.nia-build/`, and `cache_dir()` is `.nia-cache/`. The toolchain
+creates the build and cache directories before executing the runner. The current
 `std::build` surface is intentionally small and will grow into explicit step and
 artifact APIs rather than a Rust-side manifest parser.
 

@@ -3001,10 +3001,11 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 `nia build` is reserved as the toolchain-owned package build entry point for
 `build.nia`. It resolves package roots before build execution and keeps build
 outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
-`build.nia` is compiled and run as ordinary Nia code through a generated
-toolchain-owned runner, so it can use the standard library. The runner passes a
-`std::build::Build` value with explicit `package_root()`, `build_dir()`, and
-`cache_dir()` accessors instead of requiring scripts to infer those paths.
+Both directories are created before the build script runs. `build.nia` is
+compiled and run as ordinary Nia code through a generated toolchain-owned
+runner, so it can use the standard library. The runner passes a `std::build::Build`
+value with explicit `package_root()`, `build_dir()`, and `cache_dir()` accessors
+instead of requiring scripts to infer those paths.
 
 Module-map options are accepted before or after the command:
 
