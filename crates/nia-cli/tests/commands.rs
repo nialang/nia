@@ -307,8 +307,9 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
     let app = b.add_executable("app", fs::Path::init("src/main.nia")).?;
-    _ = b.add_emit_executable_step("build", app).?;
+    let build_step = b.add_emit_executable_step("build", app).?;
     _ = b.add_check_executable_step("check", app).?;
+    b.set_default_step(build_step).?;
     !{}
 }
 "#,
@@ -575,6 +576,39 @@ pub fn build(b: &mut build::Build) build::Error!void {
     assert!(stderr.contains("unknown build step `missing`"), "{stderr}");
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(stderr.contains("exit status: 2"), "{stderr}");
+}
+
+#[test]
+fn build_command_requires_explicit_default_step_when_no_step_is_requested() {
+    let root = temp_dir("build_command_requires_explicit_default_step_when_no_step_is_requested");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+fn check(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    _ = b.add_step("check", &check).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build without explicit default step");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 22"), "{stderr}");
 }
 
 #[test]

@@ -14,6 +14,7 @@ pub enum Error: i32 {
     InvalidTarget = 7,
     StepCycle = 8,
     StepFailed = 9,
+    MissingDefaultStep = 10,
     _,
 }
 
@@ -29,6 +30,7 @@ extend Error {
             Error::InvalidTarget => process::exit(22),
             Error::StepCycle => process::exit(22),
             Error::StepFailed => process::exit(1),
+            Error::MissingDefaultStep => process::exit(22),
             _ => process::exit(255),
         }
     }

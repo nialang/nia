@@ -3020,6 +3020,9 @@ graph step that checks that artifact through the same toolchain as
 `Build::add_emit_executable_step(name, target)` adds a graph step that emits the
 artifact to `.nia-build/<name>` through the same toolchain as
 `nia emit --exe <path> -o .nia-build/<name>`.
+`Build::set_default_step(step)` selects the graph step used by `nia build` when
+no step name is passed. If a script registers steps but does not set a default,
+`nia build` without an explicit step exits with an invalid build-script error.
 
 Module-map options are accepted before or after the command:
 

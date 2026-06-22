@@ -1130,6 +1130,8 @@ returns an executable handle. `add_check_executable_step(name, target)` and
 artifact through the current toolchain without forcing scripts to construct raw
 process arguments. Emitted executables currently land at `.nia-build/<name>`,
 with target names validated so artifact paths cannot escape the build directory.
+`set_default_step(step)` makes the no-argument build entry explicit; the runner
+does not infer a default from step registration order.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
 

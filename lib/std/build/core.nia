@@ -46,6 +46,7 @@ extend Build {
             build_dir: build_dir,
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
+            default_step: null,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
@@ -111,6 +112,14 @@ extend Build {
             self.allocator,
             StepDependency::init(step, dependency),
         ).as_build_error()
+    }
+
+    pub fn set_default_step(&mut self, step: StepHandle) Error!void {
+        if step.index() >= self.steps.len() {
+            return Error::InvalidStep!;
+        }
+        self.default_step = ?step;
+        !{}
     }
 
     pub fn add_executable(&mut self, name: &[char], source: fs::Path) Error!ExecutableHandle {
@@ -213,9 +222,12 @@ extend Build {
             self.report_unknown_step(step).?;
             return Error::UnknownStep!;
         } else null {}
-        if let ?handle = self.first_step() {
+        if let ?handle = self.default_step {
             return self.run_step(handle);
         } else null {}
+        if self.steps.len() != 0usize {
+            return Error::MissingDefaultStep!;
+        }
         !{}
     }
 
@@ -270,14 +282,6 @@ extend Build {
     fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
         var steps = self.steps.as_mut_slice();
         steps[handle.index()].state = state;
-    }
-
-    fn first_step(&self) ?StepHandle {
-        if self.steps.len() == 0usize {
-            null
-        } else {
-            ?StepHandle::init(0usize)
-        }
     }
 
     fn find_step(&self, name: &[char]) ?Step {
