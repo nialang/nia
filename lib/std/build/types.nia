@@ -6,9 +6,11 @@ using pkg::build::error;
 
 using error::Error;
 
+pub type StepFn = &fn(&mut Build) Error!void;
+
 pub struct Step {
     name: &[char],
-    run: &fn(&mut Build) Error!void,
+    run: StepFn,
 }
 
 pub struct ExecutableTarget {

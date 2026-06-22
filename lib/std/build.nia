@@ -4,4 +4,4 @@ pub(pkg) module types;
 
 pub using core::noop_step;
 pub using error::Error;
-pub using types::{Build, ExecutableTarget, Step};
+pub using types::{Build, ExecutableTarget, Step, StepFn};

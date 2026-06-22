@@ -114,6 +114,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_unions: &input.program_signatures.unions,
                     program_enums: &input.program_signatures.enums,
                     program_traits: &input.program_signatures.traits,
+                    program_type_aliases: &input.program_signatures.type_aliases,
                     trait_impls: &input.program_signatures.trait_impls,
                 }
             },

@@ -10,7 +10,7 @@ using pkg::build::error;
 using pkg::build::types;
 
 using error::Error;
-using types::{Build, Step, ExecutableTarget};
+using types::{Build, Step, StepFn, ExecutableTarget};
 
 pub fn noop_step(b: &mut Build) Error!void {
     _ = b;
@@ -63,7 +63,7 @@ extend Build {
         self.toolchain_executable
     }
 
-    pub fn step(&mut self, name: &[char], run: &fn(&mut Build) Error!void) Error!void {
+    pub fn step(&mut self, name: &[char], run: StepFn) Error!void {
         if name.len() == 0usize {
             return Error::InvalidStep!;
         }
@@ -252,7 +252,7 @@ extend Build {
 }
 
 extend Step {
-    pub fn init(name: &[char], run: &fn(&mut Build) Error!void) Step {
+    pub fn init(name: &[char], run: StepFn) Step {
         { name: name, run: run }
     }
 }
