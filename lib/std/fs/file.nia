@@ -272,6 +272,10 @@ extend File {
         self.borrow_handle().?.truncate(len).as_fs_error()
     }
 
+    pub fn set_permissions(&self, permissions: u32) Error!void {
+        self.borrow_handle().?.set_permissions(permissions).as_fs_error()
+    }
+
     pub fn sync(&self) Error!void {
         self.borrow_handle().?.sync().as_fs_error()
     }
