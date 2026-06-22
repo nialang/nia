@@ -9,6 +9,7 @@ pub module build;
 pub module collections;
 pub module cstr;
 pub module debug;
+pub module error;
 pub module fmt;
 pub module fs;
 pub module hash;

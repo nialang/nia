@@ -55,7 +55,7 @@ impl<'a> BodyChecker<'a> {
                         receiver_ty,
                         &mut target_substitutions,
                     ) && self
-                        .extension_method_where_predicates_hold(&method, &target_substitutions))
+                        .extension_method_where_predicates_can_hold(&method, &target_substitutions))
                     .then_some(MethodCandidate {
                         target_ty,
                         method,
@@ -554,7 +554,7 @@ impl<'a> BodyChecker<'a> {
         for candidate in candidates {
             if candidates.iter().any(|other| {
                 other.method.def_id != candidate.method.def_id
-                    && self.strictly_more_specific(other.target_ty, candidate.target_ty)
+                    && self.method_candidate_more_specific(other, candidate)
             }) {
                 continue;
             }
@@ -571,6 +571,86 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         selected
+    }
+
+    fn method_candidate_more_specific(
+        &mut self,
+        specific: &MethodCandidate,
+        general: &MethodCandidate,
+    ) -> bool {
+        if !self.pattern_subsumes(general.target_ty, specific.target_ty) {
+            return false;
+        }
+        let mut any_strict = self.strictly_more_specific(specific.target_ty, general.target_ty);
+        let Some(specific_signature) = self
+            .resolved_function_signature(specific.method.def_id)
+            .map(|resolved| resolved.signature)
+        else {
+            return any_strict;
+        };
+        let Some(general_signature) = self
+            .resolved_function_signature(general.method.def_id)
+            .map(|resolved| resolved.signature)
+        else {
+            return any_strict;
+        };
+        let specific_params = self.method_candidate_param_types(specific, &specific_signature);
+        let general_params = self.method_candidate_param_types(general, &general_signature);
+        if specific_params.len() != general_params.len() {
+            return any_strict;
+        }
+        for (specific_param, general_param) in specific_params.iter().zip(&general_params) {
+            if !self.pattern_subsumes(*general_param, *specific_param) {
+                return false;
+            }
+            if self.strictly_more_specific(*specific_param, *general_param) {
+                any_strict = true;
+            }
+        }
+        any_strict
+    }
+
+    fn method_candidate_param_types(
+        &mut self,
+        candidate: &MethodCandidate,
+        signature: &FunctionSignature,
+    ) -> Vec<InternedTyId> {
+        signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| self.substitute_generics(param.ty, &candidate.target_substitutions))
+            .collect()
+    }
+
+    pub(in crate::calls::methods) fn viable_method_candidates(
+        &mut self,
+        call: &MethodCall<'_>,
+        candidates: &[MethodCandidate],
+    ) -> Vec<MethodCandidate> {
+        candidates
+            .iter()
+            .filter_map(|candidate| {
+                let signature = self
+                    .resolved_function_signature(candidate.method.def_id)
+                    .map(|resolved| resolved.signature)?;
+                let mut substitutions = candidate.target_substitutions.clone();
+                if call.type_args.is_none()
+                    && let Some(expected) = call.expected
+                {
+                    // Context can refine unconstrained method generics, but a
+                    // nested expression may provide an outer expected type.
+                    // Use it only as an inference hint during candidate search.
+                    self.try_match_type_pattern(
+                        signature.return_type,
+                        expected,
+                        &mut substitutions,
+                    );
+                }
+                self.extension_method_where_predicates_can_hold(&candidate.method, &substitutions)
+                    .then(|| candidate.clone())
+            })
+            .collect()
     }
 
     pub(crate) fn strictly_more_specific(
@@ -945,7 +1025,7 @@ impl<'a> BodyChecker<'a> {
         Some(substitutions)
     }
 
-    fn extension_method_where_predicates_hold(
+    fn extension_method_where_predicates_can_hold(
         &mut self,
         method: &nia_defs::VisibleExtensionMethod,
         substitutions: &HashMap<String, InternedTyId>,
@@ -959,6 +1039,14 @@ impl<'a> BodyChecker<'a> {
             .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
             .collect::<Vec<_>>();
         predicates.iter().all(|predicate| {
+            if self.type_contains_generic_param(predicate.ty)
+                || predicate
+                    .bounds
+                    .iter()
+                    .any(|bound| self.type_contains_generic_param(bound.trait_ty))
+            {
+                return true;
+            }
             predicate.bounds.iter().all(|bound| {
                 let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
                     return false;

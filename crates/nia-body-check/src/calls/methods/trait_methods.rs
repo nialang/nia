@@ -7,18 +7,7 @@ impl<'a> BodyChecker<'a> {
         call: MethodCall<'_>,
         candidates: Vec<TraitMethodCandidate>,
     ) -> Option<InternedTyId> {
-        let candidate = match candidates.as_slice() {
-            [candidate] => candidate,
-            [] => return None,
-            _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    call.span,
-                    format!("ambiguous trait method `{}`", call.name),
-                ));
-                return Some(self.error());
-            }
-        };
+        let candidate = self.single_trait_method_candidate(call.span, call.name, &candidates)?;
         let Some(receiver_kind) = candidate
             .signature
             .params
@@ -443,5 +432,64 @@ impl<'a> BodyChecker<'a> {
                 "receiver cannot be matched through read-only `&Trait`",
             ));
         }
+    }
+}
+
+impl<'a> BodyChecker<'a> {
+    fn single_trait_method_candidate(
+        &mut self,
+        span: Span,
+        name: &str,
+        candidates: &[TraitMethodCandidate],
+    ) -> Option<TraitMethodCandidate> {
+        let mut selected = None;
+        let mut count = 0;
+        for candidate in candidates {
+            if candidates.iter().any(|other| {
+                other.method_id != candidate.method_id
+                    && self.trait_method_candidate_more_specific(other, candidate)
+            }) {
+                continue;
+            }
+            selected = Some(candidate.clone());
+            count += 1;
+            if count <= 1 {
+                continue;
+            }
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("ambiguous trait method `{name}`"),
+            ));
+            return None;
+        }
+        selected
+    }
+
+    fn trait_method_candidate_more_specific(
+        &self,
+        specific: &TraitMethodCandidate,
+        general: &TraitMethodCandidate,
+    ) -> bool {
+        if specific.trait_id != general.trait_id
+            || specific.method_id != general.method_id
+            || specific.trait_args.len() != general.trait_args.len()
+        {
+            return false;
+        }
+        let mut specific_is_stricter =
+            self.strictly_more_specific(specific.self_ty, general.self_ty);
+        if !self.pattern_subsumes(general.self_ty, specific.self_ty) {
+            return false;
+        }
+        for (specific_arg, general_arg) in specific.trait_args.iter().zip(&general.trait_args) {
+            if !self.pattern_subsumes(*general_arg, *specific_arg) {
+                return false;
+            }
+            if self.strictly_more_specific(*specific_arg, *general_arg) {
+                specific_is_stricter = true;
+            }
+        }
+        specific_is_stricter
     }
 }

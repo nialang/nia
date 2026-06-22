@@ -121,6 +121,127 @@ fn main(value: &Box[bool]) void {
 }
 
 #[test]
+fn generic_error_union_extension_method_infers_error_parameter_from_receiver() {
+    let root =
+        temp_dir("generic_error_union_extension_method_infers_error_parameter_from_receiver");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum A: i32 {
+    Bad = 1,
+    _
+}
+
+enum B: i32 {
+    Other = 2,
+    _
+}
+
+trait IntoB {
+    fn into_b(self) B;
+}
+
+extend A : IntoB {
+    fn into_b(self) B {
+        _ = self;
+        B::Other
+    }
+}
+
+extend[T, Source] Source!T
+where Source: IntoB
+{
+    fn as_b(self) B!T {
+        if let !value = self {
+            !value
+        } else err! {
+            err.into_b()!
+        }
+    }
+}
+
+fn fail() A!i32 {
+    A::Bad!
+}
+
+fn main() i32 {
+    if let !value = fail().as_b() {
+        value
+    } else err! {
+        err as i32
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_error_union_extension_method_infers_target_parameter_from_expected_return() {
+    let root = temp_dir(
+        "generic_error_union_extension_method_infers_target_parameter_from_expected_return",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+enum A: i32 {
+    Bad = 1,
+    _
+}
+
+enum B: i32 {
+    Other = 2,
+    _
+}
+
+trait Convert[Target] {
+    fn convert(self) Target;
+}
+
+extend A : Convert[B] {
+    fn convert(self) B {
+        _ = self;
+        B::Other
+    }
+}
+
+extend[T, Source, Target] Source!T
+where Source: Convert[Target]
+{
+    fn convert_error(self) Target!T {
+        if let !value = self {
+            !value
+        } else err! {
+            err.convert()!
+        }
+    }
+}
+
+fn fail() A!i32 {
+    A::Bad!
+}
+
+fn wrap() B!i32 {
+    fail().convert_error()
+}
+
+fn main() i32 {
+    if let !value = wrap() {
+        value
+    } else err! {
+        err as i32
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn supports_alias_to_pointer_extension_methods_without_void_cascades() {
     let root = temp_dir("supports_alias_to_pointer_extension_methods_without_void_cascades");
     write(

@@ -1,3 +1,4 @@
+using pkg::error;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
@@ -7,9 +8,15 @@ using pkg::process::types;
 
 using types::{Error, ExitCode};
 
+extend fs::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
 extend fs::Error {
     pub fn as_exit_code(self) ExitCode {
-        self as i32 as ExitCode
+        self.into_error()
     }
 }
 
@@ -17,50 +24,50 @@ pub fn exit(code: i32) ExitCode {
     code as ExitCode
 }
 
+extend os::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        self as i32 as ExitCode
+    }
+}
+
 extend os::Error {
     pub fn as_exit_code(self) ExitCode {
-        self as i32 as ExitCode
+        self.into_error()
     }
 }
 
 extend[T] os::Error!T {
     pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+        self.cast_error()
+    }
+}
+
+extend Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
+        self as i32 as ExitCode
     }
 }
 
 extend Error {
     pub fn as_exit_code(self) ExitCode {
-        self as i32 as ExitCode
+        self.into_error()
     }
 }
 
 extend[T] Error!T {
     pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+        self.cast_error()
     }
 }
 
 extend[T] fs::Error!T {
     pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+        self.cast_error()
     }
 }
 
-extend fmt::Error {
-    pub fn as_exit_code(self) ExitCode {
+extend fmt::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
         switch self {
             fmt::Error::Write => exit(5),
             fmt::Error::InvalidTemplate => exit(22),
@@ -71,18 +78,20 @@ extend fmt::Error {
     }
 }
 
-extend[T] fmt::Error!T {
-    pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+extend fmt::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self.into_error()
     }
 }
 
-extend io::BufferError {
-    pub fn as_exit_code(self) ExitCode {
+extend[T] fmt::Error!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
+
+extend io::BufferError : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
         switch self {
             io::BufferError::NoSpace => exit(2),
             io::BufferError::ShortWrite => exit(5),
@@ -92,18 +101,20 @@ extend io::BufferError {
     }
 }
 
-extend[T] io::BufferError!T {
-    pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+extend io::BufferError {
+    pub fn as_exit_code(self) ExitCode {
+        self.into_error()
     }
 }
 
-extend mem::Error {
-    pub fn as_exit_code(self) ExitCode {
+extend[T] io::BufferError!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}
+
+extend mem::Error : error::IntoError[ExitCode] {
+    fn into_error(self) ExitCode {
         switch self {
             mem::Error::Invalid => exit(22),
             mem::Error::InvalidAlignment => exit(22),
@@ -113,12 +124,14 @@ extend mem::Error {
     }
 }
 
+extend mem::Error {
+    pub fn as_exit_code(self) ExitCode {
+        self.into_error()
+    }
+}
+
 extend[T] mem::Error!T {
     pub fn exit(self) ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
-        }
+        self.cast_error()
     }
 }

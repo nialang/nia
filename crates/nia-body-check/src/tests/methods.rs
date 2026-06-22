@@ -38,6 +38,28 @@ fn main(value: &i32) i32 {
 }
 
 #[test]
+fn method_candidate_expected_context_does_not_reject_nested_calls() {
+    let checked = pipeline(
+        r#"
+struct Buffer {
+    data: &[i32],
+}
+
+extend Buffer {
+    fn as_slice(&self) &[i32] {
+        self.data
+    }
+}
+
+fn main(buffer: Buffer) i32 {
+    buffer.as_slice()[0]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn reports_ambiguous_extension_method_specializations() {
     let checked = pipeline(
         r#"

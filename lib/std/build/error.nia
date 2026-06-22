@@ -1,3 +1,4 @@
+using pkg::error;
 using pkg::fmt;
 using pkg::fs;
 using pkg::mem;
@@ -33,84 +34,94 @@ extend Error {
 
 extend[T] Error!T {
     pub fn exit(self) process::ExitCode!T {
-        if let !value = self {
-            !value
-        } else error! {
-            error.as_exit_code()!
+        self.cast_error()
+    }
+}
+
+extend Error : error::IntoError[process::ExitCode] {
+    fn into_error(self) process::ExitCode {
+        self.as_exit_code()
+    }
+}
+
+extend fmt::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
+        switch self {
+            fmt::Error::Write => Error::Report,
+            fmt::Error::InvalidTemplate => Error::Internal,
+            fmt::Error::MissingArgument => Error::Internal,
+            fmt::Error::ExtraArgument => Error::Internal,
+            _ => Error::Internal,
         }
     }
 }
 
 extend[T] fmt::Error!T {
     pub fn as_build_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            switch error {
-                fmt::Error::Write => Error::Report!,
-                fmt::Error::InvalidTemplate => Error::Internal!,
-                fmt::Error::MissingArgument => Error::Internal!,
-                fmt::Error::ExtraArgument => Error::Internal!,
-                _ => Error::Internal!,
-            }
+        self.cast_error()
+    }
+}
+
+extend fs::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
+        switch self {
+            fs::Error::Invalid => Error::Report,
+            fs::Error::Io => Error::Report,
+            fs::Error::TooLong => Error::Report,
+            fs::Error::NotFound => Error::Report,
+            fs::Error::AlreadyExists => Error::Report,
+            fs::Error::NotDir => Error::Report,
+            fs::Error::IsDir => Error::Report,
+            fs::Error::NoSpace => Error::Report,
+            fs::Error::OutOfMemory => Error::OutOfMemory,
+            _ => Error::Report,
         }
     }
 }
 
 extend[T] fs::Error!T {
     pub fn as_build_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            switch error {
-                fs::Error::Invalid => Error::Report!,
-                fs::Error::Io => Error::Report!,
-                fs::Error::TooLong => Error::Report!,
-                fs::Error::NotFound => Error::Report!,
-                fs::Error::AlreadyExists => Error::Report!,
-                fs::Error::NotDir => Error::Report!,
-                fs::Error::IsDir => Error::Report!,
-                fs::Error::NoSpace => Error::Report!,
-                fs::Error::OutOfMemory => Error::OutOfMemory!,
-                _ => Error::Report!,
-            }
+        self.cast_error()
+    }
+}
+
+extend process::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
+        switch self {
+            process::Error::Invalid => Error::InvalidStep,
+            process::Error::SpawnSetup => Error::Report,
+            process::Error::SpawnStdio => Error::Report,
+            process::Error::SpawnCwd => Error::Report,
+            process::Error::SpawnExec => Error::Report,
+            process::Error::Wait => Error::Report,
+            process::Error::TryWait => Error::Report,
+            process::Error::Kill => Error::Report,
+            process::Error::CloseStdin => Error::Report,
+            process::Error::CloseStdout => Error::Report,
+            process::Error::CloseStderr => Error::Report,
+            process::Error::System => Error::Report,
+            _ => Error::Report,
         }
     }
 }
 
 extend[T] process::Error!T {
     pub fn as_build_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            switch error {
-                process::Error::Invalid => Error::InvalidStep!,
-                process::Error::SpawnSetup => Error::Report!,
-                process::Error::SpawnStdio => Error::Report!,
-                process::Error::SpawnCwd => Error::Report!,
-                process::Error::SpawnExec => Error::Report!,
-                process::Error::Wait => Error::Report!,
-                process::Error::TryWait => Error::Report!,
-                process::Error::Kill => Error::Report!,
-                process::Error::CloseStdin => Error::Report!,
-                process::Error::CloseStdout => Error::Report!,
-                process::Error::CloseStderr => Error::Report!,
-                process::Error::System => Error::Report!,
-                _ => Error::Report!,
-            }
+        self.cast_error()
+    }
+}
+
+extend mem::Error : error::IntoError[Error] {
+    fn into_error(self) Error {
+        switch self {
+            mem::Error::OutOfMemory => Error::OutOfMemory,
+            _ => Error::InvalidStep,
         }
     }
 }
 
 extend[T] mem::Error!T {
     pub fn as_build_error(self) Error!T {
-        if let !value = self {
-            !value
-        } else error! {
-            switch error {
-                mem::Error::OutOfMemory => Error::OutOfMemory!,
-                _ => Error::InvalidStep!,
-            }
-        }
+        self.cast_error()
     }
 }
