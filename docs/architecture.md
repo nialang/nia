@@ -1115,6 +1115,13 @@ The build runner is implemented inside the Rust toolchain crates and calls the
 compiler through `nia-driver`; it does not embed the compiler through a separate
 ABI bridge.
 
+`build.nia` is compiled and run as ordinary Nia code. The Rust toolchain only
+owns package-root discovery, runner generation, and compiler invocation; build
+logic stays in the Nia build script and can use `std`, including
+`std::process`. The current `std::build` surface is intentionally small and will
+grow into explicit step and artifact APIs rather than a Rust-side manifest
+parser.
+
 Global module-map options:
 
 ```text

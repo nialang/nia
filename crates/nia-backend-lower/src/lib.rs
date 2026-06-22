@@ -125,6 +125,8 @@ pub struct BackendLowerModuleInput<'a> {
     >,
     pub program_defs: &'a std::collections::HashMap<ModuleId, DefCollection>,
     pub program_type_interners: &'a std::collections::HashMap<ModuleId, &'a nia_ty::TyInterner>,
+    pub program_type_normalizations:
+        &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub program_structs: &'a std::collections::HashMap<GlobalDefId, ProgramStructSignature>,
     pub program_unions: &'a std::collections::HashMap<GlobalDefId, ProgramUnionSignature>,

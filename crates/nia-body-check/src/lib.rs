@@ -821,6 +821,7 @@ impl<'a> BodyChecker<'a> {
 
     fn record_local_type(&mut self, local_id: LocalId, ty: InternedTyId) {
         let ty = self.import_type_to_working_interner(ty);
+        let ty = self.normalize_aliases_in_type(ty);
         self.local_types.insert(local_id, ty);
         if let Some(facts) = self.current_function_facts() {
             facts.local_types.insert(local_id, ty);

@@ -25,6 +25,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendStruct> {
         let def_id = self.def_id_for_node(node_key, DefKind::Struct)?;
         let signature = self.input.signatures.structs.get(&def_id)?;
+        let substitutions = std::collections::HashMap::new();
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
             name: item.name.clone(),
@@ -35,7 +36,7 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
                     name: field.name.clone(),
-                    ty: field.ty,
+                    ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
                 .collect(),
@@ -52,6 +53,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendUnion> {
         let def_id = self.def_id_for_node(node_key, DefKind::Union)?;
         let signature = self.input.signatures.unions.get(&def_id)?;
+        let substitutions = std::collections::HashMap::new();
         Some(BackendUnion {
             def_id: self.global_def_id(def_id),
             name: item.name.clone(),
@@ -62,7 +64,7 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
                     name: field.name.clone(),
-                    ty: field.ty,
+                    ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
                 .collect(),
@@ -79,10 +81,11 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendEnum> {
         let def_id = self.def_id_for_node(node_key, DefKind::Enum)?;
         let signature = self.input.signatures.enums.get(&def_id)?;
+        let substitutions = std::collections::HashMap::new();
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
             name: item.name.clone(),
-            backing_type: signature.backing_type,
+            backing_type: self.instantiate_ty(signature.backing_type, &substitutions),
             variants: signature
                 .variants
                 .iter()
@@ -124,6 +127,7 @@ impl<'a> ModuleLowerer<'a> {
                 .explicit_type
                 .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value))))
             .unwrap_or_else(|| self.error_ty());
+        let ty = self.instantiate_ty(ty, &std::collections::HashMap::new());
         let init = self
             .input
             .body_ir

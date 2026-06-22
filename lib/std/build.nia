@@ -1,0 +1,224 @@
+using pkg::collections;
+using pkg::process;
+using pkg::fmt;
+using pkg::fs;
+using pkg::io;
+using pkg::mem;
+
+pub enum Error: i32 {
+    UnknownStep = 1,
+    InvalidStep = 2,
+    OutOfMemory = 3,
+    Report = 4,
+    Internal = 5,
+    _,
+}
+
+pub type StepFn = &fn(&mut Build) Error!void;
+
+pub struct Step {
+    name: &[char],
+    run: StepFn,
+}
+
+pub struct Build {
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    steps: collections::ArrayList[Step],
+}
+
+pub fn noop_step(b: &mut Build) Error!void {
+    _ = b;
+    !{}
+}
+
+extend Build {
+    pub fn init(init: process::Init, allocator: &mut mem::Allocator) Build {
+        { init: init, allocator: allocator, steps: collections::ArrayList[Step]::init() }
+    }
+
+    pub fn deinit(&mut self) Error!void {
+        self.steps.deinit(self.allocator).as_build_error()
+    }
+
+    pub fn step(&mut self, name: &[char], run: StepFn) Error!void {
+        if name.len() == 0usize {
+            return Error::InvalidStep!;
+        }
+        if let ?old = self.find_step(name) {
+            _ = old;
+            return Error::InvalidStep!;
+        } else null {}
+        self.steps.push(self.allocator, Step::init(name, run)).as_build_error()
+    }
+
+    pub fn requested_step(&self) ?process::Arg {
+        self.init.args().get(1usize)
+    }
+
+    pub fn run_requested_step(&mut self) Error!void {
+        if let ?step = self.requested_step() {
+            if let ?registered = self.find_step_arg(step) {
+                return (registered.run)(self);
+            } else null {}
+            self.report_unknown_step(step).?;
+            return Error::UnknownStep!;
+        } else null {}
+        if let ?registered = self.first_step() {
+            return (registered.run)(self);
+        } else null {}
+        !{}
+    }
+
+    fn first_step(&self) ?Step {
+        if let ?step = self.steps.get(0usize) {
+            ?step.*
+        } else null {
+            null
+        }
+    }
+
+    fn find_step(&self, name: &[char]) ?Step {
+        var index = 0usize;
+        while index < self.steps.len() {
+            let step = self.steps.as_slice()[index];
+            if text_equal(step.name, name) {
+                return ?step;
+            }
+            index += 1usize;
+        }
+        null
+    }
+
+    fn find_step_arg(&self, arg: process::Arg) ?Step {
+        var index = 0usize;
+        while index < self.steps.len() {
+            let step = self.steps.as_slice()[index];
+            if arg_matches_text(arg, step.name) {
+                return ?step;
+            }
+            index += 1usize;
+        }
+        null
+    }
+
+    fn report_unknown_step(&mut self, step: process::Arg) Error!void {
+        var buffer: [256]u8 = [_]u8[0; 256];
+        var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        stderr.print("unknown build step `{}`\n", &[&step]).as_build_error().?;
+        stderr.flush().as_build_error()
+    }
+}
+
+extend Step {
+    pub fn init(name: &[char], run: StepFn) Step {
+        { name: name, run: run }
+    }
+}
+
+extend Error {
+    pub fn as_exit_code(self) process::ExitCode {
+        switch self {
+            Error::UnknownStep => process::exit(2),
+            Error::InvalidStep => process::exit(22),
+            Error::OutOfMemory => process::exit(12),
+            Error::Report => process::exit(5),
+            Error::Internal => process::exit(255),
+            _ => process::exit(255),
+        }
+    }
+}
+
+extend[T] Error!T {
+    pub fn exit(self) process::ExitCode!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_exit_code()!
+        }
+    }
+}
+
+extend[T] fmt::Error!T {
+    fn as_build_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            switch error {
+                fmt::Error::Write => Error::Report!,
+                fmt::Error::InvalidTemplate => Error::Internal!,
+                fmt::Error::MissingArgument => Error::Internal!,
+                fmt::Error::ExtraArgument => Error::Internal!,
+                _ => Error::Internal!,
+            }
+        }
+    }
+}
+
+extend[T] fs::Error!T {
+    fn as_build_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            switch error {
+                fs::Error::Invalid => Error::Report!,
+                fs::Error::Io => Error::Report!,
+                fs::Error::TooLong => Error::Report!,
+                fs::Error::NotFound => Error::Report!,
+                fs::Error::AlreadyExists => Error::Report!,
+                fs::Error::NotDir => Error::Report!,
+                fs::Error::IsDir => Error::Report!,
+                fs::Error::NoSpace => Error::Report!,
+                fs::Error::OutOfMemory => Error::OutOfMemory!,
+                _ => Error::Report!,
+            }
+        }
+    }
+}
+
+extend[T] mem::Error!T {
+    fn as_build_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            switch error {
+                mem::Error::OutOfMemory => Error::OutOfMemory!,
+                _ => Error::InvalidStep!,
+            }
+        }
+    }
+}
+
+fn text_equal(left: &[char], right: &[char]) bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn arg_matches_text(arg: process::Arg, text: &[char]) bool {
+    let bytes = arg.bytes();
+    var byte_index = 0usize;
+    var char_index = 0usize;
+    while char_index < text.len() {
+        let encoded = text[char_index].encode_utf8();
+        let encoded_bytes = encoded.bytes();
+        var encoded_index = 0usize;
+        while encoded_index < encoded_bytes.len() {
+            if byte_index >= bytes.len() or bytes[byte_index] != encoded_bytes[encoded_index] {
+                return false;
+            }
+            byte_index += 1usize;
+            encoded_index += 1usize;
+        }
+        char_index += 1usize;
+    }
+    byte_index == bytes.len()
+}

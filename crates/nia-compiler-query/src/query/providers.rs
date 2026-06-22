@@ -1190,10 +1190,18 @@ fn provide_backend_lowering_inner(
             ..empty_backend_lowering(db.query(CompilerOptimizationQuery))
         };
     }
+    let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let indexes = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.indexes",
-        || build_backend_lowering_indexes(&checked_modules, &visible_extensions, &function_bodies),
+        || {
+            build_backend_lowering_indexes(
+                &checked_modules,
+                &visible_extensions,
+                &function_bodies,
+                &normalizations,
+            )
+        },
     );
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);

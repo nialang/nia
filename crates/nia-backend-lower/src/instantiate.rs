@@ -27,6 +27,75 @@ struct ProjectionInstantiationKey {
 }
 
 impl<'a> ModuleLowerer<'a> {
+    pub(crate) fn import_normalized_type_from_module(
+        &mut self,
+        module_id: ModuleId,
+        source_interner: &nia_ty::TyInterner,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        if let Some(normalization) = self
+            .input
+            .program_type_normalizations
+            .get(&module_id)
+            .filter(|normalization| {
+                normalization.interner.interner_id() == source_interner.interner_id()
+            })
+            && let Some(kind) = normalization.interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return nia_ty::import_type_into(
+                &mut self.type_context.interner,
+                &normalization.interner,
+                normalization.normalize(ty),
+            );
+        }
+        nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
+    }
+
+    fn normalize_type_in_current_interner(&mut self, ty: InternedTyId) -> InternedTyId {
+        if let Some(normalization) = self
+            .input
+            .program_type_normalizations
+            .get(&ty.interner_id)
+            .filter(|normalization| {
+                normalization.interner.interner_id() == self.type_context.interner.interner_id()
+            })
+            && let Some(kind) = normalization.interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return nia_ty::import_type_into(
+                &mut self.type_context.interner,
+                &normalization.interner,
+                normalization.normalize(ty),
+            );
+        }
+        ty
+    }
+
+    fn import_type_from_known_interner(
+        &mut self,
+        source_interner: &nia_ty::TyInterner,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        if let Some(normalization) =
+            self.input
+                .program_type_normalizations
+                .values()
+                .find(|normalization| {
+                    normalization.interner.interner_id() == source_interner.interner_id()
+                })
+            && let Some(kind) = normalization.interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return nia_ty::import_type_into(
+                &mut self.type_context.interner,
+                &normalization.interner,
+                normalization.normalize(ty),
+            );
+        }
+        nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
+    }
+
     pub(crate) fn generic_substitutions(
         generics: &[String],
         args: &[InternedTyId],
@@ -131,28 +200,52 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(kind) = self.type_context.interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
-            return ty;
+            return self.normalize_type_in_current_interner(ty);
+        }
+        if ty.interner_id == self.input.type_normalization.interner.interner_id()
+            && let Some(kind) = self.input.type_normalization.interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            let normalized = self.input.type_normalization.normalize(ty);
+            return nia_ty::import_type_into(
+                &mut self.type_context.interner,
+                &self.input.type_normalization.interner,
+                normalized,
+            );
+        }
+        for normalization in self.input.program_type_normalizations.values() {
+            if ty.interner_id == normalization.interner.interner_id()
+                && let Some(kind) = normalization.interner.get(ty)
+                && !matches!(kind, TyKind::Error)
+            {
+                let normalized = normalization.normalize(ty);
+                return nia_ty::import_type_into(
+                    &mut self.type_context.interner,
+                    &normalization.interner,
+                    normalized,
+                );
+            }
         }
         if let Some(interner) = self.instantiation.body_interner
             && ty.interner_id == interner.interner_id()
             && let Some(kind) = interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
-            return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
+            return self.import_type_from_known_interner(interner, ty);
         }
         if let Some(interner) = self.known_interner_containing_ty(ty).cloned()
             && let Some(kind) = interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &interner, ty);
+            return self.import_type_from_known_interner(&interner, ty);
         }
         if let Some(interner) = self.instantiation.body_interner
             && ty.interner_id == interner.interner_id()
         {
-            return nia_ty::import_type_into(&mut self.type_context.interner, interner, ty);
+            return self.import_type_from_known_interner(interner, ty);
         }
         if let Some(interner) = self.known_interner_containing_ty(ty).cloned() {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &interner, ty);
+            return self.import_type_from_known_interner(&interner, ty);
         }
         if ty.interner_id == self.type_context.interner.interner_id()
             && self.type_context.interner.get(ty).is_some()

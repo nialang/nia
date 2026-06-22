@@ -1561,7 +1561,8 @@ impl<'a> BodyChecker<'a> {
             .fields
             .iter()
             .find(|field| field.name == name)?;
-        Some(self.substitute_generics(field.ty, &substitutions))
+        let ty = self.substitute_generics(field.ty, &substitutions);
+        Some(self.normalize_aliases_in_type(ty))
     }
 
     pub(crate) fn field_def_for_base_ty(

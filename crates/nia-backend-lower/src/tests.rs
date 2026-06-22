@@ -328,6 +328,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_extensions: &HashMap::new(),
         program_defs: &HashMap::new(),
         program_type_interners: &HashMap::new(),
+        program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),
         program_unions: &HashMap::new(),

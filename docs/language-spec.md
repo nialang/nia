@@ -3001,6 +3001,8 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 `nia build` is reserved as the toolchain-owned package build entry point for
 `build.nia`. It resolves package roots before build execution and keeps build
 outputs under `.nia-build/` separate from reusable `.nia-cache/` entries.
+`build.nia` is compiled and run as ordinary Nia code through a generated
+toolchain-owned runner, so it can use the standard library.
 
 Module-map options are accepted before or after the command:
 

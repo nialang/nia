@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fmt, io,
+    env, fmt, fs, io,
     path::{Path, PathBuf},
+    process::{Command, ExitStatus},
 };
+
+use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest};
+use nia_imports::ModuleMap;
+use nia_source::SourcePath;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
@@ -41,6 +46,8 @@ pub struct BuildPlan {
     pub build_script: PathBuf,
     pub build_dir: PathBuf,
     pub cache_dir: PathBuf,
+    pub runner_dir: PathBuf,
+    pub runner_executable: PathBuf,
     pub step: BuildStepSelection,
 }
 
@@ -50,11 +57,46 @@ pub enum BuildStepSelection {
     Named(String),
 }
 
+impl BuildStepSelection {
+    fn as_runner_arg(&self) -> Option<&str> {
+        match self {
+            Self::Default => None,
+            Self::Named(step) => Some(step),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildRunnerSource {
+    pub path: String,
+    pub source: String,
+}
+
 #[derive(Debug)]
 pub enum BuildError {
-    CurrentDirectory { error: io::Error },
-    MissingBuildScript { start: PathBuf },
-    UnsupportedRunner { plan: BuildPlan },
+    CurrentDirectory {
+        error: io::Error,
+    },
+    CreateRunnerDirectory {
+        path: PathBuf,
+        error: io::Error,
+    },
+    CompileRunner {
+        path: String,
+        source: String,
+        error: DriverError,
+    },
+    RunRunner {
+        path: PathBuf,
+        error: io::Error,
+    },
+    RunnerFailed {
+        path: PathBuf,
+        status: ExitStatus,
+    },
+    MissingBuildScript {
+        start: PathBuf,
+    },
 }
 
 impl fmt::Display for BuildError {
@@ -63,15 +105,42 @@ impl fmt::Display for BuildError {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
             }
+            Self::CreateRunnerDirectory { path, error } => {
+                write!(
+                    f,
+                    "failed to create build runner directory `{}`: {error}",
+                    path.display()
+                )
+            }
+            Self::CompileRunner {
+                path,
+                source,
+                error,
+            } => {
+                write!(
+                    f,
+                    "failed to compile build runner `{path}`\n{}",
+                    nia_driver::render_driver_error(error, Some(path), Some(source))
+                )
+            }
+            Self::RunRunner { path, error } => {
+                write!(
+                    f,
+                    "failed to run build runner `{}`: {error}",
+                    path.display()
+                )
+            }
+            Self::RunnerFailed { path, status } => {
+                write!(
+                    f,
+                    "build runner `{}` exited with status {status}",
+                    path.display()
+                )
+            }
             Self::MissingBuildScript { start } => write!(
                 f,
                 "failed to find `build.nia` from `{}` or any parent directory",
                 start.display()
-            ),
-            Self::UnsupportedRunner { plan } => write!(
-                f,
-                "`nia build` found `{}` but the native build runner is not implemented yet",
-                plan.build_script.display()
             ),
         }
     }
@@ -81,7 +150,8 @@ impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     let plan = resolve_build_plan(request)?;
-    Err(BuildError::UnsupportedRunner { plan })
+    compile_build_runner(&plan)?;
+    run_build_runner(&plan)
 }
 
 pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError> {
@@ -91,9 +161,13 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
     };
     let package_root = find_package_root(&start)?;
     let build_script = package_root.join("build.nia");
+    let build_dir = package_root.join(".nia-build");
+    let runner_dir = build_dir.join("runner");
     Ok(BuildPlan {
-        build_dir: package_root.join(".nia-build"),
         cache_dir: package_root.join(".nia-cache"),
+        runner_executable: runner_dir.join("nia-build-runner"),
+        runner_dir,
+        build_dir,
         package_root,
         build_script,
         step: request
@@ -101,6 +175,82 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
             .map(BuildStepSelection::Named)
             .unwrap_or(BuildStepSelection::Default),
     })
+}
+
+pub fn build_runner_source(plan: &BuildPlan) -> BuildRunnerSource {
+    let path = plan
+        .runner_dir
+        .join("root.nia")
+        .to_string_lossy()
+        .into_owned();
+    let source = r#"
+using std::build;
+using std::mem;
+using std::process;
+using build_script;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var page_allocator = mem::PageAllocator::init();
+    var allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
+    defer allocator.deinit().ok().exit().?;
+
+    var api = build::Build::init(init, &mut allocator);
+    defer api.deinit().exit().?;
+
+    build_script::build(&mut api).exit().?;
+    api.run_requested_step().exit().?;
+    !{}
+}
+"#
+    .trim_start()
+    .to_string();
+    BuildRunnerSource { path, source }
+}
+
+fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
+    fs::create_dir_all(&plan.runner_dir).map_err(|error| BuildError::CreateRunnerDirectory {
+        path: plan.runner_dir.clone(),
+        error,
+    })?;
+    let runner = build_runner_source(plan);
+    let driver = Driver::new();
+    driver.set_source(runner.path.clone(), runner.source.clone());
+    let mut module_map = ModuleMap::new();
+    module_map.insert(
+        "build_script",
+        SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
+    );
+    let output = driver.link_executable(LinkExecutableRequest::new(
+        CheckRequest::new(runner.path.clone()).with_module_map(module_map),
+        &plan.runner_executable,
+    ));
+    output
+        .result
+        .map(|_| ())
+        .map_err(|error| BuildError::CompileRunner {
+            path: runner.path,
+            source: runner.source,
+            error,
+        })
+}
+
+fn run_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
+    let mut command = Command::new(&plan.runner_executable);
+    command.current_dir(&plan.package_root);
+    if let Some(step) = plan.step.as_runner_arg() {
+        command.arg(step);
+    }
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(BuildError::RunnerFailed {
+            path: plan.runner_executable.clone(),
+            status,
+        }),
+        Err(error) => Err(BuildError::RunRunner {
+            path: plan.runner_executable.clone(),
+            error,
+        }),
+    }
 }
 
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
@@ -134,7 +284,40 @@ mod tests {
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
         assert_eq!(plan.build_dir, plan.package_root.join(".nia-build"));
         assert_eq!(plan.cache_dir, plan.package_root.join(".nia-cache"));
+        assert_eq!(plan.runner_dir, plan.package_root.join(".nia-build/runner"));
+        assert_eq!(
+            plan.runner_executable,
+            plan.package_root.join(".nia-build/runner/nia-build-runner")
+        );
         assert_eq!(plan.step, BuildStepSelection::Default);
+    }
+
+    #[test]
+    fn generated_runner_invokes_build_script_as_normal_nia_module() {
+        let root = temp_root("generated_runner_invokes_build_script_as_normal_nia_module");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+
+        let runner = build_runner_source(&plan);
+
+        assert_eq!(
+            runner.path,
+            plan.runner_dir.join("root.nia").to_string_lossy()
+        );
+        assert!(runner.source.contains("using std::build;"));
+        assert!(runner.source.contains("using std::mem;"));
+        assert!(runner.source.contains("using build_script;"));
+        assert!(
+            runner
+                .source
+                .contains("var api = build::Build::init(init, &mut allocator);")
+        );
+        assert!(
+            runner
+                .source
+                .contains("build_script::build(&mut api).exit().?;")
+        );
+        assert!(!runner.source.contains("comptime let"));
     }
 
     #[test]
@@ -146,6 +329,7 @@ mod tests {
             .expect("build plan");
 
         assert_eq!(plan.step, BuildStepSelection::Named("install".to_string()));
+        assert_eq!(plan.step.as_runner_arg(), Some("install"));
     }
 
     #[test]

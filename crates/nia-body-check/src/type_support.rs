@@ -709,6 +709,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn types_match_normalized(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        let expected = self.normalize_aliases_in_type(expected);
+        let actual = self.normalize_aliases_in_type(actual);
         let expected = self.normalize_projection(expected);
         let actual = self.normalize_projection(actual);
         if self.is_never(actual) {

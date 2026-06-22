@@ -474,8 +474,8 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    let signature_ty = nia_ty::import_type_into(
-                        &mut self.type_context.interner,
+                    let signature_ty = self.import_normalized_type_from_module(
+                        def_id.module_id,
                         source_interner,
                         param.ty,
                     );
@@ -483,8 +483,8 @@ impl<'a> ModuleLowerer<'a> {
                     let local_ty = if param.receiver.is_some() {
                         param_local
                             .map(|(_, ty)| {
-                                nia_ty::import_type_into(
-                                    &mut self.type_context.interner,
+                                self.import_normalized_type_from_module(
+                                    def_id.module_id,
                                     body_interner,
                                     ty,
                                 )
@@ -507,8 +507,8 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 })
                 .collect(),
-            return_type: nia_ty::import_type_into(
-                &mut self.type_context.interner,
+            return_type: self.import_normalized_type_from_module(
+                def_id.module_id,
                 source_interner,
                 signature.signature.return_type,
             ),

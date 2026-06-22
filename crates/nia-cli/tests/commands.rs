@@ -252,28 +252,91 @@ fn help_and_version_use_nia_command_name() {
 }
 
 #[test]
-fn build_command_resolves_build_script_and_reports_reserved_runner() {
-    let root = temp_dir("build_command_resolves_build_script_and_reports_reserved_runner");
-    std::fs::write(root.join("build.nia"), "pub fn build() void {}\n").expect("write build script");
+fn build_command_compiles_and_runs_build_script() {
+    let root = temp_dir("build_command_compiles_and_runs_build_script");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+fn check(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    b.step("check", &check).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
     std::fs::create_dir_all(root.join("src").join("nested")).expect("create nested dir");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(root.join("src").join("nested"))
+        .output_timeout("run nia build");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.is_empty(), "{stderr}");
+    assert!(root.join(".nia-build/runner/nia-build-runner").is_file());
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("build")
         .arg("check")
         .arg("--root")
-        .arg(root.join("src").join("nested"))
-        .output_timeout("run nia build");
+        .arg(&root)
+        .output_timeout("run nia build check");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn build_command_reports_unknown_named_step() {
+    let root = temp_dir("build_command_reports_unknown_named_step");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+fn check(b: &mut build::Build) build::Error!void {
+    _ = b;
+    !{}
+}
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    b.step("check", &check).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("missing")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build missing");
 
     assert!(!output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.is_empty(), "{stdout}");
-    assert!(stderr.contains("error:"), "{stderr}");
-    assert!(stderr.contains("build.nia"), "{stderr}");
-    assert!(
-        stderr.contains("native build runner is not implemented yet"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("unknown build step `missing`"), "{stderr}");
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 2"), "{stderr}");
 }
 
 #[test]
