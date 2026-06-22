@@ -16,7 +16,6 @@ pub enum Error: i32 {
     CommandFailed = 6,
     UnknownTarget = 7,
     InvalidTarget = 8,
-    PathTooLong = 9,
     _,
 }
 
@@ -136,13 +135,15 @@ extend Build {
             self.report_unknown_target(name).?;
             return Error::UnknownTarget!;
         };
-        var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        var target_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let output = self.executable_output_path(
+        var output_text = collections::ArrayList[char]::init();
+        defer output_text.deinit(self.allocator).as_build_error().?;
+        let output_path = self.build_dir.join_component_into(
+            self.allocator,
             target.name,
-            &mut output_path_storage[..],
-            &mut target_path_storage[..],
-        ).?;
+            &mut output_text,
+        ).as_build_error().?;
+        var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
         self.emit_exe(target.source, output)
     }
 
@@ -233,7 +234,7 @@ extend Build {
         var index = 0usize;
         while index < self.steps.len() {
             let step = self.steps.as_slice()[index];
-            if text_equal(step.name, name) {
+            if mem::equal[char](step.name, name) {
                 return ?step;
             }
             index += 1usize;
@@ -257,7 +258,7 @@ extend Build {
         var index = 0usize;
         while index < self.executables.len() {
             let target = self.executables.as_slice()[index];
-            if text_equal(target.name, name) {
+            if mem::equal[char](target.name, name) {
                 return ?target;
             }
             index += 1usize;
@@ -277,30 +278,6 @@ extend Build {
         var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
         stderr.print("unknown executable target `{}`\n", &[name]).as_build_error().?;
         stderr.flush().as_build_error()
-    }
-
-    fn executable_output_path(
-        &self,
-        name: &[char],
-        path_storage: &mut [u8],
-        target_storage: &mut [u8],
-    ) Error!fs::EncodedPath {
-        let build_dir = self.build_dir.encode(path_storage).as_build_error().?;
-        let target = fs::Path::init(name).encode(target_storage).as_build_error().?;
-        let build_len = build_dir.len();
-        let target_len = target.len();
-        if build_len + 1usize + target_len >= path_storage.len() {
-            return Error::PathTooLong!;
-        }
-        path_storage[build_len] = b'/';
-        var index = 0usize;
-        while index < target_len {
-            path_storage[build_len + 1usize + index] = target.bytes()[index];
-            index += 1usize;
-        }
-        let out_len = build_len + 1usize + target_len;
-        path_storage[out_len] = 0u8;
-        !fs::EncodedPath::init(path_storage.get_ptr_read(), out_len)
     }
 }
 
@@ -327,7 +304,6 @@ extend Error {
             Error::CommandFailed => process::exit(1),
             Error::UnknownTarget => process::exit(2),
             Error::InvalidTarget => process::exit(22),
-            Error::PathTooLong => process::exit(36),
             _ => process::exit(255),
         }
     }
@@ -415,20 +391,6 @@ extend[T] mem::Error!T {
             }
         }
     }
-}
-
-fn text_equal(left: &[char], right: &[char]) bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    var index = 0usize;
-    while index < left.len() {
-        if left[index] != right[index] {
-            return false;
-        }
-        index += 1usize;
-    }
-    true
 }
 
 fn is_valid_target_name(name: &[char]) bool {

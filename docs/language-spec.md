@@ -2984,6 +2984,12 @@ A conforming Nia compiler supports:
 - freestanding executable emission for Linux x86_64 when a target linker is
   available.
 
+The standard `std::fs::Path` is a borrowed path view over `&[char]`. Owned path
+text is ordinary caller-owned storage such as `std::collections::ArrayList[char]`;
+`Path::join_into(allocator, component, out)` and
+`Path::join_component_into(allocator, component, out)` write joined path text
+into that storage without hiding allocation.
+
 The CLI surface is:
 
 ```text

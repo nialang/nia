@@ -5,6 +5,7 @@ pub(pkg) module path;
 pub(pkg) module types;
 
 pub using file::getcwd;
+pub using path::{append_component_into, is_separator, join_into};
 
 pub using types::{
     CreateDirOptions,

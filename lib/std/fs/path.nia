@@ -1,4 +1,6 @@
+using pkg::collections;
 using pkg::fs::types;
+using pkg::mem;
 using pkg::unicode;
 
 using types::{EncodedPath, Error, Path, PathError};
@@ -43,6 +45,64 @@ extend Path {
         storage[out] = 0u8;
         !EncodedPath::init(storage.get_ptr_read(), out)
     }
+
+    pub fn join_into(
+        &self,
+        allocator: &mut mem::Allocator,
+        component: Path,
+        out: &mut collections::ArrayList[char],
+    ) Error!Path {
+        out.clear_retaining_capacity();
+        out.append_slice(allocator, self.text).as_fs_error().?;
+        append_component_into(allocator, component.text(), out).?;
+        !Path::init(out.as_slice())
+    }
+
+    pub fn join_component_into(
+        &self,
+        allocator: &mut mem::Allocator,
+        component: &[char],
+        out: &mut collections::ArrayList[char],
+    ) Error!Path {
+        self.join_into(allocator, Path::init(component), out)
+    }
+}
+
+pub fn join_into(
+    allocator: &mut mem::Allocator,
+    base: Path,
+    component: Path,
+    out: &mut collections::ArrayList[char],
+) Error!Path {
+    base.join_into(allocator, component, out)
+}
+
+pub fn append_component_into(
+    allocator: &mut mem::Allocator,
+    component: &[char],
+    out: &mut collections::ArrayList[char],
+) Error!void {
+    if component.len() == 0usize {
+        return !{};
+    }
+    if out.len() == 0usize {
+        out.append_slice(allocator, component).as_fs_error()
+    } else {
+        let out_has_sep = is_separator(out.as_slice()[out.len() - 1usize]);
+        let component_has_sep = is_separator(component[0]);
+        if not out_has_sep and not component_has_sep {
+            out.push(allocator, '/').as_fs_error().?;
+            out.append_slice(allocator, component).as_fs_error()
+        } else if out_has_sep and component_has_sep {
+            out.append_slice(allocator, &component[1usize..]).as_fs_error()
+        } else {
+            out.append_slice(allocator, component).as_fs_error()
+        }
+    }
+}
+
+pub fn is_separator(ch: char) bool {
+    ch == '/'
 }
 
 extend EncodedPath {
@@ -78,6 +138,28 @@ extend PathError {
 }
 
 extend[T] PathError!T {
+    pub(pkg) fn as_fs_error(self) Error!T {
+        if let !value = self {
+            !value
+        } else error! {
+            error.as_fs_error()!
+        }
+    }
+}
+
+extend mem::Error {
+    pub(pkg) fn as_fs_error(self) Error {
+        switch self {
+            mem::Error::OutOfMemory => Error::OutOfMemory,
+            mem::Error::Invalid => Error::Invalid,
+            mem::Error::InvalidAlignment => Error::Invalid,
+            mem::Error::System => Error::System,
+            _ => Error::System,
+        }
+    }
+}
+
+extend[T] mem::Error!T {
     pub(pkg) fn as_fs_error(self) Error!T {
         if let !value = self {
             !value

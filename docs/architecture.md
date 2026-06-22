@@ -1132,6 +1132,11 @@ names validated so artifact paths cannot escape the build directory. This
 surface will grow into explicit step and artifact APIs rather than a Rust-side
 manifest parser.
 
+Path construction follows the standard-library convention that `fs::Path` is a
+borrowed `&[char]` view. Owned path text is supplied by the caller, typically an
+`ArrayList[char]`; `Path::join_into` appends with a native separator into that
+storage and keeps allocation explicit.
+
 Global module-map options:
 
 ```text

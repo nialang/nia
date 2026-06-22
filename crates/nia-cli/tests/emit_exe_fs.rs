@@ -8,6 +8,75 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_std_fs_path_join_into_builds_char_paths() {
+    let root = temp_dir("emit_exe_std_fs_path_join_into_builds_char_paths");
+    let data_path = root.join("subdir").join("inside.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::collections;
+using std::fs;
+using std::io;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var page = mem::PageAllocator::init();
+    var path_text = collections::ArrayList[char]::init();
+    defer path_text.deinit(&mut page).exit().?;
+
+    var path = fs::Path::init("subdir").join_component_into(
+        &mut page,
+        "/inside.txt",
+        &mut path_text,
+    ).exit().?;
+    let expected: &[char] = "subdir/inside.txt";
+    if path.text().len() != expected.len() {
+        return process::exit(1)!;
+    }
+
+    var cwd = fs::Dir::cwd().exit().?;
+    defer cwd.close().exit().?;
+    cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()).exit().?;
+    var file = cwd.create_file(path, fs::CreateOptions::read_write()).exit().?;
+    var buffer: [16]u8 = [0; 16];
+    var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
+    writer.write_all(b"joined").exit().?;
+    writer.flush().exit().?;
+    file.close().exit().?;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe fs path join");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted path join executable");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(
+        std::fs::read(&data_path).expect("read joined file"),
+        b"joined"
+    );
+}
+
+#[test]
 fn emit_exe_std_fs_getcwd_returns_path_slice() {
     let root = temp_dir("emit_exe_std_fs_getcwd_returns_path_slice");
     let main = root.join("main.nia");
