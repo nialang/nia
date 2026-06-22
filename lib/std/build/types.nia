@@ -1,0 +1,28 @@
+using pkg::collections;
+using pkg::fs;
+using pkg::mem;
+using pkg::process;
+using pkg::build::error;
+
+using error::Error;
+
+pub struct Step {
+    name: &[char],
+    run: &fn(&mut Build) Error!void,
+}
+
+pub struct ExecutableTarget {
+    name: &[char],
+    source: fs::Path,
+}
+
+pub struct Build {
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    package_root: fs::Path,
+    build_dir: fs::Path,
+    cache_dir: fs::Path,
+    toolchain_executable: fs::Path,
+    steps: collections::ArrayList[Step],
+    executables: collections::ArrayList[ExecutableTarget],
+}
