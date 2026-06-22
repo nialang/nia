@@ -1110,14 +1110,10 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 the selected root directory and then each parent directory. Build outputs belong
 under `.nia-build/`; reusable package or compiler cache entries belong under
 `.nia-cache/`. The build runner is part of the Nia toolchain boundary so package
-build scripts do not spell out compiler C API, LLVM, C runtime, or linker
-dependency details.
-
-The build system consumes a toolchain link plan rather than raw linker flags.
-The current compiler-hosted development plan links the compiler API into the
-host executable and records the LLVM, unwind, and C runtime dependencies as
-toolchain dependencies. Installed, bundled, and static-LLVM layouts should add
-new toolchain layouts instead of changing package build scripts.
+build scripts do not spell out LLVM, C runtime, or linker dependency details.
+The build runner is implemented inside the Rust toolchain crates and calls the
+compiler through `nia-driver`; it does not embed the compiler through a separate
+ABI bridge.
 
 Global module-map options:
 

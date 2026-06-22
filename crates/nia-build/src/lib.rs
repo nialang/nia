@@ -41,7 +41,6 @@ pub struct BuildPlan {
     pub build_script: PathBuf,
     pub build_dir: PathBuf,
     pub cache_dir: PathBuf,
-    pub compiler_link_plan: nia_linker::ToolchainLinkPlan,
     pub step: BuildStepSelection,
 }
 
@@ -54,7 +53,6 @@ pub enum BuildStepSelection {
 #[derive(Debug)]
 pub enum BuildError {
     CurrentDirectory { error: io::Error },
-    CurrentExecutable { error: io::Error },
     MissingBuildScript { start: PathBuf },
     UnsupportedRunner { plan: BuildPlan },
 }
@@ -64,9 +62,6 @@ impl fmt::Display for BuildError {
         match self {
             Self::CurrentDirectory { error } => {
                 write!(f, "failed to read current directory: {error}")
-            }
-            Self::CurrentExecutable { error } => {
-                write!(f, "failed to locate current Nia executable: {error}")
             }
             Self::MissingBuildScript { start } => write!(
                 f,
@@ -96,33 +91,16 @@ pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError
     };
     let package_root = find_package_root(&start)?;
     let build_script = package_root.join("build.nia");
-    let compiler_link_plan = nia_linker::ToolchainLinkPlan::compiler_hosted_development(
-        nia_linker::CompilerHostedLayout::new(current_toolchain_library_dir()?),
-    );
     Ok(BuildPlan {
         build_dir: package_root.join(".nia-build"),
         cache_dir: package_root.join(".nia-cache"),
         package_root,
         build_script,
-        compiler_link_plan,
         step: request
             .step
             .map(BuildStepSelection::Named)
             .unwrap_or(BuildStepSelection::Default),
     })
-}
-
-fn current_toolchain_library_dir() -> Result<String, BuildError> {
-    let executable = env::current_exe().map_err(|error| BuildError::CurrentExecutable { error })?;
-    let Some(parent) = executable.parent() else {
-        return Ok(PathBuf::from(".").to_string_lossy().into_owned());
-    };
-    let library_dir = if parent.file_name().is_some_and(|name| name == "deps") {
-        parent.to_path_buf()
-    } else {
-        parent.join("deps")
-    };
-    Ok(library_dir.to_string_lossy().into_owned())
 }
 
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
@@ -156,15 +134,6 @@ mod tests {
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
         assert_eq!(plan.build_dir, plan.package_root.join(".nia-build"));
         assert_eq!(plan.cache_dir, plan.package_root.join(".nia-cache"));
-        assert_eq!(
-            plan.compiler_link_plan.libraries,
-            vec![
-                nia_linker::NativeLibrary::static_("nia_capi"),
-                nia_linker::NativeLibrary::dynamic("LLVM"),
-                nia_linker::NativeLibrary::dynamic(":libgcc_s.so.1"),
-                nia_linker::NativeLibrary::dynamic("c"),
-            ]
-        );
         assert_eq!(plan.step, BuildStepSelection::Default);
     }
 

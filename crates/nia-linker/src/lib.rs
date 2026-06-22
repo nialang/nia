@@ -151,51 +151,6 @@ pub struct LinkOptions {
     pub raw_args: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolchainLinkPlan {
-    pub mode: LinkMode,
-    pub dynamic_linker: DynamicLinker,
-    pub library_paths: Vec<String>,
-    pub libraries: Vec<NativeLibrary>,
-}
-
-impl ToolchainLinkPlan {
-    pub fn compiler_hosted_development(layout: CompilerHostedLayout) -> Self {
-        Self {
-            mode: LinkMode::Dynamic,
-            dynamic_linker: DynamicLinker::Auto,
-            library_paths: vec![layout.runtime_library_dir],
-            libraries: vec![
-                NativeLibrary::static_("nia_capi"),
-                NativeLibrary::dynamic("LLVM"),
-                NativeLibrary::dynamic(":libgcc_s.so.1"),
-                NativeLibrary::dynamic("c"),
-            ],
-        }
-    }
-
-    pub fn apply_to(self, mut options: LinkOptions) -> LinkOptions {
-        options.mode = self.mode;
-        options.dynamic_linker = self.dynamic_linker;
-        options.library_paths.extend(self.library_paths);
-        options.libraries.extend(self.libraries);
-        options
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompilerHostedLayout {
-    pub runtime_library_dir: String,
-}
-
-impl CompilerHostedLayout {
-    pub fn new(runtime_library_dir: impl Into<String>) -> Self {
-        Self {
-            runtime_library_dir: runtime_library_dir.into(),
-        }
-    }
-}
-
 impl Default for LinkOptions {
     fn default() -> Self {
         Self {
@@ -863,7 +818,7 @@ mod tests {
         .with_dynamic_linker(DynamicLinker::Path("/loader".to_string()))
         .add_library_path("/lib")
         .add_rpath("$ORIGIN")
-        .add_library("nia_capi")
+        .add_library("native_api")
         .with_raw_args(vec!["-z".to_string(), "now".to_string()]);
         let invocation = options
             .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
@@ -879,7 +834,7 @@ mod tests {
                 "-rpath",
                 "$ORIGIN",
                 "-l",
-                "nia_capi",
+                "native_api",
                 "--dynamic-linker",
                 "/loader",
                 "-z",
@@ -897,7 +852,7 @@ mod tests {
             ..LinkOptions::default()
         }
         .add_library_path("/lib")
-        .add_library("nia_capi");
+        .add_library("native_api");
         let invocation = options
             .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
             .expect("link invocation");
@@ -925,7 +880,7 @@ mod tests {
             ..LinkOptions::default()
         }
         .with_dynamic_mode()
-        .add_static_library("nia_capi")
+        .add_static_library("compiler_runtime")
         .add_dynamic_library("LLVM")
         .add_dynamic_library(":libgcc_s.so.1")
         .add_dynamic_library("c");
@@ -942,7 +897,7 @@ mod tests {
                 "main.o",
                 "-Bstatic",
                 "-l",
-                "nia_capi",
+                "compiler_runtime",
                 "-Bdynamic",
                 "-l",
                 "LLVM",
@@ -956,43 +911,6 @@ mod tests {
                 "main"
             ]
         );
-    }
-
-    #[test]
-    fn compiler_hosted_development_plan_encodes_toolchain_dependency_closure() {
-        let options = ToolchainLinkPlan::compiler_hosted_development(CompilerHostedLayout::new(
-            "target/release/deps",
-        ))
-        .apply_to(LinkOptions {
-            linker: ExecutableLinker::with_program("ld"),
-            ..LinkOptions::default()
-        });
-        assert_eq!(options.mode, LinkMode::Dynamic);
-        assert_eq!(options.dynamic_linker, DynamicLinker::Auto);
-        assert_eq!(options.library_paths, vec!["target/release/deps"]);
-        assert_eq!(
-            options.libraries,
-            vec![
-                NativeLibrary::static_("nia_capi"),
-                NativeLibrary::dynamic("LLVM"),
-                NativeLibrary::dynamic(":libgcc_s.so.1"),
-                NativeLibrary::dynamic("c"),
-            ]
-        );
-
-        let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
-            .expect("link invocation");
-        assert!(
-            invocation
-                .args
-                .windows(2)
-                .any(|args| args == ["-L", "target/release/deps"])
-        );
-        assert_gnu_library_mode(&invocation.args, "nia_capi", "-Bstatic");
-        assert_gnu_library_mode(&invocation.args, "LLVM", "-Bdynamic");
-        assert_gnu_library_mode(&invocation.args, ":libgcc_s.so.1", "-Bdynamic");
-        assert_gnu_library_mode(&invocation.args, "c", "-Bdynamic");
     }
 
     #[test]
@@ -1254,20 +1172,5 @@ mod tests {
         {
             let _ = path;
         }
-    }
-
-    fn assert_gnu_library_mode(args: &[String], library: &str, mode: &str) {
-        let library_index = args
-            .windows(2)
-            .position(|args| args[0] == "-l" && args[1] == library)
-            .unwrap_or_else(|| panic!("missing library `{library}` in {args:?}"));
-        let active_mode = args[..library_index]
-            .iter()
-            .rev()
-            .find(|arg| *arg == "-Bstatic" || *arg == "-Bdynamic");
-        assert!(
-            active_mode.is_some_and(|arg| arg == mode),
-            "library `{library}` should be linked after {mode}: {args:?}"
-        );
     }
 }
