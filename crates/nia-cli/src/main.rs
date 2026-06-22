@@ -129,7 +129,7 @@ impl CliError {
 
 fn run_cli(cli: Cli) -> ExitCode {
     match cli.command {
-        CliCommand::Build { root, step } => run_build(root, step),
+        CliCommand::Build { root, step } => run_build(root, step, cli.timings),
         CliCommand::Check {
             path,
             opt_report,
@@ -812,7 +812,11 @@ fn run_emit(
     }
 }
 
-fn run_build(root: Option<PathBuf>, step: Option<String>) -> ExitCode {
+fn run_build(
+    root: Option<PathBuf>,
+    step: Option<String>,
+    timings: nia_driver::TimingMode,
+) -> ExitCode {
     let mut request = nia_build::BuildRequest::new();
     if let Some(root) = root {
         request = request.with_root(root);
@@ -820,6 +824,7 @@ fn run_build(root: Option<PathBuf>, step: Option<String>) -> ExitCode {
     if let Some(step) = step {
         request = request.with_step(step);
     }
+    request = request.with_timings(timings);
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
