@@ -1024,7 +1024,7 @@ impl<'a> SignatureCollector<'a> {
     }
 
     fn ty_for_type(&mut self, ty_ref: &TypeRef) -> InternedTyId {
-        if let Some(ty) = self.lowered.node_type_uses.get(&ty_ref.node_key).copied() {
+        if let Some(ty) = self.lowered.ty_for_key(&ty_ref.node_key) {
             ty
         } else {
             self.diagnostics.push(

@@ -29,6 +29,7 @@ fn semantic_use_table(
     values: &nia_value_resolve::ValueResolution,
     locals: &nia_local_resolve::LocalResolution,
     type_lowering: &TypeLowering,
+    active_item_tree: &ActiveModuleItemTree,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
@@ -68,10 +69,7 @@ fn semantic_use_table(
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
     builder.extend_node_type_uses(
-        type_lowering
-            .node_type_uses
-            .iter()
-            .map(|(key, ty)| (key.clone(), *ty)),
+        type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree),
     );
     builder.finish()
 }
@@ -183,11 +181,17 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
-    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
+    let active_item_tree = active_item_tree(&module);
+    let semantic_uses = semantic_use_table(
+        ModuleId(0),
+        &values,
+        &locals,
+        &type_lowering,
+        &active_item_tree,
+    );
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
-    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
             active_item_tree: &active_item_tree,

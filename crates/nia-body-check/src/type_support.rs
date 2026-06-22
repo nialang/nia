@@ -860,7 +860,6 @@ impl<'a> BodyChecker<'a> {
             semantic_uses: self.semantic_uses,
             interner: self.interner.clone(),
             type_lowering: self.type_lowering,
-            node_type_uses: self.node_type_uses,
             signatures: self.signatures,
             normalization: self.normalization,
             target: self.target,
@@ -1019,9 +1018,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
         let ty = self
-            .node_type_uses
-            .get(&ty.node_key)
-            .copied()
+            .type_lowering
+            .ty_for_key(&ty.node_key)
             .unwrap_or_else(|| self.error());
         self.import_type_to_working_interner(ty)
     }
