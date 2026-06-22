@@ -10,7 +10,7 @@ using pkg::build::error;
 using pkg::build::types;
 
 using error::Error;
-using types::{Build, Step, StepFn, ExecutableTarget};
+using types::{Build, Step, StepFn, StepHandle, StepDependency, StepState, ExecutableTarget};
 
 pub fn noop_step(b: &mut Build) Error!void {
     _ = b;
@@ -34,12 +34,14 @@ extend Build {
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
             steps: collections::ArrayList[Step]::init(),
+            dependencies: collections::ArrayList[StepDependency]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
         }
     }
 
     pub fn deinit(&mut self) Error!void {
         self.executables.deinit(self.allocator).as_build_error().?;
+        self.dependencies.deinit(self.allocator).as_build_error().?;
         self.steps.deinit(self.allocator).as_build_error()
     }
 
@@ -63,7 +65,7 @@ extend Build {
         self.toolchain_executable
     }
 
-    pub fn step(&mut self, name: &[char], run: StepFn) Error!void {
+    pub fn add_step(&mut self, name: &[char], run: StepFn) Error!StepHandle {
         if name.len() == 0usize {
             return Error::InvalidStep!;
         }
@@ -71,7 +73,30 @@ extend Build {
             _ = old;
             return Error::InvalidStep!;
         } else null {}
-        self.steps.push(self.allocator, Step::init(name, run)).as_build_error()
+        let handle = StepHandle::init(self.steps.len());
+        self.steps.push(self.allocator, Step::init(name, run)).as_build_error().?;
+        !handle
+    }
+
+    pub fn depend_on(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
+        if step.index() >= self.steps.len() or dependency.index() >= self.steps.len() {
+            return Error::InvalidStep!;
+        }
+        if step.index() == dependency.index() {
+            return Error::StepCycle!;
+        }
+        var index = 0usize;
+        while index < self.dependencies.len() {
+            let edge = self.dependencies.as_slice()[index];
+            if edge.step.index() == step.index() and edge.dependency.index() == dependency.index() {
+                return !{};
+            }
+            index += 1usize;
+        }
+        self.dependencies.push(
+            self.allocator,
+            StepDependency::init(step, dependency),
+        ).as_build_error()
     }
 
     pub fn executable(&mut self, name: &[char], source: fs::Path) Error!void {
@@ -168,23 +193,68 @@ extend Build {
 
     pub fn run_requested_step(&mut self) Error!void {
         if let ?step = self.requested_step() {
-            if let ?registered = self.find_step_arg(step) {
-                return registered.run(self);
+            if let ?handle = self.find_step_arg(step) {
+                return self.run_step(handle);
             } else null {}
             self.report_unknown_step(step).?;
             return Error::UnknownStep!;
         } else null {}
-        if let ?registered = self.first_step() {
-            return registered.run(self);
+        if let ?handle = self.first_step() {
+            return self.run_step(handle);
         } else null {}
         !{}
     }
 
-    fn first_step(&self) ?Step {
-        if let ?step = self.steps.get(0usize) {
-            ?step.*
-        } else null {
+    fn run_step(&mut self, handle: StepHandle) Error!void {
+        if handle.index() >= self.steps.len() {
+            return Error::InvalidStep!;
+        }
+        let state = self.steps.as_slice()[handle.index()].state;
+        switch state {
+            StepState::Done => return !{},
+            StepState::Running => return Error::StepCycle!,
+            StepState::Failed => return Error::StepFailed!,
+            _ => {}
+        }
+
+        self.set_step_state(handle, StepState::Running);
+
+        var index = 0usize;
+        while index < self.dependencies.len() {
+            let edge = self.dependencies.as_slice()[index];
+            if edge.step.index() == handle.index() {
+                if let !ok = self.run_step(edge.dependency) {
+                    _ = ok;
+                } else err! {
+                    self.set_step_state(handle, StepState::Failed);
+                    return err!;
+                }
+            }
+            index += 1usize;
+        }
+
+        let run = self.steps.as_slice()[handle.index()].run;
+        if let !ok = run(self) {
+            _ = ok;
+        } else err! {
+            self.set_step_state(handle, StepState::Failed);
+            return err!;
+        }
+
+        self.set_step_state(handle, StepState::Done);
+        !{}
+    }
+
+    fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
+        var steps = self.steps.as_mut_slice();
+        steps[handle.index()].state = state;
+    }
+
+    fn first_step(&self) ?StepHandle {
+        if self.steps.len() == 0usize {
             null
+        } else {
+            ?StepHandle::init(0usize)
         }
     }
 
@@ -200,12 +270,12 @@ extend Build {
         null
     }
 
-    fn find_step_arg(&self, arg: process::Arg) ?Step {
+    fn find_step_arg(&self, arg: process::Arg) ?StepHandle {
         var index = 0usize;
         while index < self.steps.len() {
             let step = self.steps.as_slice()[index];
             if arg_matches_text(arg, step.name) {
-                return ?step;
+                return ?StepHandle::init(index);
             }
             index += 1usize;
         }
@@ -241,7 +311,27 @@ extend Build {
 
 extend Step {
     pub fn init(name: &[char], run: StepFn) Step {
-        { name: name, run: run }
+        {
+            name: name,
+            run: run,
+            state: StepState::Pending,
+        }
+    }
+}
+
+extend StepHandle {
+    pub fn init(index: usize) StepHandle {
+        { index: index }
+    }
+
+    pub fn index(&self) usize {
+        self.index
+    }
+}
+
+extend StepDependency {
+    pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
+        { step: step, dependency: dependency }
     }
 }
 

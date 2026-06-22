@@ -100,7 +100,10 @@ impl BackendValidator<'_> {
 
     pub(super) fn array_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
         match self.ty_kind(ty) {
-            Some(TyKind::Array { elem, .. }) => Some(*elem),
+            Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. }) => Some(*elem),
             _ => None,
         }
     }

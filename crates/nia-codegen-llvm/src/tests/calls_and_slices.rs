@@ -2,6 +2,40 @@
 use super::common::*;
 
 #[test]
+fn emits_assignment_to_field_through_indexed_mut_slice() {
+    let root = temp_dir("emits_assignment_to_field_through_indexed_mut_slice");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Item {
+    state: i32,
+}
+
+fn set(items: &mut [Item], index: usize, state: i32) void {
+    items[index].state = state;
+}
+
+fn main() i32 {
+    var items: [2]Item = [
+        { state: 1 },
+        { state: 2 },
+    ];
+    set(&mut items[..], 1usize, 9);
+    items[1].state
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_direct_function_calls() {
     let root = temp_dir("emits_direct_function_calls");
     let main = root.join("main.nia");

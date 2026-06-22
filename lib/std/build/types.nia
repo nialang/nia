@@ -8,9 +8,27 @@ using error::Error;
 
 pub type StepFn = &fn(&mut Build) Error!void;
 
+pub enum StepState: i32 {
+    Pending = 1,
+    Running = 2,
+    Done = 3,
+    Failed = 4,
+    _
+}
+
+pub struct StepHandle {
+    index: usize,
+}
+
 pub struct Step {
     name: &[char],
     run: StepFn,
+    state: StepState,
+}
+
+pub struct StepDependency {
+    step: StepHandle,
+    dependency: StepHandle,
 }
 
 pub struct ExecutableTarget {
@@ -26,5 +44,6 @@ pub struct Build {
     cache_dir: fs::Path,
     toolchain_executable: fs::Path,
     steps: collections::ArrayList[Step],
+    dependencies: collections::ArrayList[StepDependency],
     executables: collections::ArrayList[ExecutableTarget],
 }
