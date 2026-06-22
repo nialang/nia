@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 
 use crate::{Block, Expr, TypeRef, WhereClause};
@@ -14,7 +14,7 @@ pub struct Module {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
     pub attributes: Vec<Attribute>,
     pub vis: Visibility,
     pub kind: ItemKind,
@@ -162,7 +162,7 @@ pub struct TraitItem {
 pub struct TraitAssociatedType {
     pub name: String,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,7 +186,7 @@ pub struct ExtendAssociatedType {
     pub name: String,
     pub ty: TypeRef,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,7 +208,7 @@ pub struct Field {
     pub ty: TypeRef,
     pub attributes: Vec<Attribute>,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,7 +224,7 @@ pub struct EnumVariant {
     pub name: String,
     pub value: Option<Expr>,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,7 +247,7 @@ pub struct FunctionItem {
     pub is_comptime: bool,
     pub is_variadic: bool,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -256,7 +256,7 @@ pub struct Param {
     pub name: Option<String>,
     pub ty: Option<TypeRef>,
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -267,5 +267,5 @@ pub struct BindingItem {
     pub is_let: bool,
     pub is_comptime: bool,
     pub is_extern: bool,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
 }

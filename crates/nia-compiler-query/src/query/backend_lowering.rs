@@ -9,7 +9,7 @@ pub(super) struct BackendLoweringIndexes<'a> {
             &'a nia_ty::TyInterner,
         ),
     >,
-    pub(super) program_type_interners: HashMap<ModuleId, &'a nia_ty::TyInterner>,
+    pub(super) program_function_body_interners: nia_backend_lower::ProgramFunctionBodyInterners<'a>,
     pub(super) program_type_normalizations:
         &'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
@@ -32,11 +32,13 @@ pub(super) fn build_backend_lowering_indexes<'a>(
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_type_interners = checked_modules
-        .iter()
-        .zip(function_bodies.iter())
-        .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner))
-        .collect::<HashMap<_, _>>();
+    let program_function_body_interners =
+        nia_backend_lower::ProgramFunctionBodyInterners::from_modules(
+            checked_modules
+                .iter()
+                .zip(function_bodies.iter())
+                .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner)),
+        );
     let program_function_bodies = function_bodies
         .iter()
         .flat_map(|lowered| {
@@ -53,7 +55,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 
     BackendLoweringIndexes {
         program_extensions,
-        program_type_interners,
+        program_function_body_interners,
         program_type_normalizations,
         program_function_bodies,
         program_comptime,
@@ -107,7 +109,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_extension_methods: &input.extension_methods.methods,
                     program_extensions: &input.indexes.program_extensions,
                     program_defs: input.program_defs,
-                    program_type_interners: &input.indexes.program_type_interners,
+                    program_function_body_interners: &input.indexes.program_function_body_interners,
                     program_type_normalizations: input.indexes.program_type_normalizations,
                     program_functions: &input.program_signatures.functions,
                     program_structs: &input.program_signatures.structs,

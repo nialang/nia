@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn defs_by_module_id(db: &QueryDb<CompilerContext>) -> ProgramDefsById {
-    db.query(ProgramDefsByIdQuery)
+pub(super) fn synthetic_diagnostic_path() -> SourcePath {
+    SourcePath::new("<nia:diagnostic>")
+}
+
+pub(super) fn full_defs_by_module_id(db: &QueryDb<CompilerContext>) -> ProgramFullDefsById {
+    db.query(ProgramFullDefsByIdQuery)
 }
 
 pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) -> SourcePath {
@@ -20,6 +24,6 @@ pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) ->
             modules
                 .first()
                 .map(|module| module.path.clone())
-                .unwrap_or_else(|| SourcePath::new("<unknown>"))
+                .unwrap_or_else(synthetic_diagnostic_path)
         })
 }

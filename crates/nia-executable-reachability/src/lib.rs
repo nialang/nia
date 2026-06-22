@@ -940,7 +940,7 @@ fn collect_ty_ids_owner_modules(
     let mut pending = tys.into_iter().collect::<VecDeque<_>>();
     let mut seen = HashSet::new();
     while let Some(ty_id) = pending.pop_front() {
-        add_reachable_module(ty_id.interner_id, modules, pending_modules);
+        add_reachable_module(type_owner(ty_id).module_id(), modules, pending_modules);
         if !seen.insert(ty_id) {
             continue;
         }
@@ -953,6 +953,10 @@ fn collect_ty_ids_owner_modules(
         };
         collect_ty_owner_modules(ty, &mut pending, modules, pending_modules, traits);
     }
+}
+
+fn type_owner(ty: InternedTyId) -> nia_ids::TypeOwner {
+    ty.owner()
 }
 
 fn collect_ty_owner_modules(

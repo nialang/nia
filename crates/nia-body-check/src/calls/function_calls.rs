@@ -349,17 +349,17 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let span = expr.span;
         let callee_ty = self.normalize_aliases_in_type(callee_ty);
-        match self.interner.get(callee_ty).cloned() {
-            Some(TyKind::FunctionPointer {
+        match self.expect_ty_kind(callee_ty).clone() {
+            TyKind::FunctionPointer {
                 params,
                 return_type,
                 is_variadic,
-            }) => {
+            } => {
                 self.check_direct_call_args(span, args, &params, is_variadic);
                 self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::FunctionPointer);
                 return_type
             }
-            Some(TyKind::Error) | None => {
+            TyKind::Error => {
                 for arg in args {
                     self.check_expr(arg);
                 }

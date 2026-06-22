@@ -902,13 +902,13 @@ fn main() i32 {
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains("write_all__inst__t_nom__Sink")),
+            .any(|symbol| symbol.contains("write_all__inst__nom__Sink")),
         "{instance_symbols:#?}"
     );
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains("write_fmt_bytes__inst__t_nom__Sink")),
+            .any(|symbol| symbol.contains("write_fmt_bytes__inst__nom__Sink")),
         "{instance_symbols:#?}"
     );
 

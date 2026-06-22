@@ -459,3 +459,45 @@ pub(super) fn assert_substrings_in_order(haystack: &str, needles: &[&str]) {
         offset += index + needle.len();
     }
 }
+
+pub(super) fn mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> String {
+    find_mangled_symbol(ir, sigil, module, name)
+        .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__m{module}__d...__{name}`"))
+}
+
+pub(super) fn assert_contains_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) {
+    let _ = mangled_symbol(ir, sigil, module, name);
+}
+
+pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) {
+    if let Some(symbol) = find_mangled_symbol(ir, sigil, module, name) {
+        panic!("unexpected mangled symbol `{symbol}` in IR:\n{ir}");
+    }
+}
+
+fn find_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> Option<String> {
+    let prefix = format!("{sigil}nia__m{module}__d");
+    for (start, _) in ir.match_indices(&prefix) {
+        let token = symbol_token(&ir[start..]);
+        let rest = &token[prefix.len()..];
+        let Some((_, symbol_name)) = rest.split_once("__") else {
+            continue;
+        };
+        if symbol_name == name {
+            return Some(token.to_string());
+        }
+    }
+    None
+}
+
+fn symbol_token(text: &str) -> &str {
+    let end = text
+        .char_indices()
+        .find_map(|(index, ch)| (!is_symbol_char(ch)).then_some(index))
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+fn is_symbol_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '%')
+}

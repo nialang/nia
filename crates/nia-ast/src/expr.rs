@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 
 use crate::TypeRef;
@@ -20,7 +20,7 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
     pub attributes: Vec<crate::Attribute>,
     pub kind: StmtKind,
 }
@@ -44,7 +44,7 @@ pub struct BindingStmt {
     pub name: String,
     pub pattern_kind: BindingPatternKind,
     pub pattern_span: Span,
-    pub pattern_node_key: NodeKey,
+    pub pattern_node_key: VersionedNodeKey,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
     pub is_let: bool,
@@ -61,7 +61,7 @@ pub struct ForInStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForPattern {
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
     pub name: Option<String>,
     pub kind: BindingPatternKind,
 }
@@ -173,7 +173,7 @@ pub enum PatternKind {
     Wildcard,
     Bind {
         name: String,
-        node_key: NodeKey,
+        node_key: VersionedNodeKey,
     },
     OptionalSome(Box<Pattern>),
     OptionalNull,
@@ -207,7 +207,7 @@ impl SwitchArmBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
     pub span: Span,
-    pub node_key: NodeKey,
+    pub node_key: VersionedNodeKey,
     pub kind: ExprKind,
 }
 

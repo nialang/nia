@@ -36,7 +36,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
-use nia_node_id::{NodeKey, NodeOriginTable};
+use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, FunctionReference,
     FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
@@ -562,7 +562,7 @@ struct BodyChecker<'a> {
     semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
     type_lowering: &'a TypeLowering,
-    node_type_uses: &'a HashMap<NodeKey, InternedTyId>,
+    node_type_uses: &'a HashMap<VersionedNodeKey, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
@@ -584,17 +584,17 @@ struct BodyChecker<'a> {
     program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
     source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
-    node_expr_types: HashMap<NodeKey, InternedTyId>,
-    node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
-    node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
-    node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
-    node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    node_builtin_values: HashMap<NodeKey, BuiltinValue>,
-    node_array_repeat_counts: HashMap<NodeKey, u64>,
-    node_switch_pattern_values: HashMap<NodeKey, i128>,
-    node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
-    node_function_references: HashMap<NodeKey, FunctionReference>,
+    node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
+    node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
@@ -723,7 +723,12 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn record_resolved_node_call(&mut self, _span: Span, key: &NodeKey, call: ResolvedCall) {
+    fn record_resolved_node_call(
+        &mut self,
+        _span: Span,
+        key: &VersionedNodeKey,
+        call: ResolvedCall,
+    ) {
         self.node_resolved_calls.insert(key.clone(), call.clone());
         if let Some(facts) = self.current_function_facts() {
             facts.node_resolved_calls.insert(key.clone(), call);
@@ -787,7 +792,7 @@ impl<'a> BodyChecker<'a> {
     fn record_function_node_reference(
         &mut self,
         _span: Span,
-        key: &NodeKey,
+        key: &VersionedNodeKey,
         reference: FunctionReference,
     ) {
         self.node_function_references
@@ -831,11 +836,49 @@ impl<'a> BodyChecker<'a> {
     fn import_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
         if ty.interner_id == self.interner.interner_id() {
             ty
-        } else if ty.interner_id == self.normalization.interner.interner_id() {
-            nia_ty::import_type_into(&mut self.interner, &self.normalization.interner, ty)
+        } else if let Some(source) = self.interner_containing_ty(ty).cloned() {
+            nia_ty::import_type_into(&mut self.interner, &source, ty)
         } else {
             ty
         }
+    }
+
+    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<&TyInterner> {
+        if self.interner.get(ty).is_some() {
+            return Some(&self.interner);
+        }
+        if self.normalization.interner.get(ty).is_some() {
+            return Some(&self.normalization.interner);
+        }
+        if self.comptime.interner.get(ty).is_some() {
+            return Some(&self.comptime.interner);
+        }
+        if let Some(interner) = self
+            .program
+            .type_lowerings
+            .into_iter()
+            .flat_map(|lowerings| lowerings.values().map(|lowering| &lowering.interner))
+            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
+        {
+            return Some(interner);
+        }
+        if let Some(interner) = self
+            .program
+            .type_normalizations
+            .into_iter()
+            .flat_map(|normalizations| {
+                normalizations
+                    .values()
+                    .map(|normalization| &normalization.interner)
+            })
+            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
+        {
+            return Some(interner);
+        }
+        self.program_comptime
+            .values()
+            .map(|comptime| &comptime.interner)
+            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {
@@ -874,7 +917,7 @@ impl<'a> BodyChecker<'a> {
         self.node_builtin_values.get(&expr.node_key)
     }
 
-    fn local_def(&self, key: &NodeKey) -> Option<LocalId> {
+    fn local_def(&self, key: &VersionedNodeKey) -> Option<LocalId> {
         self.locals.node_local_defs.get(key).copied()
     }
 
@@ -1589,7 +1632,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         stmt: &'b Stmt,
         binding: &'b BindingStmt,
-    ) -> &'b NodeKey {
+    ) -> &'b VersionedNodeKey {
         if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
             &stmt.node_key
         } else {
@@ -1694,7 +1737,7 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    fn record_error_local_binding(&mut self, key: &NodeKey) {
+    fn record_error_local_binding(&mut self, key: &VersionedNodeKey) {
         if let Some(local_id) = self.local_def(key) {
             self.record_local_type(local_id, self.error());
         }

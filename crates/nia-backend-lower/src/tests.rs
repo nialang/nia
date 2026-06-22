@@ -302,6 +302,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let mut comptime = comptime;
     mutate_comptime(&mut comptime, &type_lowering);
     let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
+    let program_function_body_interners = ProgramFunctionBodyInterners::default();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -327,7 +328,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &HashMap::new(),
-        program_type_interners: &HashMap::new(),
+        program_function_body_interners: &program_function_body_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),

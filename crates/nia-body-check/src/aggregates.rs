@@ -53,9 +53,9 @@ impl<'a> BodyChecker<'a> {
             }
             return self.error();
         };
-        let (len, elem_ty) = match self.interner.get(array_ty) {
-            Some(TyKind::Array { len, elem }) => (len.clone(), *elem),
-            Some(TyKind::Error) | None => return self.error(),
+        let (len, elem_ty) = match self.expect_ty_kind(array_ty) {
+            TyKind::Array { len, elem } => (len.clone(), *elem),
+            TyKind::Error => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -234,9 +234,9 @@ impl<'a> BodyChecker<'a> {
             }
             return self.error();
         };
-        let (def_id, args) = match self.interner.get(aggregate_ty) {
-            Some(TyKind::Nominal { def_id, args }) => (*def_id, args.clone()),
-            Some(TyKind::Error) | None => return self.error(),
+        let (def_id, args) = match self.expect_ty_kind(aggregate_ty) {
+            TyKind::Nominal { def_id, args } => (*def_id, args.clone()),
+            TyKind::Error => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
@@ -1177,9 +1177,16 @@ impl<'a> BodyChecker<'a> {
     ) -> nia_comptime_check::ComptimeValueType {
         match ty {
             nia_comptime_check::ComptimeValueType::Runtime(ty) => {
+                let source = if source.get(ty).is_some() {
+                    source.clone()
+                } else if let Some(source) = self.interner_containing_ty(ty).cloned() {
+                    source
+                } else {
+                    return nia_comptime_check::ComptimeValueType::Runtime(ty);
+                };
                 nia_comptime_check::ComptimeValueType::Runtime(nia_ty::import_type_into(
                     &mut self.interner,
-                    source,
+                    &source,
                     ty,
                 ))
             }

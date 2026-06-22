@@ -4,7 +4,10 @@ use super::common::*;
 #[test]
 fn lowers_body_to_entry_block_with_tail() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: vec![TypedLocal {
@@ -37,7 +40,10 @@ fn lowers_body_to_entry_block_with_tail() {
 #[test]
 fn non_terminal_ops_branch_to_tail_block() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let expr = TypedExpr {
         span,
         ty,
@@ -105,7 +111,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         ty: i32_ty,
     };
 
-    let function_body = lower_function_body_with_interner(&body, &interner)
+    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &interner)
         .expect("valid typed body")
         .body;
 
@@ -304,7 +310,10 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
 #[test]
 fn return_terminates_block_before_later_statements() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let expr = TypedExpr {
         span,
         ty,

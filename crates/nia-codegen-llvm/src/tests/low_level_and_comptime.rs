@@ -149,7 +149,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("%nia__m0__d0__Bits"));
+    assert_contains_mangled_symbol(ir, '%', 0, "Bits");
     assert!(ir.contains("store i32 42"));
     assert!(ir.contains("ret i32"));
 }

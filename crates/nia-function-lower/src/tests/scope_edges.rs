@@ -4,7 +4,10 @@ use super::common::*;
 #[test]
 fn same_scope_edges_exit_no_scopes() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let expr = TypedExpr {
         span,
         ty,
@@ -32,7 +35,10 @@ fn same_scope_edges_exit_no_scopes() {
 #[test]
 fn loop_body_break_edge_exits_loop_scope() {
     let span = Span::default();
-    let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+    let ty = InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    );
     let body = TypedBody {
         span,
         locals: Vec::new(),

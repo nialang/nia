@@ -15,27 +15,27 @@ use nia_imports::{
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueResolution {
-    pub node_names: HashMap<NodeKey, ValueNameResolution>,
-    pub node_qualified_values: HashMap<NodeKey, GlobalDefId>,
-    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
+    pub node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
+    pub node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
+    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     /// For spans whose value resolves to an enum variant (brought in via
     /// `using` or accessed as `mod::Enum::Variant`), the parent enum's
     /// GlobalDefId so consumers can type the bare ident as that enum.
-    pub node_variant_enums: HashMap<NodeKey, GlobalDefId>,
+    pub node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
     /// For `Qualified` spans like `mod::TypeName` appearing in expression
     /// position (e.g., as a type prefix in `mod::Enum::Variant` or
     /// `mod::Type::associated_fn(...)`), the resolved type's GlobalDefId.
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the module alias.
-    pub node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
-    pub node_builtins: HashMap<NodeKey, BuiltinResolution>,
+    pub node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
+    pub node_builtins: HashMap<VersionedNodeKey, BuiltinResolution>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -261,12 +261,12 @@ struct ValueResolver<'a> {
     using_scope: Option<&'a ModuleUsingScope>,
     extensions: Option<&'a VisibleExtensionMethods>,
     extension_interner: Option<&'a TyInterner>,
-    node_names: HashMap<NodeKey, ValueNameResolution>,
-    node_qualified_values: HashMap<NodeKey, GlobalDefId>,
-    node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
-    node_variant_enums: HashMap<NodeKey, GlobalDefId>,
-    node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
-    node_builtins: HashMap<NodeKey, BuiltinResolution>,
+    node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
+    node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
+    node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
+    node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
+    node_builtins: HashMap<VersionedNodeKey, BuiltinResolution>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -368,7 +368,7 @@ enum DirectMember<T> {
 struct PathSegment<'a> {
     name: &'a str,
     span: Span,
-    node_key: &'a NodeKey,
+    node_key: &'a VersionedNodeKey,
 }
 
 impl<'ast> Visitor<'ast> for ValueResolver<'_> {
@@ -670,7 +670,7 @@ impl<'a> ValueResolver<'a> {
     fn resolve_module_qualified_value(
         &mut self,
         span: Span,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         module_id: ModuleId,
         name: PathSegment<'_>,
         path_text: &str,
@@ -784,7 +784,7 @@ impl<'a> ValueResolver<'a> {
 
     fn resolve_type_qualified_value(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         type_id: GlobalDefId,
         name: PathSegment<'_>,
     ) {
@@ -814,7 +814,7 @@ impl<'a> ValueResolver<'a> {
 
     fn resolve_primitive_qualified_value(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         primitive: PrimitiveTy,
         name: PathSegment<'_>,
     ) {
@@ -831,7 +831,7 @@ impl<'a> ValueResolver<'a> {
 
     fn resolve_associated_value(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         target_ty: nia_ids::InternedTyId,
         name: &str,
     ) {
@@ -851,7 +851,7 @@ impl<'a> ValueResolver<'a> {
         })
     }
 
-    fn resolve_ident(&mut self, name: &str, node_key: &NodeKey) -> ValueNameResolution {
+    fn resolve_ident(&mut self, name: &str, node_key: &VersionedNodeKey) -> ValueNameResolution {
         if let Some(def_id) = self.defs.module_scope.values.get(name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return ValueNameResolution::Error;
@@ -945,29 +945,29 @@ impl<'a> ValueResolver<'a> {
         }
     }
 
-    fn insert_name(&mut self, node_key: &NodeKey, resolution: ValueNameResolution) {
+    fn insert_name(&mut self, node_key: &VersionedNodeKey, resolution: ValueNameResolution) {
         self.node_names.insert(node_key.clone(), resolution);
     }
 
-    fn insert_qualified_value(&mut self, node_key: &NodeKey, global_id: GlobalDefId) {
+    fn insert_qualified_value(&mut self, node_key: &VersionedNodeKey, global_id: GlobalDefId) {
         self.node_qualified_values
             .insert(node_key.clone(), global_id);
     }
 
     fn insert_builtin_associated_value(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         value: BuiltinAssociatedValue,
     ) {
         self.node_builtin_associated_values
             .insert(node_key.clone(), value);
     }
 
-    fn insert_variant_enum(&mut self, node_key: &NodeKey, enum_id: GlobalDefId) {
+    fn insert_variant_enum(&mut self, node_key: &VersionedNodeKey, enum_id: GlobalDefId) {
         self.node_variant_enums.insert(node_key.clone(), enum_id);
     }
 
-    fn insert_qualified_type_prefix(&mut self, node_key: &NodeKey, type_id: GlobalDefId) {
+    fn insert_qualified_type_prefix(&mut self, node_key: &VersionedNodeKey, type_id: GlobalDefId) {
         self.node_qualified_type_prefixes
             .insert(node_key.clone(), type_id);
     }

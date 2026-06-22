@@ -30,7 +30,7 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
-use nia_source::{SourcePath, SourceVersion};
+use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
@@ -70,6 +70,7 @@ use resolve::*;
 use types::*;
 
 type ProgramDefsById = Arc<HashMap<ModuleId, DefCollection>>;
+type ProgramFullDefsById = Arc<HashMap<ModuleId, DefCollection>>;
 type ProgramSourcePaths = Arc<HashMap<ModuleId, SourcePath>>;
 type ProgramTypeLowerings = Arc<HashMap<ModuleId, TypeLowering>>;
 type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
@@ -195,35 +196,38 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(CompilerTimingsQuery));
         }
         for module in diff.changed_modules {
-            if module.path {
-                invalidation.extend(self.db.invalidate(ModulePathQuery(module.id)));
-            }
-            if module.source_version {
-                invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module.id)));
-            }
-            if module.full_item_tree {
-                invalidation.extend(self.db.invalidate(FullModuleItemTreeInputQuery(module.id)));
-            }
-            if module.origins {
-                invalidation.extend(self.db.invalidate(ModuleOriginsQuery(module.id)));
-            }
-            if module.parse_errors {
-                invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module.id)));
-            }
-            if module.item_tree {
-                invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module.id)));
-            }
-            if module.active_item_tree {
-                invalidation.extend(
-                    self.db
-                        .invalidate(ActiveModuleItemTreeInputQuery(module.id)),
-                );
-            }
-            if module.full_active_item_tree {
-                invalidation.extend(
-                    self.db
-                        .invalidate(FullActiveModuleItemTreeInputQuery(module.id)),
-                );
+            for module_id in module.ids {
+                if module.path {
+                    invalidation.extend(self.db.invalidate(ModulePathQuery(module_id)));
+                }
+                if module.source_version {
+                    invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module_id)));
+                }
+                if module.full_item_tree {
+                    invalidation
+                        .extend(self.db.invalidate(FullModuleItemTreeInputQuery(module_id)));
+                }
+                if module.origins {
+                    invalidation.extend(self.db.invalidate(ModuleOriginsQuery(module_id)));
+                }
+                if module.parse_errors {
+                    invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module_id)));
+                }
+                if module.item_tree {
+                    invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module_id)));
+                }
+                if module.active_item_tree {
+                    invalidation.extend(
+                        self.db
+                            .invalidate(ActiveModuleItemTreeInputQuery(module_id)),
+                    );
+                }
+                if module.full_active_item_tree {
+                    invalidation.extend(
+                        self.db
+                            .invalidate(FullActiveModuleItemTreeInputQuery(module_id)),
+                    );
+                }
             }
         }
         invalidation
@@ -527,6 +531,7 @@ struct CompilerContext {
 struct CompilerInputs {
     loaded: LoadedProgram,
     modules_by_id: HashMap<ModuleId, usize>,
+    modules_by_source_identity: HashMap<SourceIdentity, usize>,
     target: TargetConfig,
     runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
@@ -536,14 +541,32 @@ struct CompilerInputs {
 impl CompilerInputs {
     fn new(request: CompileRequest) -> Self {
         let loaded = request.loaded;
+        validate_loaded_module_identities(&loaded);
         let modules_by_id = index_loaded_modules(&loaded);
+        let modules_by_source_identity = index_loaded_module_identities(&loaded);
         Self {
             target: loaded.target.clone(),
             runtime: loaded.runtime,
             loaded,
             modules_by_id,
+            modules_by_source_identity,
             optimization: request.optimization.policy(),
             timings: request.timings,
+        }
+    }
+}
+
+fn validate_loaded_module_identities(loaded: &LoadedProgram) {
+    for module in &loaded.modules {
+        let expected = module.path.identity();
+        if module.source_identity != expected {
+            panic!(
+                "Nia ICE: loaded module {:?} has source identity `{}` but path `{}` implies `{}`",
+                module.id,
+                module.source_identity.normalized_path(),
+                module.path.as_str(),
+                expected.normalized_path()
+            );
         }
     }
 }
@@ -656,8 +679,9 @@ impl CompilerContext {
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
         self.loaded_module(module_id)
-            .map(|module| module.path.clone())
-            .unwrap_or_else(|| SourcePath::new("<unknown>"))
+            .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
+            .path
+            .clone()
     }
 
     fn module_graph(&self) -> ModuleGraph {
@@ -709,12 +733,33 @@ impl CompilerContext {
 }
 
 fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
-    loaded
-        .modules
-        .iter()
-        .enumerate()
-        .map(|(index, module)| (module.id, index))
-        .collect()
+    let mut modules_by_id = HashMap::new();
+    for (index, module) in loaded.modules.iter().enumerate() {
+        if let Some(existing) = modules_by_id.insert(module.id, index) {
+            panic!(
+                "Nia ICE: duplicate loaded module id {:?} at indexes {existing} and {index}",
+                module.id
+            );
+        }
+    }
+    modules_by_id
+}
+
+fn index_loaded_module_identities(loaded: &LoadedProgram) -> HashMap<SourceIdentity, usize> {
+    let mut modules_by_source_identity = HashMap::new();
+    for (index, module) in loaded.modules.iter().enumerate() {
+        if let Some(existing) =
+            modules_by_source_identity.insert(module.source_identity.clone(), index)
+        {
+            panic!(
+                "Nia ICE: duplicate source identity `{}` for loaded modules {:?} and {:?}",
+                module.source_identity.normalized_path(),
+                loaded.modules[existing].id,
+                module.id
+            );
+        }
+    }
+    modules_by_source_identity
 }
 
 #[derive(Debug, Default)]
@@ -734,7 +779,9 @@ impl CompilerInputDiff {
         let changed_modules = changed_loaded_modules(old, new);
         Self {
             graph_changed: old.loaded.graph != new.loaded.graph,
-            loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new),
+            loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
+                || loaded_module_identity_assignments(old)
+                    != loaded_module_identity_assignments(new),
             loaded_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
             target_changed: old.target != new.target,
             runtime_changed: old.runtime != new.runtime,
@@ -747,8 +794,9 @@ impl CompilerInputDiff {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ChangedModuleInput {
-    id: ModuleId,
+    ids: Vec<ModuleId>,
     path: bool,
+    source_identity: bool,
     source_version: bool,
     origins: bool,
     parse_errors: bool,
@@ -759,15 +807,20 @@ struct ChangedModuleInput {
 }
 
 impl ChangedModuleInput {
-    fn between(
-        module_id: ModuleId,
+    fn between_source_identity(
         old: Option<&LoadedModule>,
         new: Option<&LoadedModule>,
     ) -> Option<Self> {
+        let ids = changed_module_ids(old, new);
+        if ids.is_empty() {
+            return None;
+        }
+
         let changed = match (old, new) {
-            (Some(old), Some(new)) => Self {
-                id: module_id,
+            (Some(old), Some(new)) if old.id == new.id => Self {
+                ids,
                 path: old.path != new.path,
+                source_identity: old.source_identity != new.source_identity,
                 source_version: old.source_version != new.source_version,
                 origins: old.origins != new.origins,
                 parse_errors: old.parse_errors != new.parse_errors,
@@ -776,9 +829,11 @@ impl ChangedModuleInput {
                 active_item_tree: !old.active_item_tree.declaration_eq(&new.active_item_tree),
                 full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
+            (Some(_), Some(_)) => Self::all_inputs_changed(ids),
             (Some(_), None) | (None, Some(_)) => Self {
-                id: module_id,
+                ids,
                 path: true,
+                source_identity: true,
                 source_version: true,
                 origins: true,
                 parse_errors: true,
@@ -790,6 +845,7 @@ impl ChangedModuleInput {
             (None, None) => return None,
         };
         if changed.path
+            || changed.source_identity
             || changed.source_version
             || changed.origins
             || changed.parse_errors
@@ -803,28 +859,60 @@ impl ChangedModuleInput {
             None
         }
     }
+
+    fn all_inputs_changed(ids: Vec<ModuleId>) -> Self {
+        Self {
+            ids,
+            path: true,
+            source_identity: true,
+            source_version: true,
+            origins: true,
+            parse_errors: true,
+            item_tree: true,
+            full_item_tree: true,
+            active_item_tree: true,
+            full_active_item_tree: true,
+        }
+    }
 }
 
 fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ChangedModuleInput> {
-    let module_ids = old
+    let source_identities = old
         .loaded
         .modules
         .iter()
-        .map(|module| module.id)
-        .chain(new.loaded.modules.iter().map(|module| module.id))
+        .map(|module| module.source_identity.clone())
+        .chain(
+            new.loaded
+                .modules
+                .iter()
+                .map(|module| module.source_identity.clone()),
+        )
         .collect::<HashSet<_>>();
-    let mut changed = module_ids
+    let mut changed = source_identities
         .into_iter()
-        .filter_map(|module_id| {
-            ChangedModuleInput::between(
-                module_id,
-                old.loaded_module(module_id),
-                new.loaded_module(module_id),
+        .filter_map(|source_identity| {
+            ChangedModuleInput::between_source_identity(
+                old.loaded_module_by_source_identity(&source_identity),
+                new.loaded_module_by_source_identity(&source_identity),
             )
         })
         .collect::<Vec<_>>();
-    changed.sort_by_key(|module| module.id.0);
+    changed.sort_by_key(|module| module.ids.first().copied().unwrap_or(ModuleId(u32::MAX)).0);
     changed
+}
+
+fn changed_module_ids(old: Option<&LoadedModule>, new: Option<&LoadedModule>) -> Vec<ModuleId> {
+    let mut ids = Vec::new();
+    if let Some(module) = old {
+        ids.push(module.id);
+    }
+    if let Some(module) = new {
+        ids.push(module.id);
+    }
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 fn loaded_module_ids(inputs: &CompilerInputs) -> Vec<ModuleId> {
@@ -836,10 +924,30 @@ fn loaded_module_ids(inputs: &CompilerInputs) -> Vec<ModuleId> {
         .collect()
 }
 
+fn loaded_module_identity_assignments(inputs: &CompilerInputs) -> Vec<(ModuleId, SourceIdentity)> {
+    let mut assignments = inputs
+        .loaded
+        .modules
+        .iter()
+        .map(|module| (module.id, module.source_identity.clone()))
+        .collect::<Vec<_>>();
+    assignments.sort_by_key(|(id, _)| *id);
+    assignments
+}
+
 impl CompilerInputs {
     fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
         self.modules_by_id
             .get(&module_id)
+            .and_then(|index| self.loaded.modules.get(*index))
+    }
+
+    fn loaded_module_by_source_identity(
+        &self,
+        source_identity: &SourceIdentity,
+    ) -> Option<&LoadedModule> {
+        self.modules_by_source_identity
+            .get(source_identity)
             .and_then(|index| self.loaded.modules.get(*index))
     }
 }
@@ -871,23 +979,26 @@ mod tests {
         source: &str,
         revision: SourceRevision,
     ) -> LoadedModule {
-        let (module, parse_errors) = nia_parser::parse_module(source);
+        let source_version = nia_source::SourceVersion {
+            id: SourceId(id.0),
+            revision,
+        };
+        let syntax = nia_syntax::parse_source(source, Some(source_version));
+        let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
         LoadedModule {
             id,
             path: SourcePath::new(path),
-            source_version: nia_source::SourceVersion {
-                id: SourceId(id.0),
-                revision,
-            },
+            source_identity: SourcePath::new(path).identity(),
+            source_version,
             item_tree: item_tree.clone(),
             active_item_tree: ActiveModuleItemTree::new(
                 item_tree.items.clone(),
                 Default::default(),
             ),
             parse_errors,
-            origins: nia_node_id::NodeOriginTable::default(),
+            origins,
         }
     }
 
@@ -899,6 +1010,20 @@ mod tests {
             inputs,
             providers: CompilerQueryProviders::default(),
         })
+    }
+
+    fn module_id_for_source_identity(
+        db: &QueryDb<CompilerContext>,
+        identity: &SourceIdentity,
+    ) -> Option<ModuleId> {
+        let inputs = db
+            .context()
+            .inputs
+            .read()
+            .expect("compiler input lock poisoned");
+        inputs
+            .loaded_module_by_source_identity(identity)
+            .map(|module| module.id)
     }
 
     #[test]
@@ -964,6 +1089,154 @@ fn main() i32 {
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_program" && dependency.to.name == "checked_modules"
+        }));
+    }
+
+    #[test]
+    fn compiler_inputs_index_modules_by_source_identity() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
+        ]);
+        let db = query_db(loaded);
+
+        assert_eq!(
+            module_id_for_source_identity(&db, &SourcePath::new("pkg/root.nia").identity()),
+            Some(ModuleId(1))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Nia ICE: duplicate loaded module id")]
+    fn compiler_inputs_reject_duplicate_module_ids() {
+        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(ModuleId(0), "other.nia", "pub fn value() i32 { 1 }"),
+        ])));
+    }
+
+    #[test]
+    #[should_panic(expected = "Nia ICE: duplicate source identity")]
+    fn compiler_inputs_reject_duplicate_source_identities() {
+        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(ModuleId(1), "main.nia", "pub fn value() i32 { 1 }"),
+        ])));
+    }
+
+    #[test]
+    #[should_panic(expected = "Nia ICE: loaded module")]
+    fn compiler_inputs_reject_path_identity_mismatch() {
+        let mut module = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        module.source_identity = SourcePath::new("other.nia").identity();
+
+        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            module,
+        ])));
+    }
+
+    #[test]
+    fn loaded_module_reorder_invalidates_list_without_field_changes() {
+        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
+        ])));
+        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+        ])));
+
+        let diff = CompilerInputDiff::between(&old, &new);
+
+        assert!(diff.loaded_modules_changed);
+        assert_eq!(diff.changed_modules, Vec::new());
+    }
+
+    #[test]
+    fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
+        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { 0 }",
+            ),
+        ])));
+        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(7),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { 0 }",
+            ),
+        ])));
+        let diff = CompilerInputDiff::between(&old, &new);
+
+        assert!(diff.loaded_modules_changed);
+        assert_eq!(diff.changed_modules.len(), 1);
+        assert_eq!(diff.changed_modules[0].ids, vec![ModuleId(0), ModuleId(7)]);
+
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn main() i32 { 0 }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(7),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { 0 }",
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.description.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            invalidated.contains(&"module_path(ModuleId(0))"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"checked_module::CheckedModuleQuery(ModuleId(0))"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"loaded_modules::LoadedModulesQuery"),
+            "{invalidated:?}"
+        );
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules[0].id, ModuleId(7));
+    }
+
+    #[test]
+    fn same_module_id_with_new_source_identity_is_replacement() {
+        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+        ])));
+        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "other.nia", "fn main() i32 { 0 }"),
+        ])));
+
+        let diff = CompilerInputDiff::between(&old, &new);
+
+        assert!(diff.loaded_modules_changed);
+        assert_eq!(diff.changed_modules.len(), 2);
+        assert!(diff.changed_modules.iter().all(|module| {
+            module.ids == vec![ModuleId(0)]
+                && module.path
+                && module.source_identity
+                && module.source_version
+                && module.item_tree
+                && module.full_item_tree
         }));
     }
 
@@ -1064,7 +1337,59 @@ fn main() i32 {
     }
 
     #[test]
-    fn path_update_invalidates_diagnostics_without_recomputing_public_surface() {
+    fn function_body_type_update_keeps_signature_queries_cached() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            invalidated.contains(&"full_module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
+        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"declaration_type_lowering"),
+            "{invalidated:?}"
+        );
+        assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"program_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"extension_methods"),
+            "{invalidated:?}"
+        );
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    }
+
+    #[test]
+    fn source_identity_update_invalidates_module_dependent_queries() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(
@@ -1090,13 +1415,35 @@ fn main() i32 {
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
-        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
+        assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
         assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         assert_eq!(second.modules[0].path.as_str(), "renamed.nia");
+    }
+
+    #[test]
+    fn source_identity_change_invalidates_loaded_module_list() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            ])));
+        let _ = database.check_program();
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module(ModuleId(0), "other.nia", "fn main() i32 { 0 }"),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
+        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
     }
 
     #[test]
@@ -1169,10 +1516,14 @@ fn main() i32 {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_signatures" && dependency.to.name == "type_lowering"
+            dependency.from.name == "program_signatures"
+                && dependency.to.name == "declaration_type_lowering"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_signatures" && dependency.to.name == "item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signatures" && dependency.to.name == "type_lowering"
         }));
     }
 
@@ -1237,6 +1588,13 @@ fn main() i32 {
             dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "declaration_type_lowering"
+                && dependency.to.name == "program_defs_by_id"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods" && dependency.to.name == "item_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -1244,15 +1602,27 @@ fn main() i32 {
                 && dependency.to.name == "active_module_item_tree"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods" && dependency.to.name == "type_lowering"
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "declaration_type_lowering"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
-                && dependency.to.name == "program_type_normalizations"
+                && dependency.to.name == "program_declaration_type_normalizations"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_type_normalizations"
-                && dependency.to.name == "type_normalization"
+            dependency.from.name == "program_declaration_type_normalizations"
+                && dependency.to.name == "declaration_type_normalization"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "declaration_type_lowering"
+                && dependency.to.name == "program_full_defs_by_id"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "full_module_defs"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "program_type_normalizations"
         }));
     }
 
@@ -1319,7 +1689,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn visible_extensions_use_program_type_normalizations_query() {
+    fn visible_extensions_use_program_declaration_type_normalizations_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -1332,11 +1702,26 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
-                && dependency.to.name == "program_type_normalizations"
+                && dependency.to.name == "program_declaration_type_normalizations"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_type_normalizations"
-                && dependency.to.name == "type_normalization"
+            dependency.from.name == "program_declaration_type_normalizations"
+                && dependency.to.name == "declaration_type_normalization"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_defs_by_id"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_full_defs_by_id"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_type_normalizations"
         }));
     }
 
@@ -1359,14 +1744,15 @@ fn main() i32 {
             dependency.from.name == "comptime" && dependency.to.name == "program_comptime_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "program_defs_by_id"
+            dependency.from.name == "comptime" && dependency.to.name == "program_full_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_comptime_modules"
                 && dependency.to.name == "comptime_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
+            dependency.from.name == "program_full_defs_by_id"
+                && dependency.to.name == "full_module_defs"
         }));
     }
 

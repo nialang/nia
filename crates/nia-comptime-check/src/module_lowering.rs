@@ -11,7 +11,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_item_tree::{ItemTreeNode, ItemTreeNodeKind};
 use nia_local_resolve::LocalKind;
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
@@ -495,7 +495,12 @@ impl ComptimeModuleLowerer<'_> {
         None
     }
 
-    fn def_id_for_node(&self, node_key: &NodeKey, _span: Span, expected: DefKind) -> Option<DefId> {
+    fn def_id_for_node(
+        &self,
+        node_key: &VersionedNodeKey,
+        _span: Span,
+        expected: DefKind,
+    ) -> Option<DefId> {
         let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         (def.kind == expected).then_some(def_id)

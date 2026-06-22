@@ -75,7 +75,7 @@ fn parse_errors_from_syntax_carry_red_token_node_keys() {
     let key = error.node_key.as_ref().expect("red token node key");
     assert_eq!(key.source_version(), version);
     assert!(matches!(
-        &key.position,
+        key.position(),
         NodePosition::ChildPath(path) if !path.steps().is_empty()
     ));
 }
@@ -112,9 +112,9 @@ fn main(a: i32) i32 {
         .expect("tail expr origin");
 
     assert_eq!(key.source_version(), version);
-    assert_eq!(key.kind, SyntaxKind::Expr);
+    assert_eq!(key.kind(), SyntaxKind::Expr);
     assert!(matches!(
-        &key.position,
+        key.position(),
         NodePosition::ChildPathRange { start, end }
             if !start.steps().is_empty() && !end.steps().is_empty()
     ));

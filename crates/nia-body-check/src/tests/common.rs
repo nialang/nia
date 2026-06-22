@@ -114,6 +114,10 @@ fn pipeline_with_options(
     );
     let mut extensions = VisibleExtensionMethods::default();
     if include_visible_extensions {
+        let impl_id = signatures
+            .trait_impls
+            .first()
+            .map(|signature| signature.impl_id);
         for item in &module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
@@ -133,8 +137,11 @@ fn pipeline_with_options(
                 if method_def.kind != DefKind::Method {
                     continue;
                 }
+                let Some(impl_id) = impl_id else {
+                    continue;
+                };
                 extensions.insert(
-                    0,
+                    impl_id,
                     target_ty,
                     VisibleExtensionMethod {
                         name: method_def.name.clone(),
@@ -142,7 +149,7 @@ fn pipeline_with_options(
                             module_id: ModuleId(0),
                             def_id: method_id,
                         },
-                        impl_index: 0,
+                        impl_id,
                         impl_generics: extend.generics.clone(),
                         trait_id: None,
                         trait_args: Vec::new(),
@@ -217,13 +224,12 @@ fn single_module_trait_impls(
     signatures
         .trait_impls
         .iter()
-        .enumerate()
-        .filter_map(|(local_index, impl_signature)| {
+        .filter_map(|impl_signature| {
             let trait_ty = impl_signature.trait_ty?;
             let (trait_id, trait_args) = trait_id_and_args(&lowered.interner, trait_ty)?;
             Some(ProgramTraitImplSignature {
                 module_id,
-                local_index,
+                impl_id: impl_signature.impl_id,
                 generics: impl_signature.generics.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,

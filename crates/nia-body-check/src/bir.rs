@@ -291,7 +291,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         stmt: &'b Stmt,
         binding: &'b BindingStmt,
-    ) -> &'b nia_node_id::NodeKey {
+    ) -> &'b nia_node_id::VersionedNodeKey {
         if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
             &stmt.node_key
         } else {
@@ -1263,8 +1263,11 @@ impl<'a> BodyChecker<'a> {
         let nia_comptime_check::ComptimeValueType::Runtime(ty) = typed.ty else {
             return None;
         };
-        let imported = nia_ty::import_type_into(&mut self.interner, &self.comptime.interner, ty);
-        Some(imported)
+        if ty.interner_id == self.interner.interner_id() {
+            return Some(ty);
+        }
+        let source = self.interner_containing_ty(ty)?.clone();
+        Some(nia_ty::import_type_into(&mut self.interner, &source, ty))
     }
 
     pub(crate) fn expr_runtime_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {

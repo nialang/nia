@@ -5,16 +5,16 @@ use nia_ast::{BinaryOp, UnaryOp};
 use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ReceiverKind,
 };
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, IntConst, PrimitiveTy, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
-    pub node_value_uses: HashMap<NodeKey, SemanticValueUse>,
-    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
-    pub node_local_defs: HashMap<NodeKey, LocalId>,
-    pub node_type_uses: HashMap<NodeKey, InternedTyId>,
+    pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
+    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
+    pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
 }
 
 impl SemanticUseTable {
@@ -22,19 +22,22 @@ impl SemanticUseTable {
         SemanticUseTableBuilder::new()
     }
 
-    pub fn node_value_use(&self, key: &NodeKey) -> Option<SemanticValueUse> {
+    pub fn node_value_use(&self, key: &VersionedNodeKey) -> Option<SemanticValueUse> {
         self.node_value_uses.get(key).copied()
     }
 
-    pub fn node_builtin_associated_value(&self, key: &NodeKey) -> Option<BuiltinAssociatedValue> {
+    pub fn node_builtin_associated_value(
+        &self,
+        key: &VersionedNodeKey,
+    ) -> Option<BuiltinAssociatedValue> {
         self.node_builtin_associated_values.get(key).copied()
     }
 
-    pub fn node_local_def(&self, key: &NodeKey) -> Option<LocalId> {
+    pub fn node_local_def(&self, key: &VersionedNodeKey) -> Option<LocalId> {
         self.node_local_defs.get(key).copied()
     }
 
-    pub fn node_type_use(&self, key: &NodeKey) -> Option<InternedTyId> {
+    pub fn node_type_use(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
         self.node_type_uses.get(key).copied()
     }
 }
@@ -49,13 +52,13 @@ impl SemanticUseTableBuilder {
         Self::default()
     }
 
-    pub fn insert_node_local_value_use(&mut self, key: NodeKey, local_id: LocalId) {
+    pub fn insert_node_local_value_use(&mut self, key: VersionedNodeKey, local_id: LocalId) {
         self.table
             .node_value_uses
             .insert(key, SemanticValueUse::Local(local_id));
     }
 
-    pub fn insert_node_global_value_use(&mut self, key: NodeKey, global_id: GlobalDefId) {
+    pub fn insert_node_global_value_use(&mut self, key: VersionedNodeKey, global_id: GlobalDefId) {
         self.table
             .node_value_uses
             .entry(key)
@@ -64,7 +67,7 @@ impl SemanticUseTableBuilder {
 
     pub fn insert_node_builtin_associated_value(
         &mut self,
-        key: NodeKey,
+        key: VersionedNodeKey,
         value: BuiltinAssociatedValue,
     ) {
         self.table.node_builtin_associated_values.insert(key, value);
@@ -72,38 +75,38 @@ impl SemanticUseTableBuilder {
 
     pub fn extend_node_builtin_associated_values(
         &mut self,
-        values: impl IntoIterator<Item = (NodeKey, BuiltinAssociatedValue)>,
+        values: impl IntoIterator<Item = (VersionedNodeKey, BuiltinAssociatedValue)>,
     ) {
         self.table.node_builtin_associated_values.extend(values);
     }
 
     pub fn extend_node_global_value_uses(
         &mut self,
-        value_uses: impl IntoIterator<Item = (NodeKey, GlobalDefId)>,
+        value_uses: impl IntoIterator<Item = (VersionedNodeKey, GlobalDefId)>,
     ) {
         for (key, global_id) in value_uses {
             self.insert_node_global_value_use(key, global_id);
         }
     }
 
-    pub fn insert_node_local_def(&mut self, key: NodeKey, local_id: LocalId) {
+    pub fn insert_node_local_def(&mut self, key: VersionedNodeKey, local_id: LocalId) {
         self.table.node_local_defs.insert(key, local_id);
     }
 
     pub fn extend_node_local_defs(
         &mut self,
-        local_defs: impl IntoIterator<Item = (NodeKey, LocalId)>,
+        local_defs: impl IntoIterator<Item = (VersionedNodeKey, LocalId)>,
     ) {
         self.table.node_local_defs.extend(local_defs);
     }
 
-    pub fn insert_node_type_use(&mut self, key: NodeKey, ty: InternedTyId) {
+    pub fn insert_node_type_use(&mut self, key: VersionedNodeKey, ty: InternedTyId) {
         self.table.node_type_uses.insert(key, ty);
     }
 
     pub fn extend_node_type_uses(
         &mut self,
-        type_uses: impl IntoIterator<Item = (NodeKey, InternedTyId)>,
+        type_uses: impl IntoIterator<Item = (VersionedNodeKey, InternedTyId)>,
     ) {
         self.table.node_type_uses.extend(type_uses);
     }
@@ -211,35 +214,37 @@ pub struct SemanticFacts {
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
-    pub node_expr_types: HashMap<NodeKey, InternedTyId>,
-    pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
-    pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
-    pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
-    pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
-    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
-    pub node_array_repeat_counts: HashMap<NodeKey, u64>,
-    pub node_switch_pattern_values: HashMap<NodeKey, i128>,
-    pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
-    pub node_function_references: HashMap<NodeKey, FunctionReference>,
+    pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    pub node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
+    pub node_pointer_array_to_slice_coercions:
+        HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FunctionSemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
-    pub node_expr_types: HashMap<NodeKey, InternedTyId>,
-    pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
-    pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
-    pub node_pointer_array_to_slice_coercions: HashMap<NodeKey, PointerArrayToSliceCoercion>,
-    pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
-    pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
-    pub node_array_repeat_counts: HashMap<NodeKey, u64>,
-    pub node_switch_pattern_values: HashMap<NodeKey, i128>,
-    pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
-    pub node_function_references: HashMap<NodeKey, FunctionReference>,
+    pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    pub node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
+    pub node_pointer_array_to_slice_coercions:
+        HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
+    pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -480,8 +485,8 @@ mod tests {
     use nia_node_id::{NodeChildPath, SyntaxKind};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
 
-    fn key() -> NodeKey {
-        NodeKey::child_path(
+    fn key() -> VersionedNodeKey {
+        VersionedNodeKey::child_path(
             SourceVersion {
                 id: SourceId(0),
                 revision: SourceRevision::INITIAL,

@@ -24,6 +24,16 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn expect_ty_kind(&self, ty: InternedTyId) -> &TyKind {
+        self.interner.get(ty).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: body-check type {:?} is missing from interner {:?}",
+                ty,
+                self.interner.interner_id()
+            )
+        })
+    }
+
     pub(crate) fn is_error_ty(&self, ty: InternedTyId) -> bool {
         matches!(self.interner.get(ty), Some(TyKind::Error))
             || matches!(self.normalization.interner.get(ty), Some(TyKind::Error))
@@ -681,7 +691,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn report_invalid_numeric_literal_suffix(&mut self, expr: &Expr, kind: &str) {
-        let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<unknown>");
+        let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<missing suffix>");
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             expr.span,
@@ -994,7 +1004,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn def_id_for_node(
         &mut self,
-        node_key: &nia_node_id::NodeKey,
+        node_key: &nia_node_id::VersionedNodeKey,
         _span: Span,
         expected: DefKind,
     ) -> Option<DefId> {

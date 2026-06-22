@@ -9,7 +9,8 @@ use nia_defs::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, Visibility,
+    BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, TraitImplId,
+    Visibility,
 };
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
@@ -230,7 +231,7 @@ pub(crate) fn collect_program_trait_impls(
 ) -> Vec<ProgramTraitImplSignature> {
     let mut trait_impls = Vec::new();
     for module in modules {
-        for (local_index, impl_signature) in module.signatures.trait_impls.iter().enumerate() {
+        for impl_signature in &module.signatures.trait_impls {
             let Some(trait_ty) = impl_signature.trait_ty else {
                 continue;
             };
@@ -241,7 +242,7 @@ pub(crate) fn collect_program_trait_impls(
             };
             trait_impls.push(ProgramTraitImplSignature {
                 module_id: module.module_id,
-                local_index,
+                impl_id: impl_signature.impl_id,
                 generics: impl_signature.generics.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,
@@ -277,12 +278,17 @@ pub(crate) fn collect_valid_program_trait_impls(
         else {
             return false;
         };
+        let Some(module_impl_signature) =
+            trait_impl_signature_by_id(module.signatures, impl_signature.impl_id)
+        else {
+            return false;
+        };
         !matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
         if builtin_trait_impl_overlaps_intrinsic(
             module,
             impl_signature.target_ty,
             trait_id,
-            &module.signatures.trait_impls[impl_signature.local_index],
+            module_impl_signature,
         ))
     })
     .collect()
@@ -325,6 +331,16 @@ fn trait_id_and_args(
     }
 }
 
+fn trait_impl_signature_by_id(
+    signatures: &ItemSignatures,
+    impl_id: TraitImplId,
+) -> Option<&TraitImplSignature> {
+    signatures
+        .trait_impls
+        .iter()
+        .find(|signature| signature.impl_id == impl_id)
+}
+
 pub(crate) fn collect_extension_methods(
     modules: &[ExtensionModuleInput<'_>],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
@@ -360,7 +376,7 @@ pub(crate) fn collect_extension_methods(
         .collect::<HashMap<_, _>>();
     let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
-        for (impl_index, impl_signature) in module.signatures.trait_impls.iter().enumerate() {
+        for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -422,7 +438,7 @@ pub(crate) fn collect_extension_methods(
                             module_id: module.module_id,
                             def_id: method.def_id,
                         },
-                        impl_index,
+                        impl_id: impl_signature.impl_id,
                         impl_generics,
                         target_ty,
                         trait_id,
@@ -443,7 +459,7 @@ pub(crate) fn collect_extension_associated_values(
     let mut values = ExtensionAssociatedValues::default();
     let mut diagnostics = Vec::new();
     for module in modules {
-        for (impl_index, impl_signature) in module.signatures.trait_impls.iter().enumerate() {
+        for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -462,7 +478,7 @@ pub(crate) fn collect_extension_associated_values(
                             module_id: module.module_id,
                             def_id: associated_value.def_id,
                         },
-                        impl_index,
+                        impl_id: impl_signature.impl_id,
                         target_ty,
                         visibility: associated_value.visibility,
                     },
@@ -1884,12 +1900,12 @@ pub(crate) fn visible_extensions_for_module(
             target_ty,
         );
         visible.insert(
-            method.impl_index,
+            method.impl_id,
             target_ty,
             VisibleExtensionMethod {
                 name: method.name.clone(),
                 def_id: method.def_id,
-                impl_index: method.impl_index,
+                impl_id: method.impl_id,
                 impl_generics: method.impl_generics.clone(),
                 trait_id: method.trait_id,
                 trait_args: method
@@ -1934,7 +1950,7 @@ pub(crate) fn visible_extensions_for_module(
             target_ty,
         );
         visible.insert_associated_value(
-            value.impl_index,
+            value.impl_id,
             target_ty,
             VisibleExtensionAssociatedValue {
                 name: value.name.clone(),

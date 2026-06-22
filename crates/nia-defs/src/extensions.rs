@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::DefId;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId, Visibility};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId, TraitImplId, Visibility};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub struct ExtensionMethods {
 pub struct ExtensionAssociatedValue {
     pub name: String,
     pub def_id: GlobalDefId,
-    pub impl_index: usize,
+    pub impl_id: TraitImplId,
     pub target_ty: InternedTyId,
     pub visibility: Visibility,
 }
@@ -55,7 +55,7 @@ pub struct VisibleExtensionAssociatedValue {
 pub struct ExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
-    pub impl_index: usize,
+    pub impl_id: TraitImplId,
     pub impl_generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
@@ -69,7 +69,7 @@ pub struct VisibleExtensionMethods {
     targets: Vec<VisibleExtensionTarget>,
     callable_by_name: HashMap<String, Vec<(usize, usize)>>,
     trait_witnesses_by_name: HashMap<String, Vec<(usize, usize)>>,
-    trait_witness_impls: HashSet<(ModuleId, usize)>,
+    trait_witness_impls: HashSet<(ModuleId, TraitImplId)>,
     associated_values_by_target_name: HashMap<(InternedTyId, String), Vec<(usize, usize)>>,
 }
 
@@ -77,7 +77,7 @@ pub struct VisibleExtensionMethods {
 pub struct VisibleExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
-    pub impl_index: usize,
+    pub impl_id: TraitImplId,
     pub impl_generics: Vec<String>,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
@@ -88,7 +88,7 @@ pub struct VisibleExtensionMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionTarget {
-    pub impl_index: usize,
+    pub impl_id: TraitImplId,
     pub target_ty: InternedTyId,
     pub methods: Vec<VisibleExtensionMethod>,
     pub associated_values: Vec<VisibleExtensionAssociatedValue>,
@@ -175,11 +175,11 @@ impl ExtensionAssociatedValues {
 impl VisibleExtensionMethods {
     pub fn insert(
         &mut self,
-        impl_index: usize,
+        impl_id: TraitImplId,
         target_ty: InternedTyId,
         method: VisibleExtensionMethod,
     ) {
-        let target_index = self.target_index(impl_index, target_ty);
+        let target_index = self.target_index(impl_id, target_ty);
         let method_index = self.targets[target_index].methods.len();
         if method.is_callable {
             self.callable_by_name
@@ -193,18 +193,18 @@ impl VisibleExtensionMethods {
                 .or_default()
                 .push((target_index, method_index));
             self.trait_witness_impls
-                .insert((method.def_id.module_id, method.impl_index));
+                .insert((method.def_id.module_id, method.impl_id));
         }
         self.targets[target_index].methods.push(method);
     }
 
     pub fn insert_associated_value(
         &mut self,
-        impl_index: usize,
+        impl_id: TraitImplId,
         target_ty: InternedTyId,
         value: VisibleExtensionAssociatedValue,
     ) {
-        let target_index = self.target_index(impl_index, target_ty);
+        let target_index = self.target_index(impl_id, target_ty);
         let value_index = self.targets[target_index].associated_values.len();
         self.associated_values_by_target_name
             .entry((target_ty, value.name.clone()))
@@ -264,8 +264,8 @@ impl VisibleExtensionMethods {
         &self.targets
     }
 
-    pub fn has_trait_witness_impl(&self, module_id: ModuleId, impl_index: usize) -> bool {
-        self.trait_witness_impls.contains(&(module_id, impl_index))
+    pub fn has_trait_witness_impl(&self, module_id: ModuleId, impl_id: TraitImplId) -> bool {
+        self.trait_witness_impls.contains(&(module_id, impl_id))
     }
 
     pub fn associated_value(
@@ -290,17 +290,17 @@ impl VisibleExtensionMethods {
         Some(first)
     }
 
-    fn target_index(&mut self, impl_index: usize, target_ty: InternedTyId) -> usize {
+    fn target_index(&mut self, impl_id: TraitImplId, target_ty: InternedTyId) -> usize {
         if let Some(index) = self
             .targets
             .iter()
-            .position(|item| item.impl_index == impl_index && item.target_ty == target_ty)
+            .position(|item| item.impl_id == impl_id && item.target_ty == target_ty)
         {
             return index;
         }
         let index = self.targets.len();
         self.targets.push(VisibleExtensionTarget {
-            impl_index,
+            impl_id,
             target_ty,
             methods: Vec::new(),
             associated_values: Vec::new(),

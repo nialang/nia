@@ -5,6 +5,9 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeResolutionQuery(pub(super) ModuleId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct DeclarationTypeResolutionQuery(pub(super) ModuleId);
+
 impl QueryKey<CompilerContext> for TypeResolutionQuery {
     type Value = TypeResolution;
 
@@ -17,8 +20,27 @@ impl QueryKey<CompilerContext> for TypeResolutionQuery {
     }
 }
 
+impl QueryKey<CompilerContext> for DeclarationTypeResolutionQuery {
+    type Value = TypeResolution;
+
+    fn name() -> &'static str {
+        "declaration_type_resolution"
+    }
+
+    fn description(&self) -> String {
+        format!("declaration_type_resolution({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.declaration_type_resolution)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeLoweringQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct DeclarationTypeLoweringQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeLoweringQuery {
     type Value = TypeLowering;
@@ -33,6 +55,22 @@ impl QueryKey<CompilerContext> for TypeLoweringQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.type_lowering)(db, self.0)
+    }
+}
+
+impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
+    type Value = TypeLowering;
+
+    fn name() -> &'static str {
+        "declaration_type_lowering"
+    }
+
+    fn description(&self) -> String {
+        format!("declaration_type_lowering({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.declaration_type_lowering)(db, self.0)
     }
 }
 
@@ -88,6 +126,9 @@ impl QueryKey<CompilerContext> for ProgramItemSignaturesQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct DeclarationTypeNormalizationQuery(pub(super) ModuleId);
+
 impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     type Value = TypeNormalization;
 
@@ -100,8 +141,27 @@ impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     }
 }
 
+impl QueryKey<CompilerContext> for DeclarationTypeNormalizationQuery {
+    type Value = TypeNormalization;
+
+    fn name() -> &'static str {
+        "declaration_type_normalization"
+    }
+
+    fn description(&self) -> String {
+        format!("declaration_type_normalization({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.declaration_type_normalization)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramTypeNormalizationsQuery;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramDeclarationTypeNormalizationsQuery;
 
 impl QueryKey<CompilerContext> for ProgramTypeNormalizationsQuery {
     type Value = ProgramTypeNormalizations;
@@ -112,6 +172,20 @@ impl QueryKey<CompilerContext> for ProgramTypeNormalizationsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_type_normalizations)(db)
+    }
+}
+
+impl QueryKey<CompilerContext> for ProgramDeclarationTypeNormalizationsQuery {
+    type Value = ProgramTypeNormalizations;
+
+    fn name() -> &'static str {
+        "program_declaration_type_normalizations"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context()
+            .providers
+            .program_declaration_type_normalizations)(db)
     }
 }
 

@@ -13,14 +13,14 @@ use nia_function_ir::{
     FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_ty::TyKind;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct_instances(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         item: &nia_ast::StructItem,
     ) -> Vec<BackendStructInstance> {
@@ -75,7 +75,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_union_instances(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         item: &nia_ast::UnionItem,
     ) -> Vec<BackendUnionInstance> {

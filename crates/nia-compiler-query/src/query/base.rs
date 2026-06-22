@@ -294,6 +294,9 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
 pub(super) struct ModuleDefsQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FullModuleDefsQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleItemTreeQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -385,6 +388,22 @@ impl QueryKey<CompilerContext> for ModuleDefsQuery {
     }
 }
 
+impl QueryKey<CompilerContext> for FullModuleDefsQuery {
+    type Value = DefCollection;
+
+    fn name() -> &'static str {
+        "full_module_defs"
+    }
+
+    fn description(&self) -> String {
+        format!("full_module_defs({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.full_module_defs)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct DefsByModuleQuery;
 
@@ -412,6 +431,21 @@ impl QueryKey<CompilerContext> for ProgramDefsByIdQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_defs_by_id)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramFullDefsByIdQuery;
+
+impl QueryKey<CompilerContext> for ProgramFullDefsByIdQuery {
+    type Value = ProgramFullDefsById;
+
+    fn name() -> &'static str {
+        "program_full_defs_by_id"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_full_defs_by_id)(db)
     }
 }
 

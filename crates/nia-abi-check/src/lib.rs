@@ -347,7 +347,12 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use comptime-only value"),
             )),
-            Some(TyKind::Error) | None => {}
+            Some(TyKind::Error) => {}
+            None => self.diagnostics.push(Diagnostic::internal_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!("extern ABI type {ty:?} is missing from type interner"),
+            )),
         }
     }
 

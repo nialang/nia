@@ -30,15 +30,22 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let mixed_ty = mangled_symbol(ir, '%', 0, "Mixed");
+    let mixed_global = mangled_symbol(ir, '@', 0, "mixed");
     assert!(
-        ir.contains("%nia__m0__d0__Mixed = type { i64, i8, i8 }"),
+        ir.contains(&format!("{mixed_ty} = type {{ i64, i8, i8 }}")),
         "{ir}"
     );
     assert!(
-        ir.contains("@nia__m0__d4__mixed = constant %nia__m0__d0__Mixed { i64 2, i8 1, i8 3 }"),
+        ir.contains(&format!(
+            "{mixed_global} = constant {mixed_ty} {{ i64 2, i8 1, i8 3 }}"
+        )),
         "{ir}"
     );
-    assert!(ir.contains("ptr @nia__m0__d4__mixed, i32 0, i32 1"), "{ir}");
+    assert!(
+        ir.contains(&format!("ptr {mixed_global}, i32 0, i32 1")),
+        "{ir}"
+    );
     assert!(ir.contains("ptr %local, i32 0, i32 2"), "{ir}");
     assert!(ir.contains("ptr %local, i32 0, i32 0"), "{ir}");
 }
@@ -78,17 +85,19 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let id = mangled_symbol(ir, '@', 0, "id");
+    let sum = mangled_symbol(ir, '@', 0, "sum");
     assert!(
-        ir.contains("define void @nia__m0__d3__id(ptr %0, ptr %1)"),
+        ir.contains(&format!("define void {id}(ptr %0, ptr %1)")),
         "{ir}"
     );
-    assert!(ir.contains("define i32 @nia__m0__d4__sum(ptr %0)"), "{ir}");
+    assert!(ir.contains(&format!("define i32 {sum}(ptr %0)")), "{ir}");
     assert!(
-        ir.contains("call void @nia__m0__d3__id(ptr %copied, ptr %arg.copy"),
+        ir.contains(&format!("call void {id}(ptr %copied, ptr %arg.copy")),
         "{ir}"
     );
     assert!(
-        ir.contains("call i32 @nia__m0__d4__sum(ptr %arg.copy"),
+        ir.contains(&format!("call i32 {sum}(ptr %arg.copy")),
         "{ir}"
     );
 }
@@ -126,12 +135,14 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let sum_pair = mangled_symbol(ir, '@', 0, "sum_pair");
+    let sum_array = mangled_symbol(ir, '@', 0, "sum_array");
     assert!(
-        ir.contains("call i32 @nia__m0__d3__sum_pair(ptr %arg.copy"),
+        ir.contains(&format!("call i32 {sum_pair}(ptr %arg.copy")),
         "{ir}"
     );
     assert!(
-        ir.contains("call i32 @nia__m0__d4__sum_array(ptr %arg.copy"),
+        ir.contains(&format!("call i32 {sum_array}(ptr %arg.copy")),
         "{ir}"
     );
     assert!(!ir.contains("structtmp"), "{ir}");
@@ -320,12 +331,13 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    let pair = mangled_symbol(ir, '%', 0, "Pair");
     assert_substrings_in_order(
         ir,
         &[
             "call i32 @log(i32 1)",
             "cleanup(i32 2)",
-            "store %nia__m0__d1__Pair %return.value",
+            &format!("store {pair} %return.value"),
         ],
     );
 }
@@ -368,11 +380,13 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(!ir.contains("call.out"), "{ir}");
+    let forward_pair = mangled_symbol(ir, '@', 0, "forward_pair");
+    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
     assert_substrings_in_order(
         ir,
         &[
-            "define void @nia__m0__d4__forward_pair(ptr %0)",
-            "call void @nia__m0__d3__make_pair(ptr %0, i32 10, i32 20)",
+            &format!("define void {forward_pair}(ptr %0)"),
+            &format!("call void {make_pair}(ptr %0, i32 10, i32 20)"),
             "ret void",
         ],
     );
@@ -423,13 +437,16 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("call.out"), "{ir}");
+    let forward_pair = mangled_symbol(ir, '@', 0, "forward_pair");
+    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
+    let pair = mangled_symbol(ir, '%', 0, "Pair");
     assert_substrings_in_order(
         ir,
         &[
-            "define void @nia__m0__d6__forward_pair(ptr %0)",
-            "call void @nia__m0__d5__make_pair(ptr %call.out, i32 10, i32 20)",
+            &format!("define void {forward_pair}(ptr %0)"),
+            &format!("call void {make_pair}(ptr %call.out, i32 10, i32 20)"),
             "cleanup(i32 1)",
-            "store %nia__m0__d1__Pair %call.result, ptr %0",
+            &format!("store {pair} %call.result, ptr %0"),
         ],
     );
 }
@@ -544,8 +561,9 @@ fn main() i32 {
         );
         let ir = &output.modules[0].ir;
 
+        let bytes = mangled_symbol(ir, '@', 0, "bytes");
         assert!(
-            ir.contains("@nia__m0__d0__bytes = constant [4 x i8] c\"aaaa\""),
+            ir.contains(&format!("{bytes} = constant [4 x i8] c\"aaaa\"")),
             "{level:?}\n{ir}"
         );
     }
@@ -575,8 +593,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
 
-    assert!(ir.contains("@nia__m0__d0__bytes = constant ptr"), "{ir}");
-    assert!(ir.contains("@nia__m0__d1__text = constant ptr"), "{ir}");
+    let bytes = mangled_symbol(ir, '@', 0, "bytes");
+    let text = mangled_symbol(ir, '@', 0, "text");
+    assert!(ir.contains(&format!("{bytes} = constant ptr")), "{ir}");
+    assert!(ir.contains(&format!("{text} = constant ptr")), "{ir}");
     assert!(ir.contains("@.nia.static.array"), "{ir}");
 }
 

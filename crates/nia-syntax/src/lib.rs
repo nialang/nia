@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
-use nia_node_id::{NodeChildPath, NodeKey, SyntaxKind as NodeSyntaxKind};
+use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::SourceVersion;
 use nia_span::Span;
 
@@ -179,9 +179,9 @@ impl SyntaxToken {
         self.version
     }
 
-    pub fn node_key(&self) -> Option<NodeKey> {
+    pub fn node_key(&self) -> Option<VersionedNodeKey> {
         let version = self.version?;
-        Some(NodeKey::child_path(
+        Some(VersionedNodeKey::child_path(
             version,
             NodeSyntaxKind::Token,
             self.path.clone(),
@@ -308,9 +308,9 @@ impl<'a> SyntaxNode<'a> {
         self.node.span
     }
 
-    pub fn node_key(&self) -> Option<NodeKey> {
+    pub fn node_key(&self) -> Option<VersionedNodeKey> {
         let version = self.tree.version?;
-        Some(NodeKey::child_path(
+        Some(VersionedNodeKey::child_path(
             version,
             self.node_key_kind(),
             NodeChildPath::from_steps(self.path.clone()),
@@ -744,7 +744,7 @@ mod tests {
         );
         assert_eq!(tokens[1].text, "main");
         assert!(matches!(
-            tokens[1].node_key().map(|key| key.position),
+            tokens[1].node_key().map(|key| key.position().clone()),
             Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
         ));
         assert_eq!(
@@ -763,7 +763,10 @@ mod tests {
         let key = tree.root().node_key().expect("root node key");
 
         assert_eq!(key.source_version(), version);
-        assert_eq!(key.position, NodePosition::ChildPath(NodeChildPath::root()));
+        assert_eq!(
+            key.position(),
+            &NodePosition::ChildPath(NodeChildPath::root())
+        );
     }
 
     #[test]
@@ -784,7 +787,7 @@ mod tests {
                     close: Some(TokenKind::RParen)
                 }
             ) && matches!(
-                child.node_key().map(|key| key.position),
+                child.node_key().map(|key| key.position().clone()),
                 Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
             )
         }));

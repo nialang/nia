@@ -10,15 +10,15 @@ use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalResolution {
     pub locals: LocalMap,
-    pub node_local_defs: HashMap<NodeKey, LocalId>,
-    pub node_uses: HashMap<NodeKey, LocalUse>,
+    pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
+    pub node_uses: HashMap<VersionedNodeKey, LocalUse>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -163,8 +163,8 @@ struct LocalResolver<'a> {
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: LocalMap,
-    node_local_defs: HashMap<NodeKey, LocalId>,
-    node_uses: HashMap<NodeKey, LocalUse>,
+    node_local_defs: HashMap<VersionedNodeKey, LocalId>,
+    node_uses: HashMap<VersionedNodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<HashMap<String, ScopedLocal>>,
 }
@@ -307,7 +307,12 @@ impl<'a> LocalResolver<'a> {
         }
     }
 
-    fn resolve_binding(&mut self, span: Span, binding: &BindingStmt, fallback_key: NodeKey) {
+    fn resolve_binding(
+        &mut self,
+        span: Span,
+        binding: &BindingStmt,
+        fallback_key: VersionedNodeKey,
+    ) {
         if let Some(ty) = &binding.ty {
             self.resolve_type(ty);
         }
@@ -753,7 +758,7 @@ impl<'a> LocalResolver<'a> {
         )
     }
 
-    fn resolve_ident(&mut self, name: &str, node_key: NodeKey) {
+    fn resolve_ident(&mut self, name: &str, node_key: VersionedNodeKey) {
         if let Some(local) = self.lookup(name) {
             self.record_use(node_key, LocalUse::Local(local.id));
             return;
@@ -779,7 +784,7 @@ impl<'a> LocalResolver<'a> {
         name: &str,
         kind: LocalKind,
         span: Span,
-        node_key: NodeKey,
+        node_key: VersionedNodeKey,
         duplicate_message: &'static str,
     ) {
         let id = self.locals.push(Local {
@@ -818,7 +823,7 @@ impl<'a> LocalResolver<'a> {
         scope.insert(name.to_string(), ScopedLocal { id, span });
     }
 
-    fn record_use(&mut self, node_key: NodeKey, use_kind: LocalUse) {
+    fn record_use(&mut self, node_key: VersionedNodeKey, use_kind: LocalUse) {
         self.node_uses.insert(node_key, use_kind);
     }
 
@@ -991,8 +996,8 @@ fn main(a: i32) i32 {
         assert!(!locals.node_uses.is_empty());
         assert!(locals.node_uses.iter().any(|(key, use_kind)| {
             key.source_version() == version
-                && key.kind == SyntaxKind::Expr
-                && matches!(key.position, NodePosition::ChildPathRange { .. })
+                && key.kind() == SyntaxKind::Expr
+                && matches!(key.position(), NodePosition::ChildPathRange { .. })
                 && matches!(use_kind, LocalUse::Local(_))
         }));
     }
@@ -1022,8 +1027,8 @@ fn main(a: i32) i32 {
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(locals.node_uses.iter().any(|(key, use_kind)| {
             key.source_version() == version
-                && key.kind == SyntaxKind::Expr
-                && matches!(key.position, NodePosition::ChildPathRange { .. })
+                && key.kind() == SyntaxKind::Expr
+                && matches!(key.position(), NodePosition::ChildPathRange { .. })
                 && matches!(use_kind, LocalUse::Local(_))
         }));
     }

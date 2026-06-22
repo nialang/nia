@@ -2,7 +2,9 @@
 use std::collections::HashMap;
 
 pub use nia_ids::{BuiltinTrait, LayoutBuiltin, TraitId};
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
+use nia_ids::{
+    GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
+};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -202,7 +204,7 @@ pub struct ConstExprSummary {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TyInterner {
-    module_id: ModuleId,
+    interner_id: TyInternerId,
     tys: Vec<TyKind>,
     map: HashMap<TyKind, TyInternerIndex>,
     error_ty: TyInternerIndex,
@@ -217,8 +219,12 @@ impl Default for TyInterner {
 
 impl TyInterner {
     pub fn new(module_id: ModuleId) -> Self {
+        Self::with_id(TyInternerId::for_module(module_id))
+    }
+
+    pub fn with_id(interner_id: TyInternerId) -> Self {
         let mut interner = Self {
-            module_id,
+            interner_id,
             tys: Vec::new(),
             map: HashMap::new(),
             error_ty: TyInternerIndex::from_interner_index(0),
@@ -233,12 +239,12 @@ impl TyInterner {
         interner
     }
 
-    pub fn interner_id(&self) -> ModuleId {
-        self.module_id
+    pub fn interner_id(&self) -> TyInternerId {
+        self.interner_id
     }
 
     pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        InternedTyId::new(self.module_id, self.intern_local(kind))
+        InternedTyId::new(self.interner_id, self.intern_local(kind))
     }
 
     fn intern_local(&mut self, kind: TyKind) -> TyInternerIndex {
@@ -252,18 +258,18 @@ impl TyInterner {
     }
 
     pub fn get(&self, id: InternedTyId) -> Option<&TyKind> {
-        if id.interner_id != self.module_id {
+        if id.interner_id != self.interner_id {
             return None;
         }
         self.tys.get(id.index.index() as usize)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (InternedTyId, &TyKind)> {
-        let module_id = self.module_id;
+        let interner_id = self.interner_id;
         self.tys.iter().enumerate().map(move |(index, ty)| {
             (
                 InternedTyId::new(
-                    module_id,
+                    interner_id,
                     TyInternerIndex::from_interner_index(index as u32),
                 ),
                 ty,
@@ -272,12 +278,12 @@ impl TyInterner {
     }
 
     pub fn error(&self) -> InternedTyId {
-        InternedTyId::new(self.module_id, self.error_ty)
+        InternedTyId::new(self.interner_id, self.error_ty)
     }
 
     pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
         InternedTyId::new(
-            self.module_id,
+            self.interner_id,
             *self
                 .primitive_tys
                 .get(&primitive)
@@ -291,6 +297,16 @@ impl TyInterner {
 
     pub fn is_empty(&self) -> bool {
         self.tys.is_empty()
+    }
+
+    pub fn is_prefix_of(&self, other: &Self) -> bool {
+        self.interner_id == other.interner_id
+            && self.tys.len() <= other.tys.len()
+            && self
+                .tys
+                .iter()
+                .zip(other.tys.iter())
+                .all(|(left, right)| left == right)
     }
 
     pub fn contains_error(&self, id: InternedTyId) -> bool {
@@ -390,48 +406,51 @@ pub fn import_type_into(
     source: &TyInterner,
     ty: InternedTyId,
 ) -> InternedTyId {
-    match source.get(ty) {
-        Some(TyKind::Error) | None => target.error(),
-        Some(TyKind::ComptimeOnly) => target.intern(TyKind::ComptimeOnly),
-        Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
-        Some(TyKind::GenericParam(name)) => target.intern(TyKind::GenericParam(name.clone())),
+    try_import_type_into(target, source, ty).unwrap_or_else(|error| panic!("{}", error))
+}
+
+pub fn try_import_type_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    ty: InternedTyId,
+) -> Result<InternedTyId, TypeImportError> {
+    match source.get(ty).cloned() {
+        Some(TyKind::Error) => Ok(target.error()),
+        None => Err(TypeImportError {
+            source_interner: source.interner_id(),
+            target_interner: target.interner_id(),
+            ty,
+        }),
+        Some(TyKind::ComptimeOnly) => Ok(target.intern(TyKind::ComptimeOnly)),
+        Some(TyKind::Primitive(primitive)) => Ok(target.primitive(primitive)),
+        Some(TyKind::GenericParam(name)) => Ok(target.intern(TyKind::GenericParam(name))),
         Some(TyKind::Pointer { is_readonly, elem }) => {
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::Pointer {
-                is_readonly: *is_readonly,
-                elem,
-            })
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::Pointer { is_readonly, elem }))
         }
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::VolatilePointer {
-                is_readonly: *is_readonly,
-                elem,
-            })
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::VolatilePointer { is_readonly, elem }))
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::Slice {
-                is_readonly: *is_readonly,
-                elem,
-            })
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::Slice { is_readonly, elem }))
         }
         Some(TyKind::SlicePointee { elem }) => {
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::SlicePointee { elem })
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::SlicePointee { elem }))
         }
         Some(TyKind::Array { len, elem }) => {
-            let len = import_array_len_into(target, source, len);
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::Array { len, elem })
+            let len = try_import_array_len_into(target, source, &len)?;
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::Array { len, elem }))
         }
-        Some(TyKind::Vector { elem, lanes }) => target.intern(TyKind::Vector {
-            elem: *elem,
-            lanes: *lanes,
-        }),
+        Some(TyKind::Vector { elem, lanes }) => Ok(target.intern(TyKind::Vector { elem, lanes })),
         Some(TyKind::Range { kind, bound }) => {
-            let bound = bound.map(|bound| import_type_into(target, source, bound));
-            target.intern(TyKind::Range { kind: *kind, bound })
+            let bound = bound
+                .map(|bound| try_import_type_into(target, source, bound))
+                .transpose()?;
+            Ok(target.intern(TyKind::Range { kind, bound }))
         }
         Some(TyKind::FunctionPointer {
             params,
@@ -439,44 +458,38 @@ pub fn import_type_into(
             is_variadic,
         }) => {
             let params = params
-                .iter()
-                .map(|param| import_type_into(target, source, *param))
-                .collect();
-            let return_type = import_type_into(target, source, *return_type);
-            target.intern(TyKind::FunctionPointer {
+                .into_iter()
+                .map(|param| try_import_type_into(target, source, param))
+                .collect::<Result<_, _>>()?;
+            let return_type = try_import_type_into(target, source, return_type)?;
+            Ok(target.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
-                is_variadic: *is_variadic,
-            })
+                is_variadic,
+            }))
         }
         Some(TyKind::Optional { elem }) => {
-            let elem = import_type_into(target, source, *elem);
-            target.intern(TyKind::Optional { elem })
+            let elem = try_import_type_into(target, source, elem)?;
+            Ok(target.intern(TyKind::Optional { elem }))
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            let error = import_type_into(target, source, *error);
-            let value = import_type_into(target, source, *value);
-            target.intern(TyKind::ErrorUnion { error, value })
+            let error = try_import_type_into(target, source, error)?;
+            let value = try_import_type_into(target, source, value)?;
+            Ok(target.intern(TyKind::ErrorUnion { error, value }))
         }
         Some(TyKind::Nominal { def_id, args }) => {
             let args = args
-                .iter()
-                .map(|arg| import_type_into(target, source, *arg))
-                .collect();
-            target.intern(TyKind::Nominal {
-                def_id: *def_id,
-                args,
-            })
+                .into_iter()
+                .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
+            Ok(target.intern(TyKind::Nominal { def_id, args }))
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
-                .iter()
-                .map(|arg| import_type_into(target, source, *arg))
-                .collect();
-            target.intern(TyKind::BuiltinTrait {
-                trait_id: *trait_id,
-                args,
-            })
+                .into_iter()
+                .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
+            Ok(target.intern(TyKind::BuiltinTrait { trait_id, args }))
         }
         Some(TyKind::TraitObject {
             is_readonly,
@@ -485,28 +498,30 @@ pub fn import_type_into(
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
-                .iter()
-                .map(|arg| import_type_into(target, source, *arg))
-                .collect();
+                .into_iter()
+                .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
             let associated_type_bindings = associated_type_bindings
-                .iter()
-                .map(|binding| AssociatedTypeBindingTy {
-                    trait_id: binding.trait_id,
-                    trait_args: binding
-                        .trait_args
-                        .iter()
-                        .map(|arg| import_type_into(target, source, *arg))
-                        .collect(),
-                    name: binding.name.clone(),
-                    ty: import_type_into(target, source, binding.ty),
+                .into_iter()
+                .map(|binding| {
+                    Ok(AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| try_import_type_into(target, source, arg))
+                            .collect::<Result<_, _>>()?,
+                        name: binding.name,
+                        ty: try_import_type_into(target, source, binding.ty)?,
+                    })
                 })
-                .collect();
-            target.intern(TyKind::TraitObject {
-                is_readonly: *is_readonly,
-                trait_id: *trait_id,
+                .collect::<Result<_, TypeImportError>>()?;
+            Ok(target.intern(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
                 trait_args,
                 associated_type_bindings,
-            })
+            }))
         }
         Some(TyKind::TraitObjectPointee {
             trait_id,
@@ -514,27 +529,29 @@ pub fn import_type_into(
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
-                .iter()
-                .map(|arg| import_type_into(target, source, *arg))
-                .collect();
+                .into_iter()
+                .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
             let associated_type_bindings = associated_type_bindings
-                .iter()
-                .map(|binding| AssociatedTypeBindingTy {
-                    trait_id: binding.trait_id,
-                    trait_args: binding
-                        .trait_args
-                        .iter()
-                        .map(|arg| import_type_into(target, source, *arg))
-                        .collect(),
-                    name: binding.name.clone(),
-                    ty: import_type_into(target, source, binding.ty),
+                .into_iter()
+                .map(|binding| {
+                    Ok(AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| try_import_type_into(target, source, arg))
+                            .collect::<Result<_, _>>()?,
+                        name: binding.name,
+                        ty: try_import_type_into(target, source, binding.ty)?,
+                    })
                 })
-                .collect();
-            target.intern(TyKind::TraitObjectPointee {
-                trait_id: *trait_id,
+                .collect::<Result<_, TypeImportError>>()?;
+            Ok(target.intern(TyKind::TraitObjectPointee {
+                trait_id,
                 trait_args,
                 associated_type_bindings,
-            })
+            }))
         }
         Some(TyKind::Projection {
             self_ty,
@@ -542,34 +559,53 @@ pub fn import_type_into(
             trait_args,
             name,
         }) => {
-            let self_ty = import_type_into(target, source, *self_ty);
+            let self_ty = try_import_type_into(target, source, self_ty)?;
             let trait_args = trait_args
-                .iter()
-                .map(|arg| import_type_into(target, source, *arg))
-                .collect();
-            target.intern(TyKind::Projection {
+                .into_iter()
+                .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
+            Ok(target.intern(TyKind::Projection {
                 self_ty,
-                trait_id: *trait_id,
+                trait_id,
                 trait_args,
-                name: name.clone(),
-            })
+                name,
+            }))
         }
     }
 }
 
-fn import_array_len_into(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeImportError {
+    pub source_interner: TyInternerId,
+    pub target_interner: TyInternerId,
+    pub ty: InternedTyId,
+}
+
+impl std::fmt::Display for TypeImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "type import failed: {:?} is not in source interner {:?} while importing into {:?}",
+            self.ty, self.source_interner, self.target_interner
+        )
+    }
+}
+
+impl std::error::Error for TypeImportError {}
+
+fn try_import_array_len_into(
     target: &mut TyInterner,
     source: &TyInterner,
     len: &ArrayLenTy,
-) -> ArrayLenTy {
+) -> Result<ArrayLenTy, TypeImportError> {
     match len {
-        ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+        ArrayLenTy::Builtin { builtin, ty } => Ok(ArrayLenTy::Builtin {
             builtin: *builtin,
             // Layout-builtin lengths carry a type operand; after cross-module copying it must
             // point at the target interner just like ordinary array element types do.
-            ty: import_type_into(target, source, *ty),
-        },
-        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len.clone(),
+            ty: try_import_type_into(target, source, *ty)?,
+        }),
+        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => Ok(len.clone()),
     }
 }
 
@@ -1019,6 +1055,44 @@ mod tests {
 
         assert!(interner.contains_error(union));
         assert!(!interner.contains_error(value));
+    }
+
+    #[test]
+    fn interner_snapshots_accept_only_prefix_growth() {
+        let mut base = TyInterner::new(ModuleId(0));
+        let snapshot = base.clone();
+        base.intern(TyKind::GenericParam("T".to_string()));
+        let mut diverged = snapshot.clone();
+        diverged.intern(TyKind::GenericParam("U".to_string()));
+
+        assert!(snapshot.is_prefix_of(&base));
+        assert!(!base.is_prefix_of(&snapshot));
+        assert!(!base.is_prefix_of(&diverged));
+        assert!(!diverged.is_prefix_of(&base));
+    }
+
+    #[test]
+    fn try_import_type_reports_source_interner_mismatch() {
+        let source = TyInterner::new(ModuleId(0));
+        let mut target = TyInterner::new(ModuleId(1));
+        let other = TyInterner::new(ModuleId(2));
+        let ty = other.primitive(PrimitiveTy::I32);
+
+        let err = try_import_type_into(&mut target, &source, ty).unwrap_err();
+
+        assert_eq!(err.source_interner, source.interner_id());
+        assert_eq!(err.target_interner, target.interner_id());
+        assert_eq!(err.ty, ty);
+    }
+
+    #[test]
+    #[should_panic(expected = "type import failed")]
+    fn import_type_panics_on_source_interner_mismatch() {
+        let source = TyInterner::new(ModuleId(0));
+        let mut target = TyInterner::new(ModuleId(1));
+        let other = TyInterner::new(ModuleId(2));
+
+        import_type_into(&mut target, &source, other.primitive(PrimitiveTy::I32));
     }
 
     #[test]

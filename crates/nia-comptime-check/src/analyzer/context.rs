@@ -306,6 +306,70 @@ impl Analyzer<'_> {
         }
     }
 
+    pub(super) fn type_owner(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOwner {
+        ty.owner()
+    }
+
+    fn source_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
+        if interner_id == self.input.interner.interner_id() {
+            return Some(self.input.interner);
+        }
+        self.input
+            .program
+            .type_normalizations?
+            .values()
+            .map(|normalization| &normalization.interner)
+            .find(|interner| interner_id == interner.interner_id())
+    }
+
+    fn working_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
+        self.working_interners
+            .values()
+            .find(|interner| interner_id == interner.interner_id())
+    }
+
+    pub(super) fn active_interner_for_type(&self, ty: nia_ids::InternedTyId) -> &TyInterner {
+        let source = self
+            .source_interner_by_id(ty.interner_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: missing source type interner {:?} for comptime type {:?}",
+                    ty.interner_id, ty
+                )
+            });
+        let active = if let Some(working) = self.working_interner_by_id(ty.interner_id) {
+            if !source.is_prefix_of(working) {
+                panic!(
+                    "Nia ICE: comptime working type interner {:?} diverged from source snapshot",
+                    ty.interner_id
+                );
+            }
+            working
+        } else {
+            source
+        };
+        if active.get(ty).is_none() {
+            panic!(
+                "Nia ICE: comptime type {:?} is not present in active interner {:?}",
+                ty,
+                active.interner_id()
+            );
+        }
+        active
+    }
+
+    pub(super) fn active_ty_kind(&self, ty: nia_ids::InternedTyId) -> TyKind {
+        self.active_interner_for_type(ty)
+            .get(ty)
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: comptime type {:?} is not present in active interner",
+                    ty
+                )
+            })
+    }
+
     pub(super) fn ensure_working_interner(&mut self, module_id: ModuleId) -> Option<()> {
         if self.working_interners.contains_key(&module_id) {
             return Some(());
@@ -435,8 +499,9 @@ impl Analyzer<'_> {
             },
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
+        let ty_module_id = self.type_owner(ty).module_id();
         if let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty)
-            && (def_id.module_id != module_id || ty.interner_id != module_id)
+            && (def_id.module_id != module_id || ty_module_id != module_id)
             && let Some(layouts) =
                 self.compute_program_layout(def_id.module_id, &layout_array_lengths)
             && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
@@ -445,9 +510,8 @@ impl Analyzer<'_> {
                 layout.builtin_value(builtin) as u128,
             )));
         }
-        if ty.interner_id != module_id
-            && let Some(layouts) =
-                self.compute_program_layout(ty.interner_id, &layout_array_lengths)
+        if ty_module_id != module_id
+            && let Some(layouts) = self.compute_program_layout(ty_module_id, &layout_array_lengths)
             && let Some(layout) = layouts.types.get(&ty)
         {
             return Ok(ComptimeValue::Int(IntConst::unsigned(
@@ -535,7 +599,8 @@ impl Analyzer<'_> {
                 message: format!("type has no field `{field}` for builtin `@offset`"),
             });
         };
-        let offset = if def_id.module_id != module_id || ty.interner_id != module_id {
+        let ty_module_id = self.type_owner(ty).module_id();
+        let offset = if def_id.module_id != module_id || ty_module_id != module_id {
             self.compute_program_layout(def_id.module_id, &layout_array_lengths)
                 .and_then(|layouts| layouts.field_offset(def_id, &args, field_def))
         } else {

@@ -443,7 +443,7 @@ impl StaticChecker<'_> {
 
     fn def_id_for_node(
         &self,
-        node_key: &nia_node_id::NodeKey,
+        node_key: &nia_node_id::VersionedNodeKey,
         _span: Span,
         expected: DefKind,
     ) -> Option<DefId> {

@@ -390,16 +390,13 @@ where
 
     fn can_have_known_layout(&self, ty: InternedTyId) -> bool {
         !matches!(
-            self.interner.get(self.normalize(ty)),
-            Some(TyKind::Error | TyKind::Primitive(PrimitiveTy::Never)) | None
+            self.kind(ty),
+            Some(TyKind::Error | TyKind::Primitive(PrimitiveTy::Never))
         )
     }
 
     fn can_be_compiler_classified_type(&self, ty: InternedTyId) -> bool {
-        !matches!(
-            self.interner.get(self.normalize(ty)),
-            Some(TyKind::Error) | None
-        )
+        !matches!(self.kind(ty), Some(TyKind::Error))
     }
 
     fn can_be_non_void_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
@@ -491,6 +488,20 @@ where
 
     fn normalize(&self, ty: InternedTyId) -> InternedTyId {
         self.normalization.normalize(ty)
+    }
+
+    fn kind(&self, ty: InternedTyId) -> Option<&TyKind> {
+        let ty = self.normalize(ty);
+        if ty.interner_id != self.interner.interner_id() {
+            return None;
+        }
+        Some(self.interner.get(ty).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: trait overlap type {:?} is missing from interner {:?}",
+                ty,
+                self.interner.interner_id()
+            )
+        }))
     }
 }
 

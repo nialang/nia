@@ -952,7 +952,7 @@ impl<'a> BodyChecker<'a> {
         impl_signature: &ProgramTraitImplSignature,
     ) -> bool {
         self.extensions
-            .has_trait_witness_impl(impl_signature.module_id, impl_signature.local_index)
+            .has_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id)
     }
 
     fn check_type_projection_obligations(

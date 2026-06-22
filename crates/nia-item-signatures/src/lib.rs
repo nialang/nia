@@ -3,14 +3,15 @@ use std::collections::HashMap;
 
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param,
-    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
+    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause, type_ref_identity,
+    where_clause_identity,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind, Visibility};
+use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind, TraitImplId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -81,7 +82,7 @@ pub struct ProgramTypeAliasSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitImplSignature {
     pub module_id: nia_ids::ModuleId,
-    pub local_index: usize,
+    pub impl_id: TraitImplId,
     pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
@@ -183,6 +184,7 @@ pub struct TraitMethodSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplSignature {
+    pub impl_id: TraitImplId,
     pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
@@ -192,6 +194,105 @@ pub struct TraitImplSignature {
     pub associated_values: Vec<TraitImplAssociatedValueSignature>,
     pub methods: Vec<TraitImplMethodSignature>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TraitImplIdentity {
+    target: String,
+    trait_ref: Option<String>,
+    generics: Vec<String>,
+    where_clause: Vec<(String, Vec<String>)>,
+    duplicate_ordinal: Option<u32>,
+}
+
+impl TraitImplIdentity {
+    fn from_extend(extend: &ExtendItem) -> Self {
+        Self {
+            target: type_ref_identity(&extend.target),
+            trait_ref: extend.trait_ref.as_ref().map(type_ref_identity),
+            generics: extend.generics.clone(),
+            where_clause: where_clause_identity(&extend.where_clause),
+            duplicate_ordinal: None,
+        }
+    }
+
+    fn duplicate(mut self, ordinal: u32) -> Self {
+        self.duplicate_ordinal = Some(ordinal);
+        self
+    }
+}
+
+fn stable_trait_impl_id(identity: &TraitImplIdentity) -> u64 {
+    let mut hash = StableTraitImplHasher::new();
+    hash.bytes(b"trait_impl");
+    hash.string(&identity.target);
+    hash.optional_string(identity.trait_ref.as_deref());
+    hash.string_slice(&identity.generics);
+    hash.u64(identity.where_clause.len() as u64);
+    for (ty, bounds) in &identity.where_clause {
+        hash.string(ty);
+        hash.string_slice(bounds);
+    }
+    match identity.duplicate_ordinal {
+        Some(ordinal) => {
+            hash.bytes(b"duplicate");
+            hash.u64(u64::from(ordinal));
+        }
+        None => hash.bytes(b"primary"),
+    }
+    hash.finish()
+}
+
+struct StableTraitImplHasher {
+    value: u64,
+}
+
+impl StableTraitImplHasher {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x00000100000001b3;
+
+    fn new() -> Self {
+        Self {
+            value: Self::OFFSET,
+        }
+    }
+
+    fn finish(self) -> u64 {
+        self.value
+    }
+
+    fn string_slice(&mut self, values: &[String]) {
+        self.u64(values.len() as u64);
+        for value in values {
+            self.string(value);
+        }
+    }
+
+    fn optional_string(&mut self, value: Option<&str>) {
+        match value {
+            Some(value) => {
+                self.bytes(b"some");
+                self.string(value);
+            }
+            None => self.bytes(b"none"),
+        }
+    }
+
+    fn string(&mut self, value: &str) {
+        self.u64(value.len() as u64);
+        self.bytes(value.as_bytes());
+    }
+
+    fn u64(&mut self, value: u64) {
+        self.bytes(&value.to_le_bytes());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.value ^= u64::from(*byte);
+            self.value = self.value.wrapping_mul(Self::PRIME);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -307,6 +408,7 @@ fn collect_item_signatures_from_items(
         defs,
         lowered,
         diagnostics: Vec::new(),
+        duplicate_impl_identities: HashMap::new(),
     };
     let mut signatures = ItemSignatures {
         functions: HashMap::new(),
@@ -331,6 +433,7 @@ struct SignatureCollector<'a> {
     defs: &'a DefCollection,
     lowered: &'a TypeLowering,
     diagnostics: Vec<Diagnostic>,
+    duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
 }
 
 impl<'a> SignatureCollector<'a> {
@@ -465,7 +568,9 @@ impl<'a> SignatureCollector<'a> {
                     })
             })
             .collect();
+        let impl_id = self.trait_impl_id(extend);
         signatures.trait_impls.push(TraitImplSignature {
+            impl_id,
             generics: extend.generics.clone(),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
@@ -487,6 +592,21 @@ impl<'a> SignatureCollector<'a> {
             methods,
             span: extend.target.span,
         });
+    }
+
+    fn trait_impl_id(&mut self, extend: &ExtendItem) -> TraitImplId {
+        let identity = TraitImplIdentity::from_extend(extend);
+        let ordinal = self
+            .duplicate_impl_identities
+            .entry(identity.clone())
+            .or_default();
+        let resolved = if *ordinal == 0 {
+            identity
+        } else {
+            identity.duplicate(*ordinal)
+        };
+        *ordinal += 1;
+        TraitImplId(stable_trait_impl_id(&resolved))
     }
 
     fn collect_trait(
@@ -854,7 +974,7 @@ impl<'a> SignatureCollector<'a> {
 
     fn def_id_for_node(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         diagnostic_span: Span,
         expected: DefKind,
     ) -> Option<DefId> {
@@ -1056,6 +1176,52 @@ fn selected() i32 { 1 }
             &active_module.items[0].kind,
             nia_ast::ItemKind::Function(function) if function.name == "selected"
         ));
+    }
+
+    #[test]
+    fn trait_impl_ids_ignore_type_formatting() {
+        let before = signatures_ok(
+            r#"
+struct Box[T] { value: T }
+extend[T] &Box[T] {
+    fn get(self) T { self.value }
+}
+"#,
+        );
+        let after = signatures_ok(
+            r#"
+struct Box[T] { value: T }
+extend[T] & Box[ T ] {
+    fn get(self) T { self.value }
+}
+"#,
+        );
+
+        assert_eq!(before.trait_impls.len(), 1);
+        assert_eq!(after.trait_impls.len(), 1);
+        assert_eq!(before.trait_impls[0].impl_id, after.trait_impls[0].impl_id);
+    }
+
+    fn signatures_ok(source: &str) -> ItemSignatures {
+        let (module, errors) = parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types(&module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        assert!(
+            signatures.diagnostics.is_empty(),
+            "{:?}",
+            signatures.diagnostics
+        );
+        signatures
     }
 
     struct BoolResolver(bool);

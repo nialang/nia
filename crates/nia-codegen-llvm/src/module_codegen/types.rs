@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TypeOwner};
 use nia_llvm::{
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
@@ -29,6 +29,10 @@ pub(crate) enum AbiReturn {
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
+    pub(super) fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
+        ty.owner()
+    }
+
     fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
         self.program
             .module(module_id)
@@ -36,7 +40,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
-        self.module_interner(ty.interner_id)?.get(ty)
+        self.module_interner(self.type_owner(ty).module_id())?
+            .get(ty)
     }
 
     pub(super) fn function_type_in(
@@ -406,7 +411,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(TyKind::Array { len, elem }) => {
                 let elem_layouts = self
                     .program
-                    .module(elem.interner_id)
+                    .module(self.type_owner(*elem).module_id())
                     .map(|module| &module.layouts)
                     .unwrap_or(layouts);
                 let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
@@ -434,7 +439,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 if let Some(item) = self.program.enums.get(def_id).copied() {
                     let owner = self
                         .program
-                        .module(item.backing_type.interner_id)
+                        .module(self.type_owner(item.backing_type).module_id())
                         .ok_or_else(|| self.error(item.span, "missing enum owner module"))?;
                     return self.llvm_basic_type_in(
                         item.backing_type,
@@ -677,7 +682,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
         self.program
-            .module(ty.interner_id)
+            .module(self.type_owner(ty).module_id())
             .map(|module| &module.layouts)
             .unwrap_or(&self.source.layouts)
     }

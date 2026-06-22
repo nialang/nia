@@ -30,7 +30,10 @@ pub(super) fn only_next_target(
 }
 
 pub(super) fn test_ty() -> InternedTyId {
-    InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0))
+    InternedTyId::new(
+        nia_ids::TyInternerId::for_module(ModuleId(0)),
+        TyInternerIndex::from_interner_index(0),
+    )
 }
 
 pub(super) fn int_expr(value: i32) -> TypedExpr {

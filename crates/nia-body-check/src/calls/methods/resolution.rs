@@ -976,7 +976,12 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::ComptimeOnly | TyKind::Error) | None => false,
+            Some(TyKind::ComptimeOnly | TyKind::Error) => false,
+            None => panic!(
+                "Nia ICE: method pattern type {:?} is missing from interner {:?}",
+                general,
+                self.interner.interner_id()
+            ),
         }
     }
 

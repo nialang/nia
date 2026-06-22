@@ -9,7 +9,7 @@ use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
 use nia_ids::ReceiverKind;
 use nia_item_signatures::FunctionAttribute;
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::TyKind;
@@ -19,7 +19,7 @@ pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         item: &nia_ast::StructItem,
     ) -> Option<BackendStruct> {
@@ -47,7 +47,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_union(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         item: &nia_ast::UnionItem,
     ) -> Option<BackendUnion> {
@@ -75,7 +75,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_enum(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         item: &nia_ast::EnumItem,
     ) -> Option<BackendEnum> {
@@ -110,7 +110,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_global(
         &mut self,
-        node_key: &NodeKey,
+        node_key: &VersionedNodeKey,
         span: Span,
         binding: &BindingItem,
     ) -> Option<BackendGlobal> {

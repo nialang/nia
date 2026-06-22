@@ -10,7 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::NodeKey;
+use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, LayoutBuiltin,
@@ -21,7 +21,7 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
     pub interner: TyInterner,
-    pub node_type_uses: HashMap<NodeKey, InternedTyId>,
+    pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
     pub const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     pub diagnostics: Vec<Diagnostic>,
@@ -91,7 +91,28 @@ pub fn lower_module_types_from_active_item_tree(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
-    lower_module_types_from_items(module_id, &item_tree.items, resolved, program_defs)
+    lower_module_types_from_items(
+        module_id,
+        &item_tree.items,
+        resolved,
+        program_defs,
+        TypeLowerMode::All,
+    )
+}
+
+pub fn lower_module_declaration_types_from_active_item_tree(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    resolved: &TypeResolution,
+    program_defs: ProgramDefsContext<'_>,
+) -> TypeLowering {
+    lower_module_types_from_items(
+        module_id,
+        &item_tree.items,
+        resolved,
+        program_defs,
+        TypeLowerMode::Declarations,
+    )
 }
 
 pub fn lower_module_types_from_item_tree_with_defs(
@@ -100,7 +121,13 @@ pub fn lower_module_types_from_item_tree_with_defs(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
-    lower_module_types_from_items(module_id, &item_tree.items, resolved, program_defs)
+    lower_module_types_from_items(
+        module_id,
+        &item_tree.items,
+        resolved,
+        program_defs,
+        TypeLowerMode::All,
+    )
 }
 
 fn lower_module_types_from_items(
@@ -108,6 +135,7 @@ fn lower_module_types_from_items(
     items: &[ItemTreeNode],
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
+    mode: TypeLowerMode,
 ) -> TypeLowering {
     let mut lowerer = TypeLowerer {
         module_id,
@@ -122,6 +150,7 @@ fn lower_module_types_from_items(
         self_type_stack: Vec::new(),
         associated_type_scope_stack: Vec::new(),
         next_const_expr_id: 0,
+        mode,
     };
     for item in items {
         lowerer.visit_item_tree_node(item);
@@ -135,12 +164,18 @@ fn lower_module_types_from_items(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeLowerMode {
+    All,
+    Declarations,
+}
+
 struct TypeLowerer<'a> {
     module_id: ModuleId,
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
     interner: TyInterner,
-    node_type_uses: HashMap<NodeKey, InternedTyId>,
+    node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     diagnostics: Vec<Diagnostic>,
@@ -148,6 +183,7 @@ struct TypeLowerer<'a> {
     self_type_stack: Vec<InternedTyId>,
     associated_type_scope_stack: Vec<AssociatedTypeScope>,
     next_const_expr_id: u32,
+    mode: TypeLowerMode,
 }
 
 #[derive(Debug, Clone)]
@@ -267,7 +303,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                             if let Some(ty) = &associated_value.binding.ty {
                                 lowerer.lower_type_in_context(ty, TypeContext::Value);
                             }
-                            if let Some(value) = &associated_value.binding.value {
+                            if lowerer.mode == TypeLowerMode::All
+                                && let Some(value) = &associated_value.binding.value
+                            {
                                 lowerer.visit_expr(value);
                             }
                         }
@@ -307,7 +345,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 if let Some(ty) = &binding.ty {
                     self.lower_type_in_context(ty, TypeContext::Value);
                 }
-                if let Some(value) = &binding.value {
+                if self.mode == TypeLowerMode::All
+                    && let Some(value) = &binding.value
+                {
                     nia_ast_walk::walk_expr(self, value);
                 }
             }
@@ -327,7 +367,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             if let Some(return_type) = &function.return_type {
                 lowerer.lower_type_in_context(return_type, TypeContext::Return);
             }
-            if let Some(body) = &function.body {
+            if lowerer.mode == TypeLowerMode::All
+                && let Some(body) = &function.body
+            {
                 lowerer.visit_block(body);
             }
         });
@@ -467,7 +509,9 @@ impl TypeLowerer<'_> {
                             if let Some(ty) = &associated_value.binding.ty {
                                 lowerer.lower_type_in_context(ty, TypeContext::Value);
                             }
-                            if let Some(value) = &associated_value.binding.value {
+                            if lowerer.mode == TypeLowerMode::All
+                                && let Some(value) = &associated_value.binding.value
+                            {
                                 lowerer.visit_expr(value);
                             }
                         }
@@ -507,7 +551,9 @@ impl TypeLowerer<'_> {
                 if let Some(ty) = &binding.ty {
                     self.lower_type_in_context(ty, TypeContext::Value);
                 }
-                if let Some(value) = &binding.value {
+                if self.mode == TypeLowerMode::All
+                    && let Some(value) = &binding.value
+                {
                     nia_ast_walk::walk_expr(self, value);
                 }
             }
@@ -1286,7 +1332,7 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn local_trait_id(&self, node_key: &nia_node_id::NodeKey) -> Option<GlobalDefId> {
+    fn local_trait_id(&self, node_key: &nia_node_id::VersionedNodeKey) -> Option<GlobalDefId> {
         let defs = self.defs_for_module(self.module_id)?;
         let def_id = defs.def_nodes.get(node_key)?;
         Some(GlobalDefId {
