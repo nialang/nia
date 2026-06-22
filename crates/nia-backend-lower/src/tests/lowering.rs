@@ -30,11 +30,17 @@ fn main() i32 {
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
-    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
+    let active_item_tree = active_item_tree(&module);
+    let semantic_uses = semantic_use_table(
+        ModuleId(0),
+        &values,
+        &locals,
+        &type_lowering,
+        &active_item_tree,
+    );
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
-    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
             active_item_tree: &active_item_tree,

@@ -245,11 +245,17 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let target = TargetConfig::host();
     let source_path = SourcePath::new("main.nia");
-    let semantic_uses = semantic_use_table_for_body_input(defs.module_id, values, locals, lowered);
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = ActiveModuleItemTree::new(
         item_tree.active_items_without_comptime(),
         Default::default(),
+    );
+    let semantic_uses = semantic_use_table_for_body_input(
+        defs.module_id,
+        values,
+        locals,
+        lowered,
+        &active_item_tree,
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
@@ -343,6 +349,7 @@ fn semantic_use_table_for_body_input(
     values: &ValueResolution,
     locals: &LocalResolution,
     lowered: &TypeLowering,
+    active_item_tree: &ActiveModuleItemTree,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
@@ -381,12 +388,8 @@ fn semantic_use_table_for_body_input(
             .iter()
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_node_type_uses(
-        lowered
-            .node_type_uses
-            .iter()
-            .map(|(key, ty)| (key.clone(), *ty)),
-    );
+    builder
+        .extend_node_type_uses(lowered.versioned_type_uses_from_active_item_tree(active_item_tree));
     builder.finish()
 }
 
@@ -426,7 +429,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         semantic_uses: input.semantic_uses,
         interner,
         type_lowering: input.lowered,
-        node_type_uses: &input.lowered.node_type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
         target: input.target,
@@ -562,7 +564,6 @@ struct BodyChecker<'a> {
     semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
     type_lowering: &'a TypeLowering,
-    node_type_uses: &'a HashMap<VersionedNodeKey, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
@@ -895,7 +896,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(ty);
         }
-        let ty = self.node_type_uses.get(&expr.node_key).copied()?;
+        let ty = self.type_lowering.ty_for_key(&expr.node_key)?;
         Some(self.import_type_to_working_interner(ty))
     }
 

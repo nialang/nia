@@ -15,14 +15,14 @@ use nia_imports::{
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::{NodeSite, VersionedNodeKey};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, PrimitiveTypeSpelling};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
-    pub node_type_names: HashMap<VersionedNodeKey, TypeNameResolution>,
-    pub node_qualified_type_names: HashMap<VersionedNodeKey, GlobalDefId>,
+    pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
+    pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -226,8 +226,8 @@ struct TypeResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    node_type_names: HashMap<VersionedNodeKey, TypeNameResolution>,
-    node_qualified_type_names: HashMap<VersionedNodeKey, GlobalDefId>,
+    node_type_names: HashMap<NodeSite, TypeNameResolution>,
+    node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<Span>,
@@ -606,12 +606,14 @@ impl<'a> TypeResolver<'a> {
         };
         if segments.len() > 1 {
             let resolution = self.resolve_qualified_type_path(ty.span, &ty.node_key, segments);
-            self.node_type_names.insert(ty.node_key.clone(), resolution);
+            self.node_type_names
+                .insert(ty.node_key.site().clone(), resolution);
             self.visit_type_path_args(segments);
             return;
         }
         let resolution = self.resolve_type_name(first, ty.span, &ty.node_key);
-        self.node_type_names.insert(ty.node_key.clone(), resolution);
+        self.node_type_names
+            .insert(ty.node_key.site().clone(), resolution);
         self.visit_type_path_args(segments);
     }
 
@@ -814,7 +816,7 @@ impl<'a> TypeResolver<'a> {
                 def_id: item.target_def_id,
             };
             self.node_qualified_type_names
-                .insert(node_key.clone(), global);
+                .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
         }
         let def_id = match self.direct_type_member(module_id, &segment.name) {
@@ -857,7 +859,7 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::Error;
         }
         self.node_qualified_type_names
-            .insert(node_key.clone(), GlobalDefId { module_id, def_id });
+            .insert(node_key.site().clone(), GlobalDefId { module_id, def_id });
         if module_id == self.defs.module_id {
             TypeNameResolution::Def(def_id)
         } else {
@@ -907,7 +909,7 @@ impl<'a> TypeResolver<'a> {
                 def_id: entry.target_def_id,
             };
             self.node_qualified_type_names
-                .insert(node_key.clone(), global);
+                .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
         }
         if self

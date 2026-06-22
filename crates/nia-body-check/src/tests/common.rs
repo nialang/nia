@@ -62,7 +62,9 @@ fn pipeline_with_options(
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
-    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
+    let active_item_tree = active_item_tree(&module);
+    let semantic_uses =
+        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     assert!(
         signatures.diagnostics.is_empty(),
@@ -71,7 +73,6 @@ fn pipeline_with_options(
     );
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/main.nia");
-    let active_item_tree = active_item_tree(&module);
     let comptime_module =
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
             active_item_tree: &active_item_tree,
@@ -122,8 +123,7 @@ fn pipeline_with_options(
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
-            let Some(target_ty) = lowered.node_type_uses.get(&extend.target.node_key).copied()
-            else {
+            let Some(target_ty) = lowered.ty_for_key(&extend.target.node_key) else {
                 continue;
             };
             let target_ty = normalization.normalize(target_ty);
@@ -260,6 +260,7 @@ pub(super) fn semantic_use_table(
     values: &nia_value_resolve::ValueResolution,
     locals: &nia_local_resolve::LocalResolution,
     type_lowering: &nia_type_lower::TypeLowering,
+    active_item_tree: &ActiveModuleItemTree,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
@@ -299,10 +300,7 @@ pub(super) fn semantic_use_table(
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
     builder.extend_node_type_uses(
-        type_lowering
-            .node_type_uses
-            .iter()
-            .map(|(key, ty)| (key.clone(), *ty)),
+        type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree),
     );
     builder.finish()
 }

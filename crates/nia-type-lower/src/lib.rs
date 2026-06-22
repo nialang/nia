@@ -10,7 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::NodeSite;
 use nia_span::Span;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, LayoutBuiltin,
@@ -21,10 +21,151 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
     pub interner: TyInterner,
-    pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
+    pub type_uses: HashMap<NodeSite, InternedTyId>,
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
     pub const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl TypeLowering {
+    pub fn ty_for_site(&self, site: &NodeSite) -> Option<InternedTyId> {
+        self.type_uses.get(site).copied()
+    }
+
+    pub fn ty_for_key(&self, key: &nia_node_id::VersionedNodeKey) -> Option<InternedTyId> {
+        self.ty_for_site(key.site())
+    }
+
+    pub fn versioned_type_uses_from_active_item_tree(
+        &self,
+        item_tree: &ActiveModuleItemTree,
+    ) -> Vec<(nia_node_id::VersionedNodeKey, InternedTyId)> {
+        let mut collector = VersionedTypeUseCollector {
+            lowering: self,
+            uses: Vec::new(),
+        };
+        for item in &item_tree.items {
+            collector.visit_item_tree_node(item);
+        }
+        collector.uses
+    }
+}
+
+struct VersionedTypeUseCollector<'a> {
+    lowering: &'a TypeLowering,
+    uses: Vec<(nia_node_id::VersionedNodeKey, InternedTyId)>,
+}
+
+impl VersionedTypeUseCollector<'_> {
+    fn record_type(&mut self, ty: &TypeRef) {
+        if let Some(lowered) = self.lowering.ty_for_key(&ty.node_key) {
+            self.uses.push((ty.node_key.clone(), lowered));
+        }
+    }
+}
+
+impl<'ast> Visitor<'ast> for VersionedTypeUseCollector<'_> {
+    fn visit_type(&mut self, ty: &'ast TypeRef) {
+        self.record_type(ty);
+        nia_ast_walk::walk_type(self, ty);
+    }
+}
+
+impl VersionedTypeUseCollector<'_> {
+    fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
+        match &item.kind {
+            ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
+            ItemTreeNodeKind::Struct(item_struct) => {
+                self.visit_where_clause(&item_struct.where_clause);
+                for field in &item_struct.fields {
+                    self.visit_type(&field.ty);
+                }
+            }
+            ItemTreeNodeKind::Union(item_union) => {
+                self.visit_where_clause(&item_union.where_clause);
+                for field in &item_union.fields {
+                    self.visit_type(&field.ty);
+                }
+            }
+            ItemTreeNodeKind::Trait(item_trait) => {
+                for supertrait in &item_trait.supertraits {
+                    self.visit_type(supertrait);
+                }
+                self.visit_where_clause(&item_trait.where_clause);
+                for method in &item_trait.methods {
+                    self.visit_function(&method.function);
+                }
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                self.visit_type(&extend.target);
+                if let Some(trait_ref) = &extend.trait_ref {
+                    self.visit_type(trait_ref);
+                }
+                self.visit_where_clause(&extend.where_clause);
+                for associated_type in &extend.associated_types {
+                    self.visit_type(&associated_type.ty);
+                }
+                for associated_value in &extend.associated_values {
+                    if let Some(ty) = &associated_value.binding.ty {
+                        self.visit_type(ty);
+                    }
+                    if let Some(value) = &associated_value.binding.value {
+                        self.visit_expr(value);
+                    }
+                }
+                for method in &extend.methods {
+                    self.visit_function(&method.function);
+                }
+            }
+            ItemTreeNodeKind::Enum(item_enum) => {
+                if let Some(backing_type) = &item_enum.backing_type {
+                    self.visit_type(backing_type);
+                }
+                for variant in &item_enum.variants {
+                    if let Some(value) = &variant.value {
+                        self.visit_expr(value);
+                    }
+                }
+            }
+            ItemTreeNodeKind::TypeAlias(alias) => {
+                self.visit_where_clause(&alias.where_clause);
+                self.visit_type(&alias.ty);
+            }
+            ItemTreeNodeKind::Binding(binding) => {
+                if let Some(ty) = &binding.ty {
+                    self.visit_type(ty);
+                }
+                if let Some(value) = &binding.value {
+                    self.visit_expr(value);
+                }
+            }
+            ItemTreeNodeKind::Function(function) => self.visit_function(function),
+        }
+    }
+
+    fn visit_where_clause(&mut self, clause: &WhereClause) {
+        for predicate in &clause.predicates {
+            self.visit_type(&predicate.ty);
+            for bound in &predicate.bounds {
+                self.visit_type(bound);
+            }
+        }
+    }
+
+    fn visit_function(&mut self, function: &FunctionItem) {
+        self.visit_where_clause(&function.where_clause);
+        for param in &function.params {
+            if let Some(ty) = &param.ty {
+                self.visit_type(ty);
+            }
+        }
+        if let Some(return_type) = &function.return_type {
+            self.visit_type(return_type);
+        }
+        if let Some(body) = &function.body {
+            self.visit_block(body);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -142,7 +283,7 @@ fn lower_module_types_from_items(
         resolved,
         program_defs,
         interner: TyInterner::new(module_id),
-        node_type_uses: HashMap::new(),
+        type_uses: HashMap::new(),
         const_exprs: HashMap::new(),
         const_expr_summaries: HashMap::new(),
         diagnostics: Vec::new(),
@@ -157,7 +298,7 @@ fn lower_module_types_from_items(
     }
     TypeLowering {
         interner: lowerer.interner,
-        node_type_uses: lowerer.node_type_uses,
+        type_uses: lowerer.type_uses,
         const_exprs: lowerer.const_exprs,
         const_expr_summaries: lowerer.const_expr_summaries,
         diagnostics: lowerer.diagnostics,
@@ -175,7 +316,7 @@ struct TypeLowerer<'a> {
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
     interner: TyInterner,
-    node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
+    type_uses: HashMap<NodeSite, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     diagnostics: Vec<Diagnostic>,
@@ -566,7 +707,7 @@ impl TypeLowerer<'_> {
 impl<'a> TypeLowerer<'a> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
-        self.node_type_uses.insert(ty.node_key.clone(), lowered);
+        self.type_uses.insert(ty.node_key.site().clone(), lowered);
         if context == TypeContext::Value
             && let Some(message) = self.invalid_value_type_message(lowered)
         {
@@ -676,7 +817,12 @@ impl<'a> TypeLowerer<'a> {
                 let Some(type_segment) = type_name_segment(segments) else {
                     return self.interner.error();
                 };
-                match self.resolved.node_type_names.get(&ty.node_key).copied() {
+                match self
+                    .resolved
+                    .node_type_names
+                    .get(ty.node_key.site())
+                    .copied()
+                {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.lower_primitive_type(primitive)
                     }
@@ -697,7 +843,7 @@ impl<'a> TypeLowerer<'a> {
                         let def_id = self
                             .resolved
                             .node_qualified_type_names
-                            .get(&ty.node_key)
+                            .get(ty.node_key.site())
                             .copied()
                             .unwrap_or(GlobalDefId {
                                 module_id: self.module_id,
@@ -899,7 +1045,12 @@ impl<'a> TypeLowerer<'a> {
             return None;
         };
         let type_segment = type_name_segment(segments)?;
-        match self.resolved.node_type_names.get(&ty.node_key).copied() {
+        match self
+            .resolved
+            .node_type_names
+            .get(ty.node_key.site())
+            .copied()
+        {
             Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
                 Some(self.lower_builtin_trait_object(ty.span, is_readonly, type_segment, trait_id))
             }
@@ -907,7 +1058,7 @@ impl<'a> TypeLowerer<'a> {
                 let def_id = self
                     .resolved
                     .node_qualified_type_names
-                    .get(&ty.node_key)
+                    .get(ty.node_key.site())
                     .copied()
                     .unwrap_or(GlobalDefId {
                         module_id: self.module_id,
@@ -1577,19 +1728,19 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
         );
         assert!(
             lowered
-                .node_type_uses
+                .type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Nominal { .. })))
         );
         assert!(
             lowered
-                .node_type_uses
+                .type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Array { .. })))
         );
         assert!(
             lowered
-                .node_type_uses
+                .type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Pointer { .. })))
         );
@@ -1633,7 +1784,7 @@ extend Sink : Writer {
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let shorthand_projections = lowered
-            .node_type_uses
+            .type_uses
             .values()
             .filter(|ty_id| {
                 matches!(
@@ -1642,7 +1793,7 @@ extend Sink : Writer {
                 )
             })
             .count();
-        assert!(shorthand_projections >= 2, "{:?}", lowered.node_type_uses);
+        assert!(shorthand_projections >= 2, "{:?}", lowered.type_uses);
     }
 
     #[test]
@@ -1670,9 +1821,7 @@ extend[T] [T] {
             panic!("expected extend");
         };
         let target_ty = lowered
-            .node_type_uses
-            .get(&extend.target.node_key)
-            .copied()
+            .ty_for_key(&extend.target.node_key)
             .expect("expected lowered extend target");
         assert!(matches!(
             lowered.interner.get(target_ty),
@@ -1824,7 +1973,7 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let trait_objects = lowered
-            .node_type_uses
+            .type_uses
             .values()
             .filter_map(|ty| match lowered.interner.get(*ty) {
                 Some(TyKind::TraitObject {
@@ -1959,7 +2108,7 @@ fn selected(value: i32) void {}
             ProgramDefsContext::empty(),
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        assert!(lowered.node_type_uses.values().any(|ty| matches!(
+        assert!(lowered.type_uses.values().any(|ty| matches!(
             lowered.interner.get(*ty),
             Some(TyKind::Primitive(PrimitiveTy::I32))
         )));

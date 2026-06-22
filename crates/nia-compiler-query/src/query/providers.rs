@@ -696,6 +696,7 @@ pub(super) fn provide_semantic_use_table(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
 
     for (key, local_use) in &locals.node_uses {
@@ -741,10 +742,7 @@ pub(super) fn provide_semantic_use_table(
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
     builder.extend_node_type_uses(
-        type_lowering
-            .node_type_uses
-            .iter()
-            .map(|(key, ty)| (key.clone(), *ty)),
+        type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
     );
     builder.finish()
 }

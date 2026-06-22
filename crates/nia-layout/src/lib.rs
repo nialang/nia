@@ -1161,14 +1161,15 @@ mod tests {
     ) -> ComptimeCheck {
         let values = resolve_module_values(module, defs);
         let locals = resolve_module_locals(module, defs, &values);
-        let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, lowered);
-        let target = nia_target_config::TargetConfig::host();
-        let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
         let item_tree = ModuleItemTree::from_module(module);
         let active_item_tree = ActiveModuleItemTree::new(
             item_tree.active_items_without_comptime(),
             Default::default(),
         );
+        let semantic_uses =
+            semantic_use_table(ModuleId(0), &values, &locals, lowered, &active_item_tree);
+        let target = nia_target_config::TargetConfig::host();
+        let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
         let comptime_module = lower_module_comptime(ComptimeModuleInput {
             active_item_tree: &active_item_tree,
             defs,
@@ -1203,6 +1204,7 @@ mod tests {
         values: &nia_value_resolve::ValueResolution,
         locals: &nia_local_resolve::LocalResolution,
         lowered: &nia_type_lower::TypeLowering,
+        active_item_tree: &ActiveModuleItemTree,
     ) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
         for (key, local_use) in &locals.node_uses {
@@ -1242,10 +1244,7 @@ mod tests {
                 .map(|(key, local_id)| (key.clone(), *local_id)),
         );
         builder.extend_node_type_uses(
-            lowered
-                .node_type_uses
-                .iter()
-                .map(|(key, ty)| (key.clone(), *ty)),
+            lowered.versioned_type_uses_from_active_item_tree(active_item_tree),
         );
         builder.finish()
     }
