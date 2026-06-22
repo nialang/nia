@@ -59,13 +59,13 @@ extend Build {
     pub fn run_requested_step(&mut self) Error!void {
         if let ?step = self.requested_step() {
             if let ?registered = self.find_step_arg(step) {
-                return (registered.run)(self);
+                return registered.run(self);
             } else null {}
             self.report_unknown_step(step).?;
             return Error::UnknownStep!;
         } else null {}
         if let ?registered = self.first_step() {
-            return (registered.run)(self);
+            return registered.run(self);
         } else null {}
         !{}
     }
