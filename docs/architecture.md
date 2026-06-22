@@ -1120,10 +1120,13 @@ owns package-root discovery, runner generation, and compiler invocation; build
 logic stays in the Nia build script and can use `std`, including
 `std::process`. The generated runner injects package-root context into
 `std::build::Build`: `package_root()` is the directory containing `build.nia`,
-`build_dir()` is `.nia-build/`, and `cache_dir()` is `.nia-cache/`. The toolchain
-creates the build and cache directories before executing the runner. The current
-`std::build` surface is intentionally small and will grow into explicit step and
-artifact APIs rather than a Rust-side manifest parser.
+`build_dir()` is `.nia-build/`, `cache_dir()` is `.nia-cache/`, and
+`toolchain_executable()` is the `nia` executable that launched the build. The
+toolchain creates the build and cache directories before executing the runner.
+The current `std::build` surface is intentionally small: `check_exe(path)`
+already routes a script-owned source path through the current toolchain without
+forcing scripts to construct raw process arguments. This surface will grow into
+explicit step and artifact APIs rather than a Rust-side manifest parser.
 
 Global module-map options:
 
