@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fmt, fs, io,
+    env, fmt,
+    fmt::Write as _,
+    fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
@@ -242,7 +244,9 @@ fn build_runner_source_for_path(
     let cache_dir = nia_path_literal("cache dir", &plan.cache_dir)?;
     let toolchain_executable =
         nia_path_literal("toolchain executable", &plan.toolchain_executable)?;
-    let source = r#"
+    let mut source = String::new();
+    source.push_str(
+        r#"
 using std::build;
 using std::fs;
 using std::mem;
@@ -257,23 +261,30 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var api = build::Build::init(
         init,
         &mut allocator,
-        fs::Path::init({package_root}),
-        fs::Path::init({build_dir}),
-        fs::Path::init({cache_dir}),
-        fs::Path::init({toolchain_executable}),
+"#
+        .trim_start(),
     );
+    writeln!(&mut source, "        fs::Path::init({package_root}),")
+        .expect("writing to String cannot fail");
+    writeln!(&mut source, "        fs::Path::init({build_dir}),")
+        .expect("writing to String cannot fail");
+    writeln!(&mut source, "        fs::Path::init({cache_dir}),")
+        .expect("writing to String cannot fail");
+    writeln!(
+        &mut source,
+        "        fs::Path::init({toolchain_executable}),"
+    )
+    .expect("writing to String cannot fail");
+    source.push_str(
+        r#"    );
     defer api.deinit().exit().?;
 
     build_script::build(&mut api).exit().?;
     api.run_requested_step().exit().?;
     !{}
 }
-"#
-    .trim_start()
-    .replace("{package_root}", &package_root)
-    .replace("{build_dir}", &build_dir)
-    .replace("{cache_dir}", &cache_dir)
-    .replace("{toolchain_executable}", &toolchain_executable);
+"#,
+    );
     Ok(BuildRunnerSource { path, source })
 }
 
