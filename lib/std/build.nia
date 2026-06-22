@@ -16,6 +16,7 @@ pub enum Error: i32 {
     CommandFailed = 6,
     UnknownTarget = 7,
     InvalidTarget = 8,
+    PathTooLong = 9,
     _,
 }
 
@@ -105,7 +106,7 @@ extend Build {
     }
 
     pub fn executable(&mut self, name: &[char], source: fs::Path) Error!void {
-        if name.len() == 0usize {
+        if not is_valid_target_name(name) {
             return Error::InvalidTarget!;
         }
         if let ?old = self.find_executable(name) {
@@ -128,6 +129,23 @@ extend Build {
         self.check_exe(target.source)
     }
 
+    pub fn emit_executable(&mut self, name: &[char]) Error!void {
+        let target = if let ?target = self.find_executable(name) {
+            target
+        } else null {
+            self.report_unknown_target(name).?;
+            return Error::UnknownTarget!;
+        };
+        var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        var target_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let output = self.executable_output_path(
+            target.name,
+            &mut output_path_storage[..],
+            &mut target_path_storage[..],
+        ).?;
+        self.emit_exe(target.source, output)
+    }
+
     pub fn check_exe(&mut self, source: fs::Path) Error!void {
         var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
@@ -145,6 +163,36 @@ extend Build {
             &check_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
+            0usize as &u8,
+        ];
+        var command = process::Command::init(toolchain_cstr, &argv[0], self.init.raw_envp());
+        let term = command.run().as_build_error().?;
+        if not term.exited_success() {
+            return Error::CommandFailed!;
+        }
+        !{}
+    }
+
+    pub fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
+        var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
+        let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
+        let toolchain_cstr = if let ?value = cstr::CStr::from_bytes(toolchain.nul_terminated_bytes()) {
+            value
+        } else null {
+            return Error::Internal!;
+        };
+        let emit_arg = b"emit\0";
+        let exe_arg = b"--exe\0";
+        let output_arg = b"-o\0";
+        var argv: [7]&u8 = [
+            toolchain.ptr(),
+            &emit_arg.*[0],
+            &exe_arg.*[0],
+            source_arg.ptr(),
+            &output_arg.*[0],
+            output.ptr(),
             0usize as &u8,
         ];
         var command = process::Command::init(toolchain_cstr, &argv[0], self.init.raw_envp());
@@ -230,6 +278,30 @@ extend Build {
         stderr.print("unknown executable target `{}`\n", &[name]).as_build_error().?;
         stderr.flush().as_build_error()
     }
+
+    fn executable_output_path(
+        &self,
+        name: &[char],
+        path_storage: &mut [u8],
+        target_storage: &mut [u8],
+    ) Error!fs::EncodedPath {
+        let build_dir = self.build_dir.encode(path_storage).as_build_error().?;
+        let target = fs::Path::init(name).encode(target_storage).as_build_error().?;
+        let build_len = build_dir.len();
+        let target_len = target.len();
+        if build_len + 1usize + target_len >= path_storage.len() {
+            return Error::PathTooLong!;
+        }
+        path_storage[build_len] = b'/';
+        var index = 0usize;
+        while index < target_len {
+            path_storage[build_len + 1usize + index] = target.bytes()[index];
+            index += 1usize;
+        }
+        let out_len = build_len + 1usize + target_len;
+        path_storage[out_len] = 0u8;
+        !fs::EncodedPath::init(path_storage.get_ptr_read(), out_len)
+    }
 }
 
 extend Step {
@@ -255,6 +327,7 @@ extend Error {
             Error::CommandFailed => process::exit(1),
             Error::UnknownTarget => process::exit(2),
             Error::InvalidTarget => process::exit(22),
+            Error::PathTooLong => process::exit(36),
             _ => process::exit(255),
         }
     }
@@ -351,6 +424,21 @@ fn text_equal(left: &[char], right: &[char]) bool {
     var index = 0usize;
     while index < left.len() {
         if left[index] != right[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+fn is_valid_target_name(name: &[char]) bool {
+    if name.len() == 0usize {
+        return false;
+    }
+    var index = 0usize;
+    while index < name.len() {
+        let code = name[index] as u32;
+        if code == 0u32 or code == 47u32 or code == 92u32 {
             return false;
         }
         index += 1usize;

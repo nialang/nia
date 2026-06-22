@@ -3010,6 +3010,8 @@ paths.
 `Build::executable(name, path)` declares an executable target, and
 `Build::check_executable(name)` checks that target through the same toolchain as
 `nia check --exe <path>` with the package root as the working directory.
+`Build::emit_executable(name)` emits the target to `.nia-build/<name>` through
+the same toolchain as `nia emit --exe <path> -o .nia-build/<name>`.
 
 Module-map options are accepted before or after the command:
 
