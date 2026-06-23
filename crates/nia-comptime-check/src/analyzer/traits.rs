@@ -165,11 +165,10 @@ impl Analyzer<'_> {
         let Some(function_id) = self.current_execution_function_id() else {
             return Vec::new();
         };
-        let Some(signature) = self
-            .signatures_for_module(function_id.module_id)
-            .and_then(|signatures| signatures.functions.get(&function_id.def_id))
-            .cloned()
-        else {
+        let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
+            return Vec::new();
+        };
+        let Some(signature) = signatures.functions.get(&function_id.def_id).cloned() else {
             return Vec::new();
         };
         let substitutions = self

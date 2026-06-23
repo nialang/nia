@@ -299,11 +299,13 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let Some(signature) = self
-            .signatures_for_module(function_id.module_id)
-            .and_then(|signatures| signatures.functions.get(&function_id.def_id))
-            .cloned()
-        else {
+        let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "comptime expression can only call `comptime fn`".to_string(),
+            });
+        };
+        let Some(signature) = signatures.functions.get(&function_id.def_id).cloned() else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
