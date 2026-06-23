@@ -463,7 +463,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
 pub(crate) struct BackendLowerShared {
     program_extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    known_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
+    input_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
 }
 
 impl BackendLowerShared {
@@ -471,7 +471,7 @@ impl BackendLowerShared {
         Self {
             program_extension_trait_method_candidates:
                 index_program_extension_trait_method_candidates(modules),
-            known_type_interners: index_shared_known_type_interners(modules, monomorphization),
+            input_type_interners: index_input_type_interner_snapshots(modules, monomorphization),
         }
     }
 }
@@ -1254,31 +1254,31 @@ fn index_extension_generics_by_method(
     generics_by_method
 }
 
-fn index_shared_known_type_interners(
+fn index_input_type_interner_snapshots(
     modules: &[BackendLowerModuleInput<'_>],
     monomorphization: &Monomorphization,
 ) -> HashMap<TyInternerId, nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     for input in modules {
-        insert_known_type_interner(&mut interners, &input.body_ir.interner);
-        insert_known_type_interner(&mut interners, input.function_interner);
+        insert_input_type_interner_snapshot(&mut interners, &input.body_ir.interner);
+        insert_input_type_interner_snapshot(&mut interners, input.function_interner);
         if let Some(interner) = input.extension_interner {
-            insert_known_type_interner(&mut interners, interner);
+            insert_input_type_interner_snapshot(&mut interners, interner);
         }
         for interner in input.program_function_body_interners.values() {
-            insert_known_type_interner(&mut interners, interner);
+            insert_input_type_interner_snapshot(&mut interners, interner);
         }
         for (_, interner) in input.program_extensions.values() {
-            insert_known_type_interner(&mut interners, interner);
+            insert_input_type_interner_snapshot(&mut interners, interner);
         }
     }
     for interner in monomorphization.type_interners.values() {
-        insert_known_type_interner(&mut interners, interner);
+        insert_input_type_interner_snapshot(&mut interners, interner);
     }
     interners
 }
 
-fn insert_known_type_interner(
+fn insert_input_type_interner_snapshot(
     interners: &mut HashMap<TyInternerId, nia_ty::TyInterner>,
     interner: &nia_ty::TyInterner,
 ) {
