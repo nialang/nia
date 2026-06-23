@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::cell::RefCell;
 use std::fmt;
 use std::time::Instant;
 use std::{
@@ -151,7 +152,7 @@ impl BodyTimingMode {
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
-    pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
+    pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
 }
@@ -500,6 +501,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         method_receiver_kinds: HashMap::new(),
         traits_by_method_name: HashMap::new(),
         trait_impls_by_trait: HashMap::new(),
+        program_type_normalizations: RefCell::new(HashMap::new()),
         diagnostics: Vec::new(),
         timing,
         timing_module_id: module_id,
@@ -635,6 +637,7 @@ struct BodyChecker<'a> {
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: HashMap<String, Vec<GlobalDefId>>,
     trait_impls_by_trait: HashMap<nia_ty::TraitId, Vec<usize>>,
+    program_type_normalizations: RefCell<HashMap<ModuleId, TypeNormalization>>,
     diagnostics: Vec<Diagnostic>,
     timing: bool,
     timing_module_id: ModuleId,
@@ -679,7 +682,7 @@ impl<'a> BodyChecker<'a> {
         interner: &mut TyInterner,
         local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
-        program_normalizations: Option<&HashMap<ModuleId, TypeNormalization>>,
+        program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
         for impl_signature in &signatures.trait_impls {
@@ -713,7 +716,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let target_ty = program_normalizations
-                .and_then(|normalizations| normalizations.get(&method.def_id.module_id))
+                .and_then(|normalization| normalization(method.def_id.module_id))
                 .map(|normalization| {
                     let target_ty = normalization.normalize(method.target_ty);
                     nia_ty::import_type_into(interner, &normalization.interner, target_ty)
@@ -866,26 +869,38 @@ impl<'a> BodyChecker<'a> {
     fn import_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
         if ty.interner_id == self.interner.interner_id() {
             ty
-        } else if let Some(source) = self.interner_containing_ty(ty).cloned() {
+        } else if let Some(source) = self.interner_containing_ty(ty) {
             nia_ty::import_type_into(&mut self.interner, &source, ty)
         } else {
             ty
         }
     }
 
-    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<&TyInterner> {
+    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<TyInterner> {
         if self.interner.get(ty).is_some() {
-            return Some(&self.interner);
+            return Some(self.interner.clone());
         }
         if self.normalization.interner.get(ty).is_some() {
-            return Some(&self.normalization.interner);
+            return Some(self.normalization.interner.clone());
         }
         if self.comptime.interner.get(ty).is_some() {
-            return Some(&self.comptime.interner);
+            return Some(self.comptime.interner.clone());
         }
         let module_id = ty.owner().module_id();
-        let interner = &self.program.type_normalizations?.get(&module_id)?.interner;
-        (ty.interner_id == interner.interner_id() && interner.get(ty).is_some()).then_some(interner)
+        if !self
+            .program_type_normalizations
+            .borrow()
+            .contains_key(&module_id)
+        {
+            let normalization = (self.program.type_normalizations?)(module_id)?;
+            self.program_type_normalizations
+                .borrow_mut()
+                .insert(module_id, normalization);
+        }
+        let normalizations = self.program_type_normalizations.borrow();
+        let interner = &normalizations.get(&module_id)?.interner;
+        (ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
+            .then(|| interner.clone())
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {

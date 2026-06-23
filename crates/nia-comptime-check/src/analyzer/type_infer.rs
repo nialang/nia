@@ -198,7 +198,7 @@ impl Analyzer<'_> {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, .. } = value;
                 Some(ComptimeValueType::Runtime(
                     self.source_interner_for_module(self.current_execution_module_id())
-                        .unwrap_or(self.input.interner)
+                        .unwrap_or_else(|| self.input.interner.clone())
                         .primitive(primitive),
                 ))
             }
@@ -218,7 +218,7 @@ impl Analyzer<'_> {
                 integer_literal_suffix_ty(text).map(|primitive| {
                     ComptimeValueType::Runtime(
                         self.source_interner_for_module(self.current_execution_module_id())
-                            .unwrap_or(self.input.interner)
+                            .unwrap_or_else(|| self.input.interner.clone())
                             .primitive(primitive),
                     )
                 })

@@ -542,7 +542,7 @@ impl<'a> BodyChecker<'a> {
                 .get(&ComptimeKey::Global(def_id))
                 .cloned()
         }) && let Some(normalizations) = self.program.type_normalizations
-            && let Some(normalization) = normalizations.get(&def_id.module_id)
+            && let Some(normalization) = normalizations(def_id.module_id)
             && let Some(ty) =
                 self.import_comptime_value_runtime_type(&normalization.interner, typed.ty)
             && ty != self.error()
@@ -1183,7 +1183,7 @@ impl<'a> BodyChecker<'a> {
             nia_comptime_check::ComptimeValueType::Runtime(ty) => {
                 let source = if source.get(ty).is_some() {
                     source.clone()
-                } else if let Some(source) = self.interner_containing_ty(ty).cloned() {
+                } else if let Some(source) = self.interner_containing_ty(ty) {
                     source
                 } else {
                     return nia_comptime_check::ComptimeValueType::Runtime(ty);

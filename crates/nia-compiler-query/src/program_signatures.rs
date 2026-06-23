@@ -26,6 +26,8 @@ use nia_ty::{
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
+type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
+
 pub(crate) struct ModuleSignatureInput<'a> {
     pub(crate) module_id: nia_ids::ModuleId,
     pub(crate) defs: &'a DefCollection,
@@ -1827,7 +1829,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub public_surfaces: &'a PublicSurfaces,
     pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
-    pub normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
+    pub normalizations: TypeNormalizationResolver<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
     pub extensions: &'a ExtensionMethods,
     pub associated_values: &'a ExtensionAssociatedValues,
@@ -1859,7 +1861,7 @@ pub(crate) fn visible_extensions_for_module(
         associated_values,
     };
     let visible_modules = declared_module_closure(&visibility_context);
-    let Some(current_normalization) = normalizations.get(&module_id) else {
+    let Some(current_normalization) = normalizations(module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
             interner: TyInterner::default(),
@@ -1884,7 +1886,7 @@ pub(crate) fn visible_extensions_for_module(
         let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
             trait_id_is_visible(module_id, &visible_modules, trait_id, public_surfaces, defs)
         });
-        let Some(method_normalization) = normalizations.get(&method.def_id.module_id) else {
+        let Some(method_normalization) = normalizations(method.def_id.module_id) else {
             continue;
         };
         let target_ty = method_normalization.normalize(method.target_ty);
@@ -1934,7 +1936,7 @@ pub(crate) fn visible_extensions_for_module(
         if value_defs.defs.get(value.def_id.def_id).is_none() {
             continue;
         }
-        let Some(value_normalization) = normalizations.get(&value.def_id.module_id) else {
+        let Some(value_normalization) = normalizations(value.def_id.module_id) else {
             continue;
         };
         let target_ty = value_normalization.normalize(value.target_ty);
@@ -2061,7 +2063,7 @@ struct VisibilityClosureContext<'a> {
     using_scope: &'a nia_defs::ModuleUsingScope,
     public_surfaces: &'a PublicSurfaces,
     defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
-    normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
+    normalizations: TypeNormalizationResolver<'a>,
     program_signatures: ProgramSignatureMaps<'a>,
     extensions: &'a ExtensionMethods,
     associated_values: &'a ExtensionAssociatedValues,
@@ -2186,7 +2188,7 @@ fn public_inherent_extension_providers_for_using_scope(
 fn nominal_def_id_for_public_type(
     def_id: GlobalDefId,
     defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    normalizations: TypeNormalizationResolver<'_>,
     program_signatures: ProgramSignatureMaps<'_>,
 ) -> Option<GlobalDefId> {
     let defs = defs(def_id.module_id)?;
@@ -2200,7 +2202,7 @@ fn nominal_def_id_for_public_type(
     if def.kind != nia_defs::DefKind::TypeAlias {
         return None;
     }
-    let normalization = normalizations.get(&def_id.module_id)?;
+    let normalization = normalizations(def_id.module_id)?;
     let alias = program_signatures.type_aliases.get(&def_id)?;
     let normalized = normalization.normalize(alias.signature.target);
     match normalization.interner.get(normalized) {
@@ -2213,7 +2215,7 @@ fn public_inherent_method_providers_for_nominal(
     module_id: nia_ids::ModuleId,
     graph: &nia_imports::ModuleGraph,
     target_def_id: GlobalDefId,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    normalizations: TypeNormalizationResolver<'_>,
     extensions: &ExtensionMethods,
 ) -> Vec<nia_ids::ModuleId> {
     let mut providers = Vec::new();
@@ -2228,7 +2230,7 @@ fn public_inherent_method_providers_for_nominal(
         {
             continue;
         }
-        let Some(normalization) = normalizations.get(&method.def_id.module_id) else {
+        let Some(normalization) = normalizations(method.def_id.module_id) else {
             continue;
         };
         let target_ty = normalization.normalize(method.target_ty);
@@ -2243,7 +2245,7 @@ fn public_associated_value_providers_for_nominal(
     module_id: nia_ids::ModuleId,
     graph: &nia_imports::ModuleGraph,
     target_def_id: GlobalDefId,
-    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
+    normalizations: TypeNormalizationResolver<'_>,
     associated_values: &ExtensionAssociatedValues,
 ) -> Vec<nia_ids::ModuleId> {
     let mut providers = Vec::new();
@@ -2256,7 +2258,7 @@ fn public_associated_value_providers_for_nominal(
         ) {
             continue;
         }
-        let Some(normalization) = normalizations.get(&value.def_id.module_id) else {
+        let Some(normalization) = normalizations(value.def_id.module_id) else {
             continue;
         };
         let target_ty = normalization.normalize(value.target_ty);

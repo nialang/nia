@@ -176,7 +176,8 @@ pub struct ComptimeProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>>,
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
-    pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    pub type_normalizations:
+        Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],

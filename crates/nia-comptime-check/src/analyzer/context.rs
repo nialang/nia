@@ -313,11 +313,11 @@ impl Analyzer<'_> {
         self.working_interners.get(&module_id)
     }
 
-    pub(super) fn source_interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
+    pub(super) fn source_interner_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
         if module_id == self.input.defs.module_id {
-            Some(self.input.interner)
+            Some(self.input.interner.clone())
         } else {
-            Some(&self.type_normalization_for_module(module_id)?.interner)
+            Some(self.type_normalization_for_module(module_id)?.interner)
         }
     }
 
@@ -325,12 +325,12 @@ impl Analyzer<'_> {
         ty.owner()
     }
 
-    fn source_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
+    fn source_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<TyInterner> {
         if interner_id == self.input.interner.interner_id() {
-            return Some(self.input.interner);
+            return Some(self.input.interner.clone());
         }
         let module_id = interner_id.module_id();
-        let interner = &self.type_normalization_for_module(module_id)?.interner;
+        let interner = self.type_normalization_for_module(module_id)?.interner;
         (interner_id == interner.interner_id()).then_some(interner)
     }
 
@@ -340,7 +340,7 @@ impl Analyzer<'_> {
             .find(|interner| interner_id == interner.interner_id())
     }
 
-    pub(super) fn active_interner_for_type(&self, ty: nia_ids::InternedTyId) -> &TyInterner {
+    pub(super) fn active_interner_for_type(&self, ty: nia_ids::InternedTyId) -> TyInterner {
         let source = self
             .source_interner_by_id(ty.interner_id)
             .unwrap_or_else(|| {
@@ -356,7 +356,7 @@ impl Analyzer<'_> {
                     ty.interner_id
                 );
             }
-            working
+            working.clone()
         } else {
             source
         };
@@ -386,7 +386,7 @@ impl Analyzer<'_> {
         if self.working_interners.contains_key(&module_id) {
             return Some(());
         }
-        let interner = self.source_interner_for_module(module_id)?.clone();
+        let interner = self.source_interner_for_module(module_id)?;
         self.working_interners.insert(module_id, interner);
         Some(())
     }
@@ -419,21 +419,34 @@ impl Analyzer<'_> {
     pub(super) fn type_normalization_for_module(
         &self,
         module_id: ModuleId,
-    ) -> Option<&nia_type_normalize::TypeNormalization> {
+    ) -> Option<nia_type_normalize::TypeNormalization> {
         if module_id == self.input.defs.module_id {
             return None;
         }
-        self.input.program.type_normalizations?.get(&module_id)
+        if !self
+            .program_type_normalizations
+            .borrow()
+            .contains_key(&module_id)
+        {
+            let normalization = (self.input.program.type_normalizations?)(module_id)?;
+            self.program_type_normalizations
+                .borrow_mut()
+                .insert(module_id, normalization);
+        }
+        self.program_type_normalizations
+            .borrow()
+            .get(&module_id)
+            .cloned()
     }
 
     pub(super) fn normalized_for_module(
         &self,
         module_id: ModuleId,
-    ) -> Option<&HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>> {
+    ) -> Option<HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>> {
         if module_id == self.input.defs.module_id {
-            Some(self.input.normalized)
+            Some(self.input.normalized.clone())
         } else {
-            Some(&self.type_normalization_for_module(module_id)?.normalized)
+            Some(self.type_normalization_for_module(module_id)?.normalized)
         }
     }
 
@@ -482,7 +495,7 @@ impl Analyzer<'_> {
             defs.as_ref(),
             interner,
             &signatures,
-            normalized,
+            &normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
@@ -570,7 +583,7 @@ impl Analyzer<'_> {
             defs.as_ref(),
             interner,
             &signatures,
-            normalized,
+            &normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
@@ -770,9 +783,9 @@ impl Analyzer<'_> {
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
-            interner,
+            &interner,
             &signatures,
-            normalized,
+            &normalized,
             &array_lengths_for_layout,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
