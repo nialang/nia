@@ -94,6 +94,116 @@ impl QueryKey<CompilerContext> for ItemSignaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureItemTreeQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for SignatureItemTreeQuery {
+    type Value = ActiveModuleItemTree;
+
+    fn name() -> &'static str {
+        "signature_item_tree"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_item_tree({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().signature_item_tree(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureTypeResolutionQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
+    type Value = TypeResolution;
+
+    fn name() -> &'static str {
+        "signature_type_resolution"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_type_resolution({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_type_resolution)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureTypeLoweringQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
+    type Value = TypeLowering;
+
+    fn name() -> &'static str {
+        "signature_type_lowering"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_type_lowering({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_type_lowering)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureItemSignaturesQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
+    type Value = ItemSignatures;
+
+    fn name() -> &'static str {
+        "signature_item_signatures"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_item_signatures({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_item_signatures)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureTypeNormalizationQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
+    type Value = TypeNormalization;
+
+    fn name() -> &'static str {
+        "signature_type_normalization"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_type_normalization({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_type_normalization)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

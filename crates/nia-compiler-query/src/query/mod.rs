@@ -225,6 +225,30 @@ impl CompilerDatabase {
                             .invalidate(DeclarationActiveModuleItemTreeInputQuery(module_id)),
                     );
                 }
+                if module.signature_function_items {
+                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Functions,
+                    )));
+                }
+                if module.signature_value_items {
+                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Values,
+                    )));
+                }
+                if module.signature_type_items {
+                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Types,
+                    )));
+                }
+                if module.signature_trait_items {
+                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Traits,
+                    )));
+                }
                 if module.full_active_item_tree {
                     invalidation.extend(
                         self.db
@@ -706,6 +730,20 @@ impl CompilerContext {
         )
     }
 
+    fn signature_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+        set: nia_item_tree::SignatureItemSet,
+    ) -> ActiveModuleItemTree {
+        self.module_field(
+            db,
+            &SignatureItemTreeQuery(module_id, set),
+            module_id,
+            |module| module.active_item_tree.signature_items(set),
+        )
+    }
+
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
         self.loaded_module(module_id)
             .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
@@ -834,6 +872,10 @@ struct ChangedModuleInput {
     full_item_tree: bool,
     active_item_tree: bool,
     declaration_active_item_tree: bool,
+    signature_function_items: bool,
+    signature_value_items: bool,
+    signature_type_items: bool,
+    signature_trait_items: bool,
     full_active_item_tree: bool,
 }
 
@@ -862,6 +904,34 @@ impl ChangedModuleInput {
                 declaration_active_item_tree: !old
                     .active_item_tree
                     .declaration_eq(&new.active_item_tree),
+                signature_function_items: !old
+                    .active_item_tree
+                    .signature_items(nia_item_tree::SignatureItemSet::Functions)
+                    .declaration_eq(
+                        &new.active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Functions),
+                    ),
+                signature_value_items: !old
+                    .active_item_tree
+                    .signature_items(nia_item_tree::SignatureItemSet::Values)
+                    .declaration_eq(
+                        &new.active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Values),
+                    ),
+                signature_type_items: !old
+                    .active_item_tree
+                    .signature_items(nia_item_tree::SignatureItemSet::Types)
+                    .declaration_eq(
+                        &new.active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Types),
+                    ),
+                signature_trait_items: !old
+                    .active_item_tree
+                    .signature_items(nia_item_tree::SignatureItemSet::Traits)
+                    .declaration_eq(
+                        &new.active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Traits),
+                    ),
                 full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
             (Some(_), Some(_)) => Self::all_inputs_changed(ids),
@@ -877,6 +947,10 @@ impl ChangedModuleInput {
                 full_item_tree: true,
                 active_item_tree: true,
                 declaration_active_item_tree: true,
+                signature_function_items: true,
+                signature_value_items: true,
+                signature_type_items: true,
+                signature_trait_items: true,
                 full_active_item_tree: true,
             },
             (None, None) => return None,
@@ -891,6 +965,10 @@ impl ChangedModuleInput {
             || changed.full_item_tree
             || changed.active_item_tree
             || changed.declaration_active_item_tree
+            || changed.signature_function_items
+            || changed.signature_value_items
+            || changed.signature_type_items
+            || changed.signature_trait_items
             || changed.full_active_item_tree
         {
             Some(changed)
@@ -912,6 +990,10 @@ impl ChangedModuleInput {
             full_item_tree: true,
             active_item_tree: true,
             declaration_active_item_tree: true,
+            signature_function_items: true,
+            signature_value_items: true,
+            signature_type_items: true,
+            signature_trait_items: true,
             full_active_item_tree: true,
         }
     }
@@ -1639,6 +1721,18 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(
+            !invalidated.contains(&"program_body_value_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"program_body_type_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"program_body_trait_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
@@ -1825,22 +1919,30 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_function_signatures"
-                && dependency.to.name == "declaration_type_lowering"
+                && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_value_signatures"
-                && dependency.to.name == "item_signatures"
+                && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_type_signatures"
-                && dependency.to.name == "program_trait_solving_signatures"
+                && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_trait_signatures"
-                && dependency.to.name == "item_signatures"
+                && dependency.to.name == "program_trait_solving_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            is_body_signature_query(dependency.from.name) && dependency.to.name == "type_lowering"
+            is_body_signature_query(dependency.from.name)
+                && matches!(
+                    dependency.to.name,
+                    "type_lowering" | "declaration_type_lowering" | "item_signatures"
+                )
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_body_type_signatures"
+                && dependency.to.name == "program_trait_solving_signatures"
         }));
     }
 
