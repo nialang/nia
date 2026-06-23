@@ -215,6 +215,7 @@ pub struct BodyCheckInput<'a> {
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
+    pub function_scope: FunctionCheckScope,
     pub program_comptime: ProgramComptimeMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
 }
@@ -239,6 +240,13 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
+    pub function_scope: FunctionCheckScope,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionCheckScope {
+    LocalModule,
+    ProgramSignatures,
 }
 
 #[derive(Debug, Clone)]
@@ -293,7 +301,7 @@ pub fn check_module_bodies(
         lowered,
         &active_item_tree,
     );
-    let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
+    let input = BodyCheckInput {
         source_version: None,
         source_path: &source_path,
         origins: &NodeOriginTable::default(),
@@ -325,8 +333,13 @@ pub fn check_module_bodies(
             trait_impls: &empty_trait_impls,
         },
         program_comptime: ProgramComptimeMaps::empty(),
+        function_scope: FunctionCheckScope::LocalModule,
         filter: BodyCheckFilter::All,
-    });
+    };
+    let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
+        input,
+        BodyTimingMode::Off,
+    );
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
@@ -367,6 +380,7 @@ pub fn check_module_bodies_with_program_signatures(
         extension_interner: None,
         program: input.program,
         program_signatures: input.program_signatures,
+        function_scope: input.function_scope,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
     });
@@ -467,7 +481,12 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         layouts: input.layouts,
         extensions: input.extensions,
         program_extension_methods: input.program_extension_methods,
-        program_functions: input.program_signatures.functions,
+        function_signature_scope: match input.function_scope {
+            FunctionCheckScope::LocalModule => FunctionSignatureScope::LocalModule,
+            FunctionCheckScope::ProgramSignatures => {
+                FunctionSignatureScope::Program(input.program_signatures.functions)
+            }
+        },
         program_globals: input.program_signatures.globals,
         program_comptimes: input.program_signatures.comptimes,
         program_structs: input.program_signatures.structs,
@@ -603,7 +622,7 @@ struct BodyChecker<'a> {
     layouts: &'a Layouts,
     extensions: &'a VisibleExtensionMethods,
     program_extension_methods: &'a ExtensionMethods,
-    program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    function_signature_scope: FunctionSignatureScope<'a>,
     program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
     program_comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
@@ -647,6 +666,28 @@ struct BodyChecker<'a> {
     comptime_context_depth: usize,
     comptime_call_locals: Vec<ComptimeCallFrame>,
     body_filter: BodyCheckFilter<'a>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FunctionSignatureScope<'a> {
+    LocalModule,
+    Program(&'a HashMap<GlobalDefId, ProgramFunctionSignature>),
+}
+
+impl<'a> FunctionSignatureScope<'a> {
+    fn program_signature(&self, def_id: &GlobalDefId) -> Option<&'a ProgramFunctionSignature> {
+        match self {
+            FunctionSignatureScope::LocalModule => None,
+            FunctionSignatureScope::Program(functions) => functions.get(def_id),
+        }
+    }
+
+    fn includes_function(&self, def_id: &GlobalDefId) -> bool {
+        match self {
+            FunctionSignatureScope::LocalModule => true,
+            FunctionSignatureScope::Program(functions) => functions.contains_key(def_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1256,12 +1297,15 @@ impl<'a> BodyChecker<'a> {
 
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
         let global_def_id = self.global_def_id(def_id);
-        if !self.program_functions.is_empty()
-            && !self.program_functions.contains_key(&global_def_id)
+        if !self
+            .function_signature_scope
+            .includes_function(&global_def_id)
         {
             return;
         }
-        let signature = if let Some(program_signature) = self.program_functions.get(&global_def_id)
+        let signature = if let Some(program_signature) = self
+            .function_signature_scope
+            .program_signature(&global_def_id)
         {
             self.import_program_function_signature(&program_signature.clone())
         } else {

@@ -153,6 +153,7 @@ fn main() i32 {
             type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
+        function_scope: nia_body_check::FunctionCheckScope::LocalModule,
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
     });

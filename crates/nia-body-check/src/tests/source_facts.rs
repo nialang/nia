@@ -99,6 +99,7 @@ fn main() i32 {
             type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
+        function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
     });
@@ -235,6 +236,7 @@ fn main() i32 {
             type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
+        function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
     });
