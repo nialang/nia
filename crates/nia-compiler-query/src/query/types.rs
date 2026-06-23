@@ -156,6 +156,35 @@ pub(super) struct ProgramSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramTraitSolvingSignatures {
+    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramVisibleTypeSignatures {
+    pub(super) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramExecutableSignatures {
+    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramBackendSignatures {
+    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
+    pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub(super) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramAbiSignaturesValue {
     pub(super) structs: HashMap<GlobalDefId, StructSignature>,
     pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
@@ -197,6 +226,66 @@ impl QueryKey<CompilerContext> for ProgramSignaturesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramTraitSolvingSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramTraitSolvingSignaturesQuery {
+    type Value = Arc<ProgramTraitSolvingSignatures>;
+
+    fn name() -> &'static str {
+        "program_trait_solving_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_trait_solving_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramVisibleTypeSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramVisibleTypeSignaturesQuery {
+    type Value = Arc<ProgramVisibleTypeSignatures>;
+
+    fn name() -> &'static str {
+        "program_visible_type_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_visible_type_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramExecutableSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramExecutableSignaturesQuery {
+    type Value = Arc<ProgramExecutableSignatures>;
+
+    fn name() -> &'static str {
+        "program_executable_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_executable_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramBackendSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramBackendSignaturesQuery {
+    type Value = Arc<ProgramBackendSignatures>;
+
+    fn name() -> &'static str {
+        "program_backend_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_backend_signatures)(db)
     }
 }
 

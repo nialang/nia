@@ -35,6 +35,14 @@ pub(super) struct CompilerQueryProviders {
     pub(super) program_type_normalizations:
         fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
     pub(super) program_signatures: fn(&QueryDb<CompilerContext>) -> ProgramSignaturesValue,
+    pub(super) program_trait_solving_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
+    pub(super) program_visible_type_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramVisibleTypeSignatures>,
+    pub(super) program_executable_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramExecutableSignatures>,
+    pub(super) program_backend_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
@@ -83,6 +91,10 @@ impl Default for CompilerQueryProviders {
             declaration_type_normalization: provide_declaration_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
             program_signatures: provide_program_signatures,
+            program_trait_solving_signatures: provide_program_trait_solving_signatures,
+            program_visible_type_signatures: provide_program_visible_type_signatures,
+            program_executable_signatures: provide_program_executable_signatures,
+            program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -412,33 +424,41 @@ pub(super) fn provide_program_type_normalizations(
 
 pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> ProgramSignaturesValue {
     time_provider(db.query(CompilerTimingsQuery), "program_signatures", || {
-        let module_ids = db.query(ParseOkModuleIdsQuery);
-        let type_lowerings = module_ids
+        let inputs = module_signature_inputs(db);
+        let modules = inputs.modules();
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        Arc::new(ProgramSignatures {
+            functions: collect_program_functions_excluding(
+                &modules,
+                &trait_solving.invalid_trait_impl_method_ids,
+            ),
+            globals: collect_program_globals(&modules),
+            comptimes: collect_program_comptimes(&modules),
+            structs: collect_program_structs(&modules),
+            unions: collect_program_unions(&modules),
+            enums: trait_solving.enums.clone(),
+            traits: collect_program_traits(&modules),
+            type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
+            trait_impls: trait_solving.trait_impls.clone(),
+        })
+    })
+}
+
+struct ProgramSignatureInputs {
+    module_ids: Vec<ModuleId>,
+    type_lowerings: Vec<TypeLowering>,
+    item_signatures: Vec<ItemSignatures>,
+    defs: Vec<DefCollection>,
+}
+
+impl ProgramSignatureInputs {
+    fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
+        self.module_ids
             .iter()
             .copied()
-            .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
-            .collect::<Vec<_>>();
-        let item_signatures = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
-            .collect::<Vec<_>>();
-        let defs = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(ModuleDefsQuery(module_id)))
-            .collect::<Vec<_>>();
-        let normalizations = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
-            .collect::<Vec<_>>();
-        let modules = module_ids
-            .iter()
-            .copied()
-            .zip(type_lowerings.iter())
-            .zip(item_signatures.iter())
-            .zip(defs.iter())
+            .zip(self.type_lowerings.iter())
+            .zip(self.item_signatures.iter())
+            .zip(self.defs.iter())
             .map(
                 |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
                     module_id,
@@ -447,13 +467,28 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
                     signatures,
                 },
             )
-            .collect::<Vec<_>>();
-        let extension_modules = module_ids
+            .collect()
+    }
+}
+
+struct ExtensionSignatureInputs {
+    signature_inputs: ProgramSignatureInputs,
+    normalizations: Vec<TypeNormalization>,
+}
+
+impl ExtensionSignatureInputs {
+    fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
+        self.signature_inputs.modules()
+    }
+
+    fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
+        self.signature_inputs
+            .module_ids
             .iter()
-            .zip(defs.iter())
-            .zip(type_lowerings.iter())
-            .zip(item_signatures.iter())
-            .zip(normalizations.iter())
+            .zip(self.signature_inputs.defs.iter())
+            .zip(self.signature_inputs.type_lowerings.iter())
+            .zip(self.signature_inputs.item_signatures.iter())
+            .zip(self.normalizations.iter())
             .map(
                 |((((module_id, defs), lowering), signatures), normalization)| {
                     ExtensionModuleInput {
@@ -465,26 +500,135 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
                     }
                 },
             )
-            .collect::<Vec<_>>();
-        let invalid_trait_impl_method_ids =
-            crate::program_signatures::collect_invalid_trait_impl_method_ids(&extension_modules);
-        Arc::new(ProgramSignatures {
-            functions: collect_program_functions_excluding(
-                &modules,
-                &invalid_trait_impl_method_ids,
-            ),
-            globals: collect_program_globals(&modules),
-            comptimes: collect_program_comptimes(&modules),
-            structs: collect_program_structs(&modules),
-            unions: collect_program_unions(&modules),
-            enums: collect_program_enums(&modules),
-            traits: collect_program_traits(&modules),
-            type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
-            trait_impls: crate::program_signatures::collect_valid_program_trait_impls(
-                &extension_modules,
-            ),
-        })
-    })
+            .collect()
+    }
+}
+
+fn module_signature_inputs(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputs {
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
+        .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+        .collect::<Vec<_>>();
+    let defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+        .collect::<Vec<_>>();
+    ProgramSignatureInputs {
+        module_ids,
+        type_lowerings,
+        item_signatures,
+        defs,
+    }
+}
+
+fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
+    let signature_inputs = module_signature_inputs(db);
+    let normalizations = signature_inputs
+        .module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
+        .collect::<Vec<_>>();
+    ExtensionSignatureInputs {
+        signature_inputs,
+        normalizations,
+    }
+}
+
+pub(super) fn provide_program_trait_solving_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramTraitSolvingSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_trait_solving_signatures",
+        || {
+            let inputs = extension_signature_inputs(db);
+            let modules = inputs.modules();
+            let extension_modules = inputs.extension_modules();
+            let invalid_trait_impl_method_ids =
+                crate::program_signatures::collect_invalid_trait_impl_method_ids(
+                    &extension_modules,
+                );
+            Arc::new(ProgramTraitSolvingSignatures {
+                enums: collect_program_enums(&modules),
+                trait_impls: crate::program_signatures::collect_valid_program_trait_impls(
+                    &extension_modules,
+                ),
+                invalid_trait_impl_method_ids,
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_visible_type_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramVisibleTypeSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_visible_type_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            Arc::new(ProgramVisibleTypeSignatures {
+                type_aliases: collect_program_type_aliases(&modules),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_executable_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramExecutableSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_executable_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            Arc::new(ProgramExecutableSignatures {
+                functions: collect_program_functions_excluding(
+                    &modules,
+                    &trait_solving.invalid_trait_impl_method_ids,
+                ),
+                traits: collect_program_traits(&modules),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_backend_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramBackendSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_backend_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            Arc::new(ProgramBackendSignatures {
+                functions: collect_program_functions_excluding(
+                    &modules,
+                    &trait_solving.invalid_trait_impl_method_ids,
+                ),
+                structs: collect_program_structs(&modules),
+                unions: collect_program_unions(&modules),
+                enums: trait_solving.enums.clone(),
+                traits: collect_program_traits(&modules),
+                type_aliases: collect_program_type_aliases(&modules),
+                trait_impls: trait_solving.trait_impls.clone(),
+            })
+        },
+    )
 }
 
 pub(super) fn provide_program_abi_signatures(
@@ -591,7 +735,7 @@ pub(super) fn provide_visible_extensions(
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
     let declaration_normalization =
         |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
-    let program_signatures = db.query(ProgramSignaturesQuery);
+    let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
@@ -600,7 +744,9 @@ pub(super) fn provide_visible_extensions(
         public_surfaces: &public.surfaces,
         defs: &defs,
         normalizations: &declaration_normalization,
-        program_signatures: program_signatures.maps(),
+        visible_type_signatures: VisibleTypeSignatures {
+            type_aliases: &visible_type_signatures.type_aliases,
+        },
         extensions: &extensions.methods,
         associated_values: &extensions.associated_values,
     }))
@@ -742,7 +888,7 @@ pub(super) fn provide_comptime(
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
         let declaration_type_normalization =
             |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
-        let program_signatures = db.query(ProgramSignaturesQuery);
+        let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
         let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
         let values = db.query(ValueResolutionQuery(module_id));
         let locals = db.query(LocalResolutionQuery(module_id));
@@ -768,8 +914,8 @@ pub(super) fn provide_comptime(
                     defs: Some(&program_defs),
                     type_normalizations: Some(&declaration_type_normalization),
                     signatures: Some(&item_signatures_for_module),
-                    program_enums: &program_signatures.enums,
-                    trait_impls: &program_signatures.trait_impls,
+                    program_enums: &trait_solving_signatures.enums,
+                    trait_impls: &trait_solving_signatures.trait_impls,
                 },
             });
         comptime.diagnostics.extend(module.diagnostics);
@@ -1021,7 +1167,7 @@ pub(super) fn provide_executable_checked_modules(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
                 || {
-                    let _ = db.query(ProgramSignaturesQuery);
+                    let _ = db.query(ProgramExecutableSignaturesQuery);
                     let _ = db.query(ExtensionMethodsQuery);
                 },
             );
@@ -1033,7 +1179,7 @@ pub(super) fn provide_executable_checked_modules(
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
-    let program_signatures = db.query(ProgramSignaturesQuery);
+    let program_signatures = db.query(ProgramExecutableSignaturesQuery);
     let extension_methods = db.query(ExtensionMethodsQuery);
     let checked_modules = db.query(CheckedModulesQuery);
     let checked_by_id = checked_modules
@@ -1074,7 +1220,10 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             named_function: &named_function,
             module_functions: &module_functions,
         },
-        program_signatures.maps(),
+        nia_executable_reachability::ExecutableSignatureIndex {
+            functions: &program_signatures.functions,
+            traits: &program_signatures.traits,
+        },
         &extension_methods.methods,
         &reachable_inputs,
     );
@@ -1120,7 +1269,7 @@ pub(super) fn provide_monomorphization(
 ) -> nia_monomorphize::Monomorphization {
     time_provider(db.query(CompilerTimingsQuery), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
-        let program_signatures = db.query(ProgramSignaturesQuery);
+        let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
         let function_bodies = function_bodies_from_checked_modules(&checked_modules);
         nia_monomorphize::collect_monomorphizations(
             &checked_modules
@@ -1135,8 +1284,8 @@ pub(super) fn provide_monomorphization(
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
                     layouts: Some(&module.layouts),
                     local_enums: &module.item_signatures.enums,
-                    program_enums: &program_signatures.enums,
-                    trait_impls: &program_signatures.trait_impls,
+                    program_enums: &trait_solving_signatures.enums,
+                    trait_impls: &trait_solving_signatures.trait_impls,
                     instantiations: &module.semantic_facts.generic_instantiations,
                 })
                 .collect::<Vec<_>>(),
@@ -1238,7 +1387,7 @@ fn provide_backend_lowering_inner(
         },
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let program_signatures = db.query(ProgramSignaturesQuery);
+    let program_signatures = db.query(ProgramBackendSignaturesQuery);
     let inputs = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.module_inputs",

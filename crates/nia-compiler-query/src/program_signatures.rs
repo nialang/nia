@@ -14,9 +14,9 @@ use nia_ids::{
 };
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
-    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
-    ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
 use nia_trait_solve::IntrinsicOverlap;
 use nia_ty::{
@@ -1830,9 +1830,14 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub public_surfaces: &'a PublicSurfaces,
     pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     pub normalizations: TypeNormalizationResolver<'a>,
-    pub program_signatures: ProgramSignatureMaps<'a>,
+    pub visible_type_signatures: VisibleTypeSignatures<'a>,
     pub extensions: &'a ExtensionMethods,
     pub associated_values: &'a ExtensionAssociatedValues,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VisibleTypeSignatures<'a> {
+    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
 }
 
 pub(crate) fn visible_extensions_for_module(
@@ -1845,7 +1850,7 @@ pub(crate) fn visible_extensions_for_module(
         public_surfaces,
         defs,
         normalizations,
-        program_signatures,
+        visible_type_signatures,
         extensions,
         associated_values,
     } = input;
@@ -1856,7 +1861,7 @@ pub(crate) fn visible_extensions_for_module(
         public_surfaces,
         defs,
         normalizations,
-        program_signatures,
+        visible_type_signatures,
         extensions,
         associated_values,
     };
@@ -2064,7 +2069,7 @@ struct VisibilityClosureContext<'a> {
     public_surfaces: &'a PublicSurfaces,
     defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: TypeNormalizationResolver<'a>,
-    program_signatures: ProgramSignatureMaps<'a>,
+    visible_type_signatures: VisibleTypeSignatures<'a>,
     extensions: &'a ExtensionMethods,
     associated_values: &'a ExtensionAssociatedValues,
 }
@@ -2092,7 +2097,7 @@ fn public_inherent_extension_providers_for_active_package_facades(
                 },
                 context.defs,
                 context.normalizations,
-                context.program_signatures,
+                context.visible_type_signatures,
             )
         }) {
             providers.extend(public_inherent_method_providers_for_nominal(
@@ -2133,7 +2138,7 @@ fn public_inherent_extension_providers_for_using_scope(
                 },
                 context.defs,
                 context.normalizations,
-                context.program_signatures,
+                context.visible_type_signatures,
             )
         })
     {
@@ -2161,7 +2166,7 @@ fn public_inherent_extension_providers_for_using_scope(
                 },
                 context.defs,
                 context.normalizations,
-                context.program_signatures,
+                context.visible_type_signatures,
             )
         }) {
             providers.extend(public_inherent_method_providers_for_nominal(
@@ -2189,7 +2194,7 @@ fn nominal_def_id_for_public_type(
     def_id: GlobalDefId,
     defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: TypeNormalizationResolver<'_>,
-    program_signatures: ProgramSignatureMaps<'_>,
+    visible_type_signatures: VisibleTypeSignatures<'_>,
 ) -> Option<GlobalDefId> {
     let defs = defs(def_id.module_id)?;
     let def = defs.defs.get(def_id.def_id)?;
@@ -2203,7 +2208,7 @@ fn nominal_def_id_for_public_type(
         return None;
     }
     let normalization = normalizations(def_id.module_id)?;
-    let alias = program_signatures.type_aliases.get(&def_id)?;
+    let alias = visible_type_signatures.type_aliases.get(&def_id)?;
     let normalized = normalization.normalize(alias.signature.target);
     match normalization.interner.get(normalized) {
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),

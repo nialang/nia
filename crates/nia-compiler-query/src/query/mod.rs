@@ -4,10 +4,11 @@ use crate::{
     TimingMode, module_diagnostics,
     program_signatures::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
-        VisibleExtensionsInput, collect_extension_associated_values, collect_extension_methods,
-        collect_program_comptimes, collect_program_enums, collect_program_functions_excluding,
-        collect_program_globals, collect_program_structs, collect_program_traits,
-        collect_program_unions, visible_extensions_for_module,
+        VisibleExtensionsInput, VisibleTypeSignatures, collect_extension_associated_values,
+        collect_extension_methods, collect_program_comptimes, collect_program_enums,
+        collect_program_functions_excluding, collect_program_globals, collect_program_structs,
+        collect_program_traits, collect_program_type_aliases, collect_program_unions,
+        visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -20,7 +21,7 @@ use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
-    ProgramUnionSignature, StructSignature, UnionSignature,
+    ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
@@ -1873,6 +1874,14 @@ fn main() i32 {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "program_type_normalizations"
         }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_visible_type_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_signatures"
+        }));
     }
 
     #[test]
@@ -1906,7 +1915,58 @@ fn main() i32 {
                 .any(|dependency| dependency.to.name == "program_item_signatures")
         );
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime"
+                && dependency.to.name == "program_trait_solving_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "program_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "full_module_defs"
+        }));
+    }
+
+    #[test]
+    fn monomorphization_uses_trait_solving_signature_index() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub fn main() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(MonomorphizationQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "monomorphization"
+                && dependency.to.name == "program_trait_solving_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "monomorphization" && dependency.to.name == "program_signatures"
+        }));
+    }
+
+    #[test]
+    fn executable_reachability_uses_executable_signature_index() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub fn main() i32 { 1 }",
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let _ = db.query(ExecutableCheckedModulesQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && dependency.to.name == "program_executable_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && dependency.to.name == "program_signatures"
         }));
     }
 
@@ -2013,6 +2073,13 @@ fn main() i32 {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_full_defs_by_id"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "program_backend_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering" && dependency.to.name == "program_signatures"
         }));
     }
 
