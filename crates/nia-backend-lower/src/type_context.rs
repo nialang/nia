@@ -70,11 +70,11 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         }
         let active = self
             .shared
-            .known_type_interners
+            .input_type_interners
             .get(&ty.interner_id)
             .unwrap_or_else(|| {
                 panic!(
-                    "Nia ICE: missing backend type interner {:?} for type {:?}",
+                    "Nia ICE: missing backend input type interner {:?} for type {:?}",
                     ty.interner_id, ty
                 )
             });
