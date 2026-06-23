@@ -20,7 +20,7 @@ use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
-    ProgramUnionSignature,
+    ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
@@ -1643,6 +1643,30 @@ fn main() i32 {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_signatures" && dependency.to.name == "type_lowering"
+        }));
+    }
+
+    #[test]
+    fn abi_check_uses_abi_signature_index_not_full_program_signatures() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "extern struct S { value: i32 } extern fn take(value: S) void;",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(AbiCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "abi_check" && dependency.to.name == "program_abi_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_abi_signatures"
+                && dependency.to.name == "item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "abi_check" && dependency.to.name == "program_signatures"
         }));
     }
 

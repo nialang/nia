@@ -35,6 +35,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) program_type_normalizations:
         fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
     pub(super) program_signatures: fn(&QueryDb<CompilerContext>) -> ProgramSignaturesValue,
+    pub(super) program_abi_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
     pub(super) visible_extensions:
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
@@ -81,6 +83,7 @@ impl Default for CompilerQueryProviders {
             declaration_type_normalization: provide_declaration_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
             program_signatures: provide_program_signatures,
+            program_abi_signatures: provide_program_abi_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
             value_resolution: provide_value_resolution,
@@ -484,6 +487,46 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
     })
 }
 
+pub(super) fn provide_program_abi_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramAbiSignaturesValue> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_abi_signatures",
+        || {
+            let mut structs = HashMap::new();
+            let mut unions = HashMap::new();
+            let mut enums = HashMap::new();
+            for module_id in db.query(ParseOkModuleIdsQuery) {
+                let signatures = db.query(ItemSignaturesQuery(module_id));
+                structs.extend(
+                    signatures
+                        .structs
+                        .into_iter()
+                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                );
+                unions.extend(
+                    signatures
+                        .unions
+                        .into_iter()
+                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                );
+                enums.extend(
+                    signatures
+                        .enums
+                        .into_iter()
+                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                );
+            }
+            Arc::new(ProgramAbiSignaturesValue {
+                structs,
+                unions,
+                enums,
+            })
+        },
+    )
+}
+
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
@@ -772,30 +815,15 @@ pub(super) fn provide_abi_check(
     let defs = db.query(FullModuleDefsQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    let program = db.query(ProgramSignaturesQuery);
-    let program_structs = program
-        .structs
-        .iter()
-        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
-        .collect();
-    let program_unions = program
-        .unions
-        .iter()
-        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
-        .collect();
-    let program_enums = program
-        .enums
-        .iter()
-        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
-        .collect();
+    let program = db.query(ProgramAbiSignaturesQuery);
     nia_abi_check::check_module_abi_with_program_signatures(
         &defs,
         &type_lowering.interner,
         &item_signatures,
         nia_abi_check::ProgramAbiSignatures {
-            structs: &program_structs,
-            unions: &program_unions,
-            enums: &program_enums,
+            structs: &program.structs,
+            unions: &program.unions,
+            enums: &program.enums,
         },
     )
 }
