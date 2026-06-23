@@ -1495,10 +1495,6 @@ fn main() i32 {
             !invalidated.contains(&"declaration_type_lowering"),
             "{invalidated:?}"
         );
-        assert!(
-            !invalidated.contains(&"program_declaration_type_normalizations"),
-            "{invalidated:?}"
-        );
         let before_second_check = database.query_trace();
 
         let second = database.check_program();
@@ -1731,10 +1727,6 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
-                && dependency.to.name == "program_declaration_type_normalizations"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_declaration_type_normalizations"
                 && dependency.to.name == "declaration_type_normalization"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -1841,10 +1833,6 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "declaration_type_normalization"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "visible_extensions"
-                && dependency.to.name == "program_declaration_type_normalizations"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
