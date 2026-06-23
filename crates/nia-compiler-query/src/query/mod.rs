@@ -20,7 +20,7 @@ use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
     ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
@@ -69,7 +69,6 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ProgramBodySignaturesValue = Arc<ProgramBodySignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 
@@ -1036,6 +1035,22 @@ mod tests {
             .sum()
     }
 
+    fn is_body_signature_query(name: &str) -> bool {
+        matches!(
+            name,
+            "program_body_function_signatures"
+                | "program_body_value_signatures"
+                | "program_body_type_signatures"
+                | "program_body_trait_signatures"
+        )
+    }
+
+    fn depends_on_body_signature_query(trace: &QueryTrace, from: &str) -> bool {
+        trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == from && is_body_signature_query(dependency.to.name)
+        })
+    }
+
     #[test]
     fn public_options_flow_through_compiler_query_context() {
         for level in [
@@ -1341,7 +1356,7 @@ fn main() i32 {
         );
         assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"program_body_signatures"),
+            !invalidated.iter().any(|name| is_body_signature_query(name)),
             "{invalidated:?}"
         );
         let before_second_check = database.query_trace();
@@ -1448,7 +1463,7 @@ fn main() i32 {
         );
         assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"program_body_signatures"),
+            !invalidated.iter().any(|name| is_body_signature_query(name)),
             "{invalidated:?}"
         );
         assert!(
@@ -1623,7 +1638,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn program_body_signatures_query_uses_module_signature_queries() {
+    fn program_body_signature_queries_use_precise_module_signature_queries() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -1631,20 +1646,30 @@ fn main() i32 {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ProgramBodySignaturesQuery);
+        let _ = db.query(ProgramBodyFunctionSignaturesQuery);
+        let _ = db.query(ProgramBodyValueSignaturesQuery);
+        let _ = db.query(ProgramBodyTypeSignaturesQuery);
+        let _ = db.query(ProgramBodyTraitSignaturesQuery);
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_signatures"
+            dependency.from.name == "program_body_function_signatures"
                 && dependency.to.name == "declaration_type_lowering"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_signatures"
+            dependency.from.name == "program_body_value_signatures"
+                && dependency.to.name == "item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_body_type_signatures"
+                && dependency.to.name == "program_trait_solving_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_body_trait_signatures"
                 && dependency.to.name == "item_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_signatures"
-                && dependency.to.name == "type_lowering"
+            is_body_signature_query(dependency.from.name) && dependency.to.name == "type_lowering"
         }));
     }
 
@@ -1667,9 +1692,7 @@ fn main() i32 {
             dependency.from.name == "program_abi_signatures"
                 && dependency.to.name == "item_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "abi_check" && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(&trace, "abi_check"));
     }
 
     #[test]
@@ -1879,10 +1902,10 @@ fn main() i32 {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "program_visible_type_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "visible_extensions"
-                && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(
+            &trace,
+            "visible_extensions"
+        ));
     }
 
     #[test]
@@ -1919,9 +1942,7 @@ fn main() i32 {
             dependency.from.name == "comptime"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(&trace, "comptime"));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "full_module_defs"
         }));
@@ -1943,10 +1964,7 @@ fn main() i32 {
             dependency.from.name == "monomorphization"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "monomorphization"
-                && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(&trace, "monomorphization"));
     }
 
     #[test]
@@ -1966,10 +1984,10 @@ fn main() i32 {
             dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "program_executable_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
-                && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(
+            &trace,
+            "executable_checked_modules"
+        ));
     }
 
     #[test]
@@ -2080,10 +2098,7 @@ fn main() i32 {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_backend_signatures"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering"
-                && dependency.to.name == "program_body_signatures"
-        }));
+        assert!(!depends_on_body_signature_query(&trace, "backend_lowering"));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_type_normalizations"

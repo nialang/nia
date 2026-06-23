@@ -32,7 +32,14 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) declaration_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
-    pub(super) program_body_signatures: fn(&QueryDb<CompilerContext>) -> ProgramBodySignaturesValue,
+    pub(super) program_body_function_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyFunctionSignatures>,
+    pub(super) program_body_value_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyValueSignatures>,
+    pub(super) program_body_type_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyTypeSignatures>,
+    pub(super) program_body_trait_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyTraitSignatures>,
     pub(super) program_trait_solving_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_visible_type_signatures:
@@ -87,7 +94,10 @@ impl Default for CompilerQueryProviders {
             item_signatures: provide_item_signatures,
             type_normalization: provide_type_normalization,
             declaration_type_normalization: provide_declaration_type_normalization,
-            program_body_signatures: provide_program_body_signatures,
+            program_body_function_signatures: provide_program_body_function_signatures,
+            program_body_value_signatures: provide_program_body_value_signatures,
+            program_body_type_signatures: provide_program_body_type_signatures,
+            program_body_trait_signatures: provide_program_body_trait_signatures,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_visible_type_signatures: provide_program_visible_type_signatures,
             program_executable_signatures: provide_program_executable_signatures,
@@ -402,28 +412,75 @@ pub(super) fn provide_declaration_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
-pub(super) fn provide_program_body_signatures(
+pub(super) fn provide_program_body_function_signatures(
     db: &QueryDb<CompilerContext>,
-) -> ProgramBodySignaturesValue {
+) -> Arc<ProgramBodyFunctionSignatures> {
     time_provider(
         db.query(CompilerTimingsQuery),
-        "program_body_signatures",
+        "program_body_function_signatures",
         || {
             let inputs = module_signature_inputs(db);
             let modules = inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            Arc::new(ProgramBodySignatures {
+            Arc::new(ProgramBodyFunctionSignatures {
                 functions: collect_program_functions_excluding(
                     &modules,
                     &trait_solving.invalid_trait_impl_method_ids,
                 ),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_body_value_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramBodyValueSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_body_value_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            Arc::new(ProgramBodyValueSignatures {
                 globals: collect_program_globals(&modules),
                 comptimes: collect_program_comptimes(&modules),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_body_type_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramBodyTypeSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_body_type_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            Arc::new(ProgramBodyTypeSignatures {
                 structs: collect_program_structs(&modules),
                 unions: collect_program_unions(&modules),
                 enums: trait_solving.enums.clone(),
+                type_aliases: collect_program_type_aliases(&modules),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_body_trait_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramBodyTraitSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_body_trait_signatures",
+        || {
+            let inputs = module_signature_inputs(db);
+            let modules = inputs.modules();
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            Arc::new(ProgramBodyTraitSignatures {
                 traits: collect_program_traits(&modules),
-                type_aliases: crate::program_signatures::collect_program_type_aliases(&modules),
                 trait_impls: trait_solving.trait_impls.clone(),
             })
         },
@@ -1035,7 +1092,10 @@ fn body_check_with_filter(
     let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodsQuery);
-    let program_signatures = db.query(ProgramBodySignaturesQuery);
+    let program_function_signatures = db.query(ProgramBodyFunctionSignaturesQuery);
+    let program_value_signatures = db.query(ProgramBodyValueSignaturesQuery);
+    let program_type_signatures = db.query(ProgramBodyTypeSignaturesQuery);
+    let program_trait_signatures = db.query(ProgramBodyTraitSignaturesQuery);
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let program_comptime = |module_id| Some(db.query(ComptimeQuery(module_id)));
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
@@ -1065,7 +1125,10 @@ fn body_check_with_filter(
                 signatures: Some(&item_signatures_for_module),
                 layouts: Some(&program_layouts),
             },
-            program_signatures: program_signatures.maps(),
+            program_functions: &program_function_signatures.functions,
+            program_values: program_value_signatures.body_maps(),
+            program_types: program_type_signatures.body_maps(),
+            program_traits: program_trait_signatures.body_maps(),
             function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
             program_comptime: nia_body_check::ProgramComptimeMaps {
                 comptime: &program_comptime,
@@ -1128,7 +1191,10 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             db.query(CompilerTimingsQuery),
             "checked_modules.shared_inputs",
             || {
-                let _ = db.query(ProgramBodySignaturesQuery);
+                let _ = db.query(ProgramBodyFunctionSignaturesQuery);
+                let _ = db.query(ProgramBodyValueSignaturesQuery);
+                let _ = db.query(ProgramBodyTypeSignaturesQuery);
+                let _ = db.query(ProgramBodyTraitSignaturesQuery);
                 let _ = db.query(ExtensionMethodsQuery);
             },
         );

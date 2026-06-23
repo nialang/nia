@@ -30,9 +30,9 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_item_signatures::{
     EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
-    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
-    ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
@@ -214,10 +214,33 @@ pub struct BodyCheckInput<'a> {
     pub program_extension_methods: &'a ExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
-    pub program_signatures: ProgramSignatureMaps<'a>,
+    pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub program_values: BodyProgramValueSignatures<'a>,
+    pub program_types: BodyProgramTypeSignatures<'a>,
+    pub program_traits: BodyProgramTraitSignatures<'a>,
     pub function_scope: FunctionCheckScope,
     pub program_comptime: ProgramComptimeMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BodyProgramValueSignatures<'a> {
+    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BodyProgramTypeSignatures<'a> {
+    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BodyProgramTraitSignatures<'a> {
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -239,7 +262,10 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
-    pub program_signatures: ProgramSignatureMaps<'a>,
+    pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub program_values: BodyProgramValueSignatures<'a>,
+    pub program_types: BodyProgramTypeSignatures<'a>,
+    pub program_traits: BodyProgramTraitSignatures<'a>,
     pub function_scope: FunctionCheckScope,
 }
 
@@ -321,15 +347,19 @@ pub fn check_module_bodies(
         program_extension_methods: &empty_program_extension_methods,
         extension_interner: None,
         program: BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureMaps {
-            functions: &empty_functions,
+        program_functions: &empty_functions,
+        program_values: BodyProgramValueSignatures {
             globals: &empty_globals,
             comptimes: &empty_comptimes,
+        },
+        program_types: BodyProgramTypeSignatures {
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
-            traits: &empty_traits,
             type_aliases: &empty_type_aliases,
+        },
+        program_traits: BodyProgramTraitSignatures {
+            traits: &empty_traits,
             trait_impls: &empty_trait_impls,
         },
         program_comptime: ProgramComptimeMaps::empty(),
@@ -379,7 +409,10 @@ pub fn check_module_bodies_with_program_signatures(
         program_extension_methods: input.program_extension_methods,
         extension_interner: None,
         program: input.program,
-        program_signatures: input.program_signatures,
+        program_functions: input.program_functions,
+        program_values: input.program_values,
+        program_types: input.program_types,
+        program_traits: input.program_traits,
         function_scope: input.function_scope,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
@@ -484,17 +517,17 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         function_signature_scope: match input.function_scope {
             FunctionCheckScope::LocalModule => FunctionSignatureScope::LocalModule,
             FunctionCheckScope::ProgramSignatures => {
-                FunctionSignatureScope::Program(input.program_signatures.functions)
+                FunctionSignatureScope::Program(input.program_functions)
             }
         },
-        program_globals: input.program_signatures.globals,
-        program_comptimes: input.program_signatures.comptimes,
-        program_structs: input.program_signatures.structs,
-        program_unions: input.program_signatures.unions,
-        program_enums: input.program_signatures.enums,
-        program_traits: input.program_signatures.traits,
-        program_type_aliases: input.program_signatures.type_aliases,
-        program_trait_impls: input.program_signatures.trait_impls,
+        program_globals: input.program_values.globals,
+        program_comptimes: input.program_values.comptimes,
+        program_structs: input.program_types.structs,
+        program_unions: input.program_types.unions,
+        program_enums: input.program_types.enums,
+        program_traits: input.program_traits.traits,
+        program_type_aliases: input.program_types.type_aliases,
+        program_trait_impls: input.program_traits.trait_impls,
         program_comptime: input.program_comptime.comptime,
         program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,

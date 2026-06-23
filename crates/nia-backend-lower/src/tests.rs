@@ -10,7 +10,7 @@ use nia_function_ir::{
 };
 use nia_function_lower::lower_function_body;
 use nia_ids::{GlobalDefId, LocalId};
-use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
+use nia_item_signatures::{ProgramFunctionSignature, collect_item_signatures};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
@@ -23,6 +23,57 @@ use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
+
+struct EmptyBodyProgramSignatures {
+    functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    globals: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalSignature>,
+    comptimes: HashMap<GlobalDefId, nia_item_signatures::ProgramComptimeSignature>,
+    structs: HashMap<GlobalDefId, nia_item_signatures::ProgramStructSignature>,
+    unions: HashMap<GlobalDefId, nia_item_signatures::ProgramUnionSignature>,
+    enums: HashMap<GlobalDefId, nia_item_signatures::ProgramEnumSignature>,
+    traits: HashMap<GlobalDefId, nia_item_signatures::ProgramTraitSignature>,
+    type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
+    trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+}
+
+impl EmptyBodyProgramSignatures {
+    fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+            globals: HashMap::new(),
+            comptimes: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            enums: HashMap::new(),
+            traits: HashMap::new(),
+            type_aliases: HashMap::new(),
+            trait_impls: Vec::new(),
+        }
+    }
+
+    fn values(&self) -> nia_body_check::BodyProgramValueSignatures<'_> {
+        nia_body_check::BodyProgramValueSignatures {
+            globals: &self.globals,
+            comptimes: &self.comptimes,
+        }
+    }
+
+    fn types(&self) -> nia_body_check::BodyProgramTypeSignatures<'_> {
+        nia_body_check::BodyProgramTypeSignatures {
+            structs: &self.structs,
+            unions: &self.unions,
+            enums: &self.enums,
+            type_aliases: &self.type_aliases,
+        }
+    }
+
+    fn traits(&self) -> nia_body_check::BodyProgramTraitSignatures<'_> {
+        nia_body_check::BodyProgramTraitSignatures {
+            traits: &self.traits,
+            trait_impls: &self.trait_impls,
+        }
+    }
+}
 
 fn semantic_use_table(
     module_id: ModuleId,
@@ -231,6 +282,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let mut extensions = VisibleExtensionMethods::default();
     mutate_extensions(&mut extensions, &defs, &type_lowering, &signatures);
     let origins = NodeOriginTable::default();
+    let program_signatures = EmptyBodyProgramSignatures::new();
     let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         source_path: &source_path,
@@ -251,17 +303,10 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: nia_body_check::BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureMaps {
-            functions: &HashMap::new(),
-            globals: &HashMap::new(),
-            comptimes: &HashMap::new(),
-            structs: &HashMap::new(),
-            unions: &HashMap::new(),
-            enums: &HashMap::new(),
-            traits: &HashMap::new(),
-            type_aliases: &HashMap::new(),
-            trait_impls: &[],
-        },
+        program_functions: &program_signatures.functions,
+        program_values: program_signatures.values(),
+        program_types: program_signatures.types(),
+        program_traits: program_signatures.traits(),
         function_scope: nia_body_check::FunctionCheckScope::LocalModule,
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
