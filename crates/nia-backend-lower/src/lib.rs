@@ -248,10 +248,6 @@ pub fn lower_backend_program_with_timings(
             lowered_modules.push(module);
         }
     });
-    time_backend_stage(timing, "backend_lower.refresh_interners", || {
-        refresh_known_backend_type_interners(&mut lowerers);
-    });
-
     let module_indices = lowered_modules
         .iter()
         .enumerate()
@@ -283,7 +279,6 @@ pub fn lower_backend_program_with_timings(
                     let lowerer = &mut lowerers[owner_index];
                     lowerer.lower_additional_functions(refs, &mut lowered_modules[owner_index]);
                 }
-                refresh_known_backend_type_interner_from_source(&mut lowerers, owner_index);
                 pending_foreign_functions.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_refs,
                 ));
@@ -329,7 +324,6 @@ pub fn lower_backend_program_with_timings(
                     lowerers[owner_index].lower_additional_reachable_functions_from_instances(
                         &mut lowered_modules[owner_index],
                     );
-                    refresh_known_backend_type_interner_from_source(&mut lowerers, owner_index);
                 }
                 pending_foreign_functions.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_refs,
@@ -1247,31 +1241,6 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
         self.type_context.active_interner_for_type(ty)
-    }
-
-    fn remember_type_interner(&mut self, interner: &nia_ty::TyInterner) {
-        self.type_context.remember_interner(interner);
-    }
-}
-
-fn refresh_known_backend_type_interners(lowerers: &mut [ModuleLowerer<'_>]) {
-    for index in 0..lowerers.len() {
-        refresh_known_backend_type_interner_from_source(lowerers, index);
-    }
-}
-
-fn refresh_known_backend_type_interner_from_source(
-    lowerers: &mut [ModuleLowerer<'_>],
-    source_index: usize,
-) {
-    let Some(interner) = lowerers
-        .get(source_index)
-        .map(|lowerer| lowerer.type_context.interner.clone())
-    else {
-        return;
-    };
-    for lowerer in lowerers {
-        lowerer.remember_type_interner(&interner);
     }
 }
 
