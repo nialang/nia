@@ -156,9 +156,6 @@ pub fn filter_semantic_facts_for_reachable_functions(
             continue;
         };
         reachable_facts
-            .local_types
-            .extend(function_facts.local_types.clone());
-        reachable_facts
             .generic_instantiations
             .extend(function_facts.generic_instantiations.clone());
         reachable_facts

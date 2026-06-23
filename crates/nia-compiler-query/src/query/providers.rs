@@ -36,7 +36,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) signature_item_signatures:
         fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> ItemSignatures,
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
-    pub(super) declaration_type_normalization:
+    pub(super) layout_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) signature_type_normalization: fn(
         &QueryDb<CompilerContext>,
@@ -70,6 +70,14 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
     pub(super) comptime_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeModuleLowering,
     pub(super) comptime: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeCheck,
+    pub(super) comptime_array_lengths:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeArrayLengths,
+    pub(super) comptime_enum_values:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeEnumValues,
+    pub(super) comptime_values:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeValues,
+    pub(super) comptime_typed_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeTypedFacts,
     pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
     pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
     pub(super) static_check:
@@ -107,7 +115,7 @@ impl Default for CompilerQueryProviders {
             item_signatures: provide_item_signatures,
             signature_item_signatures: provide_signature_item_signatures,
             type_normalization: provide_type_normalization,
-            declaration_type_normalization: provide_declaration_type_normalization,
+            layout_type_normalization: provide_layout_type_normalization,
             signature_type_normalization: provide_signature_type_normalization,
             program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
@@ -125,6 +133,10 @@ impl Default for CompilerQueryProviders {
             semantic_use_table: provide_semantic_use_table,
             comptime_module: provide_comptime_module,
             comptime: provide_comptime,
+            comptime_array_lengths: provide_comptime_array_lengths,
+            comptime_enum_values: provide_comptime_enum_values,
+            comptime_values: provide_comptime_values,
+            comptime_typed_facts: provide_comptime_typed_facts,
             layouts: provide_layouts,
             abi_check: provide_abi_check,
             static_check: provide_static_check,
@@ -144,7 +156,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
         let modules = checked_modules_for_codegen(db);
-        diagnostics.extend(checked_module_diagnostics(&modules));
+        diagnostics.extend(checked_module_diagnostics(db, &modules));
         if !diagnostics.is_empty() {
             return CheckedProgram {
                 graph,
@@ -348,7 +360,7 @@ pub(super) fn provide_declaration_type_resolution(
         let public = db.query(PublicSurfaceQuery);
         let empty_using = ModuleUsingScope::default();
         let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree(
+        nia_type_resolve::resolve_module_types_from_active_item_tree(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -411,7 +423,7 @@ pub(super) fn provide_declaration_type_lowering(
     let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(DeclarationTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-    nia_type_lower::lower_module_declaration_types_from_active_item_tree(
+    nia_type_lower::lower_module_types_from_active_item_tree(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -477,11 +489,11 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
-pub(super) fn provide_declaration_type_normalization(
+pub(super) fn provide_layout_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
-    let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
@@ -599,60 +611,47 @@ impl ProgramSignatureInputs {
 }
 
 struct ExtensionSignatureInputs {
-    signature_inputs: ProgramSignatureInputs,
+    trait_inputs: ProgramSignatureInputs,
+    function_signatures: Vec<ItemSignatures>,
+    type_signatures: Vec<ItemSignatures>,
     normalizations: Vec<TypeNormalization>,
 }
 
 impl ExtensionSignatureInputs {
     fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
-        self.signature_inputs.modules()
+        self.trait_inputs.modules()
     }
 
     fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
-        self.signature_inputs
+        self.trait_inputs
             .module_ids
             .iter()
-            .zip(self.signature_inputs.defs.iter())
-            .zip(self.signature_inputs.type_lowerings.iter())
-            .zip(self.signature_inputs.item_signatures.iter())
+            .zip(self.trait_inputs.defs.iter())
+            .zip(self.trait_inputs.type_lowerings.iter())
+            .zip(self.trait_inputs.item_signatures.iter())
+            .zip(self.function_signatures.iter())
+            .zip(self.type_signatures.iter())
             .zip(self.normalizations.iter())
             .map(
-                |((((module_id, defs), lowering), signatures), normalization)| {
+                |(
+                    (
+                        ((((module_id, defs), lowering), signatures), function_signatures),
+                        type_signatures,
+                    ),
+                    normalization,
+                )| {
                     ExtensionModuleInput {
                         module_id: *module_id,
                         defs,
                         lowering,
                         signatures,
+                        function_signatures,
+                        type_signatures,
                         normalization,
                     }
                 },
             )
             .collect()
-    }
-}
-
-fn module_signature_inputs(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputs {
-    let module_ids = db.query(ParseOkModuleIdsQuery);
-    let type_lowerings = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
-        .collect::<Vec<_>>();
-    let item_signatures = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
-        .collect::<Vec<_>>();
-    let defs = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
-        .collect::<Vec<_>>();
-    ProgramSignatureInputs {
-        module_ids,
-        type_lowerings,
-        item_signatures,
-        defs,
     }
 }
 
@@ -685,8 +684,30 @@ fn module_signature_inputs_for(
 }
 
 fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
-    let signature_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
-    let normalizations = signature_inputs
+    let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+    let function_signatures = trait_inputs
+        .module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            db.query(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::ExtensionFunctions,
+            ))
+        })
+        .collect::<Vec<_>>();
+    let type_signatures = trait_inputs
+        .module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            db.query(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+        })
+        .collect::<Vec<_>>();
+    let normalizations = trait_inputs
         .module_ids
         .iter()
         .copied()
@@ -698,7 +719,9 @@ fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatu
         })
         .collect::<Vec<_>>();
     ExtensionSignatureInputs {
-        signature_inputs,
+        trait_inputs,
+        function_signatures,
+        type_signatures,
         normalizations,
     }
 }
@@ -735,7 +758,7 @@ pub(super) fn provide_program_visible_type_signatures(
         db.query(CompilerTimingsQuery),
         "program_visible_type_signatures",
         || {
-            let inputs = module_signature_inputs(db);
+            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
             let modules = inputs.modules();
             Arc::new(ProgramVisibleTypeSignatures {
                 type_aliases: collect_program_type_aliases(&modules),
@@ -751,15 +774,19 @@ pub(super) fn provide_program_executable_signatures(
         db.query(CompilerTimingsQuery),
         "program_executable_signatures",
         || {
-            let inputs = module_signature_inputs(db);
-            let modules = inputs.modules();
+            let function_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+            let function_modules = function_inputs.modules();
+            let trait_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+            let trait_modules = trait_inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramExecutableSignatures {
                 functions: collect_program_functions_excluding(
-                    &modules,
+                    &function_modules,
                     &trait_solving.invalid_trait_impl_method_ids,
                 ),
-                traits: collect_program_traits(&modules),
+                traits: collect_program_traits(&trait_modules),
             })
         },
     )
@@ -772,19 +799,26 @@ pub(super) fn provide_program_backend_signatures(
         db.query(CompilerTimingsQuery),
         "program_backend_signatures",
         || {
-            let inputs = module_signature_inputs(db);
-            let modules = inputs.modules();
+            let function_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+            let function_modules = function_inputs.modules();
+            let type_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let type_modules = type_inputs.modules();
+            let trait_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+            let trait_modules = trait_inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBackendSignatures {
                 functions: collect_program_functions_excluding(
-                    &modules,
+                    &function_modules,
                     &trait_solving.invalid_trait_impl_method_ids,
                 ),
-                structs: collect_program_structs(&modules),
-                unions: collect_program_unions(&modules),
+                structs: collect_program_structs(&type_modules),
+                unions: collect_program_unions(&type_modules),
                 enums: trait_solving.enums.clone(),
-                traits: collect_program_traits(&modules),
-                type_aliases: collect_program_type_aliases(&modules),
+                traits: collect_program_traits(&trait_modules),
+                type_aliases: collect_program_type_aliases(&type_modules),
                 trait_impls: trait_solving.trait_impls.clone(),
             })
         },
@@ -802,7 +836,10 @@ pub(super) fn provide_program_abi_signatures(
             let mut unions = HashMap::new();
             let mut enums = HashMap::new();
             for module_id in db.query(ParseOkModuleIdsQuery) {
-                let signatures = db.query(ItemSignaturesQuery(module_id));
+                let signatures = db.query(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ));
                 structs.extend(
                     signatures
                         .structs
@@ -833,45 +870,8 @@ pub(super) fn provide_program_abi_signatures(
 
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
-        let module_ids = db.query(ParseOkModuleIdsQuery);
-        let defs = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(ModuleDefsQuery(module_id)))
-            .collect::<Vec<_>>();
-        let type_lowerings = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(DeclarationTypeLoweringQuery(module_id)))
-            .collect::<Vec<_>>();
-        let item_signatures = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
-            .collect::<Vec<_>>();
-        let normalizations = module_ids
-            .iter()
-            .copied()
-            .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
-            .collect::<Vec<_>>();
-        let inputs = module_ids
-            .iter()
-            .zip(defs.iter())
-            .zip(type_lowerings.iter())
-            .zip(item_signatures.iter())
-            .zip(normalizations.iter())
-            .map(
-                |((((module_id, defs), lowering), signatures), normalization)| {
-                    ExtensionModuleInput {
-                        module_id: *module_id,
-                        defs,
-                        lowering,
-                        signatures,
-                        normalization,
-                    }
-                },
-            )
-            .collect::<Vec<_>>();
+        let inputs = extension_signature_inputs(db);
+        let inputs = inputs.extension_modules();
         let (methods, mut diagnostics) = collect_extension_methods(&inputs);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_values(&inputs);
@@ -893,8 +893,12 @@ pub(super) fn provide_visible_extensions(
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let declaration_normalization =
-        |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
+    let extension_method_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        )))
+    };
     let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
@@ -903,7 +907,7 @@ pub(super) fn provide_visible_extensions(
         using_scope,
         public_surfaces: &public.surfaces,
         defs: &defs,
-        normalizations: &declaration_normalization,
+        normalizations: &extension_method_normalization,
         visible_type_signatures: VisibleTypeSignatures {
             type_aliases: &visible_type_signatures.type_aliases,
         },
@@ -1041,46 +1045,129 @@ pub(super) fn provide_comptime(
     module_id: ModuleId,
 ) -> ComptimeCheck {
     time_module_provider(db, "comptime", module_id, || {
-        let module = db.query(ComptimeModuleQuery(module_id));
-        let defs = db.query(FullModuleDefsQuery(module_id));
-        let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
-        let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-        let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-        let declaration_type_normalization =
-            |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
-        let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
-        let values = db.query(ValueResolutionQuery(module_id));
-        let locals = db.query(LocalResolutionQuery(module_id));
-        let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-        let source_path = db.query(ModulePathQuery(module_id));
-        let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let type_normalization = db.query(TypeNormalizationQuery(module_id));
-        let mut comptime =
-            nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-                module: &module.module,
-                defs: &defs,
-                values: &values,
-                locals: &locals,
-                semantic_uses: &semantic_uses,
-                signatures: &item_signatures,
-                interner: &type_normalization.interner,
-                normalized: &type_normalization.normalized,
-                target: &db.query(CompilerTargetQuery),
-                source_path: &source_path,
-                program: nia_comptime_check::ComptimeProgramContext {
-                    module: Some(&program_module),
-                    source_path: Some(&program_source_path),
-                    defs: Some(&program_defs),
-                    type_normalizations: Some(&declaration_type_normalization),
-                    signatures: Some(&item_signatures_for_module),
-                    program_enums: &trait_solving_signatures.enums,
-                    trait_impls: &trait_solving_signatures.trait_impls,
-                },
-            });
-        comptime.diagnostics.extend(module.diagnostics);
+        let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+        let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
+        let values = db.query(ComptimeValuesQuery(module_id));
+        let typed_facts = db.query(ComptimeTypedFactsQuery(module_id));
+        let comptime = with_comptime_input(db, module_id, |input, module| {
+            let mut comptime = nia_comptime_check::check_module_comptime_with_all_phases(
+                input,
+                array_lengths,
+                enum_values,
+                values,
+                typed_facts,
+            );
+            comptime.diagnostics.extend(module.diagnostics.clone());
+            comptime
+        });
         comptime
     })
+}
+
+pub(super) fn provide_comptime_array_lengths(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_comptime_check::ComptimeArrayLengths {
+    with_comptime_input(db, module_id, |input, module| {
+        let mut array_lengths = nia_comptime_check::compute_module_comptime_array_lengths(input);
+        array_lengths.diagnostics.extend(module.diagnostics.clone());
+        array_lengths
+    })
+}
+
+pub(super) fn provide_comptime_enum_values(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_comptime_check::ComptimeEnumValues {
+    let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+    with_comptime_input(db, module_id, |input, module| {
+        let mut enum_values =
+            nia_comptime_check::compute_module_comptime_enum_values(input, array_lengths);
+        enum_values.diagnostics.extend(module.diagnostics.clone());
+        enum_values
+    })
+}
+
+pub(super) fn provide_comptime_values(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_comptime_check::ComptimeValues {
+    let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+    let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
+    with_comptime_input(db, module_id, |input, module| {
+        let mut values =
+            nia_comptime_check::compute_module_comptime_values(input, array_lengths, enum_values);
+        values.diagnostics.extend(module.diagnostics.clone());
+        values
+    })
+}
+
+pub(super) fn provide_comptime_typed_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_comptime_check::ComptimeTypedFacts {
+    let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+    let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
+    let values = db.query(ComptimeValuesQuery(module_id));
+    with_comptime_input(db, module_id, |input, _module| {
+        nia_comptime_check::compute_module_comptime_typed_facts(
+            input,
+            array_lengths,
+            enum_values,
+            values,
+        )
+    })
+}
+
+fn with_comptime_input<T>(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
+) -> T {
+    let module = db.query(ComptimeModuleQuery(module_id));
+    let defs = db.query(FullModuleDefsQuery(module_id));
+    let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
+    let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
+    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let extension_method_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        )))
+    };
+    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+    let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+    let source_path = db.query(ModulePathQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let type_normalization = db.query(TypeNormalizationQuery(module_id));
+    let target = db.query(CompilerTargetQuery);
+    f(
+        nia_comptime_check::ComptimeInput {
+            module: &module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            signatures: &item_signatures,
+            interner: &type_normalization.interner,
+            normalized: &type_normalization.normalized,
+            target: &target,
+            source_path: &source_path,
+            program: nia_comptime_check::ComptimeProgramContext {
+                module: Some(&program_module),
+                source_path: Some(&program_source_path),
+                defs: Some(&program_defs),
+                type_normalizations: Some(&extension_method_normalization),
+                signatures: Some(&item_signatures_for_module),
+                program_enums: &trait_solving_signatures.enums,
+                trait_impls: &trait_solving_signatures.trait_impls,
+            },
+        },
+        &module,
+    )
 }
 
 pub(super) fn provide_layouts(
@@ -1089,14 +1176,14 @@ pub(super) fn provide_layouts(
 ) -> nia_layout::Layouts {
     time_module_provider(db, "layouts", module_id, || {
         let defs = db.query(FullModuleDefsQuery(module_id));
-        let type_normalization = db.query(TypeNormalizationQuery(module_id));
+        let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let comptime = db.query(ComptimeQuery(module_id));
+        let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
         let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
-        let local_array_lengths = |id| comptime.array_lengths.get(&id).copied();
+        let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            Some(db.query(ComptimeQuery(id.module_id)))
-                .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+            Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         nia_layout::compute_layouts_with_program_context(
             &defs,
@@ -1119,13 +1206,43 @@ pub(super) fn provide_abi_check(
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
     let defs = db.query(FullModuleDefsQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
-    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let function_lowering = db.query(SignatureTypeLoweringQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let function_signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let type_lowering = db.query(SignatureTypeLoweringQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Types,
+    ));
+    let type_signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Types,
+    ));
+    let value_lowering = db.query(SignatureTypeLoweringQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Values,
+    ));
+    let value_signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Values,
+    ));
     let program = db.query(ProgramAbiSignaturesQuery);
-    nia_abi_check::check_module_abi_with_program_signatures(
+    nia_abi_check::check_module_abi_families_with_program_signatures(
         &defs,
-        &type_lowering.interner,
-        &item_signatures,
+        nia_abi_check::ModuleAbiSignatures {
+            functions: &function_signatures.functions,
+            function_interner: &function_lowering.interner,
+            structs: &type_signatures.structs,
+            unions: &type_signatures.unions,
+            enums: &type_signatures.enums,
+            type_interner: &type_lowering.interner,
+            globals: &value_signatures.globals,
+            value_interner: &value_lowering.interner,
+        },
         nia_abi_check::ProgramAbiSignatures {
             structs: &program.structs,
             unions: &program.unions,
@@ -1143,22 +1260,29 @@ pub(super) fn provide_static_check(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-    let signatures = db.query(ItemSignaturesQuery(module_id));
-    let comptime = db.query(ComptimeQuery(module_id));
+    let signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Values,
+    ));
+    let comptime = db.query(ComptimeValuesQuery(module_id));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let program_comptime = |module_id| Some(db.query(ComptimeQuery(module_id)));
-    nia_static_check::check_module_static_initializers(nia_static_check::StaticCheckInput {
-        active_item_tree: &active_item_tree,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        signatures: &signatures,
-        comptime: &comptime,
-        program_defs: &program_defs,
-        program_comptime: &program_comptime,
-        target: &db.query(CompilerTargetQuery),
-    })
+    let program_comptime_values = |module_id| Some(db.query(ComptimeValuesQuery(module_id)));
+    nia_static_check::check_module_static_initializers_with_signatures(
+        nia_static_check::StaticCheckPreciseInput {
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            signatures: nia_static_check::StaticCheckSignatures {
+                globals: &signatures.globals,
+            },
+            comptime: &comptime,
+            program_defs: &program_defs,
+            program_comptime: &program_comptime_values,
+            target: &db.query(CompilerTargetQuery),
+        },
+    )
 }
 
 pub(super) fn provide_flow_check(
@@ -1166,12 +1290,20 @@ pub(super) fn provide_flow_check(
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
-    let signatures = db.query(ItemSignaturesQuery(module_id));
-    nia_flow_check::check_active_module_flow(
+    let type_lowering = db.query(SignatureTypeLoweringQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    nia_flow_check::check_active_module_flow_with_signatures(
         &active_item_tree,
         &type_lowering.interner,
-        &signatures,
+        nia_flow_check::FlowCheckSignatures {
+            functions: &signatures.functions,
+        },
     )
 }
 
@@ -1199,11 +1331,23 @@ fn body_check_with_filter(
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
-    let signatures = db.query(ItemSignaturesQuery(module_id));
+    let signatures = body_local_item_signatures(db, module_id, &lowered);
     let normalization = db.query(TypeNormalizationQuery(module_id));
-    let declaration_type_normalization =
-        |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
-    let comptime = db.query(ComptimeQuery(module_id));
+    let program_type_normalization = |module_id| Some(db.query(TypeNormalizationQuery(module_id)));
+    let extension_method_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        )))
+    };
+    let comptime_values = db.query(ComptimeValuesQuery(module_id));
+    let comptime_array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+    let comptime_typed_facts = db.query(ComptimeTypedFactsQuery(module_id));
+    let body_comptime = nia_body_check::BodyComptime::from_phases(
+        &comptime_values,
+        &comptime_array_lengths,
+        &comptime_typed_facts,
+    );
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = db.query(LayoutsQuery(module_id));
     let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
@@ -1214,7 +1358,9 @@ fn body_check_with_filter(
     let program_type_signatures = db.query(ProgramBodyTypeSignaturesQuery);
     let program_trait_signatures = db.query(ProgramBodyTraitSignaturesQuery);
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
-    let program_comptime = |module_id| Some(db.query(ComptimeQuery(module_id)));
+    let program_comptime_values = |module_id| Some(db.query(ComptimeValuesQuery(module_id)));
+    let program_comptime_array_lengths =
+        |module_id| Some(db.query(ComptimeArrayLengthsQuery(module_id)));
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
         nia_body_check::BodyCheckInput {
@@ -1227,10 +1373,11 @@ fn body_check_with_filter(
             locals: &locals,
             semantic_uses: &semantic_uses,
             lowered: &lowered,
-            signatures: &signatures,
+            signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+            comptime_signatures: &signatures,
             normalization: &normalization,
             target: &db.query(CompilerTargetQuery),
-            comptime: &comptime,
+            comptime: body_comptime,
             comptime_module: &comptime_module.module,
             layouts: &layouts,
             extensions: &extensions.methods,
@@ -1238,7 +1385,8 @@ fn body_check_with_filter(
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
                 defs: Some(&program_defs),
-                type_normalizations: Some(&declaration_type_normalization),
+                type_normalizations: Some(&program_type_normalization),
+                extension_type_normalizations: Some(&extension_method_normalization),
                 signatures: Some(&item_signatures_for_module),
                 layouts: Some(&program_layouts),
             },
@@ -1248,12 +1396,90 @@ fn body_check_with_filter(
             program_traits: program_trait_signatures.body_maps(),
             function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
             program_comptime: nia_body_check::ProgramComptimeMaps {
-                comptime: &program_comptime,
+                values: &program_comptime_values,
+                array_lengths: &program_comptime_array_lengths,
                 module: &program_comptime_module,
             },
             filter,
         },
         body_timing_mode(db.query(CompilerTimingsQuery)),
+    )
+}
+
+fn body_local_item_signatures(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    lowered: &TypeLowering,
+) -> ItemSignatures {
+    let defs = db.query(FullModuleDefsQuery(module_id));
+    let functions = collect_body_signature_subset(
+        db,
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+        &defs,
+        lowered,
+    );
+    let extension_functions = collect_body_signature_subset(
+        db,
+        module_id,
+        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        &defs,
+        lowered,
+    );
+    let values = collect_body_signature_subset(
+        db,
+        module_id,
+        nia_item_tree::SignatureItemSet::Values,
+        &defs,
+        lowered,
+    );
+    let types = collect_body_signature_subset(
+        db,
+        module_id,
+        nia_item_tree::SignatureItemSet::Types,
+        &defs,
+        lowered,
+    );
+    let traits = collect_body_signature_subset(
+        db,
+        module_id,
+        nia_item_tree::SignatureItemSet::Traits,
+        &defs,
+        lowered,
+    );
+    let mut function_signatures = functions.functions;
+    function_signatures.extend(extension_functions.functions);
+    let mut diagnostics = functions.diagnostics;
+    diagnostics.extend(extension_functions.diagnostics);
+    diagnostics.extend(values.diagnostics);
+    diagnostics.extend(types.diagnostics);
+    diagnostics.extend(traits.diagnostics);
+    ItemSignatures {
+        functions: function_signatures,
+        structs: types.structs,
+        unions: types.unions,
+        traits: traits.traits,
+        trait_impls: traits.trait_impls,
+        enums: types.enums,
+        type_aliases: types.type_aliases,
+        globals: values.globals,
+        comptimes: values.comptimes,
+        diagnostics,
+    }
+}
+
+fn collect_body_signature_subset(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+) -> ItemSignatures {
+    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+        &active_item_tree,
+        defs,
+        lowered,
     )
 }
 
@@ -1288,7 +1514,6 @@ fn checked_module_with_body_check(
         type_lowering: db.query(TypeLoweringQuery(module_id)),
         value_resolution: db.query(ValueResolutionQuery(module_id)),
         local_resolution: db.query(LocalResolutionQuery(module_id)),
-        item_signatures: db.query(ItemSignaturesQuery(module_id)),
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
         comptime: db.query(ComptimeQuery(module_id)),
         static_check: db.query(StaticCheckQuery(module_id)),
@@ -1356,12 +1581,19 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         .into_iter()
         .map(|module| (module.id, module))
         .collect::<HashMap<_, _>>();
+    let reachable_item_signatures = checked_by_id
+        .keys()
+        .copied()
+        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let reachable_inputs = checked_by_id
         .values()
         .map(|module| ReachableModuleInput {
             module_id: module.id,
             body_ir: &module.body_ir,
-            item_signatures: &module.item_signatures,
+            item_signatures: reachable_item_signatures
+                .get(&module.id)
+                .expect("reachable item signatures must exist for checked module"),
             semantic_facts: &module.semantic_facts,
             type_lowering: &module.type_lowering,
             type_normalization: &module.type_normalization,
@@ -1440,6 +1672,10 @@ pub(super) fn provide_monomorphization(
     time_provider(db.query(CompilerTimingsQuery), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
         let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        let local_signatures = checked_modules
+            .iter()
+            .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
+            .collect::<HashMap<_, _>>();
         let function_bodies = function_bodies_from_checked_modules(&checked_modules);
         nia_monomorphize::collect_monomorphizations(
             &checked_modules
@@ -1453,7 +1689,10 @@ pub(super) fn provide_monomorphization(
                     comptime: &module.comptime,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
                     layouts: Some(&module.layouts),
-                    local_enums: &module.item_signatures.enums,
+                    local_enums: &local_signatures
+                        .get(&module.id)
+                        .expect("monomorphization signatures must exist for checked module")
+                        .enums,
                     program_enums: &trait_solving_signatures.enums,
                     trait_impls: &trait_solving_signatures.trait_impls,
                     instantiations: &module.semantic_facts.generic_instantiations,
@@ -1510,13 +1749,33 @@ fn provide_backend_lowering_inner(
     let all_checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
     let checked_modules = all_checked_modules;
-    let (active_item_trees, visible_extensions, extension_methods, function_bodies) = time_provider(
+    let (
+        active_item_trees,
+        item_signatures,
+        comptime_array_lengths,
+        comptime_enum_values,
+        visible_extensions,
+        extension_methods,
+        function_bodies,
+    ) = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.inputs",
         || {
             let active_item_trees = checked_modules
                 .iter()
                 .map(|checked_module| db.query(FullActiveModuleItemTreeQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            let item_signatures = checked_modules
+                .iter()
+                .map(|checked_module| db.query(ItemSignaturesQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            let comptime_array_lengths = checked_modules
+                .iter()
+                .map(|checked_module| db.query(ComptimeArrayLengthsQuery(checked_module.id)))
+                .collect::<Vec<_>>();
+            let comptime_enum_values = checked_modules
+                .iter()
+                .map(|checked_module| db.query(ComptimeEnumValuesQuery(checked_module.id)))
                 .collect::<Vec<_>>();
             let visible_extensions = checked_modules
                 .iter()
@@ -1526,6 +1785,9 @@ fn provide_backend_lowering_inner(
             let function_bodies = function_bodies_from_checked_modules(&checked_modules);
             (
                 active_item_trees,
+                item_signatures,
+                comptime_array_lengths,
+                comptime_enum_values,
                 visible_extensions,
                 extension_methods,
                 function_bodies,
@@ -1546,7 +1808,14 @@ fn provide_backend_lowering_inner(
     let indexes = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.indexes",
-        || build_backend_lowering_indexes(&checked_modules, &visible_extensions, &function_bodies),
+        || {
+            build_backend_lowering_indexes(
+                &checked_modules,
+                &comptime_array_lengths,
+                &visible_extensions,
+                &function_bodies,
+            )
+        },
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
     let program_signatures = db.query(ProgramBackendSignaturesQuery);
@@ -1558,6 +1827,9 @@ fn provide_backend_lowering_inner(
                 checked_modules: &checked_modules,
                 runtime: db.query(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,
+                item_signatures: &item_signatures,
+                comptime_array_lengths: &comptime_array_lengths,
+                comptime_enum_values: &comptime_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
                 extension_methods: &extension_methods,
@@ -1630,7 +1902,10 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
     diagnostics
 }
 
-fn checked_module_diagnostics(checked_modules: &[CheckedModule]) -> Vec<ProgramDiagnostic> {
+fn checked_module_diagnostics(
+    db: &QueryDb<CompilerContext>,
+    checked_modules: &[CheckedModule],
+) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
         diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
@@ -1650,9 +1925,10 @@ fn checked_module_diagnostics(checked_modules: &[CheckedModule]) -> Vec<ProgramD
             &checked.path,
             &checked.local_resolution.diagnostics,
         ));
+        let item_signatures = db.query(ItemSignaturesQuery(checked.id));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.item_signatures.diagnostics,
+            &item_signatures.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,

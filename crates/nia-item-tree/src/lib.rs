@@ -13,6 +13,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SignatureItemSet {
     Functions,
+    ExtensionFunctions,
     Values,
     Types,
     Traits,
@@ -333,27 +334,45 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
         | (ItemTreeNodeKind::Using(_), _)
         | (
             ItemTreeNodeKind::Struct(_),
-            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Values
+            | SignatureItemSet::Traits,
         )
         | (
             ItemTreeNodeKind::Union(_),
-            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Values
+            | SignatureItemSet::Traits,
         )
         | (
             ItemTreeNodeKind::Enum(_),
-            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Values
+            | SignatureItemSet::Traits,
         )
         | (
             ItemTreeNodeKind::TypeAlias(_),
-            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Values
+            | SignatureItemSet::Traits,
         )
         | (
             ItemTreeNodeKind::Function(_),
-            SignatureItemSet::Values | SignatureItemSet::Types | SignatureItemSet::Traits,
+            SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Values
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
         )
         | (
             ItemTreeNodeKind::Binding(_),
-            SignatureItemSet::Functions | SignatureItemSet::Types | SignatureItemSet::Traits,
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
         )
         | (ItemTreeNodeKind::Trait(_), SignatureItemSet::Values | SignatureItemSet::Types)
         | (ItemTreeNodeKind::Extend(_), SignatureItemSet::Types) => return None,
@@ -375,12 +394,17 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
         (ItemTreeNodeKind::Binding(item), SignatureItemSet::Values) => {
             ItemTreeNodeKind::Binding(item.clone())
         }
-        (ItemTreeNodeKind::Trait(item), SignatureItemSet::Functions | SignatureItemSet::Traits) => {
-            ItemTreeNodeKind::Trait(item.clone())
-        }
-        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Functions) => {
+        (
+            ItemTreeNodeKind::Trait(item),
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Traits,
+        ) => ItemTreeNodeKind::Trait(item.clone()),
+        (
+            ItemTreeNodeKind::Extend(item),
+            SignatureItemSet::Functions | SignatureItemSet::ExtensionFunctions,
+        ) => {
             let mut item = item.clone();
-            item.associated_types.clear();
             item.associated_values.clear();
             ItemTreeNodeKind::Extend(item)
         }
@@ -759,6 +783,13 @@ fn selected() i32 { 2 }
             !before_active
                 .signature_items(SignatureItemSet::Functions)
                 .declaration_eq(&after_active.signature_items(SignatureItemSet::Functions))
+        );
+        assert!(
+            before_active
+                .signature_items(SignatureItemSet::ExtensionFunctions)
+                .declaration_eq(
+                    &after_active.signature_items(SignatureItemSet::ExtensionFunctions)
+                )
         );
         assert!(
             before_active

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_item_signatures::ItemSignatures;
 
 pub(super) struct BackendLoweringIndexes<'a> {
     pub(super) program_extensions: HashMap<
@@ -13,11 +14,12 @@ pub(super) struct BackendLoweringIndexes<'a> {
     pub(super) program_type_normalizations:
         HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
-    pub(super) program_comptime: HashMap<ModuleId, &'a ComptimeCheck>,
+    pub(super) program_comptime: HashMap<ModuleId, &'a nia_comptime_check::ComptimeArrayLengths>,
 }
 
 pub(super) fn build_backend_lowering_indexes<'a>(
     checked_modules: &'a [CheckedModule],
+    comptime_array_lengths: &'a [nia_comptime_check::ComptimeArrayLengths],
     visible_extensions: &'a [VisibleExtensionsValue],
     function_bodies: &'a [LoweredFunctionBodies],
 ) -> BackendLoweringIndexes<'a> {
@@ -49,7 +51,8 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_comptime = checked_modules
         .iter()
-        .map(|checked_module| (checked_module.id, &checked_module.comptime))
+        .zip(comptime_array_lengths.iter())
+        .map(|(checked_module, array_lengths)| (checked_module.id, array_lengths))
         .collect::<HashMap<_, _>>();
     let program_type_normalizations = checked_modules
         .iter()
@@ -69,6 +72,9 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) checked_modules: &'a [CheckedModule],
     pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [ActiveModuleItemTree],
+    pub(super) item_signatures: &'a [ItemSignatures],
+    pub(super) comptime_array_lengths: &'a [nia_comptime_check::ComptimeArrayLengths],
+    pub(super) comptime_enum_values: &'a [nia_comptime_check::ComptimeEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
     pub(super) extension_methods: &'a ExtensionMethodsQueryValue,
@@ -84,10 +90,25 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .checked_modules
         .iter()
         .zip(input.active_item_trees.iter())
+        .zip(input.item_signatures.iter())
+        .zip(input.comptime_array_lengths.iter())
+        .zip(input.comptime_enum_values.iter())
         .zip(input.visible_extensions.iter())
         .zip(input.function_bodies.iter())
         .map(
-            |(((checked_module, active_item_tree), visible_extensions), function_bodies)| {
+            |(
+                (
+                    (
+                        (
+                            ((checked_module, active_item_tree), item_signatures),
+                            comptime_array_lengths,
+                        ),
+                        comptime_enum_values,
+                    ),
+                    visible_extensions,
+                ),
+                function_bodies,
+            )| {
                 BackendLowerModuleInput {
                     module_id: checked_module.id,
                     module_name: checked_module.path.as_str().to_string(),
@@ -97,12 +118,13 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     values: &checked_module.value_resolution,
                     locals: &checked_module.local_resolution,
                     type_lowering: &checked_module.type_lowering,
-                    signatures: &checked_module.item_signatures,
+                    signatures: item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_ir: &checked_module.body_ir,
                     function_interner: &function_bodies.interner,
                     semantic_facts: &checked_module.semantic_facts,
-                    comptime: &checked_module.comptime,
+                    comptime_array_lengths,
+                    comptime_enum_values,
                     program_comptime: &input.indexes.program_comptime,
                     layouts: &checked_module.layouts,
                     function_bodies: &function_bodies.bodies,

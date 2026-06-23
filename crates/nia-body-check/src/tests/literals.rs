@@ -103,45 +103,36 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let local_types = checked
+        .facts
+        .function_facts
+        .values()
+        .flat_map(|facts| facts.local_types.values())
+        .copied()
+        .collect::<Vec<_>>();
     assert!(
-        checked
-            .facts
-            .local_types
-            .values()
-            .any(|ty| checked.ir.interner.get(*ty)
-                == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))),
+        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+            == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))),
         "{:?}",
-        checked.facts.local_types
+        local_types
     );
     assert!(
-        checked
-            .facts
-            .local_types
-            .values()
-            .any(|ty| checked.ir.interner.get(*ty)
-                == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F64))),
+        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+            == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F64))),
         "{:?}",
-        checked.facts.local_types
+        local_types
     );
     assert!(
-        checked
-            .facts
-            .local_types
-            .values()
-            .any(|ty| checked.ir.interner.get(*ty)
-                == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U8))),
+        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+            == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U8))),
         "{:?}",
-        checked.facts.local_types
+        local_types
     );
     assert!(
-        checked
-            .facts
-            .local_types
-            .values()
-            .any(|ty| checked.ir.interner.get(*ty)
-                == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F32))),
+        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+            == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F32))),
         "{:?}",
-        checked.facts.local_types
+        local_types
     );
 }
 

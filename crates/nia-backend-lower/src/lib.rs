@@ -110,9 +110,10 @@ pub struct BackendLowerModuleInput<'a> {
     pub function_interner: &'a nia_ty::TyInterner,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
-    pub comptime: &'a nia_comptime_check::ComptimeCheck,
+    pub comptime_array_lengths: &'a nia_comptime_check::ComptimeArrayLengths,
+    pub comptime_enum_values: &'a nia_comptime_check::ComptimeEnumValues,
     pub program_comptime:
-        &'a std::collections::HashMap<ModuleId, &'a nia_comptime_check::ComptimeCheck>,
+        &'a std::collections::HashMap<ModuleId, &'a nia_comptime_check::ComptimeArrayLengths>,
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub roots: BackendFunctionRoots,
@@ -729,7 +730,9 @@ impl<'a> ModuleLowerer<'a> {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             interner: self.type_context.interner.clone(),
-            comptime: self.input.comptime.clone(),
+            comptime: nia_backend_ir::BackendComptimeFacts {
+                array_lengths: self.input.comptime_array_lengths.values.clone(),
+            },
             layouts: backend_layouts,
             structs,
             unions,
@@ -1173,7 +1176,7 @@ impl<'a> ModuleLowerer<'a> {
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
-        let comptime = self.input.comptime;
+        let comptime_array_lengths = self.input.comptime_array_lengths;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
         let def_names = &mut self.def_names;
@@ -1194,7 +1197,7 @@ impl<'a> ModuleLowerer<'a> {
                 name
             },
             |id| {
-                let value = comptime.array_lengths.get(&id).copied();
+                let value = comptime_array_lengths.values.get(&id).copied();
                 if value.is_none() && missing_array_len_diagnostics.insert(id) {
                     let span = const_expr_summaries
                         .get(&id)
@@ -1260,26 +1263,21 @@ fn index_input_type_interner_snapshots(
 ) -> HashMap<TyInternerId, nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     for input in modules {
-        insert_input_type_interner_snapshot(&mut interners, &input.body_ir.interner);
-        insert_input_type_interner_snapshot(&mut interners, input.function_interner);
-        if let Some(interner) = input.extension_interner {
-            insert_input_type_interner_snapshot(&mut interners, interner);
-        }
+        insert_input_type_interner_snapshot(&mut interners, "body_ir", &input.body_ir.interner);
+        insert_input_type_interner_snapshot(&mut interners, "function", input.function_interner);
         for interner in input.program_function_body_interners.values() {
-            insert_input_type_interner_snapshot(&mut interners, interner);
-        }
-        for (_, interner) in input.program_extensions.values() {
-            insert_input_type_interner_snapshot(&mut interners, interner);
+            insert_input_type_interner_snapshot(&mut interners, "program_function_body", interner);
         }
     }
     for interner in monomorphization.type_interners.values() {
-        insert_input_type_interner_snapshot(&mut interners, interner);
+        insert_input_type_interner_snapshot(&mut interners, "monomorphization", interner);
     }
     interners
 }
 
 fn insert_input_type_interner_snapshot(
     interners: &mut HashMap<TyInternerId, nia_ty::TyInterner>,
+    source: &'static str,
     interner: &nia_ty::TyInterner,
 ) {
     let interner_id = interner.interner_id();
@@ -1288,8 +1286,8 @@ fn insert_input_type_interner_snapshot(
             interners.insert(interner_id, interner.clone());
         } else if !interner.is_prefix_of(existing) {
             panic!(
-                "conflicting type interner snapshots share id {:?}",
-                interner_id
+                "conflicting type interner snapshots share id {:?} from {}",
+                interner_id, source
             );
         }
     } else {

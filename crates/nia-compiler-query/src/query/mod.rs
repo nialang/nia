@@ -231,6 +231,12 @@ impl CompilerDatabase {
                         nia_item_tree::SignatureItemSet::Functions,
                     )));
                 }
+                if module.signature_extension_function_items {
+                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+                    )));
+                }
                 if module.signature_value_items {
                     invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
                         module_id,
@@ -873,6 +879,7 @@ struct ChangedModuleInput {
     active_item_tree: bool,
     declaration_active_item_tree: bool,
     signature_function_items: bool,
+    signature_extension_function_items: bool,
     signature_value_items: bool,
     signature_type_items: bool,
     signature_trait_items: bool,
@@ -911,6 +918,13 @@ impl ChangedModuleInput {
                         &new.active_item_tree
                             .signature_items(nia_item_tree::SignatureItemSet::Functions),
                     ),
+                signature_extension_function_items: !old
+                    .active_item_tree
+                    .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions)
+                    .declaration_eq(
+                        &new.active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions),
+                    ),
                 signature_value_items: !old
                     .active_item_tree
                     .signature_items(nia_item_tree::SignatureItemSet::Values)
@@ -948,6 +962,7 @@ impl ChangedModuleInput {
                 active_item_tree: true,
                 declaration_active_item_tree: true,
                 signature_function_items: true,
+                signature_extension_function_items: true,
                 signature_value_items: true,
                 signature_type_items: true,
                 signature_trait_items: true,
@@ -966,6 +981,7 @@ impl ChangedModuleInput {
             || changed.active_item_tree
             || changed.declaration_active_item_tree
             || changed.signature_function_items
+            || changed.signature_extension_function_items
             || changed.signature_value_items
             || changed.signature_type_items
             || changed.signature_trait_items
@@ -991,6 +1007,7 @@ impl ChangedModuleInput {
             active_item_tree: true,
             declaration_active_item_tree: true,
             signature_function_items: true,
+            signature_extension_function_items: true,
             signature_value_items: true,
             signature_type_items: true,
             signature_trait_items: true,
@@ -1733,6 +1750,14 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(
+            !invalidated.contains(&"extension_methods"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"program_backend_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
@@ -1741,7 +1766,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn function_body_type_update_keeps_declaration_program_type_context_cached() {
+    fn function_body_type_update_keeps_signature_program_type_context_cached() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(
@@ -1782,8 +1807,8 @@ fn main() i32 {
         let after_second_check = database.query_trace();
 
         assert_eq!(
-            query_executions(&before_second_check, "declaration_type_normalization"),
-            query_executions(&after_second_check, "declaration_type_normalization"),
+            query_executions(&before_second_check, "signature_type_normalization"),
+            query_executions(&after_second_check, "signature_type_normalization"),
         );
     }
 
@@ -1947,6 +1972,74 @@ fn main() i32 {
     }
 
     #[test]
+    fn program_codegen_signature_queries_use_precise_module_signature_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } trait T { fn get(self) i32; } fn helper() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ProgramVisibleTypeSignaturesQuery);
+        let _ = db.query(ProgramExecutableSignaturesQuery);
+        let _ = db.query(ProgramBackendSignaturesQuery);
+        let trace = db.query_trace();
+
+        for query in [
+            "program_visible_type_signatures",
+            "program_executable_signatures",
+            "program_backend_signatures",
+        ] {
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query
+                    && matches!(
+                        dependency.to.name,
+                        "item_signatures" | "declaration_type_lowering"
+                    )
+            }));
+        }
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_backend_signatures"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_executable_signatures"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+    }
+
+    #[test]
+    fn layout_uses_full_type_module_signatures_and_array_lengths_without_body_products() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } fn helper() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let layouts = db.query(LayoutsQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts" && dependency.to.name == "layout_type_normalization"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts" && dependency.to.name == "comptime_array_lengths"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts" && dependency.to.name == "item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts"
+                && matches!(
+                    dependency.to.name,
+                    "type_normalization" | "comptime" | "body_check"
+                )
+        }));
+    }
+
+    #[test]
     fn abi_check_uses_abi_signature_index_not_body_signatures() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -1963,7 +2056,14 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_abi_signatures"
-                && dependency.to.name == "item_signatures"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "abi_check" && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            matches!(dependency.from.name, "abi_check" | "program_abi_signatures")
+                && matches!(dependency.to.name, "item_signatures" | "type_normalization")
         }));
         assert!(!depends_on_body_signature_query(&trace, "abi_check"));
     }
@@ -2033,23 +2133,27 @@ fn main() i32 {
                 && dependency.to.name == "program_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "declaration_type_lowering"
-                && dependency.to.name == "module_defs"
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods" && dependency.to.name == "item_signatures"
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "signature_type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "signature_type_normalization"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && matches!(
+                    dependency.to.name,
+                    "item_signatures" | "declaration_type_lowering"
+                )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "active_module_item_tree"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "declaration_type_lowering"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "declaration_type_normalization"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "declaration_type_lowering"
@@ -2106,6 +2210,14 @@ fn main() i32 {
             dependency.from.name == "flow_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "flow_check"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "flow_check"
+                && matches!(dependency.to.name, "item_signatures" | "type_lowering")
+        }));
     }
 
     #[test]
@@ -2124,6 +2236,17 @@ fn main() i32 {
             dependency.from.name == "static_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "static_check"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "static_check" && dependency.to.name == "comptime_values"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "static_check"
+                && matches!(dependency.to.name, "item_signatures" | "comptime")
+        }));
         assert!(
             !trace
                 .dependencies
@@ -2141,7 +2264,72 @@ fn main() i32 {
     }
 
     #[test]
-    fn visible_extensions_use_module_declaration_type_normalization_query() {
+    fn body_check_collects_local_signature_subsets_with_full_type_lowering() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } var global: i32 = 1; fn main() i32 { global }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(BodyCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "signature_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "signature_item_signatures"
+                && dependency.to.description.contains("ExtensionFunctions")
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime_values"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime_array_lengths"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check"
+                && matches!(dependency.to.name, "item_signatures" | "comptime")
+        }));
+    }
+
+    #[test]
+    fn body_check_imports_full_lowering_types_before_working_interner_lookup() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+struct Item {
+    state: i32,
+}
+
+fn set(items: &mut [Item], index: usize, state: i32) void {
+    items[index].state = state;
+}
+
+fn main() i32 {
+    var items: [2]Item = [
+        { state: 1 },
+        { state: 2 },
+    ];
+    set(&mut items[..], 1usize, 9);
+    items[1].state
+}
+"#,
+        )]);
+        let db = query_db(loaded);
+
+        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn visible_extensions_use_signature_type_normalization_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -2154,7 +2342,7 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
-                && dependency.to.name == "declaration_type_normalization"
+                && dependency.to.name == "signature_type_normalization"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
@@ -2195,6 +2383,20 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "comptime_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "comptime_array_lengths"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "comptime_enum_values"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime_array_lengths"
+                && dependency.to.name == "comptime_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime_enum_values"
+                && dependency.to.name == "comptime_array_lengths"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "program_full_defs_by_id"
@@ -2364,12 +2566,22 @@ fn main() i32 {
             dependency.from.name == "checked_module" && dependency.to.name == "body_check"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "checked_module" && dependency.to.name == "item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering" && dependency.to.name == "item_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_full_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_backend_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "comptime_enum_values"
         }));
         assert!(!depends_on_body_signature_query(&trace, "backend_lowering"));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2457,8 +2669,17 @@ fn main() i32 {
             dependency.from.name == "body_check" && dependency.to.name == "comptime_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime_values"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime_array_lengths"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
                 && dependency.to.name == "full_active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime"
         }));
         assert!(
             !trace

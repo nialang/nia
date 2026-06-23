@@ -12,7 +12,6 @@ use nia_diagnostic::Diagnostic;
 use nia_flow_check::FlowCheck;
 use nia_ids::ModuleId;
 use nia_imports::ModuleGraph;
-use nia_item_signatures::ItemSignatures;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -104,7 +103,6 @@ pub struct CheckedModule {
     pub type_lowering: TypeLowering,
     pub value_resolution: ValueResolution,
     pub local_resolution: LocalResolution,
-    pub item_signatures: ItemSignatures,
     pub type_normalization: TypeNormalization,
     pub comptime: ComptimeCheck,
     pub static_check: StaticCheck,

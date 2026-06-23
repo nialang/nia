@@ -123,6 +123,27 @@ fn main() i32 {
     );
     let origins = NodeOriginTable::default();
     let program_signatures = EmptyBodyProgramSignatures::new();
+    let comptime_array_lengths = nia_comptime_check::ComptimeArrayLengths {
+        interner: comptime.interner.clone(),
+        values: comptime.array_lengths.clone(),
+        diagnostics: Vec::new(),
+    };
+    let comptime_values = nia_comptime_check::ComptimeValues {
+        interner: comptime.interner.clone(),
+        values: comptime.values.clone(),
+        typed_values: comptime.typed_values.clone(),
+        diagnostics: Vec::new(),
+    };
+    let comptime_typed_facts = nia_comptime_check::ComptimeTypedFacts {
+        interner: comptime.interner.clone(),
+        typed_values: comptime.typed_values.clone(),
+        diagnostics: Vec::new(),
+    };
+    let body_comptime = nia_body_check::BodyComptime::from_phases(
+        &comptime_values,
+        &comptime_array_lengths,
+        &comptime_typed_facts,
+    );
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         source_path: &source_path,
@@ -133,10 +154,11 @@ fn main() i32 {
         locals: &locals,
         semantic_uses: &semantic_uses,
         lowered: &type_lowering,
-        signatures: &signatures,
+        signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+        comptime_signatures: &signatures,
         normalization: &normalization,
         target: &target,
-        comptime: &comptime,
+        comptime: body_comptime,
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
@@ -167,7 +189,8 @@ fn main() i32 {
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
+    let program_comptime = HashMap::from([(ModuleId(0), &comptime_array_lengths)]);
+    let comptime_enum_values = comptime_enum_values_from_check(&comptime);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
 
@@ -185,7 +208,8 @@ fn main() i32 {
         function_interner: &body_check.ir.interner,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
-        comptime: &comptime,
+        comptime_array_lengths: &comptime_array_lengths,
+        comptime_enum_values: &comptime_enum_values,
         program_comptime: &program_comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
@@ -222,6 +246,17 @@ fn main() i32 {
     assert_eq!(lowering.program.modules.len(), 1);
     assert_eq!(lowering.program.modules[0].globals.len(), 1);
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
+}
+
+fn comptime_enum_values_from_check(
+    comptime: &nia_comptime_check::ComptimeCheck,
+) -> nia_comptime_check::ComptimeEnumValues {
+    nia_comptime_check::ComptimeEnumValues {
+        interner: comptime.interner.clone(),
+        values: comptime.enum_values.clone(),
+        typed_values: comptime.typed_enum_values.clone(),
+        diagnostics: Vec::new(),
+    }
 }
 
 #[test]

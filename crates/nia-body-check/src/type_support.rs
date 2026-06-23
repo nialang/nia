@@ -861,12 +861,13 @@ impl<'a> BodyChecker<'a> {
             interner: self.interner.clone(),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
+            comptime_signatures: self.comptime_signatures,
             normalization: self.normalization,
             target: self.target,
             comptime: self.comptime,
             comptime_module: self.comptime_module,
             layouts: self.layouts,
-            extensions: self.extensions,
+            extensions: self.extensions.clone(),
             program_extension_methods: self.program_extension_methods,
             function_signature_scope: self.function_signature_scope,
             program_globals: self.program_globals,
@@ -877,7 +878,8 @@ impl<'a> BodyChecker<'a> {
             program_traits: self.program_traits,
             program_type_aliases: self.program_type_aliases,
             program_trait_impls: self.program_trait_impls,
-            program_comptime: self.program_comptime,
+            program_comptime_values: self.program_comptime_values,
+            program_comptime_array_lengths: self.program_comptime_array_lengths,
             program_comptime_module: self.program_comptime_module,
             source_path: self.source_path,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
@@ -1020,11 +1022,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
-        let ty = self
+        let lowered_ty = self
             .type_lowering
             .ty_for_key(&ty.node_key)
             .unwrap_or_else(|| self.error());
-        self.import_type_to_working_interner(ty)
+        let lowered_ty = self.import_lowered_type_to_working_interner(lowered_ty);
+        lowered_ty
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -1187,8 +1190,8 @@ impl<'a> BodyChecker<'a> {
         if id.module_id == self.defs.module_id {
             return self.comptime.array_lengths.get(&id).copied();
         }
-        (self.program_comptime)(id.module_id)
-            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+        (self.program_comptime_array_lengths)(id.module_id)
+            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
     }
 
     pub(crate) fn nominal_ty_name(

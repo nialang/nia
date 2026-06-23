@@ -94,8 +94,8 @@ impl<'a> ModuleLowerer<'a> {
                     name: variant.name.clone(),
                     value: self
                         .input
-                        .comptime
-                        .enum_values
+                        .comptime_enum_values
+                        .values
                         .get(&variant.def_id)
                         .and_then(|value| match value {
                             ComptimeValue::Int(value) => value.as_i128(),
@@ -233,8 +233,9 @@ impl<'a> ModuleLowerer<'a> {
                             .and_then(|local_id| {
                                 self.input
                                     .semantic_facts
-                                    .local_types
-                                    .get(&local_id)
+                                    .function_facts
+                                    .get(&global_def_id)
+                                    .and_then(|facts| facts.local_types.get(&local_id))
                                     .copied()
                             })
                             .unwrap_or(signature.ty)

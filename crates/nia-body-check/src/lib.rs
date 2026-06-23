@@ -23,16 +23,20 @@ pub use nia_ty::import_type_into;
 
 use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt, StmtKind};
 use nia_body_ir::BodyIr;
-use nia_comptime_check::ComptimeCheck;
+use nia_comptime_check::{
+    ComptimeArrayLengths, ComptimeKey, ComptimeTypedFacts, ComptimeValue, ComptimeValues,
+    TypedComptimeValue,
+};
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_item_signatures::{
-    EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature, StructSignature, UnionSignature,
+    ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
+    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
+    ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
+    TraitImplSignature, TraitSignature, TypeAliasSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
@@ -56,6 +60,29 @@ pub struct BodyCheck {
     pub ir: BodyIr,
     pub facts: SemanticFacts,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BodyComptime<'a> {
+    pub interner: &'a TyInterner,
+    pub values: &'a HashMap<ComptimeKey, ComptimeValue>,
+    pub typed_values: &'a HashMap<ComptimeKey, TypedComptimeValue>,
+    pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
+}
+
+impl<'a> BodyComptime<'a> {
+    pub fn from_phases(
+        values: &'a ComptimeValues,
+        array_lengths: &'a ComptimeArrayLengths,
+        typed_facts: &'a ComptimeTypedFacts,
+    ) -> Self {
+        Self {
+            interner: &typed_facts.interner,
+            values: &values.values,
+            typed_values: &typed_facts.typed_values,
+            array_lengths: &array_lengths.values,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,14 +117,16 @@ struct SwitchCoverage {
 
 #[derive(Clone, Copy)]
 pub struct ProgramComptimeMaps<'a> {
-    pub comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    pub values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
     pub module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
 }
 
 impl fmt::Debug for ProgramComptimeMaps<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProgramComptimeMaps")
-            .field("comptime", &true)
+            .field("values", &true)
+            .field("array_lengths", &true)
             .field("module", &true)
             .finish()
     }
@@ -106,13 +135,18 @@ impl fmt::Debug for ProgramComptimeMaps<'_> {
 impl ProgramComptimeMaps<'_> {
     pub fn empty() -> Self {
         Self {
-            comptime: &no_program_comptime,
+            values: &no_program_comptime_values,
+            array_lengths: &no_program_comptime_array_lengths,
             module: &no_program_comptime_module,
         }
     }
 }
 
-fn no_program_comptime(_: ModuleId) -> Option<ComptimeCheck> {
+fn no_program_comptime_values(_: ModuleId) -> Option<ComptimeValues> {
+    None
+}
+
+fn no_program_comptime_array_lengths(_: ModuleId) -> Option<ComptimeArrayLengths> {
     None
 }
 
@@ -153,6 +187,7 @@ impl BodyTimingMode {
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
     pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
+    pub extension_type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
 }
@@ -162,6 +197,7 @@ impl<'a> BodyProgramContext<'a> {
         Self {
             defs: None,
             type_normalizations: None,
+            extension_type_normalizations: None,
             signatures: None,
             layouts: None,
         }
@@ -187,6 +223,10 @@ impl fmt::Debug for BodyProgramContext<'_> {
         f.debug_struct("BodyProgramContext")
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
+            .field(
+                "extension_type_normalizations",
+                &self.extension_type_normalizations.is_some(),
+            )
             .field("signatures", &self.signatures.is_some())
             .field("layouts", &self.layouts.is_some())
             .finish()
@@ -204,10 +244,11 @@ pub struct BodyCheckInput<'a> {
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
     pub lowered: &'a TypeLowering,
-    pub signatures: &'a ItemSignatures,
+    pub signatures: BodyLocalSignatures<'a>,
+    pub comptime_signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub target: &'a TargetConfig,
-    pub comptime: &'a ComptimeCheck,
+    pub comptime: BodyComptime<'a>,
     pub comptime_module: &'a ResolvedComptimeModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
@@ -221,6 +262,35 @@ pub struct BodyCheckInput<'a> {
     pub function_scope: FunctionCheckScope,
     pub program_comptime: ProgramComptimeMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BodyLocalSignatures<'a> {
+    pub functions: &'a HashMap<DefId, FunctionSignature>,
+    pub globals: &'a HashMap<DefId, GlobalSignature>,
+    pub comptimes: &'a HashMap<DefId, ComptimeSignature>,
+    pub structs: &'a HashMap<DefId, StructSignature>,
+    pub unions: &'a HashMap<DefId, UnionSignature>,
+    pub enums: &'a HashMap<DefId, EnumSignature>,
+    pub type_aliases: &'a HashMap<DefId, TypeAliasSignature>,
+    pub traits: &'a HashMap<DefId, TraitSignature>,
+    pub trait_impls: &'a [TraitImplSignature],
+}
+
+impl<'a> BodyLocalSignatures<'a> {
+    pub fn from_item_signatures(signatures: &'a ItemSignatures) -> Self {
+        Self {
+            functions: &signatures.functions,
+            globals: &signatures.globals,
+            comptimes: &signatures.comptimes,
+            structs: &signatures.structs,
+            unions: &signatures.unions,
+            enums: &signatures.enums,
+            type_aliases: &signatures.type_aliases,
+            traits: &signatures.traits,
+            trait_impls: &signatures.trait_impls,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -257,7 +327,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub target: &'a TargetConfig,
-    pub comptime: &'a ComptimeCheck,
+    pub comptime: BodyComptime<'a>,
     pub comptime_module: &'a ResolvedComptimeModule,
     pub extensions: &'a VisibleExtensionMethods,
     pub program_extension_methods: &'a ExtensionMethods,
@@ -312,7 +382,15 @@ pub fn check_module_bodies(
     let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
-    let empty_comptime = ComptimeCheck::default();
+    let empty_comptime_values = HashMap::new();
+    let empty_typed_comptime_values = HashMap::new();
+    let empty_array_lengths = HashMap::new();
+    let empty_comptime = BodyComptime {
+        interner: &lowered.interner,
+        values: &empty_comptime_values,
+        typed_values: &empty_typed_comptime_values,
+        array_lengths: &empty_array_lengths,
+    };
     let target = TargetConfig::host();
     let source_path = SourcePath::new("main.nia");
     let item_tree = ModuleItemTree::from_module(module);
@@ -337,10 +415,11 @@ pub fn check_module_bodies(
         locals,
         semantic_uses: &semantic_uses,
         lowered,
-        signatures,
+        signatures: BodyLocalSignatures::from_item_signatures(signatures),
+        comptime_signatures: signatures,
         normalization: &empty_normalization,
         target: &target,
-        comptime: &empty_comptime,
+        comptime: empty_comptime,
         comptime_module: &empty_comptime_module,
         layouts: &layouts,
         extensions: &empty_extensions,
@@ -399,7 +478,8 @@ pub fn check_module_bodies_with_program_signatures(
         locals: input.locals,
         semantic_uses: input.semantic_uses,
         lowered: input.lowered,
-        signatures: input.signatures,
+        signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
+        comptime_signatures: input.signatures,
         normalization: input.normalization,
         target: input.target,
         comptime: input.comptime,
@@ -482,10 +562,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
 ) -> BodyCheck {
     let timing = timings.enabled();
     let module_id = input.defs.module_id;
-    let mut interner = input
-        .extension_interner
-        .cloned()
-        .unwrap_or_else(|| input.normalization.interner.clone());
+    let mut interner = input.normalization.interner.clone();
     let extension_methods_by_id = BodyChecker::extension_method_lookup(
         module_id,
         input.signatures,
@@ -494,7 +571,13 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         &mut interner,
         &input.lowered.interner,
         input.normalization,
-        input.program.type_normalizations,
+        input.extension_interner,
+        input.program.extension_type_normalizations,
+    );
+    let extensions = import_visible_extensions_into_working_interner(
+        input.extensions,
+        input.extension_interner,
+        &mut interner,
     );
     let void_ty = interner.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
@@ -507,12 +590,13 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         interner,
         type_lowering: input.lowered,
         signatures: input.signatures,
+        comptime_signatures: input.comptime_signatures,
         normalization: input.normalization,
         target: input.target,
         comptime: input.comptime,
         comptime_module: input.comptime_module,
         layouts: input.layouts,
-        extensions: input.extensions,
+        extensions,
         program_extension_methods: input.program_extension_methods,
         function_signature_scope: match input.function_scope {
             FunctionCheckScope::LocalModule => FunctionSignatureScope::LocalModule,
@@ -528,7 +612,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_traits: input.program_traits.traits,
         program_type_aliases: input.program_types.type_aliases,
         program_trait_impls: input.program_traits.trait_impls,
-        program_comptime: input.program_comptime.comptime,
+        program_comptime_values: input.program_comptime.values,
+        program_comptime_array_lengths: input.program_comptime.array_lengths,
         program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,
         extension_methods_by_id,
@@ -577,7 +662,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             global_inits: checker.global_inits,
         },
         facts: SemanticFacts {
-            local_types: checker.local_types,
             global_types: checker
                 .global_types
                 .into_iter()
@@ -647,13 +731,14 @@ struct BodyChecker<'a> {
     semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
     type_lowering: &'a TypeLowering,
-    signatures: &'a ItemSignatures,
+    signatures: BodyLocalSignatures<'a>,
+    comptime_signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
-    comptime: &'a ComptimeCheck,
+    comptime: BodyComptime<'a>,
     comptime_module: &'a ResolvedComptimeModule,
     layouts: &'a Layouts,
-    extensions: &'a VisibleExtensionMethods,
+    extensions: VisibleExtensionMethods,
     program_extension_methods: &'a ExtensionMethods,
     function_signature_scope: FunctionSignatureScope<'a>,
     program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
@@ -664,7 +749,8 @@ struct BodyChecker<'a> {
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     program_type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
-    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    program_comptime_values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    program_comptime_array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
     program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
     source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
@@ -747,19 +833,80 @@ struct ReceiverBase {
     has_readonly_pointer: bool,
 }
 
+fn import_visible_extensions_into_working_interner(
+    extensions: &VisibleExtensionMethods,
+    source: Option<&TyInterner>,
+    target: &mut TyInterner,
+) -> VisibleExtensionMethods {
+    let Some(source) = source else {
+        return extensions.clone();
+    };
+    let mut imported = VisibleExtensionMethods::default();
+    for extension_target in extensions.targets() {
+        let target_ty = nia_ty::import_type_into(target, source, extension_target.target_ty);
+        for method in &extension_target.methods {
+            let mut method = method.clone();
+            method.trait_args = method
+                .trait_args
+                .iter()
+                .map(|arg| nia_ty::import_type_into(target, source, *arg))
+                .collect();
+            method.where_predicates =
+                import_where_predicates_between_interners(target, source, &method.where_predicates);
+            imported.insert(extension_target.impl_id, target_ty, method);
+        }
+        for value in &extension_target.associated_values {
+            imported.insert_associated_value(extension_target.impl_id, target_ty, value.clone());
+        }
+    }
+    imported
+}
+
+fn import_where_predicates_between_interners(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    predicates: &[nia_defs::WherePredicateSignature],
+) -> Vec<nia_defs::WherePredicateSignature> {
+    predicates
+        .iter()
+        .map(|predicate| nia_defs::WherePredicateSignature {
+            ty: nia_ty::import_type_into(target, source, predicate.ty),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| nia_defs::WhereBoundSignature {
+                    trait_ty: nia_ty::import_type_into(target, source, bound.trait_ty),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| nia_defs::AssociatedTypeBindingSignature {
+                            name: binding.name.clone(),
+                            ty: nia_ty::import_type_into(target, source, binding.ty),
+                            span: binding.span,
+                        })
+                        .collect(),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        })
+        .collect()
+}
+
 impl<'a> BodyChecker<'a> {
     fn extension_method_lookup(
         module_id: ModuleId,
-        signatures: &ItemSignatures,
+        signatures: BodyLocalSignatures<'_>,
         extensions: &VisibleExtensionMethods,
         program_extensions: &ExtensionMethods,
         interner: &mut TyInterner,
         local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
+        extension_interner: Option<&TyInterner>,
         program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
-        for impl_signature in &signatures.trait_impls {
+        for impl_signature in signatures.trait_impls {
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
             let target_ty = nia_ty::import_type_into(interner, local_type_interner, target_ty);
             for method in &impl_signature.methods {
@@ -776,11 +923,27 @@ impl<'a> BodyChecker<'a> {
             }
         }
         for target in extensions.targets() {
+            let target_ty = extension_interner
+                .map(|source| nia_ty::import_type_into(interner, source, target.target_ty))
+                .unwrap_or(target.target_ty);
             for method in &target.methods {
+                let mut method = method.clone();
+                if let Some(source) = extension_interner {
+                    method.trait_args = method
+                        .trait_args
+                        .iter()
+                        .map(|arg| nia_ty::import_type_into(interner, source, *arg))
+                        .collect();
+                    method.where_predicates = import_where_predicates_between_interners(
+                        interner,
+                        source,
+                        &method.where_predicates,
+                    );
+                }
                 methods
                     .entry(method.def_id)
                     .or_insert_with(|| ExtensionMethodLookup {
-                        target_ty: target.target_ty,
+                        target_ty,
                         impl_generics: method.impl_generics.clone(),
                     });
             }
@@ -789,13 +952,13 @@ impl<'a> BodyChecker<'a> {
             if methods.contains_key(&method.def_id) {
                 continue;
             }
-            let target_ty = program_normalizations
+            let Some(normalization) = program_normalizations
                 .and_then(|normalization| normalization(method.def_id.module_id))
-                .map(|normalization| {
-                    let target_ty = normalization.normalize(method.target_ty);
-                    nia_ty::import_type_into(interner, &normalization.interner, target_ty)
-                })
-                .unwrap_or(method.target_ty);
+            else {
+                continue;
+            };
+            let target_ty = normalization.normalize(method.target_ty);
+            let target_ty = nia_ty::import_type_into(interner, &normalization.interner, target_ty);
             methods.insert(
                 method.def_id,
                 ExtensionMethodLookup {
@@ -941,24 +1104,32 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn import_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if ty.interner_id == self.interner.interner_id() {
-            ty
-        } else if let Some(source) = self.interner_containing_ty(ty) {
+        if self.interner.get(ty).is_some() {
+            return ty;
+        }
+        if let Some(source) = self.interner_containing_ty(ty) {
             nia_ty::import_type_into(&mut self.interner, &source, ty)
         } else {
             ty
         }
     }
 
-    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<TyInterner> {
-        if self.interner.get(ty).is_some() {
-            return Some(self.interner.clone());
+    fn import_lowered_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
+        if self.type_lowering.interner.get(ty).is_some() {
+            return nia_ty::import_type_into(&mut self.interner, &self.type_lowering.interner, ty);
         }
+        self.import_type_to_working_interner(ty)
+    }
+
+    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<TyInterner> {
         if self.normalization.interner.get(ty).is_some() {
             return Some(self.normalization.interner.clone());
         }
         if self.comptime.interner.get(ty).is_some() {
             return Some(self.comptime.interner.clone());
+        }
+        if self.interner.get(ty).is_some() {
+            return Some(self.interner.clone());
         }
         let module_id = ty.owner().module_id();
         if !self
@@ -992,7 +1163,7 @@ impl<'a> BodyChecker<'a> {
             return Some(ty);
         }
         let ty = self.type_lowering.ty_for_key(&expr.node_key)?;
-        Some(self.import_type_to_working_interner(ty))
+        Some(self.import_lowered_type_to_working_interner(ty))
     }
 
     fn bracket_suffix_resolution(&self, expr: &Expr) -> Option<BracketSuffixResolution> {
@@ -1169,12 +1340,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn seed_global_types(&mut self) {
-        for (def_id, signature) in &self.signatures.globals {
+        for (def_id, signature) in self.signatures.globals {
             if let Some(ty) = signature.explicit_type {
                 self.global_types.insert(*def_id, ty);
             }
         }
-        for (def_id, signature) in &self.signatures.comptimes {
+        for (def_id, signature) in self.signatures.comptimes {
             if let Some(ty) = signature.explicit_type {
                 self.comptime_types.insert(*def_id, ty);
             }
@@ -1360,6 +1531,7 @@ impl<'a> BodyChecker<'a> {
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
+        let previous_local_types = std::mem::take(&mut self.local_types);
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
         let self_ty = self.method_self_type(def_id, &signature);
@@ -1387,6 +1559,7 @@ impl<'a> BodyChecker<'a> {
             self.current_return = previous_return;
             self.current_def_id = previous_def_id;
             self.current_param_locals = previous_param_locals;
+            self.local_types = previous_local_types;
             return;
         }
         if let Some(body) = &function.body {
@@ -1433,6 +1606,7 @@ impl<'a> BodyChecker<'a> {
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
         self.current_param_locals = previous_param_locals;
+        self.local_types = previous_local_types;
     }
 
     fn check_object_safe_types_in_signature(&mut self, signature: &FunctionSignature) {

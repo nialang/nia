@@ -1263,11 +1263,7 @@ impl<'a> BodyChecker<'a> {
         let nia_comptime_check::ComptimeValueType::Runtime(ty) = typed.ty else {
             return None;
         };
-        if ty.interner_id == self.interner.interner_id() {
-            return Some(ty);
-        }
-        let source = self.interner_containing_ty(ty)?.clone();
-        Some(nia_ty::import_type_into(&mut self.interner, &source, ty))
+        Some(self.import_type_to_working_interner(ty))
     }
 
     pub(crate) fn expr_runtime_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {
@@ -1499,7 +1495,7 @@ impl<'a> BodyChecker<'a> {
         if def_id.module_id == self.defs.module_id {
             return self.comptime.values.get(&key).cloned();
         }
-        (self.program_comptime)(def_id.module_id)
+        (self.program_comptime_values)(def_id.module_id)
             .and_then(|comptime| comptime.values.get(&key).cloned())
     }
 

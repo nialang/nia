@@ -1097,9 +1097,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
                 .program
                 .module(right.module_id)
-                .map(|module| &module.comptime)
-                .unwrap_or(&self.source.comptime)
-                .array_lengths
+                .map(|module| &module.comptime.array_lengths)
+                .unwrap_or(&self.source.comptime.array_lengths)
                 .get(right)
                 .is_some_and(|right| left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {

@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ComptimeArmType, ComptimeCheck, ComptimeInput, ComptimeKey, ComptimeProgramContext,
-    ComptimeValue, ComptimeValueFieldType, ComptimeValueType, TypedComptimeValue,
-    resolved_pattern_local_id,
+    ComptimeArmType, ComptimeArrayLengths, ComptimeCheck, ComptimeEnumValues, ComptimeInput,
+    ComptimeKey, ComptimeProgramContext, ComptimeTypedFacts, ComptimeValue, ComptimeValueFieldType,
+    ComptimeValueType, ComptimeValues, TypedComptimeValue, resolved_pattern_local_id,
     support::{
         comptime_string_to_char_array, enum_next_value, float_literal_suffix_ty,
         int_const_in_i128_range, integer_literal_suffix_ty, integer_range, is_float_primitive,
@@ -110,33 +110,141 @@ pub fn infer_resolved_comptime_expr_type(
 }
 
 pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
-    let mut analyzer = Analyzer {
+    let array_lengths = compute_module_comptime_array_lengths(input);
+    let enum_values = compute_module_comptime_enum_values(input, array_lengths.clone());
+    let values = compute_module_comptime_values(input, array_lengths.clone(), enum_values.clone());
+    let typed_facts = compute_module_comptime_typed_facts(
         input,
-        values: HashMap::new(),
-        typed_values: HashMap::new(),
-        external_typed_values: None,
-        call_locals: Vec::new(),
-        execution_module_overrides: Vec::new(),
-        enum_values: HashMap::new(),
-        typed_enum_values: HashMap::new(),
-        array_lengths: HashMap::new(),
-        diagnostics: Vec::new(),
-        active: HashSet::new(),
-        working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
-        program_type_normalizations: RefCell::new(HashMap::new()),
-        resolved_call_type_substitutions: HashMap::new(),
-    };
-    analyzer.analyze_module();
+        array_lengths.clone(),
+        enum_values.clone(),
+        values.clone(),
+    );
+    check_module_comptime_with_all_phases(input, array_lengths, enum_values, values, typed_facts)
+}
+
+pub fn compute_module_comptime_array_lengths(input: ComptimeInput<'_>) -> ComptimeArrayLengths {
+    let mut analyzer = Analyzer::new(input);
+    analyzer.analyze_array_lengths();
+    ComptimeArrayLengths {
+        interner: analyzer.finish_local_interner(),
+        values: analyzer.array_lengths,
+        diagnostics: analyzer.diagnostics,
+    }
+}
+
+pub fn check_module_comptime_with_array_lengths(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+) -> ComptimeCheck {
+    let enum_values = compute_module_comptime_enum_values(input, array_lengths.clone());
+    check_module_comptime_with_phases(input, array_lengths, enum_values)
+}
+
+pub fn compute_module_comptime_enum_values(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+) -> ComptimeEnumValues {
+    let mut analyzer = Analyzer::new(input);
+    analyzer
+        .working_interners
+        .insert(input.defs.module_id, array_lengths.interner);
+    analyzer.array_lengths = array_lengths.values;
+    analyzer.diagnostics = array_lengths.diagnostics;
+    analyzer.analyze_enum_values();
+    ComptimeEnumValues {
+        interner: analyzer.finish_local_interner(),
+        values: analyzer.enum_values,
+        typed_values: analyzer.typed_enum_values,
+        diagnostics: analyzer.diagnostics,
+    }
+}
+
+pub fn check_module_comptime_with_phases(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+    enum_values: ComptimeEnumValues,
+) -> ComptimeCheck {
+    let values = compute_module_comptime_values(input, array_lengths.clone(), enum_values.clone());
+    let typed_facts = compute_module_comptime_typed_facts(
+        input,
+        array_lengths.clone(),
+        enum_values.clone(),
+        values.clone(),
+    );
+    check_module_comptime_with_all_phases(input, array_lengths, enum_values, values, typed_facts)
+}
+
+pub fn compute_module_comptime_values(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+    enum_values: ComptimeEnumValues,
+) -> ComptimeValues {
+    let mut analyzer = Analyzer::new(input);
+    analyzer
+        .working_interners
+        .insert(input.defs.module_id, enum_values.interner);
+    analyzer.array_lengths = array_lengths.values;
+    analyzer.enum_values = enum_values.values;
+    analyzer.typed_enum_values = enum_values.typed_values;
+    analyzer.diagnostics = enum_values.diagnostics;
+    analyzer.analyze_values();
+    ComptimeValues {
+        interner: analyzer.finish_local_interner(),
+        values: analyzer.values,
+        typed_values: analyzer.typed_values,
+        diagnostics: analyzer.diagnostics,
+    }
+}
+
+pub fn check_module_comptime_with_all_phases(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+    enum_values: ComptimeEnumValues,
+    values: ComptimeValues,
+    typed_facts: ComptimeTypedFacts,
+) -> ComptimeCheck {
+    let diagnostics = typed_facts.diagnostics;
+    let mut analyzer = Analyzer::new(input);
+    analyzer
+        .working_interners
+        .insert(input.defs.module_id, typed_facts.interner);
+    analyzer.array_lengths = array_lengths.values;
+    analyzer.enum_values = enum_values.values;
+    analyzer.typed_enum_values = enum_values.typed_values;
+    analyzer.values = values.values;
+    analyzer.typed_values = typed_facts.typed_values;
+    analyzer.diagnostics = diagnostics;
     ComptimeCheck {
-        interner: analyzer
-            .working_interners
-            .remove(&input.defs.module_id)
-            .unwrap_or_else(|| input.interner.clone()),
+        interner: analyzer.finish_local_interner(),
         values: analyzer.values,
         typed_values: analyzer.typed_values,
         enum_values: analyzer.enum_values,
         typed_enum_values: analyzer.typed_enum_values,
         array_lengths: analyzer.array_lengths,
+        diagnostics: analyzer.diagnostics,
+    }
+}
+
+pub fn compute_module_comptime_typed_facts(
+    input: ComptimeInput<'_>,
+    array_lengths: ComptimeArrayLengths,
+    enum_values: ComptimeEnumValues,
+    values: ComptimeValues,
+) -> ComptimeTypedFacts {
+    let mut analyzer = Analyzer::new(input);
+    analyzer
+        .working_interners
+        .insert(input.defs.module_id, values.interner);
+    analyzer.array_lengths = array_lengths.values;
+    analyzer.enum_values = enum_values.values;
+    analyzer.typed_enum_values = enum_values.typed_values;
+    analyzer.values = values.values;
+    analyzer.typed_values = values.typed_values;
+    analyzer.diagnostics = values.diagnostics;
+    analyzer.analyze_functions();
+    ComptimeTypedFacts {
+        interner: analyzer.finish_local_interner(),
+        typed_values: analyzer.typed_values,
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -182,6 +290,31 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
 }
 
 impl Analyzer<'_> {
+    fn new(input: ComptimeInput<'_>) -> Analyzer<'_> {
+        Analyzer {
+            input,
+            values: HashMap::new(),
+            typed_values: HashMap::new(),
+            external_typed_values: None,
+            call_locals: Vec::new(),
+            execution_module_overrides: Vec::new(),
+            enum_values: HashMap::new(),
+            typed_enum_values: HashMap::new(),
+            array_lengths: HashMap::new(),
+            diagnostics: Vec::new(),
+            active: HashSet::new(),
+            working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+            program_type_normalizations: RefCell::new(HashMap::new()),
+            resolved_call_type_substitutions: HashMap::new(),
+        }
+    }
+
+    fn finish_local_interner(&mut self) -> TyInterner {
+        self.working_interners
+            .remove(&self.input.defs.module_id)
+            .unwrap_or_else(|| self.input.interner.clone())
+    }
+
     fn for_typed_query(input: TypedComptimeQueryInput<'_>) -> Analyzer<'_> {
         Analyzer {
             input: ComptimeInput {
@@ -218,21 +351,30 @@ impl Analyzer<'_> {
         }
     }
 
-    fn analyze_module(&mut self) {
-        let functions = self.input.module.functions().clone();
-        for (function_id, function) in functions {
-            self.check_comptime_function_body(function_id, &function);
-        }
-        let enums = self.input.module.enums().to_vec();
-        for item_enum in &enums {
-            self.eval_enum(item_enum);
-        }
+    fn analyze_array_lengths(&mut self) {
         let const_exprs = self.input.module.const_exprs().clone();
         for (id, expr) in const_exprs {
             if let Some(value) = self.eval_resolved_array_len_expr(&expr) {
                 self.array_lengths.insert(id, value);
             }
         }
+    }
+
+    fn analyze_enum_values(&mut self) {
+        let enums = self.input.module.enums().to_vec();
+        for item_enum in &enums {
+            self.eval_enum(item_enum);
+        }
+    }
+
+    fn analyze_functions(&mut self) {
+        let functions = self.input.module.functions().clone();
+        for (function_id, function) in functions {
+            self.check_comptime_function_body(function_id, &function);
+        }
+    }
+
+    fn analyze_values(&mut self) {
         let global_initializers = self
             .input
             .module

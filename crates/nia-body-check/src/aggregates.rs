@@ -536,7 +536,7 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
         let program_signature = self.program_comptimes.get(&def_id).cloned()?;
-        if let Some(typed) = (self.program_comptime)(def_id.module_id).and_then(|comptime| {
+        if let Some(typed) = (self.program_comptime_values)(def_id.module_id).and_then(|comptime| {
             comptime
                 .typed_values
                 .get(&ComptimeKey::Global(def_id))
@@ -1098,7 +1098,7 @@ impl<'a> BodyChecker<'a> {
                 values: self.values,
                 locals: self.locals,
                 semantic_uses: self.semantic_uses,
-                signatures: self.signatures,
+                signatures: self.comptime_signatures,
                 interner: &self.interner,
                 normalized: &self.normalization.normalized,
                 target: self.target,
@@ -1152,7 +1152,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
-            signatures: self.signatures,
+            signatures: self.comptime_signatures,
             interner: &query_interner,
             normalized: &self.normalization.normalized,
             target: self.target,

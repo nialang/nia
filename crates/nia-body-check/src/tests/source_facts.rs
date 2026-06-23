@@ -44,7 +44,7 @@ fn main() i32 {
         "{:?}",
         comptime_module.diagnostics
     );
-    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+    let comptime_input = nia_comptime_check::ComptimeInput {
         module: &comptime_module.module,
         defs: &defs,
         values: &values,
@@ -56,7 +56,29 @@ fn main() i32 {
         target: &target,
         source_path: &source_path,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
-    });
+    };
+    let comptime_array_lengths =
+        nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
+    let comptime_enum_values = nia_comptime_check::compute_module_comptime_enum_values(
+        comptime_input,
+        comptime_array_lengths.clone(),
+    );
+    let comptime_values = nia_comptime_check::compute_module_comptime_values(
+        comptime_input,
+        comptime_array_lengths.clone(),
+        comptime_enum_values.clone(),
+    );
+    let comptime_typed_facts = nia_comptime_check::compute_module_comptime_typed_facts(
+        comptime_input,
+        comptime_array_lengths.clone(),
+        comptime_enum_values,
+        comptime_values.clone(),
+    );
+    let comptime = crate::BodyComptime::from_phases(
+        &comptime_values,
+        &comptime_array_lengths,
+        &comptime_typed_facts,
+    );
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -79,10 +101,11 @@ fn main() i32 {
         locals: &locals,
         semantic_uses: &semantic_uses,
         lowered: &lowered,
-        signatures: &signatures,
+        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+        comptime_signatures: &signatures,
         normalization: &normalization,
         target: &target,
-        comptime: &comptime,
+        comptime,
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),
@@ -175,7 +198,7 @@ fn main() i32 {
         "{:?}",
         comptime_module.diagnostics
     );
-    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+    let comptime_input = nia_comptime_check::ComptimeInput {
         module: &comptime_module.module,
         defs: &defs,
         values: &values,
@@ -187,7 +210,29 @@ fn main() i32 {
         target: &target,
         source_path: &source_path,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
-    });
+    };
+    let comptime_array_lengths =
+        nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
+    let comptime_enum_values = nia_comptime_check::compute_module_comptime_enum_values(
+        comptime_input,
+        comptime_array_lengths.clone(),
+    );
+    let comptime_values = nia_comptime_check::compute_module_comptime_values(
+        comptime_input,
+        comptime_array_lengths.clone(),
+        comptime_enum_values.clone(),
+    );
+    let comptime_typed_facts = nia_comptime_check::compute_module_comptime_typed_facts(
+        comptime_input,
+        comptime_array_lengths.clone(),
+        comptime_enum_values,
+        comptime_values.clone(),
+    );
+    let comptime = crate::BodyComptime::from_phases(
+        &comptime_values,
+        &comptime_array_lengths,
+        &comptime_typed_facts,
+    );
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -210,10 +255,11 @@ fn main() i32 {
         locals: &locals,
         semantic_uses: &semantic_uses,
         lowered: &lowered,
-        signatures: &signatures,
+        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+        comptime_signatures: &signatures,
         normalization: &normalization,
         target: &target,
-        comptime: &comptime,
+        comptime,
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),

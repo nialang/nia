@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::GlobalDefId;
-use nia_item_signatures::{FunctionSignature, ItemSignatures, StructSignature, UnionSignature};
+use nia_item_signatures::{
+    EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures, StructSignature,
+    UnionSignature,
+};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
@@ -18,6 +21,18 @@ pub struct ProgramAbiSignatures<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbiCheck {
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ModuleAbiSignatures<'a> {
+    pub functions: &'a HashMap<DefId, FunctionSignature>,
+    pub function_interner: &'a TyInterner,
+    pub structs: &'a HashMap<DefId, StructSignature>,
+    pub unions: &'a HashMap<DefId, UnionSignature>,
+    pub enums: &'a HashMap<DefId, EnumSignature>,
+    pub type_interner: &'a TyInterner,
+    pub globals: &'a HashMap<DefId, GlobalSignature>,
+    pub value_interner: &'a TyInterner,
 }
 
 pub fn check_module_abi(
@@ -46,9 +61,29 @@ pub fn check_module_abi_with_program_signatures(
     signatures: &ItemSignatures,
     program_signatures: ProgramAbiSignatures<'_>,
 ) -> AbiCheck {
+    check_module_abi_families_with_program_signatures(
+        defs,
+        ModuleAbiSignatures {
+            functions: &signatures.functions,
+            function_interner: interner,
+            structs: &signatures.structs,
+            unions: &signatures.unions,
+            enums: &signatures.enums,
+            type_interner: interner,
+            globals: &signatures.globals,
+            value_interner: interner,
+        },
+        program_signatures,
+    )
+}
+
+pub fn check_module_abi_families_with_program_signatures(
+    defs: &DefCollection,
+    signatures: ModuleAbiSignatures<'_>,
+    program_signatures: ProgramAbiSignatures<'_>,
+) -> AbiCheck {
     let mut checker = AbiChecker {
         defs,
-        interner,
         signatures,
         program_signatures,
         diagnostics: Vec::new(),
@@ -61,8 +96,7 @@ pub fn check_module_abi_with_program_signatures(
 
 struct AbiChecker<'a> {
     defs: &'a DefCollection,
-    interner: &'a TyInterner,
-    signatures: &'a ItemSignatures,
+    signatures: ModuleAbiSignatures<'a>,
     program_signatures: ProgramAbiSignatures<'a>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -92,9 +126,9 @@ impl ExternTyContext {
 
 impl AbiChecker<'_> {
     fn check(&mut self) {
-        for (def_id, signature) in &self.signatures.functions {
+        for (def_id, signature) in self.signatures.functions {
             if signature.is_extern {
-                self.check_extern_function(*def_id, signature);
+                self.check_extern_function(*def_id, signature, self.signatures.function_interner);
             }
         }
         for signature in self.signatures.structs.values() {
@@ -111,7 +145,12 @@ impl AbiChecker<'_> {
 
     fn check_extern_struct(&mut self, signature: &nia_item_signatures::StructSignature) {
         for field in &signature.fields {
-            self.check_extern_ty(field.span, field.ty, ExternTyContext::StructField);
+            self.check_extern_ty(
+                self.signatures.type_interner,
+                field.span,
+                field.ty,
+                ExternTyContext::StructField,
+            );
         }
     }
 
@@ -124,10 +163,20 @@ impl AbiChecker<'_> {
             ));
             return;
         };
-        self.check_extern_ty(signature.span, ty, ExternTyContext::Global);
+        self.check_extern_ty(
+            self.signatures.value_interner,
+            signature.span,
+            ty,
+            ExternTyContext::Global,
+        );
     }
 
-    fn check_extern_function(&mut self, def_id: DefId, signature: &FunctionSignature) {
+    fn check_extern_function(
+        &mut self,
+        def_id: DefId,
+        signature: &FunctionSignature,
+        interner: &TyInterner,
+    ) {
         if !signature.generics.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -150,16 +199,22 @@ impl AbiChecker<'_> {
             ));
         }
         for param in &signature.params {
-            self.check_extern_ty(param.span, param.ty, ExternTyContext::FunctionParameter);
+            self.check_extern_ty(
+                interner,
+                param.span,
+                param.ty,
+                ExternTyContext::FunctionParameter,
+            );
         }
-        if self.is_never(signature.return_type) {
+        if self.is_never(interner, signature.return_type) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 signature.span,
                 "extern return type cannot use `never`",
             ));
-        } else if !self.is_void(signature.return_type) {
+        } else if !self.is_void(interner, signature.return_type) {
             self.check_extern_ty(
+                interner,
                 signature.span,
                 signature.return_type,
                 ExternTyContext::FunctionReturn,
@@ -176,9 +231,15 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: ExternTyContext) {
+    fn check_extern_ty(
+        &mut self,
+        interner: &TyInterner,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        context: ExternTyContext,
+    ) {
         let context_desc = context.description();
-        match self.interner.get(ty) {
+        match interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,
@@ -250,10 +311,16 @@ impl AbiChecker<'_> {
                     ));
                 }
                 for param in params {
-                    self.check_extern_ty(span, *param, ExternTyContext::FunctionPointerParameter);
-                }
-                if !self.is_void(*return_type) {
                     self.check_extern_ty(
+                        interner,
+                        span,
+                        *param,
+                        ExternTyContext::FunctionPointerParameter,
+                    );
+                }
+                if !self.is_void(interner, *return_type) {
+                    self.check_extern_ty(
+                        interner,
                         span,
                         *return_type,
                         ExternTyContext::FunctionPointerReturn,
@@ -269,7 +336,7 @@ impl AbiChecker<'_> {
                             "extern struct field cannot use inferred array length",
                         ));
                     }
-                    self.check_extern_ty(span, *elem, ExternTyContext::StructField);
+                    self.check_extern_ty(interner, span, *elem, ExternTyContext::StructField);
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
@@ -356,11 +423,8 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_void(&self, ty: nia_ids::InternedTyId) -> bool {
-        matches!(
-            self.interner.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Void))
-        )
+    fn is_void(&self, interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
+        matches!(interner.get(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
     }
 
     fn struct_signature(&self, def_id: GlobalDefId) -> Option<&StructSignature> {
@@ -387,9 +451,9 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_never(&self, ty: nia_ids::InternedTyId) -> bool {
+    fn is_never(&self, interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
         matches!(
-            self.interner.get(ty),
+            interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }
