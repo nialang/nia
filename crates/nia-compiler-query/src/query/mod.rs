@@ -13,7 +13,6 @@ use crate::{
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
-use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
@@ -69,14 +68,9 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ProgramDefsById = Arc<HashMap<ModuleId, DefCollection>>;
-type ProgramFullDefsById = Arc<HashMap<ModuleId, DefCollection>>;
-type ProgramSourcePaths = Arc<HashMap<ModuleId, SourcePath>>;
 type ProgramTypeLowerings = Arc<HashMap<ModuleId, TypeLowering>>;
 type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
 type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;
-type ProgramComptimeModules = Arc<HashMap<ModuleId, ResolvedComptimeModule>>;
-type ProgramComptimeById = Arc<HashMap<ModuleId, ComptimeCheck>>;
 type ProgramSignaturesValue = Arc<ProgramSignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
@@ -1338,10 +1332,7 @@ fn main() i32 {
             invalidated.contains(&"full_module_item_tree_input"),
             "{invalidated:?}"
         );
-        assert!(
-            invalidated.contains(&"body_check"),
-            "{invalidated:?}"
-        );
+        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(
             !invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
@@ -1501,10 +1492,7 @@ fn main() i32 {
             .map(|frame| frame.name)
             .collect::<Vec<_>>();
 
-        assert!(
-            invalidated.contains(&"type_lowering"),
-            "{invalidated:?}"
-        );
+        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
         assert!(
             !invalidated.contains(&"declaration_type_lowering"),
             "{invalidated:?}"
@@ -1732,12 +1720,13 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "declaration_type_lowering"
                 && dependency.to.name == "program_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
+            dependency.from.name == "declaration_type_lowering"
+                && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods" && dependency.to.name == "item_signatures"
@@ -1831,6 +1820,20 @@ fn main() i32 {
             dependency.from.name == "static_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.from.name == "static_check"
+                    && dependency.to.name == "program_comptime")
+        );
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.from.name == "static_check"
+                    && dependency.to.name == "program_full_defs_by_id")
+        );
     }
 
     #[test]
@@ -1853,12 +1856,12 @@ fn main() i32 {
             dependency.from.name == "program_declaration_type_normalizations"
                 && dependency.to.name == "declaration_type_normalization"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "program_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
+            dependency.from.name == "visible_extensions" && dependency.to.name == "module_defs"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
@@ -1871,7 +1874,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn comptime_uses_program_context_map_queries() {
+    fn comptime_uses_precise_program_context_queries() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -1885,19 +1888,17 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "comptime_module"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "program_comptime_modules"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "program_full_defs_by_id"
         }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_comptime_modules")
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_comptime_modules"
-                && dependency.to.name == "comptime_module"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_full_defs_by_id"
-                && dependency.to.name == "full_module_defs"
+            dependency.from.name == "comptime" && dependency.to.name == "full_module_defs"
         }));
     }
 
@@ -2001,6 +2002,10 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_module" && dependency.to.name == "body_check"
         }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "program_full_defs_by_id"
+        }));
     }
 
     #[test]
@@ -2085,9 +2090,12 @@ fn main() i32 {
             dependency.from.name == "body_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "program_comptime_modules"
-        }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_comptime_modules")
+        );
         assert!(
             !trace
                 .dependencies

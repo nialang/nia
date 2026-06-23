@@ -540,9 +540,13 @@ impl<'a> BodyChecker<'a> {
         }
         let name = self
             .defs_for_module(def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .map(|def| def.name.as_str())
-            .unwrap_or("<unavailable type name>");
+            .and_then(|defs| {
+                defs.as_ref()
+                    .defs
+                    .get(def_id.def_id)
+                    .map(|def| def.name.clone())
+            })
+            .unwrap_or_else(|| "<unavailable type name>".to_string());
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             span,

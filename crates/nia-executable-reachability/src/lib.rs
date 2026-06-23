@@ -6,7 +6,7 @@ use nia_body_ir::{
     TypedExpr, TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPattern,
     TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitchArmBody,
 };
-use nia_defs::{DefCollection, DefKind, ExtensionMethods};
+use nia_defs::ExtensionMethods;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{ItemSignatures, ProgramSignatureMaps};
@@ -37,10 +37,25 @@ pub struct ExecutableReachabilityStats {
     pub reachable_bodies: usize,
 }
 
+#[derive(Clone, Copy)]
+pub struct ExecutableRootDefs<'a> {
+    pub named_function: &'a dyn Fn(ModuleId, &str) -> Option<GlobalDefId>,
+    pub module_functions: &'a dyn Fn(ModuleId) -> Vec<GlobalDefId>,
+}
+
+impl std::fmt::Debug for ExecutableRootDefs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutableRootDefs")
+            .field("named_function", &true)
+            .field("module_functions", &true)
+            .finish()
+    }
+}
+
 pub fn compute_executable_reachability(
     parse_ok: &[ModuleId],
     graph: &ModuleGraph,
-    defs_by_id: &HashMap<ModuleId, DefCollection>,
+    root_defs: ExecutableRootDefs<'_>,
     program_signatures: ProgramSignatureMaps<'_>,
     extension_methods: &ExtensionMethods,
     modules: &[ReachableModuleInput<'_>],
@@ -49,7 +64,7 @@ pub fn compute_executable_reachability(
         .iter()
         .map(|module| (module.module_id, *module))
         .collect::<HashMap<_, _>>();
-    let mut reachable_functions = executable_root_functions(graph, defs_by_id);
+    let mut reachable_functions = executable_root_functions(graph, root_defs);
     let mut reachable_modules = reachable_functions
         .iter()
         .map(|def_id| def_id.module_id)
@@ -197,46 +212,19 @@ pub fn filter_semantic_facts_for_reachable_functions(
 
 fn executable_root_functions(
     graph: &ModuleGraph,
-    defs_by_id: &HashMap<ModuleId, DefCollection>,
+    root_defs: ExecutableRootDefs<'_>,
 ) -> HashSet<GlobalDefId> {
     let mut roots = HashSet::new();
-    if let Some(main) = named_function(defs_by_id, graph.entry(), "main") {
+    if let Some(main) = (root_defs.named_function)(graph.entry(), "main") {
         roots.insert(main);
     }
     if let Some(start_module) = freestanding_start_module(graph)
-        && let Some(start) = named_function(defs_by_id, start_module, "_start")
+        && let Some(start) = (root_defs.named_function)(start_module, "_start")
     {
         roots.insert(start);
-        roots.extend(module_functions(defs_by_id, start_module));
+        roots.extend((root_defs.module_functions)(start_module));
     }
     roots
-}
-
-fn module_functions(
-    defs_by_id: &HashMap<ModuleId, DefCollection>,
-    module_id: ModuleId,
-) -> impl Iterator<Item = GlobalDefId> + '_ {
-    defs_by_id
-        .get(&module_id)
-        .into_iter()
-        .flat_map(move |defs| {
-            defs.defs.iter().filter_map(move |(def_id, def)| {
-                (def.kind == DefKind::Function).then_some(GlobalDefId { module_id, def_id })
-            })
-        })
-}
-
-fn named_function(
-    defs_by_id: &HashMap<ModuleId, DefCollection>,
-    module_id: ModuleId,
-    name: &str,
-) -> Option<GlobalDefId> {
-    defs_by_id.get(&module_id).and_then(|defs| {
-        defs.defs.iter().find_map(|(def_id, def)| {
-            (def.kind == DefKind::Function && def.name == name)
-                .then_some(GlobalDefId { module_id, def_id })
-        })
-    })
 }
 
 fn extend_reachable_functions_from_bodies(

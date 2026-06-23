@@ -419,36 +419,6 @@ impl QueryKey<CompilerContext> for DefsByModuleQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramDefsByIdQuery;
-
-impl QueryKey<CompilerContext> for ProgramDefsByIdQuery {
-    type Value = ProgramDefsById;
-
-    fn name() -> &'static str {
-        "program_defs_by_id"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_defs_by_id)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramFullDefsByIdQuery;
-
-impl QueryKey<CompilerContext> for ProgramFullDefsByIdQuery {
-    type Value = ProgramFullDefsById;
-
-    fn name() -> &'static str {
-        "program_full_defs_by_id"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_full_defs_by_id)(db)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PublicSurfaceQueryValue {
     pub(super) surfaces: PublicSurfaces,

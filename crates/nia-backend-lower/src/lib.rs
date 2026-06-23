@@ -95,7 +95,7 @@ impl BackendTimingMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
@@ -123,7 +123,7 @@ pub struct BackendLowerModuleInput<'a> {
         ModuleId,
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
-    pub program_defs: &'a std::collections::HashMap<ModuleId, DefCollection>,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
     pub program_function_body_interners: &'a ProgramFunctionBodyInterners<'a>,
     pub program_type_normalizations:
         &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
@@ -135,6 +135,16 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_type_aliases:
         &'a std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+}
+
+impl std::fmt::Debug for BackendLowerModuleInput<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackendLowerModuleInput")
+            .field("module_id", &self.module_id)
+            .field("module_name", &self.module_name)
+            .field("program_defs", &true)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -527,6 +537,16 @@ impl ReachabilityWorklist {
             }
         }
     }
+}
+
+fn program_def(input: &BackendLowerModuleInput<'_>, def_id: GlobalDefId) -> Option<nia_defs::Def> {
+    if def_id.module_id == input.module_id {
+        return input.defs.defs.get(def_id.def_id).cloned();
+    }
+    (input.program_defs)(def_id.module_id)?
+        .defs
+        .get(def_id.def_id)
+        .cloned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1157,6 +1177,7 @@ impl<'a> ModuleLowerer<'a> {
         args: &[InternedTyId],
     ) -> String {
         let defs = &self.input.defs.defs;
+        let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let comptime = self.input.comptime;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
@@ -1171,12 +1192,8 @@ impl<'a> ModuleLowerer<'a> {
                 if let Some(name) = def_names.get(&def_id) {
                     return name.clone();
                 }
-                let name = self
-                    .input
-                    .program_defs
-                    .get(&def_id.module_id)
-                    .and_then(|defs| defs.defs.get(def_id.def_id))
-                    .or_else(|| defs.get(def_id.def_id))
+                let name = program_def(input, def_id)
+                    .or_else(|| defs.get(def_id.def_id).cloned())
                     .map(|def| sanitize_symbol_part(&def.name))
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
                 def_names.insert(def_id, name.clone());
@@ -1203,15 +1220,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn def_name(&self, def_id: GlobalDefId) -> String {
-        self.input
-            .program_defs
-            .get(&def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .or_else(|| {
-                (def_id.module_id == self.input.module_id)
-                    .then(|| self.input.defs.defs.get(def_id.def_id))
-                    .flatten()
-            })
+        program_def(self.input, def_id)
             .map(|def| def.name.clone())
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
     }

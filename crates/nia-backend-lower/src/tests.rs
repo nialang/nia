@@ -262,10 +262,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             type_aliases: &HashMap::new(),
             trait_impls: &[],
         },
-        program_comptime: nia_body_check::ProgramComptimeMaps {
-            comptimes: &HashMap::new(),
-            modules: &HashMap::new(),
-        },
+        program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
     });
     assert!(
@@ -307,6 +304,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     mutate_comptime(&mut comptime, &type_lowering);
     let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
+    let no_program_defs = |_| None;
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -331,7 +329,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
-        program_defs: &HashMap::new(),
+        program_defs: &no_program_defs,
         program_function_body_interners: &program_function_body_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use nia_ast::Expr;
 use nia_comptime_ir::{
@@ -169,22 +169,36 @@ pub struct ComptimeModuleInput<'a> {
     pub source_path: &'a SourcePath,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ComptimeProgramContext<'a> {
-    pub modules: Option<&'a HashMap<ModuleId, ResolvedComptimeModule>>,
-    pub source_paths: Option<&'a HashMap<ModuleId, SourcePath>>,
-    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub module: Option<&'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>>,
+    pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
     pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
+impl fmt::Debug for ComptimeProgramContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ComptimeProgramContext")
+            .field("module", &self.module.is_some())
+            .field("source_path", &self.source_path.is_some())
+            .field("defs", &self.defs.is_some())
+            .field("type_lowerings", &self.type_lowerings.is_some())
+            .field("type_normalizations", &self.type_normalizations.is_some())
+            .field("signatures", &self.signatures.is_some())
+            .field("trait_impls", &self.trait_impls.len())
+            .finish()
+    }
+}
+
 impl<'a> ComptimeProgramContext<'a> {
     pub fn empty() -> Self {
         Self {
-            modules: None,
-            source_paths: None,
+            module: None,
+            source_path: None,
             defs: None,
             type_lowerings: None,
             type_normalizations: None,

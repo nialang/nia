@@ -238,8 +238,10 @@ impl Analyzer<'_> {
             .collect::<Vec<_>>();
         for global_id in global_initializers {
             let span = self
-                .global_defs(global_id.module_id)
-                .and_then(|defs| defs.defs.get(global_id.def_id))
+                .input
+                .defs
+                .defs
+                .get(global_id.def_id)
                 .map(|def| def.span)
                 .unwrap_or(Span::new(0, 0));
             let _ = self.eval_key(ComptimeKey::Global(global_id), span);
@@ -366,7 +368,7 @@ impl Analyzer<'_> {
             return None;
         }
         let module_id = self.key_module_id(key);
-        let result = self.initializer_for_key(key).cloned().and_then(|expr| {
+        let result = self.initializer_for_key(key).and_then(|expr| {
             self.with_execution_module(module_id, |this| {
                 let expected = this.explicit_type_for_key(key);
                 let _ = this.resolved_comptime_expr_type(&expr, expected);
@@ -422,7 +424,7 @@ impl Analyzer<'_> {
     }
 
     fn inferred_type_for_key(&mut self, key: ComptimeKey) -> Option<ComptimeValueType> {
-        let expr = self.initializer_for_key(key)?.clone();
+        let expr = self.initializer_for_key(key)?;
         let module_id = self.key_module_id(key);
         self.with_execution_module(module_id, |this| {
             this.resolved_comptime_expr_type(&expr, None)

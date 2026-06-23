@@ -37,9 +37,9 @@ pub enum TypeNameResolution {
     Error,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
-    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
     pub graph: Option<&'a ModuleGraph>,
 }
 
@@ -48,6 +48,29 @@ impl<'a> ProgramDefsContext<'a> {
         Self {
             defs: None,
             graph: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for ProgramDefsContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProgramDefsContext")
+            .field("defs", &self.defs.is_some())
+            .field("graph", &self.graph.is_some())
+            .finish()
+    }
+}
+
+enum ModuleDefs<'a> {
+    Borrowed(&'a DefCollection),
+    Owned(DefCollection),
+}
+
+impl ModuleDefs<'_> {
+    fn as_ref(&self) -> &DefCollection {
+        match self {
+            ModuleDefs::Borrowed(defs) => defs,
+            ModuleDefs::Owned(defs) => defs,
         }
     }
 }
@@ -286,6 +309,7 @@ impl TypeResolver<'_> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return DirectMember::Unloaded;
         };
+        let target_defs = target_defs.as_ref();
         let Some(def_id) = target_defs.module_scope.types.get(name) else {
             return DirectMember::Missing;
         };
@@ -849,6 +873,7 @@ impl<'a> TypeResolver<'a> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return TypeNameResolution::Error;
         };
+        let target_defs = target_defs.as_ref();
         let Some(def) = target_defs.defs.get(def_id) else {
             return TypeNameResolution::Error;
         };
@@ -967,11 +992,11 @@ impl<'a> TypeResolver<'a> {
             .any(|associated_types| associated_types.iter().any(|associated| associated == name))
     }
 
-    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs<'_>> {
         if module_id == self.defs.module_id {
-            Some(self.defs)
+            Some(ModuleDefs::Borrowed(self.defs))
         } else {
-            self.program_defs.defs?.get(&module_id)
+            Some(ModuleDefs::Owned((self.program_defs.defs?)(module_id)?))
         }
     }
 }

@@ -333,7 +333,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 span,
                 message: "cannot resolve comptime function return type".to_string(),
             })?;
-        let Some(function) = self.comptime_function_body(function_id).cloned() else {
+        let Some(function) = self.comptime_function_body(function_id) else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
