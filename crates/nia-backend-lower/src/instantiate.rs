@@ -27,27 +27,66 @@ struct ProjectionInstantiationKey {
 }
 
 impl<'a> ModuleLowerer<'a> {
+    fn type_normalization_for_ty(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<&nia_type_normalize::TypeNormalization> {
+        self.input
+            .program_type_normalizations
+            .get(&ty.owner().module_id())
+            .filter(|normalization| normalization.interner.interner_id() == ty.interner_id)
+    }
+
+    fn type_normalization_for_module_interner(
+        &self,
+        module_id: ModuleId,
+        source_interner: &nia_ty::TyInterner,
+    ) -> Option<&nia_type_normalize::TypeNormalization> {
+        self.input
+            .program_type_normalizations
+            .get(&module_id)
+            .filter(|normalization| {
+                normalization.interner.interner_id() == source_interner.interner_id()
+            })
+    }
+
+    fn normalized_program_type_source_for_module(
+        &self,
+        module_id: ModuleId,
+        source_interner: &nia_ty::TyInterner,
+        ty: InternedTyId,
+    ) -> Option<(nia_ty::TyInterner, InternedTyId)> {
+        let normalization =
+            self.type_normalization_for_module_interner(module_id, source_interner)?;
+        let kind = normalization.interner.get(ty)?;
+        if matches!(kind, TyKind::Error) {
+            return None;
+        }
+        Some((normalization.interner.clone(), normalization.normalize(ty)))
+    }
+
+    fn normalized_program_type_source_for_ty(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(nia_ty::TyInterner, InternedTyId)> {
+        let normalization = self.type_normalization_for_ty(ty)?;
+        let kind = normalization.interner.get(ty)?;
+        if matches!(kind, TyKind::Error) {
+            return None;
+        }
+        Some((normalization.interner.clone(), normalization.normalize(ty)))
+    }
+
     pub(crate) fn import_normalized_type_from_module(
         &mut self,
         module_id: ModuleId,
         source_interner: &nia_ty::TyInterner,
         ty: InternedTyId,
     ) -> InternedTyId {
-        if let Some(normalization) = self
-            .input
-            .program_type_normalizations
-            .get(&module_id)
-            .filter(|normalization| {
-                normalization.interner.interner_id() == source_interner.interner_id()
-            })
-            && let Some(kind) = normalization.interner.get(ty)
-            && !matches!(kind, TyKind::Error)
+        if let Some((source, normalized)) =
+            self.normalized_program_type_source_for_module(module_id, source_interner, ty)
         {
-            return nia_ty::import_type_into(
-                &mut self.type_context.interner,
-                &normalization.interner,
-                normalization.normalize(ty),
-            );
+            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
         }
         nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
     }
@@ -82,21 +121,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn normalize_type_in_current_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if let Some(normalization) =
-            self.input
-                .program_type_normalizations
-                .values()
-                .find(|normalization| {
-                    normalization.interner.interner_id() == self.type_context.interner.interner_id()
-                })
-            && let Some(kind) = normalization.interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            return nia_ty::import_type_into(
-                &mut self.type_context.interner,
-                &normalization.interner,
-                normalization.normalize(ty),
-            );
+        if let Some((source, normalized)) = self.normalized_program_type_source_for_module(
+            self.type_context.interner.interner_id().module_id(),
+            &self.type_context.interner,
+            ty,
+        ) {
+            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
         }
         ty
     }
@@ -106,21 +136,12 @@ impl<'a> ModuleLowerer<'a> {
         source_interner: &nia_ty::TyInterner,
         ty: InternedTyId,
     ) -> InternedTyId {
-        if let Some(normalization) =
-            self.input
-                .program_type_normalizations
-                .values()
-                .find(|normalization| {
-                    normalization.interner.interner_id() == source_interner.interner_id()
-                })
-            && let Some(kind) = normalization.interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            return nia_ty::import_type_into(
-                &mut self.type_context.interner,
-                &normalization.interner,
-                normalization.normalize(ty),
-            );
+        if let Some((source, normalized)) = self.normalized_program_type_source_for_module(
+            source_interner.interner_id().module_id(),
+            source_interner,
+            ty,
+        ) {
+            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
         }
         nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
     }
@@ -242,18 +263,8 @@ impl<'a> ModuleLowerer<'a> {
                 normalized,
             );
         }
-        for normalization in self.input.program_type_normalizations.values() {
-            if ty.interner_id == normalization.interner.interner_id()
-                && let Some(kind) = normalization.interner.get(ty)
-                && !matches!(kind, TyKind::Error)
-            {
-                let normalized = normalization.normalize(ty);
-                return nia_ty::import_type_into(
-                    &mut self.type_context.interner,
-                    &normalization.interner,
-                    normalized,
-                );
-            }
+        if let Some((source, normalized)) = self.normalized_program_type_source_for_ty(ty) {
+            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
         }
         if let Some(interner) = self.instantiation.body_interner
             && ty.interner_id == interner.interner_id()
