@@ -34,8 +34,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
         fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
-    pub(super) program_declaration_type_normalizations:
-        fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
     pub(super) program_signatures: fn(&QueryDb<CompilerContext>) -> ProgramSignaturesValue,
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
     pub(super) visible_extensions:
@@ -82,8 +80,6 @@ impl Default for CompilerQueryProviders {
             type_normalization: provide_type_normalization,
             declaration_type_normalization: provide_declaration_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
-            program_declaration_type_normalizations:
-                provide_program_declaration_type_normalizations,
             program_signatures: provide_program_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -411,28 +407,6 @@ pub(super) fn provide_program_type_normalizations(
     )
 }
 
-pub(super) fn provide_program_declaration_type_normalizations(
-    db: &QueryDb<CompilerContext>,
-) -> ProgramTypeNormalizations {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_declaration_type_normalizations",
-        || {
-            Arc::new(
-                db.query(ParseOkModuleIdsQuery)
-                    .into_iter()
-                    .map(|module_id| {
-                        (
-                            module_id,
-                            db.query(DeclarationTypeNormalizationQuery(module_id)),
-                        )
-                    })
-                    .collect(),
-            )
-        },
-    )
-}
-
 pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> ProgramSignaturesValue {
     time_provider(db.query(CompilerTimingsQuery), "program_signatures", || {
         let module_ids = db.query(ParseOkModuleIdsQuery);
@@ -451,7 +425,11 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
             .copied()
             .map(|module_id| db.query(ModuleDefsQuery(module_id)))
             .collect::<Vec<_>>();
-        let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
+        let normalizations = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
+            .collect::<Vec<_>>();
         let modules = module_ids
             .iter()
             .copied()
@@ -472,15 +450,16 @@ pub(super) fn provide_program_signatures(db: &QueryDb<CompilerContext>) -> Progr
             .zip(defs.iter())
             .zip(type_lowerings.iter())
             .zip(item_signatures.iter())
+            .zip(normalizations.iter())
             .map(
-                |(((module_id, defs), lowering), signatures)| ExtensionModuleInput {
-                    module_id: *module_id,
-                    defs,
-                    lowering,
-                    signatures,
-                    normalization: normalizations
-                        .get(module_id)
-                        .expect("missing type normalization"),
+                |((((module_id, defs), lowering), signatures), normalization)| {
+                    ExtensionModuleInput {
+                        module_id: *module_id,
+                        defs,
+                        lowering,
+                        signatures,
+                        normalization,
+                    }
                 },
             )
             .collect::<Vec<_>>();
@@ -523,21 +502,26 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
             .copied()
             .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
             .collect::<Vec<_>>();
-        let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
+        let normalizations = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
+            .collect::<Vec<_>>();
         let inputs = module_ids
             .iter()
             .zip(defs.iter())
             .zip(type_lowerings.iter())
             .zip(item_signatures.iter())
+            .zip(normalizations.iter())
             .map(
-                |(((module_id, defs), lowering), signatures)| ExtensionModuleInput {
-                    module_id: *module_id,
-                    defs,
-                    lowering,
-                    signatures,
-                    normalization: normalizations
-                        .get(module_id)
-                        .expect("missing type normalization"),
+                |((((module_id, defs), lowering), signatures), normalization)| {
+                    ExtensionModuleInput {
+                        module_id: *module_id,
+                        defs,
+                        lowering,
+                        signatures,
+                        normalization,
+                    }
                 },
             )
             .collect::<Vec<_>>();
