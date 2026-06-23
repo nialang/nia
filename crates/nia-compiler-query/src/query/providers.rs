@@ -1086,6 +1086,7 @@ fn body_check_with_filter(
                 layouts: Some(&program_layouts),
             },
             program_signatures: program_signatures.maps(),
+            function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
             program_comptime: nia_body_check::ProgramComptimeMaps {
                 comptime: &program_comptime,
                 module: &program_comptime_module,

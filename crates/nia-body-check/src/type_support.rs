@@ -868,7 +868,7 @@ impl<'a> BodyChecker<'a> {
             layouts: self.layouts,
             extensions: self.extensions,
             program_extension_methods: self.program_extension_methods,
-            program_functions: self.program_functions,
+            function_signature_scope: self.function_signature_scope,
             program_globals: self.program_globals,
             program_comptimes: self.program_comptimes,
             program_structs: self.program_structs,

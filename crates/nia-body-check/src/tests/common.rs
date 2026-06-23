@@ -200,6 +200,7 @@ fn pipeline_with_options(
             type_aliases: &HashMap::new(),
             trait_impls: &trait_impls,
         },
+        function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
     })
