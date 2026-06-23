@@ -9,7 +9,7 @@ use nia_body_ir::{
 use nia_defs::ExtensionMethods;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
-use nia_item_signatures::{ItemSignatures, ProgramSignatureMaps};
+use nia_item_signatures::{ItemSignatures, ProgramFunctionSignature, ProgramTraitSignature};
 use nia_sema_ir::{FunctionSemanticFacts, SemanticFacts};
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
@@ -56,7 +56,7 @@ pub fn compute_executable_reachability(
     parse_ok: &[ModuleId],
     graph: &ModuleGraph,
     root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ProgramSignatureMaps<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
     extension_methods: &ExtensionMethods,
     modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
@@ -210,6 +210,12 @@ pub fn filter_semantic_facts_for_reachable_functions(
     reachable_facts
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutableSignatureIndex<'a> {
+    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+}
+
 fn executable_root_functions(
     graph: &ModuleGraph,
     root_defs: ExecutableRootDefs<'_>,
@@ -229,7 +235,7 @@ fn executable_root_functions(
 
 fn extend_reachable_functions_from_bodies(
     module: &ReachableModuleInput<'_>,
-    program_signatures: ProgramSignatureMaps<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
     reachable_functions: &mut HashSet<GlobalDefId>,
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
@@ -594,7 +600,7 @@ fn collect_typed_place_refs(place: &TypedPlace, refs: &mut TypedBodyRefs) {
 }
 
 fn extend_reachable_functions_from_traits(
-    program_signatures: ProgramSignatureMaps<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
     extension_methods: &ExtensionMethods,
     reachable_traits: &HashSet<TraitId>,
     reachable_modules: &HashSet<ModuleId>,
@@ -645,7 +651,7 @@ fn extend_reachable_functions_from_traits(
 
 fn add_reachable_function(
     def_id: GlobalDefId,
-    program_signatures: ProgramSignatureMaps<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
     reachable_functions: &mut HashSet<GlobalDefId>,
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
