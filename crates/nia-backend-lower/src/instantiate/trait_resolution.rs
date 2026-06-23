@@ -19,11 +19,8 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let impl_interner = impl_signature.interner.clone();
-        let target_ty = nia_ty::import_type_into(
-            &mut self.type_context.interner,
-            &impl_interner,
-            impl_signature.target_ty,
-        );
+        let target_ty =
+            self.import_type_from_known_interner(&impl_interner, impl_signature.target_ty);
         let mut substitutions = std::collections::HashMap::new();
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
@@ -34,9 +31,7 @@ impl<'a> ModuleLowerer<'a> {
         let impl_trait_args = impl_signature
             .trait_args
             .iter()
-            .map(|arg| {
-                nia_ty::import_type_into(&mut self.type_context.interner, &impl_interner, *arg)
-            })
+            .map(|arg| self.import_type_from_known_interner(&impl_interner, *arg))
             .collect::<Vec<_>>();
         if !impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
             self.match_extension_type_pattern(*left, *right, &mut substitutions)
@@ -575,14 +570,20 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         key: &ExtensionTraitMethodKey,
     ) -> Vec<ExtensionTraitMethodCandidate> {
-        let candidates = self
+        let mut candidates = self
             .shared
             .program_extension_trait_method_candidates
             .get(key)
             .cloned()
             .unwrap_or_default();
-        if candidates.is_empty() {
-            return self.extension_trait_method_candidates(key);
+        for candidate in self.extension_trait_method_candidates(key) {
+            if candidates
+                .iter()
+                .any(|existing| existing.method_def_id == candidate.method_def_id)
+            {
+                continue;
+            }
+            candidates.push(candidate);
         }
         candidates
     }

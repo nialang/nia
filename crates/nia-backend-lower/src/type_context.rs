@@ -82,7 +82,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         module_id: ModuleId,
     ) -> Option<&'input nia_ty::TyInterner> {
         if module_id == self.input.module_id {
-            return Some(&self.input.body_ir.interner);
+            return Some(self.input.function_interner);
         }
         self.input
             .program_function_body_interners

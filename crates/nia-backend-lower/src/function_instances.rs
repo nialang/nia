@@ -626,7 +626,7 @@ impl<'a> ModuleLowerer<'a> {
             arg
         } else {
             let source = self.active_interner_for_type(arg).clone();
-            nia_ty::import_type_into(&mut self.type_context.interner, &source, arg)
+            self.import_type_from_known_interner(&source, arg)
         };
         self.instantiate_ty(local, &HashMap::new())
     }

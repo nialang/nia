@@ -1603,8 +1603,19 @@ where
     }
 
     fn layout_of(&self, ty: InternedTyId) -> bool {
-        self.layouts
-            .is_some_and(|layouts| layouts.types.contains_key(&self.normalize(ty)))
+        let ty = self.normalize(ty);
+        let Some(layouts) = self.layouts else {
+            return false;
+        };
+        if layouts.types.contains_key(&ty) {
+            return true;
+        }
+        match self.kind(ty) {
+            Some(TyKind::Nominal { def_id, args }) => {
+                layouts.nominal_type_layout(*def_id, args).is_some()
+            }
+            _ => false,
+        }
     }
 
     fn is_generic_param(&self, ty: InternedTyId) -> bool {
