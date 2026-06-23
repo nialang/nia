@@ -68,6 +68,7 @@ fn main() i32 {
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
+    let program_signatures = EmptyBodyProgramSignatures::new();
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         source_path: &source_path,
@@ -88,17 +89,10 @@ fn main() i32 {
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureMaps {
-            functions: &HashMap::new(),
-            globals: &HashMap::new(),
-            comptimes: &HashMap::new(),
-            structs: &HashMap::new(),
-            unions: &HashMap::new(),
-            enums: &HashMap::new(),
-            traits: &HashMap::new(),
-            type_aliases: &HashMap::new(),
-            trait_impls: &[],
-        },
+        program_functions: &program_signatures.functions,
+        program_values: program_signatures.values(),
+        program_types: program_signatures.types(),
+        program_traits: program_signatures.traits(),
         function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
@@ -205,6 +199,7 @@ fn main() i32 {
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
+    let program_signatures = EmptyBodyProgramSignatures::new();
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         source_path: &source_path,
@@ -225,17 +220,10 @@ fn main() i32 {
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureMaps {
-            functions: &HashMap::new(),
-            globals: &HashMap::new(),
-            comptimes: &HashMap::new(),
-            structs: &HashMap::new(),
-            unions: &HashMap::new(),
-            enums: &HashMap::new(),
-            traits: &HashMap::new(),
-            type_aliases: &HashMap::new(),
-            trait_impls: &[],
-        },
+        program_functions: &program_signatures.functions,
+        program_values: program_signatures.values(),
+        program_types: program_signatures.types(),
+        program_traits: program_signatures.traits(),
         function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,

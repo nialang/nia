@@ -4,7 +4,7 @@ pub(super) use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
 pub(super) use nia_item_signatures::{
-    ProgramSignatureMaps, ProgramTraitImplSignature, collect_item_signatures,
+    ProgramFunctionSignature, ProgramTraitImplSignature, collect_item_signatures,
 };
 pub(super) use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 pub(super) use nia_local_resolve::resolve_module_locals;
@@ -16,6 +16,57 @@ pub(super) use nia_ty::{TraitId, TyKind};
 pub(super) use nia_type_lower::lower_module_types;
 pub(super) use nia_type_resolve::resolve_module_types;
 pub(super) use std::collections::HashMap;
+
+pub(super) struct EmptyBodyProgramSignatures {
+    pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub globals: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalSignature>,
+    pub comptimes: HashMap<GlobalDefId, nia_item_signatures::ProgramComptimeSignature>,
+    pub structs: HashMap<GlobalDefId, nia_item_signatures::ProgramStructSignature>,
+    pub unions: HashMap<GlobalDefId, nia_item_signatures::ProgramUnionSignature>,
+    pub enums: HashMap<GlobalDefId, nia_item_signatures::ProgramEnumSignature>,
+    pub traits: HashMap<GlobalDefId, nia_item_signatures::ProgramTraitSignature>,
+    pub type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
+    pub trait_impls: Vec<ProgramTraitImplSignature>,
+}
+
+impl EmptyBodyProgramSignatures {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+            globals: HashMap::new(),
+            comptimes: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            enums: HashMap::new(),
+            traits: HashMap::new(),
+            type_aliases: HashMap::new(),
+            trait_impls: Vec::new(),
+        }
+    }
+
+    pub fn values(&self) -> BodyProgramValueSignatures<'_> {
+        BodyProgramValueSignatures {
+            globals: &self.globals,
+            comptimes: &self.comptimes,
+        }
+    }
+
+    pub fn types(&self) -> BodyProgramTypeSignatures<'_> {
+        BodyProgramTypeSignatures {
+            structs: &self.structs,
+            unions: &self.unions,
+            enums: &self.enums,
+            type_aliases: &self.type_aliases,
+        }
+    }
+
+    pub fn traits(&self) -> BodyProgramTraitSignatures<'_> {
+        BodyProgramTraitSignatures {
+            traits: &self.traits,
+            trait_impls: &self.trait_impls,
+        }
+    }
+}
 
 pub(super) fn pipeline(source: &str) -> BodyCheck {
     pipeline_with_values(source, |_, _, _| {})
@@ -167,7 +218,8 @@ fn pipeline_with_options(
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
-    let trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
+    let mut program_signatures = EmptyBodyProgramSignatures::new();
+    program_signatures.trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
     let origins = NodeOriginTable::default();
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
@@ -189,17 +241,10 @@ fn pipeline_with_options(
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
-        program_signatures: ProgramSignatureMaps {
-            functions: &HashMap::new(),
-            globals: &HashMap::new(),
-            comptimes: &HashMap::new(),
-            structs: &HashMap::new(),
-            unions: &HashMap::new(),
-            enums: &HashMap::new(),
-            traits: &HashMap::new(),
-            type_aliases: &HashMap::new(),
-            trait_impls: &trait_impls,
-        },
+        program_functions: &program_signatures.functions,
+        program_values: program_signatures.values(),
+        program_types: program_signatures.types(),
+        program_traits: program_signatures.traits(),
         function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,

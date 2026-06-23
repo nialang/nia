@@ -128,15 +128,27 @@ impl QueryKey<CompilerContext> for DeclarationTypeNormalizationQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramBodySignatures {
+pub(super) struct ProgramBodyFunctionSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramBodyValueSignatures {
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramBodyTypeSignatures {
     pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
     pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramBodyTraitSignatures {
+    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
@@ -183,34 +195,92 @@ pub(super) struct LoweredFunctionBodies {
     pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
 }
 
-impl ProgramBodySignatures {
-    pub(super) fn maps(&self) -> ProgramSignatureMaps<'_> {
-        ProgramSignatureMaps {
-            functions: &self.functions,
+impl ProgramBodyValueSignatures {
+    pub(super) fn body_maps(&self) -> nia_body_check::BodyProgramValueSignatures<'_> {
+        nia_body_check::BodyProgramValueSignatures {
             globals: &self.globals,
             comptimes: &self.comptimes,
-            structs: &self.structs,
-            unions: &self.unions,
-            enums: &self.enums,
-            traits: &self.traits,
-            type_aliases: &self.type_aliases,
-            trait_impls: &self.trait_impls,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramBodySignaturesQuery;
+pub(super) struct ProgramBodyFunctionSignaturesQuery;
 
-impl QueryKey<CompilerContext> for ProgramBodySignaturesQuery {
-    type Value = ProgramBodySignaturesValue;
+impl ProgramBodyTypeSignatures {
+    pub(super) fn body_maps(&self) -> nia_body_check::BodyProgramTypeSignatures<'_> {
+        nia_body_check::BodyProgramTypeSignatures {
+            structs: &self.structs,
+            unions: &self.unions,
+            enums: &self.enums,
+            type_aliases: &self.type_aliases,
+        }
+    }
+}
+
+impl ProgramBodyTraitSignatures {
+    pub(super) fn body_maps(&self) -> nia_body_check::BodyProgramTraitSignatures<'_> {
+        nia_body_check::BodyProgramTraitSignatures {
+            traits: &self.traits,
+            trait_impls: &self.trait_impls,
+        }
+    }
+}
+
+impl QueryKey<CompilerContext> for ProgramBodyFunctionSignaturesQuery {
+    type Value = Arc<ProgramBodyFunctionSignatures>;
 
     fn name() -> &'static str {
-        "program_body_signatures"
+        "program_body_function_signatures"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_body_signatures)(db)
+        (db.context().providers.program_body_function_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramBodyValueSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramBodyValueSignaturesQuery {
+    type Value = Arc<ProgramBodyValueSignatures>;
+
+    fn name() -> &'static str {
+        "program_body_value_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_body_value_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramBodyTypeSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramBodyTypeSignaturesQuery {
+    type Value = Arc<ProgramBodyTypeSignatures>;
+
+    fn name() -> &'static str {
+        "program_body_type_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_body_type_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramBodyTraitSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramBodyTraitSignaturesQuery {
+    type Value = Arc<ProgramBodyTraitSignatures>;
+
+    fn name() -> &'static str {
+        "program_body_trait_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_body_trait_signatures)(db)
     }
 }
 

@@ -9,7 +9,7 @@ use nia_ast::{
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind, TraitImplId, Visibility};
+use nia_ids::{InternedTyId, ReceiverKind, TraitImplId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -90,19 +90,6 @@ pub struct ProgramTraitImplSignature {
     pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub interner: nia_ty::TyInterner,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ProgramSignatureMaps<'a> {
-    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
-    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, PartialEq)]
