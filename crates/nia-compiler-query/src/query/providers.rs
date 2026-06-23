@@ -32,8 +32,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) declaration_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
-    pub(super) program_type_normalizations:
-        fn(&QueryDb<CompilerContext>) -> ProgramTypeNormalizations,
     pub(super) program_body_signatures: fn(&QueryDb<CompilerContext>) -> ProgramBodySignaturesValue,
     pub(super) program_trait_solving_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
@@ -89,7 +87,6 @@ impl Default for CompilerQueryProviders {
             item_signatures: provide_item_signatures,
             type_normalization: provide_type_normalization,
             declaration_type_normalization: provide_declaration_type_normalization,
-            program_type_normalizations: provide_program_type_normalizations,
             program_body_signatures: provide_program_body_signatures,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_visible_type_signatures: provide_program_visible_type_signatures,
@@ -403,23 +400,6 @@ pub(super) fn provide_declaration_type_normalization(
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
-}
-
-pub(super) fn provide_program_type_normalizations(
-    db: &QueryDb<CompilerContext>,
-) -> ProgramTypeNormalizations {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_type_normalizations",
-        || {
-            Arc::new(
-                db.query(ParseOkModuleIdsQuery)
-                    .into_iter()
-                    .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
-                    .collect(),
-            )
-        },
-    )
 }
 
 pub(super) fn provide_program_body_signatures(
@@ -1380,18 +1360,10 @@ fn provide_backend_lowering_inner(
             ..empty_backend_lowering(db.query(CompilerOptimizationQuery))
         };
     }
-    let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let indexes = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.indexes",
-        || {
-            build_backend_lowering_indexes(
-                &checked_modules,
-                &visible_extensions,
-                &function_bodies,
-                &normalizations,
-            )
-        },
+        || build_backend_lowering_indexes(&checked_modules, &visible_extensions, &function_bodies),
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
     let program_signatures = db.query(ProgramBackendSignaturesQuery);

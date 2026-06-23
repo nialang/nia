@@ -11,7 +11,7 @@ pub(super) struct BackendLoweringIndexes<'a> {
     >,
     pub(super) program_function_body_interners: nia_backend_lower::ProgramFunctionBodyInterners<'a>,
     pub(super) program_type_normalizations:
-        &'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
+        HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
     pub(super) program_comptime: HashMap<ModuleId, &'a ComptimeCheck>,
 }
@@ -20,7 +20,6 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     checked_modules: &'a [CheckedModule],
     visible_extensions: &'a [VisibleExtensionsValue],
     function_bodies: &'a [LoweredFunctionBodies],
-    program_type_normalizations: &'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = checked_modules
         .iter()
@@ -51,6 +50,10 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     let program_comptime = checked_modules
         .iter()
         .map(|checked_module| (checked_module.id, &checked_module.comptime))
+        .collect::<HashMap<_, _>>();
+    let program_type_normalizations = checked_modules
+        .iter()
+        .map(|checked_module| (checked_module.id, checked_module.type_normalization.clone()))
         .collect::<HashMap<_, _>>();
 
     BackendLoweringIndexes {
@@ -110,7 +113,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_extensions: &input.indexes.program_extensions,
                     program_defs: input.program_defs,
                     program_function_body_interners: &input.indexes.program_function_body_interners,
-                    program_type_normalizations: input.indexes.program_type_normalizations,
+                    program_type_normalizations: &input.indexes.program_type_normalizations,
                     program_functions: &input.program_signatures.functions,
                     program_structs: &input.program_signatures.structs,
                     program_unions: &input.program_signatures.unions,

@@ -69,7 +69,6 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;
 type ProgramBodySignaturesValue = Arc<ProgramBodySignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
@@ -2084,6 +2083,10 @@ fn main() i32 {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_body_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "program_type_normalizations"
         }));
     }
 
