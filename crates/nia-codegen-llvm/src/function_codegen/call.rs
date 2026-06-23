@@ -206,6 +206,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         receiver: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let receiver_value = self.emit_expr(receiver)?;
+        if matches!(self.module.ty_kind(self_ty), Some(TyKind::Slice { .. }))
+            && matches!(receiver.kind, FunctionExprKind::AddrOf(_))
+        {
+            return self
+                .builder
+                .build_load(
+                    self.module.llvm_basic_type(self_ty, span)?,
+                    receiver_value.into_pointer_value()?,
+                    "builtin.receiver",
+                )
+                .map_err(|_| self.error(span, "failed to load builtin method receiver"));
+        }
         if matches!(
             self.module.ty_kind(receiver.ty),
             Some(TyKind::Pointer { .. })
