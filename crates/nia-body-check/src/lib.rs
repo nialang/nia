@@ -151,9 +151,8 @@ impl BodyTimingMode {
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
-    pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
-    pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
+    pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
 }
 
@@ -161,7 +160,6 @@ impl<'a> BodyProgramContext<'a> {
     pub fn empty() -> Self {
         Self {
             defs: None,
-            type_lowerings: None,
             type_normalizations: None,
             signatures: None,
             layouts: None,
@@ -187,7 +185,6 @@ impl fmt::Debug for BodyProgramContext<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BodyProgramContext")
             .field("defs", &self.defs.is_some())
-            .field("type_lowerings", &self.type_lowerings.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field("signatures", &self.signatures.is_some())
             .field("layouts", &self.layouts.is_some())
@@ -886,29 +883,9 @@ impl<'a> BodyChecker<'a> {
         if self.comptime.interner.get(ty).is_some() {
             return Some(&self.comptime.interner);
         }
-        if let Some(interner) = self
-            .program
-            .type_lowerings
-            .into_iter()
-            .flat_map(|lowerings| lowerings.values().map(|lowering| &lowering.interner))
-            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
-        {
-            return Some(interner);
-        }
-        if let Some(interner) = self
-            .program
-            .type_normalizations
-            .into_iter()
-            .flat_map(|normalizations| {
-                normalizations
-                    .values()
-                    .map(|normalization| &normalization.interner)
-            })
-            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
-        {
-            return Some(interner);
-        }
-        None
+        let module_id = ty.owner().module_id();
+        let interner = &self.program.type_normalizations?.get(&module_id)?.interner;
+        (ty.interner_id == interner.interner_id() && interner.get(ty).is_some()).then_some(interner)
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {

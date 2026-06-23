@@ -329,12 +329,9 @@ impl Analyzer<'_> {
         if interner_id == self.input.interner.interner_id() {
             return Some(self.input.interner);
         }
-        self.input
-            .program
-            .type_normalizations?
-            .values()
-            .map(|normalization| &normalization.interner)
-            .find(|interner| interner_id == interner.interner_id())
+        let module_id = interner_id.module_id();
+        let interner = &self.type_normalization_for_module(module_id)?.interner;
+        (interner_id == interner.interner_id()).then_some(interner)
     }
 
     fn working_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
@@ -394,35 +391,16 @@ impl Analyzer<'_> {
         Some(())
     }
 
-    pub(super) fn signatures_for_module(&self, module_id: ModuleId) -> Option<&ItemSignatures> {
+    pub(super) fn signatures_for_module(&self, module_id: ModuleId) -> Option<ItemSignatures> {
         if module_id == self.input.defs.module_id {
-            Some(self.input.signatures)
+            Some(self.input.signatures.clone())
         } else {
-            self.input.program.signatures?.get(&module_id)
+            (self.input.program.signatures?)(module_id)
         }
     }
 
     pub(super) fn program_enum_signatures(&self) -> HashMap<GlobalDefId, ProgramEnumSignature> {
-        let mut enums = HashMap::new();
-        if let Some(signatures) = self.input.program.signatures {
-            for (module_id, signatures) in signatures {
-                for (def_id, signature) in &signatures.enums {
-                    let Some(normalization) = self.type_normalization_for_module(*module_id) else {
-                        continue;
-                    };
-                    enums.insert(
-                        GlobalDefId {
-                            module_id: *module_id,
-                            def_id: *def_id,
-                        },
-                        ProgramEnumSignature {
-                            signature: signature.clone(),
-                            interner: normalization.interner.clone(),
-                        },
-                    );
-                }
-            }
-        }
+        let mut enums = self.input.program.program_enums.clone();
         for (def_id, signature) in &self.input.signatures.enums {
             enums.insert(
                 GlobalDefId {
@@ -503,7 +481,7 @@ impl Analyzer<'_> {
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             interner,
-            signatures,
+            &signatures,
             normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
@@ -591,7 +569,7 @@ impl Analyzer<'_> {
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             interner,
-            signatures,
+            &signatures,
             normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
@@ -793,7 +771,7 @@ impl Analyzer<'_> {
         Some(nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             interner,
-            signatures,
+            &signatures,
             normalized,
             &array_lengths_for_layout,
             nia_layout::TargetDataLayout::LP64,

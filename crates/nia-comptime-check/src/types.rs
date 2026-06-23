@@ -7,15 +7,17 @@ use nia_comptime_ir::{
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
-use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
+use nia_item_signatures::{ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
-use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
+
+static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnumSignature>> =
+    std::sync::LazyLock::new(HashMap::new);
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeCheck {
@@ -174,9 +176,9 @@ pub struct ComptimeProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>>,
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
-    pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
-    pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
+    pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
+    pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
@@ -186,9 +188,9 @@ impl fmt::Debug for ComptimeProgramContext<'_> {
             .field("module", &self.module.is_some())
             .field("source_path", &self.source_path.is_some())
             .field("defs", &self.defs.is_some())
-            .field("type_lowerings", &self.type_lowerings.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field("signatures", &self.signatures.is_some())
+            .field("program_enums", &self.program_enums.len())
             .field("trait_impls", &self.trait_impls.len())
             .finish()
     }
@@ -200,9 +202,9 @@ impl<'a> ComptimeProgramContext<'a> {
             module: None,
             source_path: None,
             defs: None,
-            type_lowerings: None,
             type_normalizations: None,
             signatures: None,
+            program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],
         }
     }

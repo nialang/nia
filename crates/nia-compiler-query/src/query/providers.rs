@@ -28,10 +28,7 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
-    pub(super) program_declaration_type_lowerings:
-        fn(&QueryDb<CompilerContext>) -> ProgramTypeLowerings,
     pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
-    pub(super) program_item_signatures: fn(&QueryDb<CompilerContext>) -> ProgramItemSignaturesById,
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) declaration_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
@@ -81,9 +78,7 @@ impl Default for CompilerQueryProviders {
             declaration_type_resolution: provide_declaration_type_resolution,
             type_lowering: provide_type_lowering,
             declaration_type_lowering: provide_declaration_type_lowering,
-            program_declaration_type_lowerings: provide_program_declaration_type_lowerings,
             item_signatures: provide_item_signatures,
-            program_item_signatures: provide_program_item_signatures,
             type_normalization: provide_type_normalization,
             declaration_type_normalization: provide_declaration_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
@@ -381,23 +376,6 @@ pub(super) fn provide_item_signatures(
     )
 }
 
-pub(super) fn provide_program_item_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> ProgramItemSignaturesById {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_item_signatures",
-        || {
-            Arc::new(
-                db.query(ParseOkModuleIdsQuery)
-                    .into_iter()
-                    .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-                    .collect(),
-            )
-        },
-    )
-}
-
 pub(super) fn provide_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -414,23 +392,6 @@ pub(super) fn provide_declaration_type_normalization(
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
-}
-
-pub(super) fn provide_program_declaration_type_lowerings(
-    db: &QueryDb<CompilerContext>,
-) -> ProgramTypeLowerings {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_declaration_type_lowerings",
-        || {
-            Arc::new(
-                db.query(ParseOkModuleIdsQuery)
-                    .into_iter()
-                    .map(|module_id| (module_id, db.query(DeclarationTypeLoweringQuery(module_id))))
-                    .collect(),
-            )
-        },
-    )
 }
 
 pub(super) fn provide_program_type_normalizations(
@@ -751,10 +712,9 @@ pub(super) fn provide_comptime(
         let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
         let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-        let program_type_lowerings = db.query(ProgramDeclarationTypeLoweringsQuery);
         let program_type_normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
         let program_signatures = db.query(ProgramSignaturesQuery);
-        let program_item_signatures = db.query(ProgramItemSignaturesQuery);
+        let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
         let values = db.query(ValueResolutionQuery(module_id));
         let locals = db.query(LocalResolutionQuery(module_id));
         let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -777,9 +737,9 @@ pub(super) fn provide_comptime(
                     module: Some(&program_module),
                     source_path: Some(&program_source_path),
                     defs: Some(&program_defs),
-                    type_lowerings: Some(&program_type_lowerings),
                     type_normalizations: Some(&program_type_normalizations),
-                    signatures: Some(&program_item_signatures),
+                    signatures: Some(&item_signatures_for_module),
+                    program_enums: &program_signatures.enums,
                     trait_impls: &program_signatures.trait_impls,
                 },
             });
@@ -919,7 +879,6 @@ fn body_check_with_filter(
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
-    let program_type_lowerings = db.query(ProgramDeclarationTypeLoweringsQuery);
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let normalization = db.query(TypeNormalizationQuery(module_id));
     let program_type_normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
@@ -930,7 +889,7 @@ fn body_check_with_filter(
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodsQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
-    let program_item_signatures = db.query(ProgramItemSignaturesQuery);
+    let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let program_comptime = |module_id| Some(db.query(ComptimeQuery(module_id)));
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
@@ -955,9 +914,8 @@ fn body_check_with_filter(
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
                 defs: Some(&program_defs),
-                type_lowerings: Some(&program_type_lowerings),
                 type_normalizations: Some(&program_type_normalizations),
-                signatures: Some(&program_item_signatures),
+                signatures: Some(&item_signatures_for_module),
                 layouts: Some(&program_layouts),
             },
             program_signatures: program_signatures.maps(),
@@ -1022,8 +980,6 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             db.query(CompilerTimingsQuery),
             "checked_modules.shared_inputs",
             || {
-                let _ = db.query(ProgramDeclarationTypeLoweringsQuery);
-                let _ = db.query(ProgramItemSignaturesQuery);
                 let _ = db.query(ProgramDeclarationTypeNormalizationsQuery);
                 let _ = db.query(ProgramSignaturesQuery);
                 let _ = db.query(ExtensionMethodsQuery);
@@ -1051,8 +1007,6 @@ pub(super) fn provide_executable_checked_modules(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
                 || {
-                    let _ = db.query(ProgramDeclarationTypeLoweringsQuery);
-                    let _ = db.query(ProgramItemSignaturesQuery);
                     let _ = db.query(ProgramDeclarationTypeNormalizationsQuery);
                     let _ = db.query(ProgramSignaturesQuery);
                     let _ = db.query(ExtensionMethodsQuery);

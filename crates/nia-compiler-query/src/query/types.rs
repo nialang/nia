@@ -75,21 +75,6 @@ impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramDeclarationTypeLoweringsQuery;
-
-impl QueryKey<CompilerContext> for ProgramDeclarationTypeLoweringsQuery {
-    type Value = ProgramTypeLowerings;
-
-    fn name() -> &'static str {
-        "program_declaration_type_lowerings"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_declaration_type_lowerings)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ItemSignaturesQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ItemSignaturesQuery {
@@ -105,21 +90,6 @@ impl QueryKey<CompilerContext> for ItemSignaturesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.item_signatures)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramItemSignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramItemSignaturesQuery {
-    type Value = ProgramItemSignaturesById;
-
-    fn name() -> &'static str {
-        "program_item_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_item_signatures)(db)
     }
 }
 

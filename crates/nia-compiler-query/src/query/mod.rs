@@ -68,8 +68,6 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ProgramTypeLowerings = Arc<HashMap<ModuleId, TypeLowering>>;
-type ProgramItemSignaturesById = Arc<HashMap<ModuleId, ItemSignatures>>;
 type ProgramTypeNormalizations = Arc<HashMap<ModuleId, TypeNormalization>>;
 type ProgramSignaturesValue = Arc<ProgramSignatures>;
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
@@ -1498,10 +1496,6 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(
-            !invalidated.contains(&"program_declaration_type_lowerings"),
-            "{invalidated:?}"
-        );
-        assert!(
             !invalidated.contains(&"program_declaration_type_normalizations"),
             "{invalidated:?}"
         );
@@ -1512,12 +1506,23 @@ fn main() i32 {
         let after_second_check = database.query_trace();
 
         assert_eq!(
-            query_executions(&before_second_check, "program_declaration_type_lowerings"),
-            query_executions(&after_second_check, "program_declaration_type_lowerings"),
+            query_executions(
+                &before_second_check,
+                "program_declaration_type_normalizations"
+            ),
+            query_executions(
+                &after_second_check,
+                "program_declaration_type_normalizations"
+            ),
         );
         assert!(
-            query_cache_hits(&after_second_check, "program_declaration_type_lowerings")
-                > query_cache_hits(&before_second_check, "program_declaration_type_lowerings"),
+            query_cache_hits(
+                &after_second_check,
+                "program_declaration_type_normalizations"
+            ) > query_cache_hits(
+                &before_second_check,
+                "program_declaration_type_normalizations"
+            ),
         );
     }
 
@@ -1897,6 +1902,12 @@ fn main() i32 {
                 .iter()
                 .any(|dependency| dependency.to.name == "program_comptime_modules")
         );
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_item_signatures")
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "full_module_defs"
         }));
@@ -2101,6 +2112,12 @@ fn main() i32 {
                 .dependencies
                 .iter()
                 .any(|dependency| dependency.to.name == "program_modules_by_id")
+        );
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_item_signatures")
         );
     }
 
