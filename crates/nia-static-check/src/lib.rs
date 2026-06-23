@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
@@ -29,8 +27,8 @@ pub struct StaticCheckInput<'a> {
     pub semantic_uses: &'a SemanticUseTable,
     pub signatures: &'a ItemSignatures,
     pub comptime: &'a ComptimeCheck,
-    pub program_defs: &'a HashMap<ModuleId, DefCollection>,
-    pub program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
     pub target: &'a TargetConfig,
 }
 
@@ -60,8 +58,8 @@ struct StaticChecker<'a> {
     semantic_uses: &'a SemanticUseTable,
     signatures: &'a ItemSignatures,
     comptime: &'a ComptimeCheck,
-    program_defs: &'a HashMap<ModuleId, DefCollection>,
-    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
     target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
 }
@@ -398,9 +396,11 @@ impl StaticChecker<'_> {
     }
 
     fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        (global_id.module_id == self.defs.module_id)
-            .then(|| self.defs.defs.get(global_id.def_id).map(|def| def.kind))
-            .flatten()
+        if global_id.module_id == self.defs.module_id {
+            return self.defs.defs.get(global_id.def_id).map(|def| def.kind);
+        }
+        (self.program_defs)(global_id.module_id)
+            .and_then(|defs| defs.defs.get(global_id.def_id).map(|def| def.kind))
     }
 
     fn is_global(&self, def_id: DefId) -> bool {
@@ -456,8 +456,8 @@ impl StaticChecker<'_> {
 struct StaticComptimeEnv<'a> {
     defs: &'a DefCollection,
     comptime: &'a ComptimeCheck,
-    program_defs: &'a HashMap<ModuleId, DefCollection>,
-    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
     target: &'a TargetConfig,
 }
 
@@ -495,12 +495,10 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                 return Ok(ComptimeValue::Int(value));
             }
         };
-        self.value_for_key(key)
-            .cloned()
-            .ok_or_else(|| ComptimeError {
-                span,
-                message: "failed to evaluate comptime value".to_string(),
-            })
+        self.value_for_key(key).ok_or_else(|| ComptimeError {
+            span,
+            message: "failed to evaluate comptime value".to_string(),
+        })
     }
 
     fn resolve_resolved_layout_builtin(
@@ -530,16 +528,14 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
 }
 
 impl StaticComptimeEnv<'_> {
-    fn value_for_key(&self, key: ComptimeKey) -> Option<&ComptimeValue> {
+    fn value_for_key(&self, key: ComptimeKey) -> Option<ComptimeValue> {
         match key {
-            ComptimeKey::Local(_) => self.comptime.values.get(&key),
+            ComptimeKey::Local(_) => self.comptime.values.get(&key).cloned(),
             ComptimeKey::Global(global_id) if global_id.module_id == self.defs.module_id => {
-                self.comptime.values.get(&key)
+                self.comptime.values.get(&key).cloned()
             }
-            ComptimeKey::Global(global_id) => self
-                .program_comptime
-                .get(&global_id.module_id)
-                .and_then(|comptime| comptime.values.get(&key)),
+            ComptimeKey::Global(global_id) => (self.program_comptime)(global_id.module_id)
+                .and_then(|comptime| comptime.values.get(&key).cloned()),
         }
     }
 
@@ -547,10 +543,8 @@ impl StaticComptimeEnv<'_> {
         if global_id.module_id == self.defs.module_id {
             return self.defs.defs.get(global_id.def_id).map(|def| def.kind);
         }
-        self.program_defs
-            .get(&global_id.module_id)
-            .and_then(|defs| defs.defs.get(global_id.def_id))
-            .map(|def| def.kind)
+        (self.program_defs)(global_id.module_id)
+            .and_then(|defs| defs.defs.get(global_id.def_id).map(|def| def.kind))
     }
 }
 
@@ -628,6 +622,8 @@ mod tests {
             "{:?}",
             comptime.diagnostics
         );
+        let no_program_comptime = |_| None;
+        let no_program_defs = |_| None;
         check_module_static_initializers(StaticCheckInput {
             active_item_tree: &active_item_tree,
             defs: &defs,
@@ -636,8 +632,8 @@ mod tests {
             semantic_uses: &semantic_uses,
             signatures: &signatures,
             comptime: &comptime,
-            program_defs: &HashMap::new(),
-            program_comptime: &HashMap::new(),
+            program_defs: &no_program_defs,
+            program_comptime: &no_program_comptime,
             target: &target,
         })
     }

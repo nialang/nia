@@ -536,12 +536,12 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
         let program_signature = self.program_comptimes.get(&def_id).cloned()?;
-        if let Some(typed) = self
-            .program_comptime
-            .get(&def_id.module_id)
-            .and_then(|comptime| comptime.typed_values.get(&ComptimeKey::Global(def_id)))
-            .cloned()
-            && let Some(normalizations) = self.program.type_normalizations
+        if let Some(typed) = (self.program_comptime)(def_id.module_id).and_then(|comptime| {
+            comptime
+                .typed_values
+                .get(&ComptimeKey::Global(def_id))
+                .cloned()
+        }) && let Some(normalizations) = self.program.type_normalizations
             && let Some(normalization) = normalizations.get(&def_id.module_id)
             && let Some(ty) =
                 self.import_comptime_value_runtime_type(&normalization.interner, typed.ty)
@@ -720,7 +720,11 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn enum_variant_scope(&self, enum_id: GlobalDefId) -> Option<Vec<(String, DefId)>> {
         let target_defs = self.defs_for_module(enum_id.module_id)?;
-        let scope = target_defs.scopes.enum_members.get(&enum_id.def_id)?;
+        let scope = target_defs
+            .as_ref()
+            .scopes
+            .enum_members
+            .get(&enum_id.def_id)?;
         Some(
             scope
                 .variants
@@ -933,7 +937,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
             type_args,
             arg_exprs,
         )?;
-        let Some(function) = self.comptime_function_body(function_id).cloned() else {
+        let Some(function) = self.comptime_function_body(function_id) else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
@@ -1100,8 +1104,8 @@ impl<'a> BodyChecker<'a> {
                 target: self.target,
                 source_path: self.source_path,
                 program: nia_comptime_check::ComptimeProgramContext {
-                    modules: Some(self.program_comptime_modules),
-                    source_paths: None,
+                    module: Some(self.program_comptime_module),
+                    source_path: None,
                     defs: self.program.defs,
                     type_lowerings: self.program.type_lowerings,
                     type_normalizations: self.program.type_normalizations,
@@ -1154,8 +1158,8 @@ impl<'a> BodyChecker<'a> {
             target: self.target,
             source_path: self.source_path,
             program: nia_comptime_check::ComptimeProgramContext {
-                modules: Some(self.program_comptime_modules),
-                source_paths: None,
+                module: Some(self.program_comptime_module),
+                source_path: None,
                 defs: self.program.defs,
                 type_lowerings: self.program.type_lowerings,
                 type_normalizations: self.program.type_normalizations,
@@ -1312,8 +1316,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
         self.defs_for_module(global_id.module_id)
-            .and_then(|defs| defs.defs.get(global_id.def_id))
-            .map(|def| def.kind)
+            .and_then(|defs| defs.as_ref().defs.get(global_id.def_id).map(|def| def.kind))
     }
 
     fn resolved_comptime_function(&self, callee: &ResolvedComptimeExpr) -> Option<GlobalDefId> {
@@ -1328,14 +1331,14 @@ impl<'a> BodyChecker<'a> {
     fn comptime_function_body(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
+    ) -> Option<nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.defs.module_id {
-            return self.comptime_module.functions().get(&def_id);
+            return self.comptime_module.functions().get(&def_id).cloned();
         }
-        self.program_comptime_modules
-            .get(&def_id.module_id)?
+        (self.program_comptime_module)(def_id.module_id)?
             .functions()
             .get(&def_id)
+            .cloned()
     }
 }
 

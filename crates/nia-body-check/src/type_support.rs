@@ -878,7 +878,7 @@ impl<'a> BodyChecker<'a> {
             program_type_aliases: self.program_type_aliases,
             program_trait_impls: self.program_trait_impls,
             program_comptime: self.program_comptime,
-            program_comptime_modules: self.program_comptime_modules,
+            program_comptime_module: self.program_comptime_module,
             source_path: self.source_path,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             node_expr_types: HashMap::new(),
@@ -1184,8 +1184,7 @@ impl<'a> BodyChecker<'a> {
         if id.module_id == self.defs.module_id {
             return self.comptime.array_lengths.get(&id).copied();
         }
-        self.program_comptime
-            .get(&id.module_id)
+        (self.program_comptime)(id.module_id)
             .and_then(|comptime| comptime.array_lengths.get(&id).copied())
     }
 
@@ -1196,8 +1195,12 @@ impl<'a> BodyChecker<'a> {
     ) -> String {
         let base = self
             .defs_for_module(def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .map(|def| def.name.clone())
+            .and_then(|defs| {
+                defs.as_ref()
+                    .defs
+                    .get(def_id.def_id)
+                    .map(|def| def.name.clone())
+            })
             .unwrap_or_else(|| "<unknown type>".to_string());
         if args.is_empty() {
             base
@@ -1229,8 +1232,12 @@ impl<'a> BodyChecker<'a> {
         let base = match trait_id {
             TraitId::Source(def_id) => self
                 .defs_for_module(def_id.module_id)
-                .and_then(|defs| defs.defs.get(def_id.def_id))
-                .map(|def| def.name.clone())
+                .and_then(|defs| {
+                    defs.as_ref()
+                        .defs
+                        .get(def_id.def_id)
+                        .map(|def| def.name.clone())
+                })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),
         };
@@ -1266,8 +1273,12 @@ impl<'a> BodyChecker<'a> {
         let base = match trait_id {
             TraitId::Source(def_id) => self
                 .defs_for_module(def_id.module_id)
-                .and_then(|defs| defs.defs.get(def_id.def_id))
-                .map(|def| def.name.clone())
+                .and_then(|defs| {
+                    defs.as_ref()
+                        .defs
+                        .get(def_id.def_id)
+                        .map(|def| def.name.clone())
+                })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),
         };
@@ -1298,8 +1309,12 @@ impl<'a> BodyChecker<'a> {
         let base = match trait_id {
             TraitId::Source(def_id) => self
                 .defs_for_module(def_id.module_id)
-                .and_then(|defs| defs.defs.get(def_id.def_id))
-                .map(|def| def.name.clone())
+                .and_then(|defs| {
+                    defs.as_ref()
+                        .defs
+                        .get(def_id.def_id)
+                        .map(|def| def.name.clone())
+                })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),
         };

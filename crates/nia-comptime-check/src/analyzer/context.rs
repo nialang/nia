@@ -1,5 +1,19 @@
 use super::*;
 
+pub(super) enum ModuleDefs<'a> {
+    Borrowed(&'a DefCollection),
+    Owned(DefCollection),
+}
+
+impl ModuleDefs<'_> {
+    pub(super) fn as_ref(&self) -> &DefCollection {
+        match self {
+            ModuleDefs::Borrowed(defs) => defs,
+            ModuleDefs::Owned(defs) => defs,
+        }
+    }
+}
+
 impl Analyzer<'_> {
     pub(super) fn with_execution_module<T>(
         &mut self,
@@ -186,34 +200,36 @@ impl Analyzer<'_> {
         ));
     }
 
-    pub(super) fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ResolvedComptimeExpr> {
+    pub(super) fn initializer_for_key(&self, key: ComptimeKey) -> Option<ResolvedComptimeExpr> {
         match key {
             ComptimeKey::Global(global_id) => self.global_initializer(global_id),
-            ComptimeKey::Local(local_id) => self.local_initializer(local_id),
+            ComptimeKey::Local(local_id) => self.local_initializer(local_id).cloned(),
         }
     }
 
     pub(super) fn global_initializer(
         &self,
         global_id: GlobalDefId,
-    ) -> Option<&ResolvedComptimeExpr> {
+    ) -> Option<ResolvedComptimeExpr> {
         if global_id.module_id == self.input.defs.module_id {
-            self.input.module.global_initializers().get(&global_id)
-        } else {
             self.input
-                .program
-                .modules?
-                .get(&global_id.module_id)?
+                .module
                 .global_initializers()
                 .get(&global_id)
+                .cloned()
+        } else {
+            (self.input.program.module?)(global_id.module_id)?
+                .global_initializers()
+                .get(&global_id)
+                .cloned()
         }
     }
 
-    pub(super) fn global_defs(&self, module_id: ModuleId) -> Option<&DefCollection> {
+    pub(super) fn global_defs(&self, module_id: ModuleId) -> Option<ModuleDefs<'_>> {
         if module_id == self.input.defs.module_id {
-            Some(self.input.defs)
+            Some(ModuleDefs::Borrowed(self.input.defs))
         } else {
-            self.input.program.defs?.get(&module_id)
+            Some(ModuleDefs::Owned((self.input.program.defs?)(module_id)?))
         }
     }
 
@@ -234,6 +250,7 @@ impl Analyzer<'_> {
 
     pub(super) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
         self.global_defs(global_id.module_id)?
+            .as_ref()
             .defs
             .get(global_id.def_id)
             .map(|def| def.kind)
@@ -254,16 +271,14 @@ impl Analyzer<'_> {
     pub(super) fn comptime_function_body(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
+    ) -> Option<nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.input.defs.module_id {
-            self.input.module.functions().get(&def_id)
+            self.input.module.functions().get(&def_id).cloned()
         } else {
-            self.input
-                .program
-                .modules?
-                .get(&def_id.module_id)?
+            (self.input.program.module?)(def_id.module_id)?
                 .functions()
                 .get(&def_id)
+                .cloned()
         }
     }
 
@@ -285,12 +300,12 @@ impl Analyzer<'_> {
             .find_map(|frame| frame.function_id)
     }
 
-    pub(super) fn current_execution_source_path(&self) -> Option<&nia_source::SourcePath> {
+    pub(super) fn current_execution_source_path(&self) -> Option<nia_source::SourcePath> {
         let module_id = self.current_execution_module_id();
         if module_id == self.input.defs.module_id {
-            Some(self.input.source_path)
+            Some(self.input.source_path.clone())
         } else {
-            self.input.program.source_paths?.get(&module_id)
+            (self.input.program.source_path?)(module_id)
         }
     }
 
@@ -486,7 +501,7 @@ impl Analyzer<'_> {
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
-            defs,
+            defs.as_ref(),
             interner,
             signatures,
             normalized,
@@ -574,7 +589,7 @@ impl Analyzer<'_> {
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
-            defs,
+            defs.as_ref(),
             interner,
             signatures,
             normalized,
@@ -617,6 +632,7 @@ impl Analyzer<'_> {
 
     fn field_def_for_nominal(&self, def_id: GlobalDefId, name: &str) -> Option<GlobalDefId> {
         let defs = self.global_defs(def_id.module_id)?;
+        let defs = defs.as_ref();
         defs.scopes
             .struct_members
             .get(&def_id.def_id)
@@ -775,7 +791,7 @@ impl Analyzer<'_> {
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
-            defs,
+            defs.as_ref(),
             interner,
             signatures,
             normalized,

@@ -17,36 +17,6 @@ impl QueryKey<CompilerContext> for ComptimeModuleQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramComptimeModulesQuery;
-
-impl QueryKey<CompilerContext> for ProgramComptimeModulesQuery {
-    type Value = ProgramComptimeModules;
-
-    fn name() -> &'static str {
-        "program_comptime_modules"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_comptime_modules)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramSourcePathsQuery;
-
-impl QueryKey<CompilerContext> for ProgramSourcePathsQuery {
-    type Value = ProgramSourcePaths;
-
-    fn name() -> &'static str {
-        "program_source_paths"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_source_paths)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ComptimeQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ComptimeQuery {
@@ -58,21 +28,6 @@ impl QueryKey<CompilerContext> for ComptimeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.comptime)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramComptimeQuery;
-
-impl QueryKey<CompilerContext> for ProgramComptimeQuery {
-    type Value = ProgramComptimeById;
-
-    fn name() -> &'static str {
-        "program_comptime"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_comptime)(db)
     }
 }
 

@@ -1826,7 +1826,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub public_surfaces: &'a PublicSurfaces,
-    pub defs_by_module: &'a HashMap<nia_ids::ModuleId, DefCollection>,
+    pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     pub normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
     pub program_signatures: ProgramSignatureMaps<'a>,
     pub extensions: &'a ExtensionMethods,
@@ -1841,7 +1841,7 @@ pub(crate) fn visible_extensions_for_module(
         graph,
         using_scope,
         public_surfaces,
-        defs_by_module,
+        defs,
         normalizations,
         program_signatures,
         extensions,
@@ -1852,7 +1852,7 @@ pub(crate) fn visible_extensions_for_module(
         graph,
         using_scope,
         public_surfaces,
-        defs_by_module,
+        defs,
         normalizations,
         program_signatures,
         extensions,
@@ -1875,20 +1875,14 @@ pub(crate) fn visible_extensions_for_module(
         visible_modules.iter().copied(),
         extension_visibility_allows,
     ) {
-        let Some(method_defs) = defs_by_module.get(&method.def_id.module_id) else {
+        let Some(method_defs) = defs(method.def_id.module_id) else {
             continue;
         };
         if method_defs.defs.get(method.def_id.def_id).is_none() {
             continue;
         }
         let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
-            trait_id_is_visible(
-                module_id,
-                &visible_modules,
-                trait_id,
-                public_surfaces,
-                defs_by_module,
-            )
+            trait_id_is_visible(module_id, &visible_modules, trait_id, public_surfaces, defs)
         });
         let Some(method_normalization) = normalizations.get(&method.def_id.module_id) else {
             continue;
@@ -1934,7 +1928,7 @@ pub(crate) fn visible_extensions_for_module(
         visible_modules.iter().copied(),
         extension_visibility_allows,
     ) {
-        let Some(value_defs) = defs_by_module.get(&value.def_id.module_id) else {
+        let Some(value_defs) = defs(value.def_id.module_id) else {
             continue;
         };
         if value_defs.defs.get(value.def_id.def_id).is_none() {
@@ -1969,7 +1963,7 @@ fn trait_id_is_visible(
     imported_modules: &[nia_ids::ModuleId],
     trait_id: TraitId,
     public_surfaces: &PublicSurfaces,
-    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
 ) -> bool {
     let TraitId::Source(trait_id) = trait_id else {
         return true;
@@ -1978,10 +1972,11 @@ fn trait_id_is_visible(
         return true;
     }
     if imported_modules.contains(&trait_id.module_id) {
-        return defs_by_module
-            .get(&trait_id.module_id)
-            .and_then(|defs| defs.defs.get(trait_id.def_id))
-            .is_some_and(|def| def.visibility == Visibility::Public);
+        return defs(trait_id.module_id).is_some_and(|defs| {
+            defs.defs
+                .get(trait_id.def_id)
+                .is_some_and(|def| def.visibility == Visibility::Public)
+        });
     }
     public_surfaces.get(current_module).is_some_and(|surface| {
         surface.types.values().any(|item| {
@@ -2065,7 +2060,7 @@ struct VisibilityClosureContext<'a> {
     graph: &'a nia_imports::ModuleGraph,
     using_scope: &'a nia_defs::ModuleUsingScope,
     public_surfaces: &'a PublicSurfaces,
-    defs_by_module: &'a HashMap<nia_ids::ModuleId, DefCollection>,
+    defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: &'a HashMap<nia_ids::ModuleId, TypeNormalization>,
     program_signatures: ProgramSignatureMaps<'a>,
     extensions: &'a ExtensionMethods,
@@ -2093,7 +2088,7 @@ fn public_inherent_extension_providers_for_active_package_facades(
                     module_id: item.target_module,
                     def_id: item.target_def_id,
                 },
-                context.defs_by_module,
+                context.defs,
                 context.normalizations,
                 context.program_signatures,
             )
@@ -2134,7 +2129,7 @@ fn public_inherent_extension_providers_for_using_scope(
                     module_id: entry.target_module,
                     def_id: entry.target_def_id,
                 },
-                context.defs_by_module,
+                context.defs,
                 context.normalizations,
                 context.program_signatures,
             )
@@ -2162,7 +2157,7 @@ fn public_inherent_extension_providers_for_using_scope(
                     module_id: item.target_module,
                     def_id: item.target_def_id,
                 },
-                context.defs_by_module,
+                context.defs,
                 context.normalizations,
                 context.program_signatures,
             )
@@ -2190,11 +2185,11 @@ fn public_inherent_extension_providers_for_using_scope(
 
 fn nominal_def_id_for_public_type(
     def_id: GlobalDefId,
-    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
     program_signatures: ProgramSignatureMaps<'_>,
 ) -> Option<GlobalDefId> {
-    let defs = defs_by_module.get(&def_id.module_id)?;
+    let defs = defs(def_id.module_id)?;
     let def = defs.defs.get(def_id.def_id)?;
     if matches!(
         def.kind,

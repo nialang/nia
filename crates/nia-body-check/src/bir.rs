@@ -1499,10 +1499,8 @@ impl<'a> BodyChecker<'a> {
         if def_id.module_id == self.defs.module_id {
             return self.comptime.values.get(&key).cloned();
         }
-        self.program_comptime
-            .get(&def_id.module_id)
-            .and_then(|comptime| comptime.values.get(&key))
-            .cloned()
+        (self.program_comptime)(def_id.module_id)
+            .and_then(|comptime| comptime.values.get(&key).cloned())
     }
 
     fn empty_struct_literal_expr(&mut self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
@@ -1618,6 +1616,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> Option<nia_ids::GlobalDefId> {
         let defs = self.defs_for_module(def_id.module_id)?;
+        let defs = defs.as_ref();
         defs.scopes
             .struct_members
             .get(&def_id.def_id)

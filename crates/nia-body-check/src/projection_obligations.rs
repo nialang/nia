@@ -775,8 +775,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn is_trait_def_id(&self, def_id: GlobalDefId) -> bool {
         self.defs_for_module(def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .is_some_and(|def| def.kind == DefKind::Trait)
+            .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.kind))
+            == Some(DefKind::Trait)
     }
 
     fn push_trait_obligation_with_supertraits(

@@ -168,14 +168,34 @@ impl VersionedTypeUseCollector<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
-    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
     pub fn empty() -> Self {
         Self { defs: None }
+    }
+}
+
+impl std::fmt::Debug for ProgramDefsContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProgramDefsContext")
+            .field("defs", &self.defs.is_some())
+            .finish()
+    }
+}
+
+enum ModuleDefs {
+    Owned(DefCollection),
+}
+
+impl ModuleDefs {
+    fn as_ref(&self) -> &DefCollection {
+        match self {
+            ModuleDefs::Owned(defs) => defs,
+        }
     }
 }
 
@@ -192,13 +212,14 @@ pub fn lower_module_types_with_id(
     let defs = nia_defs::collect_module_defs(module_id, module);
     let mut program_defs = HashMap::new();
     program_defs.insert(module_id, defs);
+    let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree_with_defs(
         module_id,
         &item_tree,
         resolved,
         ProgramDefsContext {
-            defs: Some(&program_defs),
+            defs: Some(&program_defs_by_module),
         },
     )
 }
@@ -1366,14 +1387,15 @@ impl<'a> TypeLowerer<'a> {
 
     fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
         self.defs_for_module(def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .is_some_and(|def| def.kind == nia_defs::DefKind::Trait)
+            .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.kind))
+            == Some(nia_defs::DefKind::Trait)
     }
 
     fn trait_has_associated_type(&self, trait_id: GlobalDefId, name: &str) -> bool {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return true;
         };
+        let defs = defs.as_ref();
         let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
             return true;
         };
@@ -1395,6 +1417,7 @@ impl<'a> TypeLowerer<'a> {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
             return;
         };
+        let defs = defs.as_ref();
         let Some(def) = defs.defs.get(def_id.def_id) else {
             return;
         };
@@ -1485,6 +1508,7 @@ impl<'a> TypeLowerer<'a> {
 
     fn local_trait_id(&self, node_key: &nia_node_id::VersionedNodeKey) -> Option<GlobalDefId> {
         let defs = self.defs_for_module(self.module_id)?;
+        let defs = defs.as_ref();
         let def_id = defs.def_nodes.get(node_key)?;
         Some(GlobalDefId {
             module_id: self.module_id,
@@ -1515,6 +1539,7 @@ impl<'a> TypeLowerer<'a> {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return Vec::new();
         };
+        let defs = defs.as_ref();
         defs.defs
             .iter()
             .filter_map(|(_, def)| {
@@ -1621,8 +1646,8 @@ impl<'a> TypeLowerer<'a> {
         }
     }
 
-    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
-        self.program_defs.defs?.get(&module_id)
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs> {
+        Some(ModuleDefs::Owned((self.program_defs.defs?)(module_id)?))
     }
 }
 
@@ -1877,12 +1902,13 @@ fn non_generic_arg(a: Point[i32]) {}
             resolved.diagnostics
         );
         let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
             &module,
             &resolved,
             ProgramDefsContext {
-                defs: Some(&program_defs),
+                defs: Some(&program_defs_by_module),
             },
         );
         let mismatch_count = lowered
@@ -1963,12 +1989,13 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
             resolved.diagnostics
         );
         let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
             &module,
             &resolved,
             ProgramDefsContext {
-                defs: Some(&program_defs),
+                defs: Some(&program_defs_by_module),
             },
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
@@ -2014,12 +2041,13 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
             resolved.diagnostics
         );
         let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
             &module,
             &resolved,
             ProgramDefsContext {
-                defs: Some(&program_defs),
+                defs: Some(&program_defs_by_module),
             },
         );
         assert!(
@@ -2056,12 +2084,13 @@ fn bad(value: Show) void {}
             resolved.diagnostics
         );
         let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
             &module,
             &resolved,
             ProgramDefsContext {
-                defs: Some(&program_defs),
+                defs: Some(&program_defs_by_module),
             },
         );
         assert!(

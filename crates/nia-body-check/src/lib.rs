@@ -87,10 +87,36 @@ struct SwitchCoverage {
     enum_variants: HashMap<DefId, Span>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ProgramComptimeMaps<'a> {
-    pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
-    pub modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
+    pub comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    pub module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
+}
+
+impl fmt::Debug for ProgramComptimeMaps<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProgramComptimeMaps")
+            .field("comptime", &true)
+            .field("module", &true)
+            .finish()
+    }
+}
+
+impl ProgramComptimeMaps<'_> {
+    pub fn empty() -> Self {
+        Self {
+            comptime: &no_program_comptime,
+            module: &no_program_comptime_module,
+        }
+    }
+}
+
+fn no_program_comptime(_: ModuleId) -> Option<ComptimeCheck> {
+    None
+}
+
+fn no_program_comptime_module(_: ModuleId) -> Option<ResolvedComptimeModule> {
+    None
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -124,7 +150,7 @@ impl BodyTimingMode {
 
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
-    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
     pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
@@ -139,6 +165,20 @@ impl<'a> BodyProgramContext<'a> {
             type_normalizations: None,
             signatures: None,
             layouts: None,
+        }
+    }
+}
+
+enum ModuleDefs<'a> {
+    Borrowed(&'a DefCollection),
+    Owned(DefCollection),
+}
+
+impl ModuleDefs<'_> {
+    fn as_ref(&self) -> &DefCollection {
+        match self {
+            ModuleDefs::Borrowed(defs) => defs,
+            ModuleDefs::Owned(defs) => defs,
         }
     }
 }
@@ -231,8 +271,6 @@ pub fn check_module_bodies(
     let empty_functions = HashMap::new();
     let empty_globals = HashMap::new();
     let empty_comptimes = HashMap::new();
-    let empty_program_comptime = HashMap::new();
-    let empty_program_comptime_modules = HashMap::new();
     let empty_comptime_module = ResolvedComptimeModule::default();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
@@ -288,10 +326,7 @@ pub fn check_module_bodies(
             type_aliases: &empty_type_aliases,
             trait_impls: &empty_trait_impls,
         },
-        program_comptime: ProgramComptimeMaps {
-            comptimes: &empty_program_comptime,
-            modules: &empty_program_comptime_modules,
-        },
+        program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -334,10 +369,7 @@ pub fn check_module_bodies_with_program_signatures(
         extension_interner: None,
         program: input.program,
         program_signatures: input.program_signatures,
-        program_comptime: ProgramComptimeMaps {
-            comptimes: &HashMap::new(),
-            modules: &HashMap::new(),
-        },
+        program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -446,8 +478,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_traits: input.program_signatures.traits,
         program_type_aliases: input.program_signatures.type_aliases,
         program_trait_impls: input.program_signatures.trait_impls,
-        program_comptime: input.program_comptime.comptimes,
-        program_comptime_modules: input.program_comptime.modules,
+        program_comptime: input.program_comptime.comptime,
+        program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,
         extension_methods_by_id,
         node_expr_types: HashMap::new(),
@@ -581,8 +613,8 @@ struct BodyChecker<'a> {
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     program_type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
-    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
-    program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
+    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
     source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
@@ -876,10 +908,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(interner);
         }
-        self.program_comptime
-            .values()
-            .map(|comptime| &comptime.interner)
-            .find(|interner| ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
+        None
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {
@@ -968,11 +997,11 @@ impl<'a> BodyChecker<'a> {
         self.comptime_context_depth > 0
     }
 
-    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs<'_>> {
         if module_id == self.defs.module_id {
-            Some(self.defs)
+            Some(ModuleDefs::Borrowed(self.defs))
         } else {
-            self.program.defs?.get(&module_id)
+            Some(ModuleDefs::Owned((self.program.defs?)(module_id)?))
         }
     }
 }

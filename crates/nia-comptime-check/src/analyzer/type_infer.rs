@@ -642,10 +642,7 @@ impl Analyzer<'_> {
         let expr = if id.module_id == self.input.defs.module_id {
             self.input.module.const_exprs().get(&id)?.clone()
         } else {
-            self.input
-                .program
-                .modules?
-                .get(&id.module_id)?
+            (self.input.program.module?)(id.module_id)?
                 .const_exprs()
                 .get(&id)?
                 .clone()
