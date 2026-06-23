@@ -127,21 +127,6 @@ impl QueryKey<CompilerContext> for DeclarationTypeNormalizationQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramTypeNormalizationsQuery;
-
-impl QueryKey<CompilerContext> for ProgramTypeNormalizationsQuery {
-    type Value = ProgramTypeNormalizations;
-
-    fn name() -> &'static str {
-        "program_type_normalizations"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_type_normalizations)(db)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramBodySignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
