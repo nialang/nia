@@ -207,10 +207,22 @@ impl CompilerDatabase {
                 if module.item_tree {
                     invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module_id)));
                 }
+                if module.declaration_item_tree {
+                    invalidation.extend(
+                        self.db
+                            .invalidate(DeclarationModuleItemTreeInputQuery(module_id)),
+                    );
+                }
                 if module.active_item_tree {
                     invalidation.extend(
                         self.db
                             .invalidate(ActiveModuleItemTreeInputQuery(module_id)),
+                    );
+                }
+                if module.declaration_active_item_tree {
+                    invalidation.extend(
+                        self.db
+                            .invalidate(DeclarationActiveModuleItemTreeInputQuery(module_id)),
                     );
                 }
                 if module.full_active_item_tree {
@@ -655,6 +667,19 @@ impl CompilerContext {
         )
     }
 
+    fn declaration_module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ModuleItemTree {
+        self.module_field(
+            db,
+            &DeclarationModuleItemTreeInputQuery(module_id),
+            module_id,
+            |module| module.item_tree.clone(),
+        )
+    }
+
     fn active_module_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
@@ -663,6 +688,19 @@ impl CompilerContext {
         self.module_field(
             db,
             &ActiveModuleItemTreeInputQuery(module_id),
+            module_id,
+            |module| module.active_item_tree.clone(),
+        )
+    }
+
+    fn declaration_active_module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ActiveModuleItemTree {
+        self.module_field(
+            db,
+            &DeclarationActiveModuleItemTreeInputQuery(module_id),
             module_id,
             |module| module.active_item_tree.clone(),
         )
@@ -792,8 +830,10 @@ struct ChangedModuleInput {
     origins: bool,
     parse_errors: bool,
     item_tree: bool,
+    declaration_item_tree: bool,
     full_item_tree: bool,
     active_item_tree: bool,
+    declaration_active_item_tree: bool,
     full_active_item_tree: bool,
 }
 
@@ -815,9 +855,13 @@ impl ChangedModuleInput {
                 source_version: old.source_version != new.source_version,
                 origins: old.origins != new.origins,
                 parse_errors: old.parse_errors != new.parse_errors,
-                item_tree: !old.item_tree.declaration_eq(&new.item_tree),
+                item_tree: !old.item_tree.definition_eq(&new.item_tree),
+                declaration_item_tree: !old.item_tree.declaration_eq(&new.item_tree),
                 full_item_tree: old.item_tree != new.item_tree,
-                active_item_tree: !old.active_item_tree.declaration_eq(&new.active_item_tree),
+                active_item_tree: !old.active_item_tree.definition_eq(&new.active_item_tree),
+                declaration_active_item_tree: !old
+                    .active_item_tree
+                    .declaration_eq(&new.active_item_tree),
                 full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
             (Some(_), Some(_)) => Self::all_inputs_changed(ids),
@@ -829,8 +873,10 @@ impl ChangedModuleInput {
                 origins: true,
                 parse_errors: true,
                 item_tree: true,
+                declaration_item_tree: true,
                 full_item_tree: true,
                 active_item_tree: true,
+                declaration_active_item_tree: true,
                 full_active_item_tree: true,
             },
             (None, None) => return None,
@@ -841,8 +887,10 @@ impl ChangedModuleInput {
             || changed.origins
             || changed.parse_errors
             || changed.item_tree
+            || changed.declaration_item_tree
             || changed.full_item_tree
             || changed.active_item_tree
+            || changed.declaration_active_item_tree
             || changed.full_active_item_tree
         {
             Some(changed)
@@ -860,8 +908,10 @@ impl ChangedModuleInput {
             origins: true,
             parse_errors: true,
             item_tree: true,
+            declaration_item_tree: true,
             full_item_tree: true,
             active_item_tree: true,
+            declaration_active_item_tree: true,
             full_active_item_tree: true,
         }
     }
@@ -1049,6 +1099,18 @@ mod tests {
         trace.dependencies.iter().any(|dependency| {
             dependency.from.name == from && is_body_signature_query(dependency.to.name)
         })
+    }
+
+    fn assert_query_executions_unchanged(
+        before: &QueryTrace,
+        after: &QueryTrace,
+        name: &'static str,
+    ) {
+        assert_eq!(
+            query_executions(before, name),
+            query_executions(after, name),
+            "{name} should have been reused"
+        );
     }
 
     #[test]
@@ -1473,6 +1535,115 @@ fn main() i32 {
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    }
+
+    #[test]
+    fn body_local_type_update_reuses_program_body_signature_indexes() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
+        assert!(
+            !invalidated.iter().any(|name| is_body_signature_query(name)),
+            "{invalidated:?}"
+        );
+        let before_second_check = database.query_trace();
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let after_second_check = database.query_trace();
+
+        assert_query_executions_unchanged(
+            &before_second_check,
+            &after_second_check,
+            "program_body_function_signatures",
+        );
+        assert_query_executions_unchanged(
+            &before_second_check,
+            &after_second_check,
+            "program_body_value_signatures",
+        );
+        assert_query_executions_unchanged(
+            &before_second_check,
+            &after_second_check,
+            "program_body_type_signatures",
+        );
+        assert_query_executions_unchanged(
+            &before_second_check,
+            &after_second_check,
+            "program_body_trait_signatures",
+        );
+    }
+
+    #[test]
+    fn function_signature_update_keeps_definition_queries_cached() {
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    "pub struct S { value: i32 } fn helper() i32 { 1 } fn main() i32 { helper() }",
+                ),
+            ])));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 } fn helper() u8 { 1 } fn main() i32 { helper() as i32 }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            invalidated.contains(&"declaration_module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"declaration_type_lowering"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"program_body_function_signatures"),
+            "{invalidated:?}"
+        );
+        assert!(
+            !invalidated.contains(&"module_item_tree_input"),
+            "{invalidated:?}"
+        );
+        assert!(!invalidated.contains(&"module_defs"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
     }
 
     #[test]

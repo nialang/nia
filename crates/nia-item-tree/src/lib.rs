@@ -69,6 +69,10 @@ impl ModuleItemTree {
         item_tree_nodes_declaration_eq(&self.items, &other.items)
     }
 
+    pub fn definition_eq(&self, other: &Self) -> bool {
+        item_tree_nodes_definition_eq(&self.items, &other.items)
+    }
+
     pub fn active_items(
         &self,
         resolver: &mut impl ConditionResolver,
@@ -99,6 +103,11 @@ impl ActiveModuleItemTree {
     pub fn declaration_eq(&self, other: &Self) -> bool {
         self.inactive_spans == other.inactive_spans
             && item_tree_nodes_declaration_eq(&self.items, &other.items)
+    }
+
+    pub fn definition_eq(&self, other: &Self) -> bool {
+        self.inactive_spans == other.inactive_spans
+            && item_tree_nodes_definition_eq(&self.items, &other.items)
     }
 }
 
@@ -133,10 +142,24 @@ fn item_tree_nodes_declaration_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) ->
             .all(|(lhs, rhs)| item_tree_node_declaration_eq(lhs, rhs))
 }
 
+fn item_tree_nodes_definition_eq(lhs: &[ItemTreeNode], rhs: &[ItemTreeNode]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| item_tree_node_definition_eq(lhs, rhs))
+}
+
 fn item_tree_node_declaration_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
     item_attributes_declaration_eq(&lhs.attributes, &rhs.attributes)
         && lhs.visibility == rhs.visibility
         && item_tree_node_kind_declaration_eq(&lhs.kind, &rhs.kind)
+}
+
+fn item_tree_node_definition_eq(lhs: &ItemTreeNode, rhs: &ItemTreeNode) -> bool {
+    item_attributes_definition_eq(&lhs.attributes, &rhs.attributes)
+        && lhs.visibility == rhs.visibility
+        && item_tree_node_kind_definition_eq(&lhs.kind, &rhs.kind)
 }
 
 fn item_tree_node_kind_declaration_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeKind) -> bool {
@@ -161,7 +184,123 @@ fn item_tree_node_kind_declaration_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNode
     }
 }
 
+fn item_tree_node_kind_definition_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeKind) -> bool {
+    match (lhs, rhs) {
+        (ItemTreeNodeKind::Module(lhs), ItemTreeNodeKind::Module(rhs)) => lhs == rhs,
+        (ItemTreeNodeKind::Using(lhs), ItemTreeNodeKind::Using(rhs)) => using_decl_eq(lhs, rhs),
+        (ItemTreeNodeKind::Struct(lhs), ItemTreeNodeKind::Struct(rhs)) => {
+            lhs.name == rhs.name
+                && lhs.fields.len() == rhs.fields.len()
+                && lhs
+                    .fields
+                    .iter()
+                    .zip(rhs.fields.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
+        }
+        (ItemTreeNodeKind::Union(lhs), ItemTreeNodeKind::Union(rhs)) => {
+            lhs.name == rhs.name
+                && lhs.fields.len() == rhs.fields.len()
+                && lhs
+                    .fields
+                    .iter()
+                    .zip(rhs.fields.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
+        }
+        (ItemTreeNodeKind::Trait(lhs), ItemTreeNodeKind::Trait(rhs)) => {
+            lhs.name == rhs.name
+                && lhs.associated_types.len() == rhs.associated_types.len()
+                && lhs
+                    .associated_types
+                    .iter()
+                    .zip(rhs.associated_types.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
+                && lhs.methods.len() == rhs.methods.len()
+                && lhs
+                    .methods
+                    .iter()
+                    .zip(rhs.methods.iter())
+                    .all(|(lhs, rhs)| {
+                        lhs.function.name == rhs.function.name
+                            && lhs.function.params.len() == rhs.function.params.len()
+                            && lhs
+                                .function
+                                .params
+                                .iter()
+                                .zip(rhs.function.params.iter())
+                                .all(|(lhs, rhs)| {
+                                    lhs.name == rhs.name && lhs.receiver == rhs.receiver
+                                })
+                    })
+        }
+        (ItemTreeNodeKind::Extend(lhs), ItemTreeNodeKind::Extend(rhs)) => {
+            lhs.associated_types.len() == rhs.associated_types.len()
+                && lhs
+                    .associated_types
+                    .iter()
+                    .zip(rhs.associated_types.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
+                && lhs.associated_values.len() == rhs.associated_values.len()
+                && lhs
+                    .associated_values
+                    .iter()
+                    .zip(rhs.associated_values.iter())
+                    .all(|(lhs, rhs)| lhs.vis == rhs.vis && lhs.binding.name == rhs.binding.name)
+                && lhs.methods.len() == rhs.methods.len()
+                && lhs
+                    .methods
+                    .iter()
+                    .zip(rhs.methods.iter())
+                    .all(|(lhs, rhs)| {
+                        lhs.vis == rhs.vis
+                            && lhs.function.name == rhs.function.name
+                            && lhs.function.params.len() == rhs.function.params.len()
+                            && lhs
+                                .function
+                                .params
+                                .iter()
+                                .zip(rhs.function.params.iter())
+                                .all(|(lhs, rhs)| {
+                                    lhs.name == rhs.name && lhs.receiver == rhs.receiver
+                                })
+                    })
+        }
+        (ItemTreeNodeKind::Enum(lhs), ItemTreeNodeKind::Enum(rhs)) => {
+            lhs.name == rhs.name
+                && lhs.variants.len() == rhs.variants.len()
+                && lhs
+                    .variants
+                    .iter()
+                    .zip(rhs.variants.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
+        }
+        (ItemTreeNodeKind::TypeAlias(lhs), ItemTreeNodeKind::TypeAlias(rhs)) => {
+            lhs.name == rhs.name
+        }
+        (ItemTreeNodeKind::Function(lhs), ItemTreeNodeKind::Function(rhs)) => {
+            lhs.name == rhs.name
+                && lhs.params.len() == rhs.params.len()
+                && lhs
+                    .params
+                    .iter()
+                    .zip(rhs.params.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name && lhs.receiver == rhs.receiver)
+        }
+        (ItemTreeNodeKind::Binding(lhs), ItemTreeNodeKind::Binding(rhs)) => {
+            lhs.name == rhs.name && lhs.is_comptime == rhs.is_comptime
+        }
+        _ => false,
+    }
+}
+
 fn item_attributes_declaration_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+}
+
+fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
     lhs.len() == rhs.len()
         && lhs
             .iter()
@@ -470,6 +609,34 @@ fn selected() i32 { 2 }
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn function_signature_changes_do_not_change_definition_shape() {
+        let (before, before_errors) = parse_module("pub fn main() i32 { 0 }");
+        let (after, after_errors) = parse_module("pub fn main() u8 { 0 }");
+        assert!(before_errors.is_empty(), "{before_errors:?}");
+        assert!(after_errors.is_empty(), "{after_errors:?}");
+
+        let before_tree = lower_module_items(&before);
+        let after_tree = lower_module_items(&after);
+
+        assert_ne!(before_tree, after_tree);
+        assert!(!before_tree.declaration_eq(&after_tree));
+        assert!(before_tree.definition_eq(&after_tree));
+    }
+
+    #[test]
+    fn definition_shape_tracks_named_children() {
+        let (before, before_errors) = parse_module("struct Pair { a: i32 }");
+        let (after, after_errors) = parse_module("struct Pair { b: i32 }");
+        assert!(before_errors.is_empty(), "{before_errors:?}");
+        assert!(after_errors.is_empty(), "{after_errors:?}");
+
+        let before_tree = lower_module_items(&before);
+        let after_tree = lower_module_items(&after);
+
+        assert!(!before_tree.definition_eq(&after_tree));
     }
 
     #[test]

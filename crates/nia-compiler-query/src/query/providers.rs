@@ -326,7 +326,7 @@ pub(super) fn provide_declaration_type_resolution(
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "declaration_type_resolution", module_id, || {
-        let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
@@ -367,7 +367,7 @@ pub(super) fn provide_declaration_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(DeclarationTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
     nia_type_lower::lower_module_declaration_types_from_active_item_tree(
@@ -384,7 +384,7 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     nia_item_signatures::collect_item_signatures_from_active_item_tree(
