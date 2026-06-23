@@ -40,6 +40,8 @@ pub(crate) struct ExtensionModuleInput<'a> {
     pub(crate) defs: &'a DefCollection,
     pub(crate) lowering: &'a TypeLowering,
     pub(crate) signatures: &'a ItemSignatures,
+    pub(crate) function_signatures: &'a ItemSignatures,
+    pub(crate) type_signatures: &'a ItemSignatures,
     pub(crate) normalization: &'a TypeNormalization,
 }
 
@@ -390,7 +392,8 @@ pub(crate) fn collect_extension_methods(
             }
             let trait_id = impl_trait_id(module, impl_signature, &defs_by_module, &mut diagnostics);
             let trait_args = impl_trait_args(module, impl_signature, trait_id).unwrap_or_default();
-            let where_predicates = impl_signature.where_predicates.clone();
+            let where_predicates =
+                normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
             if trait_id.is_none() {
                 for associated_type in &impl_signature.associated_types {
                     diagnostics.push(Diagnostic::user_error_at(
@@ -453,6 +456,36 @@ pub(crate) fn collect_extension_methods(
         }
     }
     (extensions, diagnostics)
+}
+
+fn normalize_where_predicates(
+    normalization: &TypeNormalization,
+    predicates: &[WherePredicateSignature],
+) -> Vec<WherePredicateSignature> {
+    predicates
+        .iter()
+        .map(|predicate| WherePredicateSignature {
+            ty: normalization.normalize(predicate.ty),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| WhereBoundSignature {
+                    trait_ty: normalization.normalize(bound.trait_ty),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| AssociatedTypeBindingSignature {
+                            name: binding.name.clone(),
+                            ty: normalization.normalize(binding.ty),
+                            span: binding.span,
+                        })
+                        .collect(),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        })
+        .collect()
 }
 
 pub(crate) fn collect_extension_associated_values(
@@ -724,7 +757,7 @@ fn validate_trait_impl(
             }
             continue;
         };
-        let Some(actual) = module.signatures.functions.get(&method.def_id) else {
+        let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
             continue;
         };
         let required_signature = lower_trait_method_signature(TraitMethodImport {
@@ -852,7 +885,7 @@ fn validate_builtin_trait_impl(
                 ),
             )),
             [method] => {
-                let Some(actual) = module.signatures.functions.get(&method.def_id) else {
+                let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
                     return false;
                 };
                 if !builtin_trait_method_signature_matches(
@@ -934,7 +967,7 @@ fn builtin_trait_impl_overlaps_intrinsic(
             .get(module.normalization.normalize(ty))
         {
             Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module_id => {
-                module.signatures.enums.contains_key(&def_id.def_id)
+                module.type_signatures.enums.contains_key(&def_id.def_id)
             }
             _ => false,
         },
@@ -1763,7 +1796,8 @@ fn substitute_imported_type(
                     .iter()
                     .find(|associated_type| associated_type.name == *name)
             {
-                return associated_type.ty;
+                let ty = module.normalization.normalize(associated_type.ty);
+                return import_type_into(target_interner, &module.normalization.interner, ty);
             }
             target_interner.intern(TyKind::Projection {
                 self_ty,

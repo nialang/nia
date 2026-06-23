@@ -898,17 +898,17 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         node_key: &VersionedNodeKey,
     ) -> TypeNameResolution {
-        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
-            return TypeNameResolution::Primitive(primitive);
-        }
-        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
-            return TypeNameResolution::BuiltinTrait(trait_id);
-        }
         if self.is_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;
         }
         if self.is_associated_type(&segment.name) {
             return TypeNameResolution::AssociatedType;
+        }
+        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
+            return TypeNameResolution::Primitive(primitive);
+        }
+        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
+            return TypeNameResolution::BuiltinTrait(trait_id);
         }
         if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
             let Some(def) = self.defs.defs.get(def_id) else {
@@ -1086,6 +1086,43 @@ trait Writer {
                 .values()
                 .any(|resolution| { matches!(resolution, TypeNameResolution::AssociatedType) })
         );
+    }
+
+    #[test]
+    fn resolves_trait_impl_associated_type_shorthand_before_builtin_error() {
+        let (module, errors) = parse_module(
+            r#"
+trait Reader {
+    type Error;
+
+    fn end_of_stream(&self) Error;
+}
+
+struct Buffer {}
+
+extend Buffer : Reader {
+    type Error = i32;
+
+    fn end_of_stream(&self) Error {
+        1
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let associated_type_count = resolved
+            .node_type_names
+            .values()
+            .filter(|resolution| matches!(resolution, TypeNameResolution::AssociatedType))
+            .count();
+        assert_eq!(associated_type_count, 2);
     }
 
     #[test]

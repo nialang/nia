@@ -47,7 +47,7 @@ impl<'a> BodyChecker<'a> {
                 .all_methods_named(name)
                 .into_iter()
                 .filter_map(|(target_ty, method)| {
-                    let target_ty = self.normalization.normalize(target_ty);
+                    let target_ty = self.normalize_aliases_in_type(target_ty);
                     let mut target_substitutions = HashMap::new();
                     (self.match_extension_receiver_target(
                         target_ty,

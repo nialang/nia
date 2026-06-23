@@ -680,7 +680,12 @@ impl<'a> ModuleLowerer<'a> {
                         receiver,
                     }
                 } else {
-                    if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                    if self.trait_method_call_requires_concrete_impl(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &args,
+                    ) {
                         self.diagnostics
                             .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
@@ -748,7 +753,12 @@ impl<'a> ModuleLowerer<'a> {
                         args: instance_args,
                     }
                 } else {
-                    if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                    if self.trait_method_call_requires_concrete_impl(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &args,
+                    ) {
                         self.diagnostics
                             .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
@@ -904,6 +914,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|resolved| (candidate, resolved))
             })
             .collect::<Vec<_>>();
+        let candidates = self.unique_trait_impl_method_candidates(candidates);
         let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
         match candidates.as_slice() {
             [(_, candidate)] => Some(candidate.clone()),
@@ -917,6 +928,7 @@ impl<'a> ModuleLowerer<'a> {
                             .map(|resolved| (candidate, resolved))
                     })
                     .collect::<Vec<_>>();
+                let candidates = self.unique_trait_impl_method_candidates(candidates);
                 let candidates = self.filter_more_specific_trait_impl_method_candidates(candidates);
                 match candidates.as_slice() {
                     [(_, candidate)] => Some(candidate.clone()),
@@ -924,6 +936,31 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
         }
+    }
+
+    fn unique_trait_impl_method_candidates<'b>(
+        &self,
+        candidates: Vec<(
+            &'b crate::ExtensionTraitMethodCandidate,
+            (GlobalDefId, Vec<InternedTyId>),
+        )>,
+    ) -> Vec<(
+        &'b crate::ExtensionTraitMethodCandidate,
+        (GlobalDefId, Vec<InternedTyId>),
+    )> {
+        let mut unique = Vec::new();
+        for candidate in candidates {
+            if unique.iter().any(
+                |existing: &(
+                    &'b crate::ExtensionTraitMethodCandidate,
+                    (GlobalDefId, Vec<InternedTyId>),
+                )| existing.1 == candidate.1,
+            ) {
+                continue;
+            }
+            unique.push(candidate);
+        }
+        unique
     }
 
     fn filter_more_specific_trait_impl_method_candidates<'b>(

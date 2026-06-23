@@ -60,6 +60,36 @@ fn main(buffer: Buffer) i32 {
 }
 
 #[test]
+fn associated_function_and_field_access_use_extension_owner_type() {
+    let checked = pipeline(
+        r#"
+struct CStr {
+    ptr: &u8,
+}
+
+extend CStr {
+    fn from_ptr(ptr: &u8) CStr {
+        { ptr: ptr }
+    }
+
+    fn from_bytes(bytes: &[u8]) ?CStr {
+        ?CStr::from_ptr(bytes.get_ptr_read())
+    }
+
+    fn raw_ptr(&self) &u8 {
+        self.ptr
+    }
+}
+
+fn main(bytes: &[u8]) ?&u8 {
+    ?CStr::from_bytes(bytes).?.raw_ptr()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn reports_ambiguous_extension_method_specializations() {
     let checked = pipeline(
         r#"
