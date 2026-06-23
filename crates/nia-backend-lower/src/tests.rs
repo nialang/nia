@@ -279,6 +279,27 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &|id| comptime.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
+    let comptime_array_lengths = nia_comptime_check::ComptimeArrayLengths {
+        interner: comptime.interner.clone(),
+        values: comptime.array_lengths.clone(),
+        diagnostics: Vec::new(),
+    };
+    let comptime_values = nia_comptime_check::ComptimeValues {
+        interner: comptime.interner.clone(),
+        values: comptime.values.clone(),
+        typed_values: comptime.typed_values.clone(),
+        diagnostics: Vec::new(),
+    };
+    let comptime_typed_facts = nia_comptime_check::ComptimeTypedFacts {
+        interner: comptime.interner.clone(),
+        typed_values: comptime.typed_values.clone(),
+        diagnostics: Vec::new(),
+    };
+    let body_comptime = nia_body_check::BodyComptime::from_phases(
+        &comptime_values,
+        &comptime_array_lengths,
+        &comptime_typed_facts,
+    );
     let mut extensions = VisibleExtensionMethods::default();
     mutate_extensions(&mut extensions, &defs, &type_lowering, &signatures);
     let origins = NodeOriginTable::default();
@@ -293,10 +314,11 @@ fn lower_source_with_body_check_mutation_and_optimization(
         locals: &locals,
         semantic_uses: &semantic_uses,
         lowered: &type_lowering,
-        signatures: &signatures,
+        signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+        comptime_signatures: &signatures,
         normalization: &normalization,
         target: &target,
-        comptime: &comptime,
+        comptime: body_comptime,
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
@@ -348,7 +370,13 @@ fn lower_source_with_body_check_mutation_and_optimization(
     );
     let mut comptime = comptime;
     mutate_comptime(&mut comptime, &type_lowering);
-    let program_comptime = HashMap::from([(ModuleId(0), &comptime)]);
+    let comptime_array_lengths = nia_comptime_check::ComptimeArrayLengths {
+        interner: comptime.interner.clone(),
+        values: comptime.array_lengths.clone(),
+        diagnostics: Vec::new(),
+    };
+    let program_comptime = HashMap::from([(ModuleId(0), &comptime_array_lengths)]);
+    let comptime_enum_values = comptime_enum_values_from_check(&comptime);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
 
@@ -366,7 +394,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         function_interner: &body_check.ir.interner,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
-        comptime: &comptime,
+        comptime_array_lengths: &comptime_array_lengths,
+        comptime_enum_values: &comptime_enum_values,
         program_comptime: &program_comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
@@ -387,6 +416,17 @@ fn lower_source_with_body_check_mutation_and_optimization(
         trait_impls: &[],
     };
     lower_backend_program(&[input], &monomorphization, optimization)
+}
+
+fn comptime_enum_values_from_check(
+    comptime: &nia_comptime_check::ComptimeCheck,
+) -> nia_comptime_check::ComptimeEnumValues {
+    nia_comptime_check::ComptimeEnumValues {
+        interner: comptime.interner.clone(),
+        values: comptime.enum_values.clone(),
+        typed_values: comptime.typed_enum_values.clone(),
+        diagnostics: Vec::new(),
+    }
 }
 
 fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {

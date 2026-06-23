@@ -14,6 +14,11 @@ pub struct FlowCheck {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FlowCheckSignatures<'a> {
+    pub functions: &'a std::collections::HashMap<nia_ids::DefId, FunctionSignature>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Flow {
     falls_through: bool,
@@ -59,6 +64,20 @@ pub fn check_active_module_flow(
     interner: &TyInterner,
     signatures: &ItemSignatures,
 ) -> FlowCheck {
+    check_active_module_flow_with_signatures(
+        item_tree,
+        interner,
+        FlowCheckSignatures {
+            functions: &signatures.functions,
+        },
+    )
+}
+
+pub fn check_active_module_flow_with_signatures(
+    item_tree: &ActiveModuleItemTree,
+    interner: &TyInterner,
+    signatures: FlowCheckSignatures<'_>,
+) -> FlowCheck {
     let mut checker = FlowChecker {
         interner,
         signatures,
@@ -73,7 +92,7 @@ pub fn check_active_module_flow(
 
 struct FlowChecker<'a> {
     interner: &'a TyInterner,
-    signatures: &'a ItemSignatures,
+    signatures: FlowCheckSignatures<'a>,
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
 }

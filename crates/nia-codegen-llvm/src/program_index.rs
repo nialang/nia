@@ -314,11 +314,10 @@ impl<'a> ProgramIndex<'a> {
 mod tests {
     use super::*;
     use nia_backend_ir::{
-        BackendFunctionInstance, BackendGenericInstantiation, BackendLayouts, BackendModule,
-        BackendParam, BackendProgram, BackendStructInstance, BackendTraitObjectVtable,
-        BackendTraitObjectVtableKey,
+        BackendComptimeFacts, BackendFunctionInstance, BackendGenericInstantiation, BackendLayouts,
+        BackendModule, BackendParam, BackendProgram, BackendStructInstance,
+        BackendTraitObjectVtable, BackendTraitObjectVtableKey,
     };
-    use nia_comptime_check::ComptimeCheck;
     use nia_ids::{DefId, ModuleId};
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
@@ -385,7 +384,7 @@ mod tests {
                 id: module_id,
                 name: "main".to_string(),
                 interner,
-                comptime: ComptimeCheck::default(),
+                comptime: BackendComptimeFacts::default(),
                 layouts: BackendLayouts {
                     target: nia_layout::TargetDataLayout::LP64,
                     types: vec![

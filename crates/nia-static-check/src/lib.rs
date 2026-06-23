@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_comptime_check::{ComptimeCheck, ComptimeKey};
+use nia_comptime_check::{ComptimeKey, ComptimeValues};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_item_signatures::ItemSignatures;
+use nia_item_signatures::{GlobalSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_local_resolve::{LocalResolution, LocalUse};
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
@@ -26,13 +26,50 @@ pub struct StaticCheckInput<'a> {
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
     pub signatures: &'a ItemSignatures,
-    pub comptime: &'a ComptimeCheck,
+    pub comptime: &'a ComptimeValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
-    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     pub target: &'a TargetConfig,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StaticCheckSignatures<'a> {
+    pub globals: &'a std::collections::HashMap<DefId, GlobalSignature>,
+}
+
 pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCheck {
+    check_module_static_initializers_with_signatures(StaticCheckPreciseInput {
+        active_item_tree: input.active_item_tree,
+        defs: input.defs,
+        values: input.values,
+        locals: input.locals,
+        semantic_uses: input.semantic_uses,
+        signatures: StaticCheckSignatures {
+            globals: &input.signatures.globals,
+        },
+        comptime: input.comptime,
+        program_defs: input.program_defs,
+        program_comptime: input.program_comptime,
+        target: input.target,
+    })
+}
+
+pub struct StaticCheckPreciseInput<'a> {
+    pub active_item_tree: &'a ActiveModuleItemTree,
+    pub defs: &'a DefCollection,
+    pub values: &'a ValueResolution,
+    pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
+    pub signatures: StaticCheckSignatures<'a>,
+    pub comptime: &'a ComptimeValues,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    pub target: &'a TargetConfig,
+}
+
+pub fn check_module_static_initializers_with_signatures(
+    input: StaticCheckPreciseInput<'_>,
+) -> StaticCheck {
     let mut checker = StaticChecker {
         defs: input.defs,
         values: input.values,
@@ -56,10 +93,10 @@ struct StaticChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
-    signatures: &'a ItemSignatures,
-    comptime: &'a ComptimeCheck,
+    signatures: StaticCheckSignatures<'a>,
+    comptime: &'a ComptimeValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
-    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
 }
@@ -455,9 +492,9 @@ impl StaticChecker<'_> {
 
 struct StaticComptimeEnv<'a> {
     defs: &'a DefCollection,
-    comptime: &'a ComptimeCheck,
+    comptime: &'a ComptimeValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
-    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeCheck>,
+    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     target: &'a TargetConfig,
 }
 
@@ -603,20 +640,30 @@ mod tests {
             "{:?}",
             comptime_module.diagnostics
         );
-        let comptime =
-            nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-                module: &comptime_module.module,
-                defs: &defs,
-                values: &values,
-                locals: &locals,
-                semantic_uses: &semantic_uses,
-                signatures: &signatures,
-                interner: &normalization.interner,
-                normalized: &normalization.normalized,
-                target: &target,
-                source_path: &source_path,
-                program: nia_comptime_check::ComptimeProgramContext::empty(),
-            });
+        let comptime_input = nia_comptime_check::ComptimeInput {
+            module: &comptime_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            signatures: &signatures,
+            interner: &normalization.interner,
+            normalized: &normalization.normalized,
+            target: &target,
+            source_path: &source_path,
+            program: nia_comptime_check::ComptimeProgramContext::empty(),
+        };
+        let array_lengths =
+            nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
+        let enum_values = nia_comptime_check::compute_module_comptime_enum_values(
+            comptime_input,
+            array_lengths.clone(),
+        );
+        let comptime = nia_comptime_check::compute_module_comptime_values(
+            comptime_input,
+            array_lengths,
+            enum_values,
+        );
         assert!(
             comptime.diagnostics.is_empty(),
             "{:?}",

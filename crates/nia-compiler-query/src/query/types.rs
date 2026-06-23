@@ -207,7 +207,7 @@ impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct DeclarationTypeNormalizationQuery(pub(super) ModuleId);
+pub(super) struct LayoutTypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     type Value = TypeNormalization;
@@ -221,19 +221,19 @@ impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     }
 }
 
-impl QueryKey<CompilerContext> for DeclarationTypeNormalizationQuery {
+impl QueryKey<CompilerContext> for LayoutTypeNormalizationQuery {
     type Value = TypeNormalization;
 
     fn name() -> &'static str {
-        "declaration_type_normalization"
+        "layout_type_normalization"
     }
 
     fn description(&self) -> String {
-        format!("declaration_type_normalization({:?})", self.0)
+        format!("layout_type_normalization({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.declaration_type_normalization)(db, self.0)
+        (db.context().providers.layout_type_normalization)(db, self.0)
     }
 }
 

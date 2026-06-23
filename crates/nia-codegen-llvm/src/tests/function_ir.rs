@@ -14,7 +14,7 @@ fn single_module_program(
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts,
             structs,
             struct_instances: Vec::new(),
@@ -332,7 +332,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: nia_comptime_check::ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -443,7 +443,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         len: ArrayLenTy::ConstExpr(len_id),
         elem,
     });
-    let mut comptime = ComptimeCheck::default();
+    let mut comptime = BackendComptimeFacts::default();
     comptime.array_lengths.insert(len_id, 4);
     let mut program = BackendProgram {
         modules: vec![BackendModule {
@@ -517,7 +517,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: Vec::new(),
@@ -599,7 +599,7 @@ fn validates_backend_ir_error_type_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -669,7 +669,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -776,7 +776,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
@@ -926,7 +926,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -999,7 +999,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
@@ -1076,7 +1076,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
@@ -1163,7 +1163,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1262,7 +1262,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1342,7 +1342,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
-            comptime: ComptimeCheck::default(),
+            comptime: BackendComptimeFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],

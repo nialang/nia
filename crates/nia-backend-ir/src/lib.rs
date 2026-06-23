@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_comptime_check::ComptimeCheck;
+use std::collections::HashMap;
+
 use nia_function_ir::FunctionBody;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
@@ -17,7 +18,7 @@ pub struct BackendModule {
     pub id: ModuleId,
     pub name: String,
     pub interner: TyInterner,
-    pub comptime: ComptimeCheck,
+    pub comptime: BackendComptimeFacts,
     pub layouts: BackendLayouts,
     pub structs: Vec<BackendStruct>,
     pub unions: Vec<BackendUnion>,
@@ -29,6 +30,11 @@ pub struct BackendModule {
     pub function_instances: Vec<BackendFunctionInstance>,
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BackendComptimeFacts {
+    pub array_lengths: HashMap<GlobalConstExprId, u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

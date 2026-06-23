@@ -32,6 +32,66 @@ impl QueryKey<CompilerContext> for ComptimeQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ComptimeArrayLengthsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ComptimeArrayLengthsQuery {
+    type Value = nia_comptime_check::ComptimeArrayLengths;
+
+    fn name() -> &'static str {
+        "comptime_array_lengths"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.comptime_array_lengths)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ComptimeEnumValuesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ComptimeEnumValuesQuery {
+    type Value = nia_comptime_check::ComptimeEnumValues;
+
+    fn name() -> &'static str {
+        "comptime_enum_values"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.comptime_enum_values)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ComptimeValuesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ComptimeValuesQuery {
+    type Value = nia_comptime_check::ComptimeValues;
+
+    fn name() -> &'static str {
+        "comptime_values"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.comptime_values)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ComptimeTypedFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ComptimeTypedFactsQuery {
+    type Value = nia_comptime_check::ComptimeTypedFacts;
+
+    fn name() -> &'static str {
+        "comptime_typed_facts"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.comptime_typed_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct LayoutsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for LayoutsQuery {

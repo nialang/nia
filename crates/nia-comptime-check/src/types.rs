@@ -30,6 +30,36 @@ pub struct ComptimeCheck {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ComptimeArrayLengths {
+    pub interner: TyInterner,
+    pub values: HashMap<GlobalConstExprId, u64>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ComptimeEnumValues {
+    pub interner: TyInterner,
+    pub values: HashMap<DefId, ComptimeValue>,
+    pub typed_values: HashMap<DefId, TypedComptimeValue>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ComptimeValues {
+    pub interner: TyInterner,
+    pub values: HashMap<ComptimeKey, ComptimeValue>,
+    pub typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ComptimeTypedFacts {
+    pub interner: TyInterner,
+    pub typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedComptimeValue {
     pub value: ComptimeValue,

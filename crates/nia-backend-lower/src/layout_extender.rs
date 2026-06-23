@@ -216,12 +216,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
 
     fn program_array_len(&self, id: GlobalConstExprId) -> Option<u64> {
         if id.module_id == self.input.module_id {
-            return self.input.comptime.array_lengths.get(&id).copied();
+            return self.input.comptime_array_lengths.values.get(&id).copied();
         }
         self.input
             .program_comptime
             .get(&id.module_id)
-            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
     }
 }
 
