@@ -902,6 +902,9 @@ impl<'a> BodyChecker<'a> {
             method_receiver_kinds: HashMap::new(),
             traits_by_method_name: HashMap::new(),
             trait_impls_by_trait: HashMap::new(),
+            program_type_normalizations: std::cell::RefCell::new(
+                self.program_type_normalizations.borrow().clone(),
+            ),
             diagnostics: Vec::new(),
             timing: self.timing,
             timing_module_id: self.timing_module_id,

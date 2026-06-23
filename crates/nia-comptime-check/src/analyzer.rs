@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -122,6 +123,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
         diagnostics: Vec::new(),
         active: HashSet::new(),
         working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+        program_type_normalizations: RefCell::new(HashMap::new()),
         resolved_call_type_substitutions: HashMap::new(),
     };
     analyzer.analyze_module();
@@ -152,6 +154,7 @@ pub(crate) struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ComptimeKey>,
     working_interners: HashMap<ModuleId, TyInterner>,
+    program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     resolved_call_type_substitutions: HashMap<Span, HashMap<String, InternedTyId>>,
 }
 
@@ -210,6 +213,7 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             active: HashSet::new(),
             working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+            program_type_normalizations: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }
     }

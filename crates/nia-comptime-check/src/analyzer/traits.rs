@@ -80,10 +80,7 @@ impl Analyzer<'_> {
         };
         let assumptions = self.current_trait_goals();
         let program_enums = self.program_enum_signatures();
-        let normalized = self
-            .normalized_for_module(module_id)
-            .cloned()
-            .unwrap_or_default();
+        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.enums.clone())
@@ -122,10 +119,7 @@ impl Analyzer<'_> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
         let assumptions = self.current_trait_goals();
         let program_enums = self.program_enum_signatures();
-        let normalized = self
-            .normalized_for_module(module_id)
-            .cloned()
-            .unwrap_or_default();
+        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.enums.clone())

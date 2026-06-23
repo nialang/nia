@@ -244,7 +244,7 @@ impl Analyzer<'_> {
 
     pub(super) fn current_runtime_primitive_type(&self, primitive: PrimitiveTy) -> InternedTyId {
         self.source_interner_for_module(self.current_execution_module_id())
-            .unwrap_or(self.input.interner)
+            .unwrap_or_else(|| self.input.interner.clone())
             .primitive(primitive)
     }
 

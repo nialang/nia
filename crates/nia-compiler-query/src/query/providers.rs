@@ -562,7 +562,8 @@ pub(super) fn provide_visible_extensions(
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
+    let declaration_normalization =
+        |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
     let program_signatures = db.query(ProgramSignaturesQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
@@ -571,7 +572,7 @@ pub(super) fn provide_visible_extensions(
         using_scope,
         public_surfaces: &public.surfaces,
         defs: &defs,
-        normalizations: &normalizations,
+        normalizations: &declaration_normalization,
         program_signatures: program_signatures.maps(),
         extensions: &extensions.methods,
         associated_values: &extensions.associated_values,
@@ -712,7 +713,8 @@ pub(super) fn provide_comptime(
         let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
         let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-        let program_type_normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
+        let declaration_type_normalization =
+            |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
         let program_signatures = db.query(ProgramSignaturesQuery);
         let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
         let values = db.query(ValueResolutionQuery(module_id));
@@ -737,7 +739,7 @@ pub(super) fn provide_comptime(
                     module: Some(&program_module),
                     source_path: Some(&program_source_path),
                     defs: Some(&program_defs),
-                    type_normalizations: Some(&program_type_normalizations),
+                    type_normalizations: Some(&declaration_type_normalization),
                     signatures: Some(&item_signatures_for_module),
                     program_enums: &program_signatures.enums,
                     trait_impls: &program_signatures.trait_impls,
@@ -881,7 +883,8 @@ fn body_check_with_filter(
     let lowered = db.query(TypeLoweringQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let normalization = db.query(TypeNormalizationQuery(module_id));
-    let program_type_normalizations = db.query(ProgramDeclarationTypeNormalizationsQuery);
+    let declaration_type_normalization =
+        |module_id| Some(db.query(DeclarationTypeNormalizationQuery(module_id)));
     let comptime = db.query(ComptimeQuery(module_id));
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = db.query(LayoutsQuery(module_id));
@@ -914,7 +917,7 @@ fn body_check_with_filter(
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
                 defs: Some(&program_defs),
-                type_normalizations: Some(&program_type_normalizations),
+                type_normalizations: Some(&declaration_type_normalization),
                 signatures: Some(&item_signatures_for_module),
                 layouts: Some(&program_layouts),
             },
@@ -980,7 +983,6 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             db.query(CompilerTimingsQuery),
             "checked_modules.shared_inputs",
             || {
-                let _ = db.query(ProgramDeclarationTypeNormalizationsQuery);
                 let _ = db.query(ProgramSignaturesQuery);
                 let _ = db.query(ExtensionMethodsQuery);
             },
@@ -1007,7 +1009,6 @@ pub(super) fn provide_executable_checked_modules(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
                 || {
-                    let _ = db.query(ProgramDeclarationTypeNormalizationsQuery);
                     let _ = db.query(ProgramSignaturesQuery);
                     let _ = db.query(ExtensionMethodsQuery);
                 },

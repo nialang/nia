@@ -1506,23 +1506,8 @@ fn main() i32 {
         let after_second_check = database.query_trace();
 
         assert_eq!(
-            query_executions(
-                &before_second_check,
-                "program_declaration_type_normalizations"
-            ),
-            query_executions(
-                &after_second_check,
-                "program_declaration_type_normalizations"
-            ),
-        );
-        assert!(
-            query_cache_hits(
-                &after_second_check,
-                "program_declaration_type_normalizations"
-            ) > query_cache_hits(
-                &before_second_check,
-                "program_declaration_type_normalizations"
-            ),
+            query_executions(&before_second_check, "declaration_type_normalization"),
+            query_executions(&after_second_check, "declaration_type_normalization"),
         );
     }
 
@@ -1842,7 +1827,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn visible_extensions_use_program_declaration_type_normalizations_query() {
+    fn visible_extensions_use_module_declaration_type_normalization_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -1855,11 +1840,11 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
-                && dependency.to.name == "program_declaration_type_normalizations"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_declaration_type_normalizations"
                 && dependency.to.name == "declaration_type_normalization"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_declaration_type_normalizations"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
