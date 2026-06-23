@@ -26,12 +26,23 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) declaration_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
+    pub(super) signature_type_resolution:
+        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
+    pub(super) signature_type_lowering:
+        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
+    pub(super) signature_item_signatures:
+        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> ItemSignatures,
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) declaration_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
+    pub(super) signature_type_normalization: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+        nia_item_tree::SignatureItemSet,
+    ) -> TypeNormalization,
     pub(super) program_body_function_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyFunctionSignatures>,
     pub(super) program_body_value_signatures:
@@ -89,11 +100,15 @@ impl Default for CompilerQueryProviders {
             public_surface: provide_public_surface,
             type_resolution: provide_type_resolution,
             declaration_type_resolution: provide_declaration_type_resolution,
+            signature_type_resolution: provide_signature_type_resolution,
             type_lowering: provide_type_lowering,
             declaration_type_lowering: provide_declaration_type_lowering,
+            signature_type_lowering: provide_signature_type_lowering,
             item_signatures: provide_item_signatures,
+            signature_item_signatures: provide_signature_item_signatures,
             type_normalization: provide_type_normalization,
             declaration_type_normalization: provide_declaration_type_normalization,
+            signature_type_normalization: provide_signature_type_normalization,
             program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
             program_body_type_signatures: provide_program_body_type_signatures,
@@ -346,6 +361,32 @@ pub(super) fn provide_declaration_type_resolution(
     })
 }
 
+pub(super) fn provide_signature_type_resolution(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> TypeResolution {
+    time_module_provider(db, "signature_type_resolution", module_id, || {
+        let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let graph = db.query(ModuleGraphQuery);
+        let public = db.query(PublicSurfaceQuery);
+        let empty_using = ModuleUsingScope::default();
+        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree(
+            &active_item_tree,
+            &defs,
+            nia_type_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public.surfaces,
+            using_scope,
+        )
+    })
+}
+
 pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -380,6 +421,24 @@ pub(super) fn provide_declaration_type_lowering(
     )
 }
 
+pub(super) fn provide_signature_type_lowering(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> TypeLowering {
+    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let type_resolution = db.query(SignatureTypeResolutionQuery(module_id, set));
+    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    nia_type_lower::lower_module_declaration_types_from_active_item_tree(
+        module_id,
+        &active_item_tree,
+        &type_resolution,
+        nia_type_lower::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
+    )
+}
+
 pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -387,6 +446,21 @@ pub(super) fn provide_item_signatures(
     let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
+    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+        &active_item_tree,
+        &defs,
+        &type_lowering,
+    )
+}
+
+pub(super) fn provide_signature_item_signatures(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> ItemSignatures {
+    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
     nia_item_signatures::collect_item_signatures_from_active_item_tree(
         &active_item_tree,
         &defs,
@@ -412,6 +486,16 @@ pub(super) fn provide_declaration_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
+pub(super) fn provide_signature_type_normalization(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> TypeNormalization {
+    let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
+    let item_signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
+    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+}
+
 pub(super) fn provide_program_body_function_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyFunctionSignatures> {
@@ -419,7 +503,8 @@ pub(super) fn provide_program_body_function_signatures(
         db.query(CompilerTimingsQuery),
         "program_body_function_signatures",
         || {
-            let inputs = module_signature_inputs(db);
+            let inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
             let modules = inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyFunctionSignatures {
@@ -439,7 +524,7 @@ pub(super) fn provide_program_body_value_signatures(
         db.query(CompilerTimingsQuery),
         "program_body_value_signatures",
         || {
-            let inputs = module_signature_inputs(db);
+            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
             let modules = inputs.modules();
             Arc::new(ProgramBodyValueSignatures {
                 globals: collect_program_globals(&modules),
@@ -456,13 +541,12 @@ pub(super) fn provide_program_body_type_signatures(
         db.query(CompilerTimingsQuery),
         "program_body_type_signatures",
         || {
-            let inputs = module_signature_inputs(db);
+            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
             let modules = inputs.modules();
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyTypeSignatures {
                 structs: collect_program_structs(&modules),
                 unions: collect_program_unions(&modules),
-                enums: trait_solving.enums.clone(),
+                enums: collect_program_enums(&modules),
                 type_aliases: collect_program_type_aliases(&modules),
             })
         },
@@ -476,7 +560,7 @@ pub(super) fn provide_program_body_trait_signatures(
         db.query(CompilerTimingsQuery),
         "program_body_trait_signatures",
         || {
-            let inputs = module_signature_inputs(db);
+            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
             let modules = inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyTraitSignatures {
@@ -572,13 +656,46 @@ fn module_signature_inputs(db: &QueryDb<CompilerContext>) -> ProgramSignatureInp
     }
 }
 
+fn module_signature_inputs_for(
+    db: &QueryDb<CompilerContext>,
+    set: nia_item_tree::SignatureItemSet,
+) -> ProgramSignatureInputs {
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(SignatureTypeLoweringQuery(module_id, set)))
+        .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(SignatureItemSignaturesQuery(module_id, set)))
+        .collect::<Vec<_>>();
+    let defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+        .collect::<Vec<_>>();
+    ProgramSignatureInputs {
+        module_ids,
+        type_lowerings,
+        item_signatures,
+        defs,
+    }
+}
+
 fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
-    let signature_inputs = module_signature_inputs(db);
+    let signature_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
     let normalizations = signature_inputs
         .module_ids
         .iter()
         .copied()
-        .map(|module_id| db.query(DeclarationTypeNormalizationQuery(module_id)))
+        .map(|module_id| {
+            db.query(SignatureTypeNormalizationQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ))
+        })
         .collect::<Vec<_>>();
     ExtensionSignatureInputs {
         signature_inputs,

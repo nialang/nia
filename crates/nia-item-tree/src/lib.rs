@@ -10,6 +10,14 @@ use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use std::collections::HashSet;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SignatureItemSet {
+    Functions,
+    Values,
+    Types,
+    Traits,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleItemTree {
     pub items: Vec<ItemTreeNode>,
@@ -108,6 +116,17 @@ impl ActiveModuleItemTree {
     pub fn definition_eq(&self, other: &Self) -> bool {
         self.inactive_spans == other.inactive_spans
             && item_tree_nodes_definition_eq(&self.items, &other.items)
+    }
+
+    pub fn signature_items(&self, set: SignatureItemSet) -> Self {
+        Self {
+            items: self
+                .items
+                .iter()
+                .filter_map(|item| signature_item(item, set))
+                .collect(),
+            inactive_spans: self.inactive_spans.clone(),
+        }
     }
 }
 
@@ -306,6 +325,85 @@ fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
             .iter()
             .zip(rhs.iter())
             .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+}
+
+fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTreeNode> {
+    let kind = match (&item.kind, set) {
+        (ItemTreeNodeKind::Module(_), _)
+        | (ItemTreeNodeKind::Using(_), _)
+        | (
+            ItemTreeNodeKind::Struct(_),
+            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+        )
+        | (
+            ItemTreeNodeKind::Union(_),
+            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+        )
+        | (
+            ItemTreeNodeKind::Enum(_),
+            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+        )
+        | (
+            ItemTreeNodeKind::TypeAlias(_),
+            SignatureItemSet::Functions | SignatureItemSet::Values | SignatureItemSet::Traits,
+        )
+        | (
+            ItemTreeNodeKind::Function(_),
+            SignatureItemSet::Values | SignatureItemSet::Types | SignatureItemSet::Traits,
+        )
+        | (
+            ItemTreeNodeKind::Binding(_),
+            SignatureItemSet::Functions | SignatureItemSet::Types | SignatureItemSet::Traits,
+        )
+        | (ItemTreeNodeKind::Trait(_), SignatureItemSet::Values | SignatureItemSet::Types)
+        | (ItemTreeNodeKind::Extend(_), SignatureItemSet::Types) => return None,
+        (ItemTreeNodeKind::Struct(item), SignatureItemSet::Types) => {
+            ItemTreeNodeKind::Struct(item.clone())
+        }
+        (ItemTreeNodeKind::Union(item), SignatureItemSet::Types) => {
+            ItemTreeNodeKind::Union(item.clone())
+        }
+        (ItemTreeNodeKind::Enum(item), SignatureItemSet::Types) => {
+            ItemTreeNodeKind::Enum(item.clone())
+        }
+        (ItemTreeNodeKind::TypeAlias(item), SignatureItemSet::Types) => {
+            ItemTreeNodeKind::TypeAlias(item.clone())
+        }
+        (ItemTreeNodeKind::Function(item), SignatureItemSet::Functions) => {
+            ItemTreeNodeKind::Function(item.clone())
+        }
+        (ItemTreeNodeKind::Binding(item), SignatureItemSet::Values) => {
+            ItemTreeNodeKind::Binding(item.clone())
+        }
+        (ItemTreeNodeKind::Trait(item), SignatureItemSet::Functions | SignatureItemSet::Traits) => {
+            ItemTreeNodeKind::Trait(item.clone())
+        }
+        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Functions) => {
+            let mut item = item.clone();
+            item.associated_types.clear();
+            item.associated_values.clear();
+            ItemTreeNodeKind::Extend(item)
+        }
+        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Values) => {
+            if item.associated_values.is_empty() {
+                return None;
+            }
+            let mut item = item.clone();
+            item.methods.clear();
+            item.associated_types.clear();
+            ItemTreeNodeKind::Extend(item)
+        }
+        (ItemTreeNodeKind::Extend(item), SignatureItemSet::Traits) => {
+            ItemTreeNodeKind::Extend(item.clone())
+        }
+    };
+    Some(ItemTreeNode {
+        span: item.span,
+        node_key: item.node_key.clone(),
+        attributes: item.attributes.clone(),
+        visibility: item.visibility,
+        kind,
+    })
 }
 
 fn using_decl_eq(lhs: &UsingItem, rhs: &UsingItem) -> bool {
@@ -637,6 +735,46 @@ fn selected() i32 { 2 }
         let after_tree = lower_module_items(&after);
 
         assert!(!before_tree.definition_eq(&after_tree));
+    }
+
+    #[test]
+    fn signature_item_sets_track_their_own_declarations() {
+        let (before, before_errors) =
+            parse_module("pub struct S { value: i32 } let VALUE: i32 = 1; fn helper() i32 { 1 }");
+        let (after, after_errors) =
+            parse_module("pub struct S { value: i32 } let VALUE: i32 = 1; fn helper() u8 { 1 }");
+        assert!(before_errors.is_empty(), "{before_errors:?}");
+        assert!(after_errors.is_empty(), "{after_errors:?}");
+
+        let before_active = ActiveModuleItemTree::new(
+            lower_module_items(&before).items,
+            std::collections::HashSet::new(),
+        );
+        let after_active = ActiveModuleItemTree::new(
+            lower_module_items(&after).items,
+            std::collections::HashSet::new(),
+        );
+
+        assert!(
+            !before_active
+                .signature_items(SignatureItemSet::Functions)
+                .declaration_eq(&after_active.signature_items(SignatureItemSet::Functions))
+        );
+        assert!(
+            before_active
+                .signature_items(SignatureItemSet::Values)
+                .declaration_eq(&after_active.signature_items(SignatureItemSet::Values))
+        );
+        assert!(
+            before_active
+                .signature_items(SignatureItemSet::Types)
+                .declaration_eq(&after_active.signature_items(SignatureItemSet::Types))
+        );
+        assert!(
+            before_active
+                .signature_items(SignatureItemSet::Traits)
+                .declaration_eq(&after_active.signature_items(SignatureItemSet::Traits))
+        );
     }
 
     #[test]
