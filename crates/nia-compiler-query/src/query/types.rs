@@ -143,7 +143,7 @@ impl QueryKey<CompilerContext> for ProgramTypeNormalizationsQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramSignatures {
+pub(super) struct ProgramBodySignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
@@ -198,7 +198,7 @@ pub(super) struct LoweredFunctionBodies {
     pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
 }
 
-impl ProgramSignatures {
+impl ProgramBodySignatures {
     pub(super) fn maps(&self) -> ProgramSignatureMaps<'_> {
         ProgramSignatureMaps {
             functions: &self.functions,
@@ -215,17 +215,17 @@ impl ProgramSignatures {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramSignaturesQuery;
+pub(super) struct ProgramBodySignaturesQuery;
 
-impl QueryKey<CompilerContext> for ProgramSignaturesQuery {
-    type Value = ProgramSignaturesValue;
+impl QueryKey<CompilerContext> for ProgramBodySignaturesQuery {
+    type Value = ProgramBodySignaturesValue;
 
     fn name() -> &'static str {
-        "program_signatures"
+        "program_body_signatures"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_signatures)(db)
+        (db.context().providers.program_body_signatures)(db)
     }
 }
 
