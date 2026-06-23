@@ -42,49 +42,28 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         {
             return extension_interner.get(ty);
         }
-        Some(self.active_ty_kind(ty))
+        self.input_interner_for_type(ty)
+            .and_then(|interner| interner.get(ty))
     }
 
     pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
         if ty.interner_id == self.interner.interner_id() {
-            if self.interner.get(ty).is_none() {
-                panic!(
-                    "Nia ICE: backend type {:?} is not present in current interner {:?}",
-                    ty,
-                    self.interner.interner_id()
-                );
-            }
+            require_type_in_interner(&self.interner, ty, "current");
             return &self.interner;
         }
         if let Some(extension_interner) = self.input.extension_interner
             && ty.interner_id == extension_interner.interner_id()
         {
-            if extension_interner.get(ty).is_none() {
-                panic!(
-                    "Nia ICE: backend type {:?} is not present in extension interner {:?}",
-                    ty,
-                    extension_interner.interner_id()
-                );
-            }
+            require_type_in_interner(extension_interner, ty, "extension");
             return extension_interner;
         }
-        let active = self
-            .shared
-            .input_type_interners
-            .get(&ty.interner_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: missing backend input type interner {:?} for type {:?}",
-                    ty.interner_id, ty
-                )
-            });
-        if active.get(ty).is_none() {
+        let active = self.input_interner_for_type(ty).unwrap_or_else(|| {
             panic!(
-                "Nia ICE: backend type {:?} is not present in active interner {:?}",
-                ty,
-                active.interner_id()
-            );
-        }
+                "Nia ICE: missing backend input type interner {:?} for type {:?}",
+                ty.interner_id, ty
+            )
+        });
+        require_type_in_interner(active, ty, "input");
         active
     }
 
@@ -92,6 +71,10 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         self.active_interner_for_type(ty)
             .get(ty)
             .unwrap_or_else(|| panic!("Nia ICE: backend type {:?} is missing", ty))
+    }
+
+    fn input_interner_for_type(&self, ty: InternedTyId) -> Option<&nia_ty::TyInterner> {
+        self.shared.input_type_interners.get(&ty.interner_id)
     }
 
     pub(crate) fn function_body_interner(
@@ -179,5 +162,15 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         substitutions: TypeSubstitutionId,
     ) -> Option<&HashMap<String, InternedTyId>> {
         self.type_substitutions.get(substitutions.0)
+    }
+}
+
+fn require_type_in_interner(interner: &nia_ty::TyInterner, ty: InternedTyId, source: &str) {
+    if interner.get(ty).is_none() {
+        panic!(
+            "Nia ICE: backend type {:?} is not present in {source} interner {:?}",
+            ty,
+            interner.interner_id()
+        );
     }
 }
