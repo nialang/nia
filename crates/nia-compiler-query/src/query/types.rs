@@ -156,6 +156,13 @@ pub(super) struct ProgramSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramAbiSignaturesValue {
+    pub(super) structs: HashMap<GlobalDefId, StructSignature>,
+    pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
+    pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct LoweredFunctionBodies {
     pub(super) interner: nia_ty::TyInterner,
     pub(super) bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
@@ -190,6 +197,21 @@ impl QueryKey<CompilerContext> for ProgramSignaturesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_signatures)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramAbiSignaturesQuery;
+
+impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
+    type Value = Arc<ProgramAbiSignaturesValue>;
+
+    fn name() -> &'static str {
+        "program_abi_signatures"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_abi_signatures)(db)
     }
 }
 
