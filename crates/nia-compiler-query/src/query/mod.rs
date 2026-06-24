@@ -2509,7 +2509,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn executable_reachability_uses_executable_signature_index() {
+    fn executable_reachability_uses_lazy_signature_resolvers() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -2521,9 +2521,13 @@ fn main() i32 {
         let _ = db.query(ExecutableCheckedModulesQuery);
         let trace = db.query_trace();
 
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "program_executable_reachability_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!depends_on_body_signature_query(
             &trace,
