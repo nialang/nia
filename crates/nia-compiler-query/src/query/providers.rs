@@ -56,6 +56,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_visible_type_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramVisibleTypeSignatures>,
+    pub(super) program_executable_reachability_signatures:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramExecutableReachabilitySignatures>,
     pub(super) program_executable_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramExecutableSignatures>,
     pub(super) program_backend_signatures:
@@ -124,6 +126,8 @@ impl Default for CompilerQueryProviders {
             program_body_trait_signatures: provide_program_body_trait_signatures,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_visible_type_signatures: provide_program_visible_type_signatures,
+            program_executable_reachability_signatures:
+                provide_program_executable_reachability_signatures,
             program_executable_signatures: provide_program_executable_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
@@ -768,12 +772,12 @@ pub(super) fn provide_program_visible_type_signatures(
     )
 }
 
-pub(super) fn provide_program_executable_signatures(
+pub(super) fn provide_program_executable_reachability_signatures(
     db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramExecutableSignatures> {
+) -> Arc<ProgramExecutableReachabilitySignatures> {
     time_provider(
         db.query(CompilerTimingsQuery),
-        "program_executable_signatures",
+        "program_executable_reachability_signatures",
         || {
             let function_inputs =
                 module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
@@ -781,25 +785,48 @@ pub(super) fn provide_program_executable_signatures(
             let type_inputs =
                 module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
             let type_modules = type_inputs.modules();
-            let value_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
-            let value_modules = value_inputs.modules();
             let trait_inputs =
                 module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
             let trait_modules = trait_inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            Arc::new(ProgramExecutableSignatures {
+            Arc::new(ProgramExecutableReachabilitySignatures {
                 functions: collect_program_functions_excluding(
                     &function_modules,
                     &trait_solving.invalid_trait_impl_method_ids,
                 ),
-                globals: collect_program_globals(&value_modules),
-                comptimes: collect_program_comptimes(&value_modules),
                 structs: collect_program_structs(&type_modules),
                 unions: collect_program_unions(&type_modules),
-                enums: collect_program_enums(&type_modules),
-                type_aliases: collect_program_type_aliases(&type_modules),
                 traits: collect_program_traits(&trait_modules),
+            })
+        },
+    )
+}
+
+pub(super) fn provide_program_executable_signatures(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramExecutableSignatures> {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "program_executable_signatures",
+        || {
+            let reachability = db.query(ProgramExecutableReachabilitySignaturesQuery);
+            let type_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let type_modules = type_inputs.modules();
+            let value_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
+            let value_modules = value_inputs.modules();
+            let visible_types = db.query(ProgramVisibleTypeSignaturesQuery);
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            Arc::new(ProgramExecutableSignatures {
+                functions: reachability.functions.clone(),
+                globals: collect_program_globals(&value_modules),
+                comptimes: collect_program_comptimes(&value_modules),
+                structs: reachability.structs.clone(),
+                unions: reachability.unions.clone(),
+                enums: collect_program_enums(&type_modules),
+                type_aliases: visible_types.type_aliases.clone(),
+                traits: reachability.traits.clone(),
                 trait_impls: trait_solving.trait_impls.clone(),
             })
         },
@@ -2176,7 +2203,7 @@ fn executable_layouts_for_reachable_items(
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let program_signatures = db.query(ProgramExecutableSignaturesQuery);
+        let program_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
@@ -2678,7 +2705,7 @@ pub(super) fn provide_executable_checked_modules(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
                 || {
-                    let _ = db.query(ProgramExecutableSignaturesQuery);
+                    let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
                     let _ = db.query(ExtensionMethodsQuery);
                 },
             );
@@ -2690,7 +2717,8 @@ pub(super) fn provide_executable_checked_modules(
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
-    let program_signatures = db.query(ProgramExecutableSignaturesQuery);
+    let reachability_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
+    let mut program_signatures = None;
     let extension_methods = db.query(ExtensionMethodsQuery);
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
@@ -2730,10 +2758,10 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 module_functions: &module_functions,
             },
             nia_executable_reachability::ExecutableSignatureIndex {
-                functions: &program_signatures.functions,
-                structs: &program_signatures.structs,
-                unions: &program_signatures.unions,
-                traits: &program_signatures.traits,
+                functions: &reachability_signatures.functions,
+                structs: &reachability_signatures.structs,
+                unions: &reachability_signatures.unions,
+                traits: &reachability_signatures.traits,
             },
             &extension_methods.methods,
             &reachable_inputs,
@@ -2796,6 +2824,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 &reachability.functions,
                 &reachability.globals,
             );
+            let program_signatures = program_signatures
+                .get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
                 body_check_with_filter_and_layouts_with_inputs(
                     db,
@@ -2803,7 +2833,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     filter,
                     Some(layouts.clone()),
                     Some(&executable_program_layouts),
-                    Some(&program_signatures),
+                    Some(program_signatures.as_ref()),
                 )
             });
             let flow_check = executable_flow_check(db, module_id, &reachability.functions);
