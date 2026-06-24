@@ -347,6 +347,7 @@ fn trait_impl_signature_by_id(
 
 pub(crate) fn collect_extension_methods(
     modules: &[ExtensionModuleInput<'_>],
+    trait_impls: &[ProgramTraitImplSignature],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
     let mut extensions = ExtensionMethods::default();
     let mut diagnostics = Vec::new();
@@ -378,7 +379,6 @@ pub(crate) fn collect_extension_methods(
                 })
         })
         .collect::<HashMap<_, _>>();
-    let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
         for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
@@ -410,7 +410,7 @@ pub(crate) fn collect_extension_methods(
                     target_ty,
                     trait_id,
                     &trait_signatures,
-                    &trait_impls,
+                    trait_impls,
                     &mut diagnostics,
                 ),
                 Some(TraitId::Builtin(trait_id)) => validate_builtin_trait_impl(
@@ -418,7 +418,7 @@ pub(crate) fn collect_extension_methods(
                     impl_signature,
                     target_ty,
                     trait_id,
-                    &trait_impls,
+                    trait_impls,
                     &mut diagnostics,
                 ),
                 None => true,
@@ -621,12 +621,6 @@ fn validate_supertraits(
             );
         }
     }
-}
-
-fn collect_extension_trait_impls(
-    modules: &[ExtensionModuleInput<'_>],
-) -> Vec<ProgramTraitImplSignature> {
-    collect_valid_program_trait_impls(modules)
 }
 
 fn supertrait_id(
