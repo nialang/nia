@@ -64,6 +64,7 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
+    pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
     pub(super) extension_associated_values:
         fn(&QueryDb<CompilerContext>) -> ExtensionAssociatedValuesValue,
@@ -134,6 +135,7 @@ impl Default for CompilerQueryProviders {
             program_executable_signatures: provide_program_executable_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
+            extension_method_index: provide_extension_method_index,
             extension_method_set: provide_extension_method_set,
             extension_associated_values: provide_extension_associated_values,
             extension_methods: provide_extension_methods,
@@ -665,6 +667,35 @@ impl ExtensionSignatureInputs {
     }
 }
 
+struct ExtensionMethodIndexInputs {
+    trait_inputs: ProgramSignatureInputs,
+    normalizations: Vec<TypeNormalization>,
+}
+
+impl ExtensionMethodIndexInputs {
+    fn modules(&self) -> Vec<ExtensionMethodIndexModuleInput<'_>> {
+        self.trait_inputs
+            .module_ids
+            .iter()
+            .zip(self.trait_inputs.defs.iter())
+            .zip(self.trait_inputs.type_lowerings.iter())
+            .zip(self.trait_inputs.item_signatures.iter())
+            .zip(self.normalizations.iter())
+            .map(
+                |((((module_id, defs), lowering), signatures), normalization)| {
+                    ExtensionMethodIndexModuleInput {
+                        module_id: *module_id,
+                        defs,
+                        lowering,
+                        signatures,
+                        normalization,
+                    }
+                },
+            )
+            .collect()
+    }
+}
+
 fn module_signature_inputs_for(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
@@ -694,44 +725,89 @@ fn module_signature_inputs_for(
 }
 
 fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
-    let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
-    let function_signatures = trait_inputs
-        .module_ids
-        .iter()
-        .copied()
-        .map(|module_id| {
-            db.query(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::ExtensionFunctions,
-            ))
-        })
-        .collect::<Vec<_>>();
-    let type_signatures = trait_inputs
-        .module_ids
-        .iter()
-        .copied()
-        .map(|module_id| {
-            db.query(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ))
-        })
-        .collect::<Vec<_>>();
-    let normalizations = trait_inputs
-        .module_ids
-        .iter()
-        .copied()
-        .map(|module_id| {
-            db.query(SignatureTypeNormalizationQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ))
-        })
-        .collect::<Vec<_>>();
+    let timings = db.query(CompilerTimingsQuery);
+    let trait_inputs = time_provider(timings, "extension_signature_inputs.traits", || {
+        module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits)
+    });
+    let function_signatures = time_provider(
+        timings,
+        "extension_signature_inputs.extension_functions",
+        || {
+            trait_inputs
+                .module_ids
+                .iter()
+                .copied()
+                .map(|module_id| {
+                    db.query(SignatureItemSignaturesQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::ExtensionFunctions,
+                    ))
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+    let type_signatures = time_provider(timings, "extension_signature_inputs.types", || {
+        trait_inputs
+            .module_ids
+            .iter()
+            .copied()
+            .map(|module_id| {
+                db.query(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+            })
+            .collect::<Vec<_>>()
+    });
+    let normalizations = time_provider(
+        timings,
+        "extension_signature_inputs.trait_normalizations",
+        || {
+            trait_inputs
+                .module_ids
+                .iter()
+                .copied()
+                .map(|module_id| {
+                    db.query(SignatureTypeNormalizationQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Traits,
+                    ))
+                })
+                .collect::<Vec<_>>()
+        },
+    );
     ExtensionSignatureInputs {
         trait_inputs,
         function_signatures,
         type_signatures,
+        normalizations,
+    }
+}
+
+fn extension_method_index_inputs(db: &QueryDb<CompilerContext>) -> ExtensionMethodIndexInputs {
+    let timings = db.query(CompilerTimingsQuery);
+    let trait_inputs = time_provider(timings, "extension_method_index.inputs.traits", || {
+        module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits)
+    });
+    let normalizations = time_provider(
+        timings,
+        "extension_method_index.inputs.trait_normalizations",
+        || {
+            trait_inputs
+                .module_ids
+                .iter()
+                .copied()
+                .map(|module_id| {
+                    db.query(SignatureTypeNormalizationQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Traits,
+                    ))
+                })
+                .collect::<Vec<_>>()
+        },
+    );
+    ExtensionMethodIndexInputs {
+        trait_inputs,
         normalizations,
     }
 }
@@ -784,21 +860,27 @@ pub(super) fn provide_program_executable_reachability_signatures(
         db.query(CompilerTimingsQuery),
         "program_executable_reachability_signatures",
         || {
-            let function_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+            let timings = db.query(CompilerTimingsQuery);
+            let function_inputs = time_provider(
+                timings,
+                "program_executable_reachability_signatures.functions",
+                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions),
+            );
             let function_modules = function_inputs.modules();
-            let type_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let type_inputs = time_provider(
+                timings,
+                "program_executable_reachability_signatures.types",
+                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types),
+            );
             let type_modules = type_inputs.modules();
-            let trait_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+            let trait_inputs = time_provider(
+                timings,
+                "program_executable_reachability_signatures.traits",
+                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits),
+            );
             let trait_modules = trait_inputs.modules();
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramExecutableReachabilitySignatures {
-                functions: collect_program_functions_excluding(
-                    &function_modules,
-                    &trait_solving.invalid_trait_impl_method_ids,
-                ),
+                functions: collect_program_functions_excluding(&function_modules, &HashSet::new()),
                 structs: collect_program_structs(&type_modules),
                 unions: collect_program_unions(&type_modules),
                 traits: collect_program_traits(&trait_modules),
@@ -921,15 +1003,44 @@ pub(super) fn provide_extension_method_set(
         db.query(CompilerTimingsQuery),
         "extension_method_set",
         || {
-            let inputs = extension_signature_inputs(db);
-            let inputs = inputs.extension_modules();
+            let timings = db.query(CompilerTimingsQuery);
+            let inputs = time_provider(timings, "extension_method_set.inputs", || {
+                extension_signature_inputs(db)
+            });
+            let inputs = time_provider(timings, "extension_method_set.input_modules", || {
+                inputs.extension_modules()
+            });
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             let (methods, diagnostics) =
-                collect_extension_methods(&inputs, &trait_solving.trait_impls);
+                time_provider(timings, "extension_method_set.collect", || {
+                    collect_extension_methods(&inputs, &trait_solving.trait_impls)
+                });
             Arc::new(ExtensionMethodSetQueryValue {
                 methods,
                 diagnostics,
             })
+        },
+    )
+}
+
+pub(super) fn provide_extension_method_index(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionMethodIndexValue {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "extension_method_index",
+        || {
+            let timings = db.query(CompilerTimingsQuery);
+            let inputs = time_provider(timings, "extension_method_index.inputs", || {
+                extension_method_index_inputs(db)
+            });
+            let inputs = time_provider(timings, "extension_method_index.input_modules", || {
+                inputs.modules()
+            });
+            let methods = time_provider(timings, "extension_method_index.collect", || {
+                collect_extension_method_index(&inputs)
+            });
+            Arc::new(ExtensionMethodIndexQueryValue { methods })
         },
     )
 }
@@ -941,9 +1052,9 @@ pub(super) fn provide_extension_associated_values(
         db.query(CompilerTimingsQuery),
         "extension_associated_values",
         || {
-            let inputs = extension_signature_inputs(db);
-            let inputs = inputs.extension_modules();
-            let (values, diagnostics) = collect_extension_associated_values(&inputs);
+            let inputs = extension_method_index_inputs(db);
+            let inputs = inputs.modules();
+            let (values, diagnostics) = collect_extension_associated_value_index(&inputs);
             Arc::new(ExtensionAssociatedValuesQueryValue {
                 values,
                 diagnostics,
@@ -982,7 +1093,7 @@ pub(super) fn provide_visible_extensions(
         )))
     };
     let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
-    let extension_methods = db.query(ExtensionMethodSetQuery);
+    let extension_methods = db.query(ExtensionMethodIndexQuery);
     let associated_values = db.query(ExtensionAssociatedValuesQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
@@ -2063,7 +2174,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
             .or_else(|| Some(db.query(LayoutsQuery(module_id))))
     };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
-    let extension_methods = db.query(ExtensionMethodSetQuery);
+    let extension_methods = db.query(ExtensionMethodIndexQuery);
     let program_function_signatures;
     let program_value_signatures;
     let program_type_signatures;
@@ -2746,7 +2857,7 @@ pub(super) fn provide_executable_checked_modules(
                 "executable_checked_modules.shared_inputs",
                 || {
                     let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
-                    let _ = db.query(ExtensionMethodSetQuery);
+                    let _ = db.query(ExtensionMethodIndexQuery);
                 },
             );
             executable_checked_modules_inner(db)
@@ -2759,7 +2870,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let graph = db.query(ModuleGraphQuery);
     let reachability_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
     let mut program_signatures = None;
-    let extension_methods = db.query(ExtensionMethodSetQuery);
+    let extension_methods = db.query(ExtensionMethodIndexQuery);
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
@@ -3197,7 +3308,7 @@ fn provide_backend_lowering_inner(
                 .iter()
                 .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
                 .collect::<Vec<_>>();
-            let extension_methods = db.query(ExtensionMethodSetQuery);
+            let extension_methods = db.query(ExtensionMethodIndexQuery);
             let function_bodies = function_bodies_from_checked_modules(&checked_modules);
             (
                 active_item_trees,
@@ -3300,22 +3411,24 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
             diagnostic,
         });
     }
-    let first_path = db
-        .query(ParseOkModuleIdsQuery)
-        .first()
-        .map(|module_id| db.query(ModulePathQuery(*module_id)))
-        .unwrap_or_else(synthetic_diagnostic_path);
-    diagnostics.extend(
-        db.query(ExtensionMethodSetQuery)
-            .diagnostics
-            .iter()
-            .chain(db.query(ExtensionAssociatedValuesQuery).diagnostics.iter())
-            .cloned()
-            .map(|diagnostic| ProgramDiagnostic {
-                path: first_path.clone(),
-                diagnostic,
-            }),
-    );
+    if db.query(CompilerRuntimeQuery) != RuntimeModel::FreestandingExecutable {
+        let first_path = db
+            .query(ParseOkModuleIdsQuery)
+            .first()
+            .map(|module_id| db.query(ModulePathQuery(*module_id)))
+            .unwrap_or_else(synthetic_diagnostic_path);
+        diagnostics.extend(
+            db.query(ExtensionMethodSetQuery)
+                .diagnostics
+                .iter()
+                .chain(db.query(ExtensionAssociatedValuesQuery).diagnostics.iter())
+                .cloned()
+                .map(|diagnostic| ProgramDiagnostic {
+                    path: first_path.clone(),
+                    diagnostic,
+                }),
+        );
+    }
     diagnostics
 }
 

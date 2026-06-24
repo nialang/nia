@@ -502,6 +502,26 @@ impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionMethodIndexQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionMethodIndexQuery;
+
+impl QueryKey<CompilerContext> for ExtensionMethodIndexQuery {
+    type Value = ExtensionMethodIndexValue;
+
+    fn name() -> &'static str {
+        "extension_method_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_method_index)(db)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionMethodSetQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) diagnostics: Vec<Diagnostic>,
