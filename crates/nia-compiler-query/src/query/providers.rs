@@ -982,6 +982,22 @@ pub(super) fn provide_semantic_use_table(
     let locals = db.query(LocalResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    semantic_use_table_from_resolution_inputs(
+        module_id,
+        &active_item_tree,
+        &values,
+        &locals,
+        &type_lowering,
+    )
+}
+
+fn semantic_use_table_from_resolution_inputs(
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    values: &ValueResolution,
+    locals: &LocalResolution,
+    type_lowering: &TypeLowering,
+) -> nia_sema_ir::SemanticUseTable {
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
 
     for (key, local_use) in &locals.node_uses {
@@ -1030,6 +1046,122 @@ pub(super) fn provide_semantic_use_table(
         type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
     );
     builder.finish()
+}
+
+fn active_item_tree_for_body_check_filter(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    active_item_tree: &ActiveModuleItemTree,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+) -> ActiveModuleItemTree {
+    ActiveModuleItemTree::new(
+        active_item_tree
+            .items
+            .iter()
+            .cloned()
+            .map(|mut item| {
+                filter_item_tree_node_for_body_check(module_id, defs, &mut item, filter);
+                item
+            })
+            .collect(),
+        active_item_tree.inactive_spans.clone(),
+    )
+}
+
+fn filter_item_tree_node_for_body_check(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    item: &mut nia_item_tree::ItemTreeNode,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+) {
+    match &mut item.kind {
+        nia_item_tree::ItemTreeNodeKind::Function(function) => {
+            if !body_check_filter_includes_function(module_id, defs, &function.node_key, filter) {
+                function.body = None;
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
+            if !binding.is_comptime
+                && !body_check_filter_includes_global(module_id, defs, &binding.node_key, filter)
+            {
+                binding.value = None;
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+            for method in &mut item_trait.methods {
+                if !body_check_filter_includes_function(
+                    module_id,
+                    defs,
+                    &method.function.node_key,
+                    filter,
+                ) {
+                    method.function.body = None;
+                }
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+            for method in &mut extend.methods {
+                if !body_check_filter_includes_function(
+                    module_id,
+                    defs,
+                    &method.function.node_key,
+                    filter,
+                ) {
+                    method.function.body = None;
+                }
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Module(_)
+        | nia_item_tree::ItemTreeNodeKind::Using(_)
+        | nia_item_tree::ItemTreeNodeKind::Struct(_)
+        | nia_item_tree::ItemTreeNodeKind::Union(_)
+        | nia_item_tree::ItemTreeNodeKind::Enum(_)
+        | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
+    }
+}
+
+fn body_check_filter_includes_function(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    node_key: &nia_node_id::VersionedNodeKey,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+) -> bool {
+    body_check_filter_includes_def(module_id, defs, node_key, filter, true)
+}
+
+fn body_check_filter_includes_global(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    node_key: &nia_node_id::VersionedNodeKey,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+) -> bool {
+    body_check_filter_includes_def(module_id, defs, node_key, filter, false)
+}
+
+fn body_check_filter_includes_def(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    node_key: &nia_node_id::VersionedNodeKey,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+    is_function: bool,
+) -> bool {
+    let Some(def_id) = defs.def_nodes.get(node_key) else {
+        return true;
+    };
+    let global_def_id = GlobalDefId { module_id, def_id };
+    match filter {
+        nia_body_check::BodyCheckFilter::All => true,
+        nia_body_check::BodyCheckFilter::ReachableFunctions(functions) => {
+            !is_function || functions.contains(&global_def_id)
+        }
+        nia_body_check::BodyCheckFilter::ReachableItems { functions, globals } => {
+            if is_function {
+                functions.contains(&global_def_id)
+            } else {
+                globals.contains(&global_def_id)
+            }
+        }
+    }
 }
 
 pub(super) fn provide_comptime_module(
@@ -1351,11 +1483,63 @@ fn body_check_with_filter_and_layouts(
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let values = db.query(ValueResolutionQuery(module_id));
-    let locals = db.query(LocalResolutionQuery(module_id));
-    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
-    let source_path = db.query(ModulePathQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
+    let filtered_active_item_tree;
+    let filtered_values;
+    let filtered_locals;
+    let filtered_semantic_uses;
+    let (body_active_item_tree, values, locals, semantic_uses) = match filter {
+        nia_body_check::BodyCheckFilter::All => (
+            &active_item_tree,
+            db.query(ValueResolutionQuery(module_id)),
+            db.query(LocalResolutionQuery(module_id)),
+            db.query(SemanticUseTableQuery(module_id)),
+        ),
+        _ => {
+            filtered_active_item_tree =
+                active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter);
+            let public = db.query(PublicSurfaceQuery);
+            let empty_using = ModuleUsingScope::default();
+            let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+            let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+            filtered_values =
+                nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                    &filtered_active_item_tree,
+                    &defs,
+                    nia_value_resolve::ProgramDefsContext {
+                        defs: Some(&program_defs),
+                        graph: Some(&db.query(ModuleGraphQuery)),
+                    },
+                    &public.surfaces,
+                    using_scope,
+                    &visible_extensions.methods,
+                    &visible_extensions.interner,
+                );
+            filtered_locals =
+                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
+                    &filtered_active_item_tree,
+                    &active_item_tree,
+                    &defs,
+                    &filtered_values,
+                    Some(source_version),
+                    &origins,
+                );
+            filtered_semantic_uses = semantic_use_table_from_resolution_inputs(
+                module_id,
+                &filtered_active_item_tree,
+                &filtered_values,
+                &filtered_locals,
+                &lowered,
+            );
+            (
+                &filtered_active_item_tree,
+                filtered_values,
+                filtered_locals,
+                filtered_semantic_uses,
+            )
+        }
+    };
+    let source_path = db.query(ModulePathQuery(module_id));
     let signatures = body_local_item_signatures(db, module_id, &lowered);
     let normalization = db.query(TypeNormalizationQuery(module_id));
     let program_type_normalization = |module_id| Some(db.query(TypeNormalizationQuery(module_id)));
@@ -1427,7 +1611,7 @@ fn body_check_with_filter_and_layouts(
             source_version: Some(source_version),
             source_path: &source_path,
             origins: &origins,
-            active_item_tree: &active_item_tree,
+            active_item_tree: body_active_item_tree,
             defs: &defs,
             values: &values,
             locals: &locals,
