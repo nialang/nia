@@ -29,6 +29,12 @@ impl Analyzer<'_> {
     pub(super) fn explicit_type_for_key(&mut self, key: ComptimeKey) -> Option<InternedTyId> {
         match key {
             ComptimeKey::Global(global_id) => {
+                if global_id.module_id != self.input.defs.module_id
+                    && let Some(signatures) = self.input.program.value_signatures
+                    && let Some(signatures) = signatures(global_id.module_id)
+                {
+                    return signatures.comptimes.get(&global_id.def_id)?.explicit_type;
+                }
                 let signatures = self.signatures_for_module(global_id.module_id)?;
                 signatures.comptimes.get(&global_id.def_id)?.explicit_type
             }
@@ -217,6 +223,22 @@ impl Analyzer<'_> {
                 .global_initializers()
                 .get(&global_id)
                 .cloned()
+        } else if let Some(global_initializer) = self.input.program.global_initializer {
+            if !self
+                .program_global_initializers
+                .borrow()
+                .contains_key(&global_id)
+            {
+                let initializer = global_initializer(global_id);
+                self.program_global_initializers
+                    .borrow_mut()
+                    .insert(global_id, initializer);
+            }
+            self.program_global_initializers
+                .borrow()
+                .get(&global_id)
+                .cloned()
+                .flatten()
         } else {
             (self.input.program.module?)(global_id.module_id)?
                 .global_initializers()
@@ -330,6 +352,11 @@ impl Analyzer<'_> {
             return Some(self.input.interner.clone());
         }
         let module_id = interner_id.module_id();
+        if let Some(normalization) = self.value_type_normalization_for_module(module_id)
+            && interner_id == normalization.interner.interner_id()
+        {
+            return Some(normalization.interner);
+        }
         let interner = self.type_normalization_for_module(module_id)?.interner;
         (interner_id == interner.interner_id()).then_some(interner)
     }
@@ -434,6 +461,34 @@ impl Analyzer<'_> {
                 .insert(module_id, normalization);
         }
         self.program_type_normalizations
+            .borrow()
+            .get(&module_id)
+            .cloned()
+    }
+
+    pub(super) fn value_type_normalization_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<nia_type_normalize::TypeNormalization> {
+        if module_id == self.input.defs.module_id {
+            return None;
+        }
+        if !self
+            .program_value_type_normalizations
+            .borrow()
+            .contains_key(&module_id)
+        {
+            let normalizations = self
+                .input
+                .program
+                .value_type_normalizations
+                .or(self.input.program.type_normalizations)?;
+            let normalization = normalizations(module_id)?;
+            self.program_value_type_normalizations
+                .borrow_mut()
+                .insert(module_id, normalization);
+        }
+        self.program_value_type_normalizations
             .borrow()
             .get(&module_id)
             .cloned()

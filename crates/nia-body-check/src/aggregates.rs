@@ -536,6 +536,9 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
         let program_signature = self.program_comptimes.get(&def_id).cloned()?;
+        if let Some(ty) = program_signature.signature.explicit_type {
+            return Some(self.import_type_from(&program_signature.interner, ty));
+        }
         if let Some(typed) = (self.program_comptime_values)(def_id.module_id).and_then(|comptime| {
             comptime
                 .typed_values
@@ -549,11 +552,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(ty);
         }
-        let ty = program_signature
-            .signature
-            .explicit_type
-            .unwrap_or_else(|| self.error());
-        Some(self.import_type_from(&program_signature.interner, ty))
+        Some(self.error())
     }
 
     fn import_comptime_value_runtime_type(
@@ -1108,7 +1107,10 @@ impl<'a> BodyChecker<'a> {
                     source_path: None,
                     defs: self.program.defs,
                     type_normalizations: self.program.type_normalizations,
+                    value_type_normalizations: self.program.type_normalizations,
                     signatures: self.program.signatures,
+                    value_signatures: self.program.signatures,
+                    global_initializer: None,
                     program_enums: self.program_enums,
                     trait_impls: self.program_trait_impls,
                 },
@@ -1162,7 +1164,10 @@ impl<'a> BodyChecker<'a> {
                 source_path: None,
                 defs: self.program.defs,
                 type_normalizations: self.program.type_normalizations,
+                value_type_normalizations: self.program.type_normalizations,
                 signatures: self.program.signatures,
+                value_signatures: self.program.signatures,
+                global_initializer: None,
                 program_enums: self.program_enums,
                 trait_impls: self.program_trait_impls,
             },

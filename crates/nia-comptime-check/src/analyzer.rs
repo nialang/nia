@@ -263,6 +263,10 @@ pub(crate) struct Analyzer<'a> {
     active: HashSet<ComptimeKey>,
     working_interners: HashMap<ModuleId, TyInterner>,
     program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    program_value_type_normalizations:
+        RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    program_global_initializers:
+        RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     resolved_call_type_substitutions: HashMap<Span, HashMap<String, InternedTyId>>,
 }
 
@@ -305,6 +309,8 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
             program_type_normalizations: RefCell::new(HashMap::new()),
+            program_value_type_normalizations: RefCell::new(HashMap::new()),
+            program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }
     }
@@ -347,6 +353,8 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
             program_type_normalizations: RefCell::new(HashMap::new()),
+            program_value_type_normalizations: RefCell::new(HashMap::new()),
+            program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }
     }
