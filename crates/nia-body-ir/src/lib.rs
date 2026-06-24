@@ -247,6 +247,9 @@ pub enum TypedExprKind {
         op: TypedBitIntrinsicOp,
         value: Box<TypedExpr>,
     },
+    CharFromU32 {
+        value: Box<TypedExpr>,
+    },
     StaticArrayPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,

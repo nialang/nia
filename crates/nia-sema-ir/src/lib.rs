@@ -373,6 +373,7 @@ pub enum BuiltinMethod {
     Len,
     Start,
     End,
+    ToChar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -472,6 +473,7 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Len
             | BuiltinTraitMethod::Start
             | BuiltinTraitMethod::End
+            | BuiltinTraitMethod::ToChar
             | BuiltinTraitMethod::IteratorNext => None,
         }
     }

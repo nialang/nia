@@ -825,6 +825,77 @@ fn main(slice: & [usize]) usize {
 }
 
 #[test]
+fn builtin_to_char_trait_models_checked_scalar_conversion() {
+    let root = temp_dir("builtin_to_char_trait_models_checked_scalar_conversion");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::unicode;
+
+fn convert[T](value: T) ?char
+where T: ToChar {
+    value.to_char()
+}
+
+fn associated_convert[T](value: T) ?char
+where T: ToChar {
+    [T]::to_char(value)
+}
+
+fn main() i32 {
+    let a = if let ?ch = convert(65u32) {
+        ch
+    } else null {
+        return 1;
+    };
+    let b = if let ?ch = associated_convert(0x10ffffu32) {
+        ch
+    } else null {
+        return 2;
+    };
+    if a.codepoint() != 65u32 or b.codepoint() != 0x10ffffu32 {
+        return 3;
+    }
+    if let ?ch = [char]::from_u32(0xd800u32) {
+        _ = ch;
+        return 4;
+    } else null {}
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_to_char_trait_rejects_unproven_receivers() {
+    let root = temp_dir("builtin_to_char_trait_rejects_unproven_receivers");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() ?char {
+    65usize.to_char()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("trait bound not satisfied")
+                && diagnostic.diagnostic.summary.contains("ToChar")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn builtin_slice_ranges_infer_usize_bounds() {
     let root = temp_dir("builtin_slice_ranges_infer_usize_bounds");
     write(

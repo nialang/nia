@@ -257,6 +257,9 @@ pub enum FunctionExprKind {
         op: FunctionBitIntrinsicOp,
         value: Box<FunctionExpr>,
     },
+    CharFromU32 {
+        value: Box<FunctionExpr>,
+    },
     StaticArrayPointer {
         array: Box<FunctionExpr>,
         is_readonly: bool,
@@ -556,6 +559,7 @@ pub enum FunctionBuiltinMethod {
     Len,
     Start,
     End,
+    ToChar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

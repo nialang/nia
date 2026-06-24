@@ -120,6 +120,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::Splat { .. }
         | FunctionExprKind::Bitmask { .. }
         | FunctionExprKind::BitIntrinsic { .. }
+        | FunctionExprKind::CharFromU32 { .. }
         | FunctionExprKind::ExtractElement { .. }
         | FunctionExprKind::InsertElement { .. }
         | FunctionExprKind::Binary { .. }

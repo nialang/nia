@@ -1299,8 +1299,11 @@ fn collect_source_instantiation_edges(
             if instantiation.source_def_id.is_none() {
                 continue;
             }
+            let source_def_id = instantiation
+                .source_def_id
+                .expect("source instantiation edge source checked above");
             edges.push(SourceInstantiationEdge {
-                source_module_id: input.module_id,
+                source_module_id: source_def_id.module_id,
                 def_id: instantiation.def_id,
                 args: instantiation.args.clone(),
                 span: instantiation.span,

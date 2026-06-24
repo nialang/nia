@@ -82,6 +82,9 @@ impl FunctionLowerer {
                 op: self.lower_bit_intrinsic_op(*op),
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },
+            TypedExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
+                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
+            },
             TypedExprKind::StaticArrayPointer { array, is_readonly } => {
                 FunctionExprKind::StaticArrayPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
@@ -1231,6 +1234,7 @@ impl FunctionLowerer {
             BuiltinMethod::Len => FunctionBuiltinMethod::Len,
             BuiltinMethod::Start => FunctionBuiltinMethod::Start,
             BuiltinMethod::End => FunctionBuiltinMethod::End,
+            BuiltinMethod::ToChar => FunctionBuiltinMethod::ToChar,
         }
     }
 

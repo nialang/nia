@@ -64,29 +64,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn effective_generics_for_def(&self, def_id: GlobalDefId) -> Vec<String> {
-        let mut generics = self
-            .extensions
-            .targets()
-            .iter()
-            .flat_map(|target| target.methods.iter())
-            .find(|method| method.def_id == def_id)
-            .map(|method| method.impl_generics.clone())
-            .or_else(|| {
-                self.program_extension_methods
-                    .all_methods()
-                    .find(|method| method.def_id == def_id)
-                    .map(|method| method.impl_generics.clone())
-            })
-            .unwrap_or_default();
+        if let Some(generics) = self.trait_method_effective_generics(def_id) {
+            return generics;
+        }
+        let mut generics = self.extension_method_effective_generics(def_id);
         if def_id.module_id == self.defs.module_id {
-            if self
-                .defs
-                .defs
-                .get(def_id.def_id)
-                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
-            {
-                generics.push("Self".to_string());
-            }
             if generics.is_empty() {
                 generics = self
                     .defs
@@ -102,5 +84,58 @@ impl<'a> BodyChecker<'a> {
             }
         }
         generics
+    }
+
+    fn trait_method_effective_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
+        if def_id.module_id == self.defs.module_id
+            && let Some(def) = self.defs.defs.get(def_id.def_id)
+            && def.kind == nia_defs::DefKind::TraitMethod
+        {
+            let mut generics = vec!["Self".to_string()];
+            generics.extend(
+                def.parent
+                    .and_then(|parent| self.defs.defs.get(parent))
+                    .map(|parent| parent.generics.clone())
+                    .unwrap_or_default(),
+            );
+            generics.extend(def.generics.clone());
+            return Some(generics);
+        }
+        self.program_traits
+            .iter()
+            .find_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .find(|method| {
+                        GlobalDefId {
+                            module_id: trait_id.module_id,
+                            def_id: method.def_id,
+                        } == def_id
+                    })
+                    .map(|method| {
+                        let mut generics = vec!["Self".to_string()];
+                        generics.extend(signature.signature.generics.iter().cloned());
+                        generics.extend(method.signature.generics.iter().cloned());
+                        generics
+                    })
+            })
+    }
+
+    fn extension_method_effective_generics(&self, def_id: GlobalDefId) -> Vec<String> {
+        self.extensions
+            .targets()
+            .iter()
+            .flat_map(|target| target.methods.iter())
+            .find(|method| method.def_id == def_id)
+            .map(|method| method.impl_generics.clone())
+            .or_else(|| {
+                self.program_extension_methods
+                    .all_methods()
+                    .find(|method| method.def_id == def_id)
+                    .map(|method| method.impl_generics.clone())
+            })
+            .unwrap_or_default()
     }
 }

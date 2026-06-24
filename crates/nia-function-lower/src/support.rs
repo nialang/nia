@@ -741,6 +741,7 @@ impl FunctionLowerer {
                 | TypedExprKind::Splat { value: inner }
                 | TypedExprKind::Bitmask { vector: inner }
                 | TypedExprKind::BitIntrinsic { value: inner, .. }
+                | TypedExprKind::CharFromU32 { value: inner }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. }
                 | TypedExprKind::TraitObjectUpcast { expr: inner, .. }

@@ -290,7 +290,6 @@ impl<'a> BodyChecker<'a> {
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
     }
-
     fn builtin_place_method_receiver_coercion(
         &mut self,
         receiver: &Expr,

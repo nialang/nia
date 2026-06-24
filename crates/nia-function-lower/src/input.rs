@@ -200,6 +200,7 @@ impl BodyInputValidator {
             }
             TypedExprKind::Bitmask { vector } => self.validate_value_expr(vector),
             TypedExprKind::BitIntrinsic { value, .. } => self.validate_value_expr(value),
+            TypedExprKind::CharFromU32 { value } => self.validate_value_expr(value),
             TypedExprKind::StaticArrayPointer { array, .. } => self.validate_value_expr(array),
             TypedExprKind::ArrayLiteral { elems } => self.validate_array_elements(elems),
             TypedExprKind::StructLiteral { fields, .. } => {

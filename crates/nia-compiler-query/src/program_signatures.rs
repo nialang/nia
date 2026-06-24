@@ -571,7 +571,7 @@ fn impl_trait_args(
     expected_trait_id: Option<TraitId>,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
-    match (expected_trait_id, module.lowering.interner.get(ty)) {
+    match (expected_trait_id, module.normalization.interner.get(ty)) {
         (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
             if *def_id == expected =>
         {
@@ -1020,6 +1020,9 @@ fn builtin_trait_method_signature_matches(
         | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
             builtin_bound_method_signature_matches(module, impl_signature, actual)
         }
+        (BuiltinTrait::ToChar, BuiltinTraitMethod::ToChar) => {
+            builtin_to_char_method_signature_matches(module, actual)
+        }
         _ => true,
     }
 }
@@ -1134,6 +1137,24 @@ fn builtin_bound_method_signature_matches(
         return false;
     };
     types_equivalent(module.lowering, actual.return_type, output)
+}
+
+fn builtin_to_char_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    actual: &FunctionSignature,
+) -> bool {
+    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::Value) {
+        return false;
+    }
+    let actual_return = module.normalization.normalize(actual.return_type);
+    let Some(TyKind::Optional { elem }) = module.lowering.interner.get(actual_return) else {
+        return false;
+    };
+    types_equivalent(
+        module.lowering,
+        *elem,
+        module.lowering.interner.primitive(PrimitiveTy::Char),
+    )
 }
 
 fn builtin_impl_trait_args(
@@ -2019,10 +2040,20 @@ fn trait_id_is_visible(
                 .is_some_and(|def| def.visibility == Visibility::Public)
         });
     }
-    public_surfaces.get(current_module).is_some_and(|surface| {
+    std::iter::once(current_module)
+        .chain(imported_modules.iter().copied())
+        .any(|module_id| public_surface_exports_type(public_surfaces, module_id, trait_id))
+}
+
+fn public_surface_exports_type(
+    public_surfaces: &PublicSurfaces,
+    module_id: nia_ids::ModuleId,
+    def_id: GlobalDefId,
+) -> bool {
+    public_surfaces.get(module_id).is_some_and(|surface| {
         surface.types.values().any(|item| {
-            item.target_module == trait_id.module_id
-                && item.target_def_id == trait_id.def_id
+            item.target_module == def_id.module_id
+                && item.target_def_id == def_id.def_id
                 && item.namespace == PublicNamespace::Type
         })
     })
@@ -2141,6 +2172,12 @@ fn public_inherent_extension_providers_for_active_package_facades(
                 context.normalizations,
                 context.extensions,
             ));
+            providers.extend(public_trait_impl_providers_for_nominal(
+                context.graph,
+                type_def_id,
+                context.normalizations,
+                context.extensions,
+            ));
             providers.extend(public_associated_value_providers_for_nominal(
                 context.module_id,
                 context.graph,
@@ -2183,6 +2220,12 @@ fn public_inherent_extension_providers_for_using_scope(
             context.normalizations,
             context.extensions,
         ));
+        providers.extend(public_trait_impl_providers_for_nominal(
+            context.graph,
+            type_def_id,
+            context.normalizations,
+            context.extensions,
+        ));
         providers.extend(public_associated_value_providers_for_nominal(
             context.module_id,
             context.graph,
@@ -2205,6 +2248,12 @@ fn public_inherent_extension_providers_for_using_scope(
         }) {
             providers.extend(public_inherent_method_providers_for_nominal(
                 context.module_id,
+                context.graph,
+                type_def_id,
+                context.normalizations,
+                context.extensions,
+            ));
+            providers.extend(public_trait_impl_providers_for_nominal(
                 context.graph,
                 type_def_id,
                 context.normalizations,
@@ -2274,6 +2323,31 @@ fn public_inherent_method_providers_for_nominal(
         };
         let target_ty = normalization.normalize(method.target_ty);
         if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
+            providers.push(method.def_id.module_id);
+        }
+    }
+    providers
+}
+
+fn public_trait_impl_providers_for_nominal(
+    graph: &nia_imports::ModuleGraph,
+    target_def_id: GlobalDefId,
+    normalizations: TypeNormalizationResolver<'_>,
+    extensions: &ExtensionMethods,
+) -> Vec<nia_ids::ModuleId> {
+    let mut providers = Vec::new();
+    for method in extensions.all_methods() {
+        if method.trait_id.is_none() {
+            continue;
+        }
+        let Some(normalization) = normalizations(method.def_id.module_id) else {
+            continue;
+        };
+        let target_ty = normalization.normalize(method.target_ty);
+        if nominal_target_def_id(&normalization.interner, target_ty) != Some(target_def_id) {
+            continue;
+        }
+        if graph.get(method.def_id.module_id).is_some() {
             providers.push(method.def_id.module_id);
         }
     }

@@ -328,6 +328,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Splat { value: array }
             | FunctionExprKind::Bitmask { vector: array }
             | FunctionExprKind::BitIntrinsic { value: array, .. }
+            | FunctionExprKind::CharFromU32 { value: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -844,6 +845,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
+        | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. } => {
@@ -1029,6 +1031,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
+        | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. } => {

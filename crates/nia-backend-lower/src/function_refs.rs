@@ -188,6 +188,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Splat { value: array }
         | FunctionExprKind::Bitmask { vector: array }
         | FunctionExprKind::BitIntrinsic { value: array, .. }
+        | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -344,42 +345,10 @@ fn collect_function_refs_from_callee(
             }
             collect_function_refs_from_expr(module_id, receiver, refs);
         }
-        FunctionCallee::TraitMethod {
-            method_id,
-            receiver,
-            self_ty,
-            trait_args,
-            args,
-            ..
-        } => {
-            let mut instance_args = vec![*self_ty];
-            instance_args.extend(trait_args.iter().copied());
-            instance_args.extend(args.iter().copied());
-            refs.instances.push(FunctionInstanceRef {
-                def_id: *method_id,
-                arg_module_id: module_id,
-                args: instance_args,
-                span,
-            });
+        FunctionCallee::TraitMethod { receiver, .. } => {
             collect_function_refs_from_expr(module_id, receiver, refs);
         }
-        FunctionCallee::TraitAssociatedFunction {
-            method_id,
-            self_ty,
-            trait_args,
-            args,
-            ..
-        } => {
-            let mut instance_args = vec![*self_ty];
-            instance_args.extend(trait_args.iter().copied());
-            instance_args.extend(args.iter().copied());
-            refs.instances.push(FunctionInstanceRef {
-                def_id: *method_id,
-                arg_module_id: module_id,
-                args: instance_args,
-                span,
-            });
-        }
+        FunctionCallee::TraitAssociatedFunction { .. } => {}
         FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
         | FunctionCallee::BuiltinMethod { receiver, .. }

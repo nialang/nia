@@ -107,6 +107,101 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_to_char_checks_unicode_scalar_values() {
+    let root = temp_dir("emit_exe_to_char_checks_unicode_scalar_values");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+using std::unicode;
+
+fn generic_to_char[T](value: T) ?char
+where T: ToChar {
+    value.to_char()
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    let ascii = if let ?ch = 65u32.to_char() {
+        ch
+    } else null {
+        return (1 as process::ExitCode)!;
+    };
+    if ascii.codepoint() != 65u32 {
+        return (2 as process::ExitCode)!;
+    }
+
+    let generic_ascii = if let ?ch = generic_to_char(66u32) {
+        ch
+    } else null {
+        return (10 as process::ExitCode)!;
+    };
+    if generic_ascii.codepoint() != 66u32 {
+        return (11 as process::ExitCode)!;
+    }
+
+    let max = if let ?ch = [char]::from_u32(0x10ffffu32) {
+        ch
+    } else null {
+        return (3 as process::ExitCode)!;
+    };
+    if max.codepoint() != 0x10ffffu32 {
+        return (4 as process::ExitCode)!;
+    }
+
+    if let ?ch = 0xd800u32.to_char() {
+        _ = ch;
+        return (5 as process::ExitCode)!;
+    } else null {}
+    if let ?ch = 0x110000u32.to_char() {
+        _ = ch;
+        return (6 as process::ExitCode)!;
+    } else null {}
+
+    let euro_bytes: [3]u8 = [0xe2u8, 0x82u8, 0xacu8];
+    let euro = if let ?decoded = unicode::utf8_decode_first(&euro_bytes) {
+        decoded
+    } else null {
+        return (7 as process::ExitCode)!;
+    };
+    if euro.len() != 3usize or euro.char().codepoint() != 0x20acu32 {
+        return (8 as process::ExitCode)!;
+    }
+
+    let overlong: [2]u8 = [0xc0u8, 0x80u8];
+    if let ?decoded = unicode::utf8_decode_first(&overlong) {
+        _ = decoded;
+        return (9 as process::ExitCode)!;
+    } else null {}
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_unaligned_vector_load_reads_lanes() {
     let root = temp_dir("emit_exe_unaligned_vector_load_reads_lanes");
     let main = root.join("main.nia");

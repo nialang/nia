@@ -376,6 +376,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Splat { value: array }
         | FunctionExprKind::Bitmask { vector: array }
         | FunctionExprKind::BitIntrinsic { value: array, .. }
+        | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }

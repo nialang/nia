@@ -1046,13 +1046,19 @@ impl<'a> BodyChecker<'a> {
                 {
                     let (receiver, lowered_args) =
                         self.lower_builtin_call_receiver(callee, args, Some(self_ty));
-                    TypedExprKind::Call {
-                        callee: TypedCallee::BuiltinMethod {
-                            method,
-                            self_ty,
-                            receiver: Box::new(receiver),
-                        },
-                        args: lowered_args,
+                    if method == nia_sema_ir::BuiltinMethod::ToChar && self.is_u32(self_ty) {
+                        TypedExprKind::CharFromU32 {
+                            value: Box::new(receiver),
+                        }
+                    } else {
+                        TypedExprKind::Call {
+                            callee: TypedCallee::BuiltinMethod {
+                                method,
+                                self_ty,
+                                receiver: Box::new(receiver),
+                            },
+                            args: lowered_args,
+                        }
                     }
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
                     self.resolved_call(expr)

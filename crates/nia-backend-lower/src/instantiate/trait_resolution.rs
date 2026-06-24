@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodCandidate, ExtensionTraitMethodKey};
+use nia_trait_solve::TraitSelection;
 
 impl<'a> ModuleLowerer<'a> {
     pub(super) fn current_impl_trait_method(
@@ -80,13 +81,74 @@ impl<'a> ModuleLowerer<'a> {
         Some((candidate.method_def_id, args))
     }
 
+    pub(super) fn selected_user_trait_method_impl(
+        &mut self,
+        key: &ExtensionTraitMethodKey,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
+        };
+        let mut solver = context.solver(&mut self.type_context.interner, &[]);
+        let TraitSelection::User(user_impl) = solver.select_user_impl(TraitGoal {
+            self_ty,
+            trait_id: key.trait_id,
+            trait_args: trait_args.to_vec(),
+        }) else {
+            return None;
+        };
+        let impl_signature = self.input.trait_impls.get(user_impl.impl_index)?;
+        for method in self.input.program_extension_methods.all_methods() {
+            if method.def_id.module_id != impl_signature.module_id
+                || method.impl_id != impl_signature.impl_id
+                || method.trait_id != Some(key.trait_id)
+                || method.name != key.method_name
+                || method.trait_args.len() != key.trait_arg_count
+            {
+                continue;
+            }
+            let args = method
+                .impl_generics
+                .iter()
+                .filter_map(|generic| user_impl.substitutions.get(generic).copied())
+                .collect();
+            return Some((method.def_id, args));
+        }
+        for target in self.input.extensions.targets() {
+            for method in &target.methods {
+                if !method.is_trait_witness
+                    || method.def_id.module_id != impl_signature.module_id
+                    || method.impl_id != impl_signature.impl_id
+                    || method.trait_id != Some(key.trait_id)
+                    || method.name != key.method_name
+                    || method.trait_args.len() != key.trait_arg_count
+                {
+                    continue;
+                }
+                let args = method
+                    .impl_generics
+                    .iter()
+                    .filter_map(|generic| user_impl.substitutions.get(generic).copied())
+                    .collect();
+                return Some((method.def_id, args));
+            }
+        }
+        None
+    }
+
     pub(super) fn candidate_where_predicates_hold(
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
         substitutions: &std::collections::HashMap<String, InternedTyId>,
     ) -> bool {
         let predicates =
-            self.import_where_predicates(&candidate.where_predicates, &candidate.source_interner);
+            self.import_where_predicates(&candidate.where_predicates, &candidate.type_interner);
         let predicates = predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
@@ -279,6 +341,9 @@ impl<'a> ModuleLowerer<'a> {
         Vec<nia_item_signatures::WherePredicateSignature>,
         nia_ty::TyInterner,
     )> {
+        if let Some(source) = self.extension_method_sources_by_def.get(&current) {
+            return Some((source.where_predicates.clone(), source.interner.clone()));
+        }
         let program_index = self
             .trait_context
             .trait_impls_by_method

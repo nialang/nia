@@ -57,6 +57,7 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
+        | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Cast { expr, .. } => is_pure_discardable_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)

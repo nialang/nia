@@ -127,6 +127,7 @@ pub enum BuiltinTrait {
     Len,
     Start,
     End,
+    ToChar,
     Iterator,
 }
 
@@ -205,6 +206,7 @@ pub enum BuiltinTraitMethod {
     Len,
     Start,
     End,
+    ToChar,
     IteratorNext,
 }
 
@@ -444,6 +446,15 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
+            Self::ToChar,
+            BuiltinTraitMethodDescriptor::method(
+                "to_char",
+                BuiltinTrait::ToChar,
+                1,
+                ReceiverKind::Value,
+            ),
+        ),
+        (
             Self::IteratorNext,
             BuiltinTraitMethodDescriptor::place(
                 "next",
@@ -587,6 +598,7 @@ impl BuiltinTrait {
     const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
     const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
     const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
+    const TO_CHAR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::ToChar];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
@@ -610,7 +622,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 30] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -639,6 +651,7 @@ impl BuiltinTrait {
         Self::Len,
         Self::Start,
         Self::End,
+        Self::ToChar,
         Self::Iterator,
     ];
 
@@ -865,6 +878,14 @@ impl BuiltinTrait {
             0,
             &Self::OUTPUT_ASSOC_TYPES,
             &Self::END_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::ToChar,
+            "ToChar",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::TO_CHAR_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
