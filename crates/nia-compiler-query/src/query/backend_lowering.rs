@@ -79,7 +79,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
     pub(super) extension_methods: &'a ExtensionMethodIndexQueryValue,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
-    pub(super) program_signatures: &'a ProgramBackendSignatures,
+    pub(super) program_signatures: ProgramCodegenSignatures<'a>,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
 }
 
@@ -139,13 +139,13 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_defs: input.program_defs,
                     program_function_body_interners: &input.indexes.program_function_body_interners,
                     program_type_normalizations: &input.indexes.program_type_normalizations,
-                    program_functions: &input.program_signatures.functions,
-                    program_structs: &input.program_signatures.structs,
-                    program_unions: &input.program_signatures.unions,
-                    program_enums: &input.program_signatures.enums,
-                    program_traits: &input.program_signatures.traits,
-                    program_type_aliases: &input.program_signatures.type_aliases,
-                    trait_impls: &input.program_signatures.trait_impls,
+                    program_functions: input.program_signatures.functions,
+                    program_structs: input.program_signatures.structs,
+                    program_unions: input.program_signatures.unions,
+                    program_enums: input.program_signatures.enums,
+                    program_traits: input.program_signatures.traits,
+                    program_type_aliases: input.program_signatures.type_aliases,
+                    trait_impls: input.program_signatures.trait_impls,
                 }
             },
         )

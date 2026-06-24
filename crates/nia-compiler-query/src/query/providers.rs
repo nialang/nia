@@ -1459,6 +1459,15 @@ fn with_comptime_input<T>(
     module_id: ModuleId,
     f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
 ) -> T {
+    with_comptime_input_and_program_signatures(db, module_id, None, f)
+}
+
+fn with_comptime_input_and_program_signatures<T>(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
+) -> T {
     let module = db.query(ComptimeModuleQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
     let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
@@ -1476,7 +1485,16 @@ fn with_comptime_input<T>(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+    let trait_solving_signatures;
+    let (program_enums, trait_impls) = if let Some(signatures) = program_signatures_override {
+        (&signatures.enums, signatures.trait_impls.as_slice())
+    } else {
+        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        (
+            &trait_solving_signatures.enums,
+            trait_solving_signatures.trait_impls.as_slice(),
+        )
+    };
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let value_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
@@ -1512,8 +1530,8 @@ fn with_comptime_input<T>(
                 signatures: Some(&item_signatures_for_module),
                 value_signatures: Some(&value_signatures_for_module),
                 global_initializer: None,
-                program_enums: &trait_solving_signatures.enums,
-                trait_impls: &trait_solving_signatures.trait_impls,
+                program_enums,
+                trait_impls,
             },
         },
         &module,
@@ -1876,6 +1894,7 @@ fn comptime_inputs_for_body_check(
     normalization: &TypeNormalization,
     lowered: &TypeLowering,
     inputs: &BodyCheckResolutionInputs,
+    program_signatures_override: Option<&ProgramExecutableSignatures>,
 ) -> BodyCheckComptimeInputs {
     let module = time_module_provider(
         db,
@@ -1908,7 +1927,16 @@ fn comptime_inputs_for_body_check(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+    let trait_solving_signatures;
+    let (program_enums, trait_impls) = if let Some(signatures) = program_signatures_override {
+        (&signatures.enums, signatures.trait_impls.as_slice())
+    } else {
+        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        (
+            &trait_solving_signatures.enums,
+            trait_solving_signatures.trait_impls.as_slice(),
+        )
+    };
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let value_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
@@ -1939,8 +1967,8 @@ fn comptime_inputs_for_body_check(
             signatures: Some(&item_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
             global_initializer: Some(&program_global_initializer),
-            program_enums: &trait_solving_signatures.enums,
-            trait_impls: &trait_solving_signatures.trait_impls,
+            program_enums,
+            trait_impls,
         },
     };
     let mut array_lengths = time_module_provider(
@@ -2154,6 +2182,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                         &normalization,
                         &lowered,
                         &inputs,
+                        program_signatures_override,
                     )
                 },
             ));
@@ -2214,9 +2243,84 @@ fn body_check_with_filter_and_layouts_with_inputs(
             )
         };
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
-    let program_comptime_values = |module_id| Some(db.query(ComptimeValuesQuery(module_id)));
-    let program_comptime_array_lengths =
-        |module_id| Some(db.query(ComptimeArrayLengthsQuery(module_id)));
+    let executable_program_comptime_array_lengths =
+        RefCell::new(HashMap::<ModuleId, nia_comptime_check::ComptimeArrayLengths>::new());
+    let executable_program_comptime_values =
+        RefCell::new(HashMap::<ModuleId, nia_comptime_check::ComptimeValues>::new());
+    let program_comptime_array_lengths = |module_id| {
+        if let Some(signatures) = program_signatures_override {
+            if !executable_program_comptime_array_lengths
+                .borrow()
+                .contains_key(&module_id)
+            {
+                let array_lengths = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut array_lengths =
+                            nia_comptime_check::compute_module_comptime_array_lengths(input);
+                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths
+                    },
+                );
+                executable_program_comptime_array_lengths
+                    .borrow_mut()
+                    .insert(module_id, array_lengths);
+            }
+            return executable_program_comptime_array_lengths
+                .borrow()
+                .get(&module_id)
+                .cloned();
+        }
+        Some(db.query(ComptimeArrayLengthsQuery(module_id)))
+    };
+    let program_comptime_values = |module_id| {
+        if let Some(signatures) = program_signatures_override {
+            if !executable_program_comptime_values
+                .borrow()
+                .contains_key(&module_id)
+            {
+                let array_lengths = program_comptime_array_lengths(module_id)?;
+                let enum_values = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut enum_values =
+                            nia_comptime_check::compute_module_comptime_enum_values(
+                                input,
+                                array_lengths.clone(),
+                            );
+                        enum_values.diagnostics.extend(module.diagnostics.clone());
+                        enum_values
+                    },
+                );
+                let values = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut values = nia_comptime_check::compute_module_comptime_values(
+                            input,
+                            array_lengths,
+                            enum_values,
+                        );
+                        values.diagnostics.extend(module.diagnostics.clone());
+                        values
+                    },
+                );
+                executable_program_comptime_values
+                    .borrow_mut()
+                    .insert(module_id, values);
+            }
+            return executable_program_comptime_values
+                .borrow()
+                .get(&module_id)
+                .cloned();
+        }
+        Some(db.query(ComptimeValuesQuery(module_id)))
+    };
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let body_check =
         nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
@@ -2350,6 +2454,10 @@ fn executable_layouts_for_reachable_items(
     module_id: ModuleId,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
+    array_length_cache: Option<
+        &RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
+    >,
+    program_signatures_override: Option<&ProgramExecutableSignatures>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.query(FullModuleDefsQuery(module_id));
@@ -2394,6 +2502,28 @@ fn executable_layouts_for_reachable_items(
             })
         };
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
+            if let Some(array_length_cache) = array_length_cache {
+                if !array_length_cache.borrow().contains_key(&id.module_id) {
+                    let array_lengths = with_comptime_input_and_program_signatures(
+                        db,
+                        id.module_id,
+                        program_signatures_override,
+                        |input, module| {
+                            let mut array_lengths =
+                                nia_comptime_check::compute_module_comptime_array_lengths(input);
+                            array_lengths.diagnostics.extend(module.diagnostics.clone());
+                            array_lengths
+                        },
+                    );
+                    array_length_cache
+                        .borrow_mut()
+                        .insert(id.module_id, array_lengths);
+                }
+                return array_length_cache
+                    .borrow()
+                    .get(&id.module_id)
+                    .and_then(|array_lengths| array_lengths.values.get(&id).copied());
+            }
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
@@ -2437,6 +2567,10 @@ fn executable_program_layouts<'a>(
     cache: &'a RefCell<HashMap<ModuleId, nia_layout::Layouts>>,
     reachable_functions: &'a HashSet<GlobalDefId>,
     reachable_globals: &'a HashSet<GlobalDefId>,
+    array_length_cache: Option<
+        &'a RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
+    >,
+    program_signatures_override: Option<&'a ProgramExecutableSignatures>,
 ) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
@@ -2447,6 +2581,8 @@ fn executable_program_layouts<'a>(
             module_id,
             reachable_functions,
             reachable_globals,
+            array_length_cache,
+            program_signatures_override,
         );
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts)
@@ -2907,6 +3043,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let graph = db.query(ModuleGraphQuery);
     let mut program_signatures = None;
     let extension_methods = db.query(ExtensionMethodIndexQuery);
+    let executable_array_length_cache =
+        RefCell::new(HashMap::<ModuleId, nia_comptime_check::ComptimeArrayLengths>::new());
     let function_signature = |def_id: GlobalDefId| {
         db.query(SignatureItemSignaturesQuery(
             def_id.module_id,
@@ -3073,11 +3211,15 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .copied()
                 .filter(|def_id| def_id.module_id == module_id)
                 .collect::<HashSet<_>>();
+            let program_signatures = program_signatures
+                .get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
             let layouts = executable_layouts_for_reachable_items(
                 db,
                 module_id,
                 &reachability.functions,
                 &reachability.globals,
+                Some(&executable_array_length_cache),
+                Some(program_signatures.as_ref()),
             );
             let program_layout_cache = RefCell::new(HashMap::new());
             program_layout_cache
@@ -3088,9 +3230,9 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 &program_layout_cache,
                 &reachability.functions,
                 &reachability.globals,
+                Some(&executable_array_length_cache),
+                Some(program_signatures.as_ref()),
             );
-            let program_signatures = program_signatures
-                .get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
                 body_check_with_filter_and_layouts_with_inputs(
                     db,
@@ -3137,11 +3279,15 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             .map(|module| (module.id, module.layouts.clone()))
             .collect::<HashMap<_, _>>(),
     );
+    let program_signatures =
+        program_signatures.get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
     let executable_program_layouts = executable_program_layouts(
         db,
         &codegen_layout_cache,
         &reachability.functions,
         &reachability.globals,
+        Some(&executable_array_length_cache),
+        Some(program_signatures.as_ref()),
     );
     let codegen_array_lengths = codegen_modules
         .iter()
@@ -3151,6 +3297,12 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         codegen_array_lengths
             .get(&id.module_id)
             .and_then(|array_lengths| array_lengths.get(&id).copied())
+            .or_else(|| {
+                executable_array_length_cache
+                    .borrow()
+                    .get(&id.module_id)
+                    .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            })
     };
     codegen_modules = codegen_modules
         .into_iter()
@@ -3303,7 +3455,22 @@ pub(super) fn provide_monomorphization(
 ) -> nia_monomorphize::Monomorphization {
     time_provider(db.query(CompilerTimingsQuery), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
-        let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        let runtime = db.query(CompilerRuntimeQuery);
+        let executable_signatures;
+        let trait_solving_signatures;
+        let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
+            executable_signatures = db.query(ProgramExecutableSignaturesQuery);
+            (
+                &executable_signatures.enums,
+                executable_signatures.trait_impls.as_slice(),
+            )
+        } else {
+            trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+            (
+                &trait_solving_signatures.enums,
+                trait_solving_signatures.trait_impls.as_slice(),
+            )
+        };
         let local_signatures = checked_modules
             .iter()
             .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
@@ -3325,8 +3492,8 @@ pub(super) fn provide_monomorphization(
                         .get(&module.id)
                         .expect("monomorphization signatures must exist for checked module")
                         .enums,
-                    program_enums: &trait_solving_signatures.enums,
-                    trait_impls: &trait_solving_signatures.trait_impls,
+                    program_enums,
+                    trait_impls,
                     instantiations: &module.semantic_facts.generic_instantiations,
                 })
                 .collect::<Vec<_>>(),
@@ -3459,7 +3626,16 @@ fn provide_backend_lowering_inner(
         },
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let program_signatures = db.query(ProgramBackendSignaturesQuery);
+    let executable_program_signatures;
+    let backend_program_signatures;
+    let program_signatures =
+        if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
+            executable_program_signatures = db.query(ProgramExecutableSignaturesQuery);
+            executable_program_signatures.codegen_maps()
+        } else {
+            backend_program_signatures = db.query(ProgramBackendSignaturesQuery);
+            backend_program_signatures.codegen_maps()
+        };
     let inputs = time_provider(
         db.query(CompilerTimingsQuery),
         "backend_lowering.module_inputs",
@@ -3475,7 +3651,7 @@ fn provide_backend_lowering_inner(
                 function_bodies: &function_bodies,
                 extension_methods: &extension_methods,
                 program_defs: &program_defs,
-                program_signatures: &program_signatures,
+                program_signatures,
                 indexes: &indexes,
             })
         },

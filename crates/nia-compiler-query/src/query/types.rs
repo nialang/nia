@@ -306,6 +306,17 @@ pub(super) struct ProgramBackendSignatures {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ProgramCodegenSignatures<'a> {
+    pub(super) functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub(super) unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub(super) enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub(super) type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub(super) trait_impls: &'a [nia_item_signatures::ProgramTraitImplSignature],
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramAbiSignaturesValue {
     pub(super) structs: HashMap<GlobalDefId, StructSignature>,
@@ -347,6 +358,34 @@ impl ProgramBodyTraitSignatures {
     pub(super) fn body_maps(&self) -> nia_body_check::BodyProgramTraitSignatures<'_> {
         nia_body_check::BodyProgramTraitSignatures {
             traits: &self.traits,
+            trait_impls: &self.trait_impls,
+        }
+    }
+}
+
+impl ProgramExecutableSignatures {
+    pub(super) fn codegen_maps(&self) -> ProgramCodegenSignatures<'_> {
+        ProgramCodegenSignatures {
+            functions: &self.functions,
+            structs: &self.structs,
+            unions: &self.unions,
+            enums: &self.enums,
+            traits: &self.traits,
+            type_aliases: &self.type_aliases,
+            trait_impls: &self.trait_impls,
+        }
+    }
+}
+
+impl ProgramBackendSignatures {
+    pub(super) fn codegen_maps(&self) -> ProgramCodegenSignatures<'_> {
+        ProgramCodegenSignatures {
+            functions: &self.functions,
+            structs: &self.structs,
+            unions: &self.unions,
+            enums: &self.enums,
+            traits: &self.traits,
+            type_aliases: &self.type_aliases,
             trait_impls: &self.trait_impls,
         }
     }
