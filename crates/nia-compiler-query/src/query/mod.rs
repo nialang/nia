@@ -38,11 +38,8 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
-    collections::hash_map::DefaultHasher,
     collections::{HashMap, HashSet},
-    env, fs,
-    hash::{Hash, Hasher},
-    io,
+    env, fs, io,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
     thread,
@@ -277,15 +274,7 @@ fn compiler_check_permit() -> CompilerCheckPermit {
 }
 
 fn compiler_check_slots_enabled() -> bool {
-    cfg!(debug_assertions)
-        && (env_limit("NIA_COMPILER_CHECK_LIMIT").is_some() || current_exe_is_test_binary())
-}
-
-fn current_exe_is_test_binary() -> bool {
-    env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.ends_with("deps")))
-        .unwrap_or(false)
+    env_limit("NIA_COMPILER_CHECK_LIMIT").is_some()
 }
 
 struct CompilerCheckPermit {
@@ -355,14 +344,8 @@ fn env_limit(name: &str) -> Option<usize> {
 fn compiler_check_slot_root() -> PathBuf {
     let mut root = env::temp_dir();
     root.push("nia_compiler_check_slots");
-    root.push(workspace_slot_namespace());
+    root.push(env!("CARGO_MANIFEST_DIR").replace(std::path::MAIN_SEPARATOR, "_"));
     root
-}
-
-fn workspace_slot_namespace() -> String {
-    let mut hasher = DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
 
 fn reclaim_stale_compiler_check_slot(slot: &Path, stale_after: Duration) {
@@ -425,7 +408,12 @@ fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
 
 #[cfg(target_os = "linux")]
 fn process_start_time(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    let stat = fs::read_to_string(
+        std::path::Path::new("/proc")
+            .join(pid.to_string())
+            .join("stat"),
+    )
+    .ok()?;
     stat.rsplit_once(") ")?
         .1
         .split_whitespace()
