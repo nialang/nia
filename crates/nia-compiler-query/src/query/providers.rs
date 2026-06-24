@@ -5,6 +5,7 @@ use nia_executable_reachability::{
     ExecutableRootDefs, ReachableModuleInput, compute_executable_reachability,
     filter_semantic_facts_for_reachable_items,
 };
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -1321,7 +1322,7 @@ fn body_check_with_filter(
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
 ) -> nia_body_check::BodyCheck {
-    body_check_with_filter_and_layouts(db, module_id, filter, None)
+    body_check_with_filter_and_layouts(db, module_id, filter, None, None)
 }
 
 fn body_check_with_filter_and_layouts(
@@ -1329,6 +1330,7 @@ fn body_check_with_filter_and_layouts(
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
     layouts: Option<nia_layout::Layouts>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
 ) -> nia_body_check::BodyCheck {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
@@ -1359,7 +1361,11 @@ fn body_check_with_filter_and_layouts(
     );
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id)));
-    let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
+    let program_layouts = |module_id| {
+        program_layouts_override
+            .and_then(|program_layouts| program_layouts(module_id))
+            .or_else(|| Some(db.query(LayoutsQuery(module_id))))
+    };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodsQuery);
     let program_function_signatures = db.query(ProgramBodyFunctionSignaturesQuery);
@@ -1504,9 +1510,9 @@ fn executable_layouts_for_reachable_items(
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
+        let program_type_signatures = db.query(ProgramBodyTypeSignaturesQuery);
         let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
-        let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
@@ -1531,8 +1537,9 @@ fn executable_layouts_for_reachable_items(
                 array_lengths: &local_array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
-                    layouts: Some(&layout_query),
                     array_lengths: Some(&program_array_lengths),
+                    structs: Some(&program_type_signatures.structs),
+                    unions: Some(&program_type_signatures.unions),
                     ..Default::default()
                 },
             },
@@ -1543,6 +1550,27 @@ fn executable_layouts_for_reachable_items(
             },
         )
     })
+}
+
+fn executable_program_layouts<'a>(
+    db: &'a QueryDb<CompilerContext>,
+    cache: &'a RefCell<HashMap<ModuleId, nia_layout::Layouts>>,
+    reachable_functions: &'a HashSet<GlobalDefId>,
+    reachable_globals: &'a HashSet<GlobalDefId>,
+) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
+    move |module_id| {
+        if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
+            return Some(layouts);
+        }
+        let layouts = executable_layouts_for_reachable_items(
+            db,
+            module_id,
+            reachable_functions,
+            reachable_globals,
+        );
+        cache.borrow_mut().insert(module_id, layouts.clone());
+        Some(layouts)
+    }
 }
 
 fn rooted_layouts_for_checked_module(
@@ -1841,6 +1869,7 @@ pub(super) fn provide_checked_module(
             module_id,
             db.query(BodyCheckQuery(module_id)),
             db.query(FlowCheckQuery(module_id)),
+            None,
         )
     })
 }
@@ -1850,6 +1879,7 @@ fn checked_module_with_body_and_flow_check(
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
     flow_check: nia_flow_check::FlowCheck,
+    layouts: Option<nia_layout::Layouts>,
 ) -> CheckedModule {
     let path = db.query(ModulePathQuery(module_id));
     CheckedModule {
@@ -1863,7 +1893,7 @@ fn checked_module_with_body_and_flow_check(
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
         comptime: db.query(ComptimeQuery(module_id)),
         static_check: db.query(StaticCheckQuery(module_id)),
-        layouts: db.query(LayoutsQuery(module_id)),
+        layouts: layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id))),
         abi_check: db.query(AbiCheckQuery(module_id)),
         flow_check,
         body_ir: body_check.ir,
@@ -2023,12 +2053,33 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 &reachability.functions,
                 &reachability.globals,
             );
+            let program_layout_cache = RefCell::new(HashMap::new());
+            program_layout_cache
+                .borrow_mut()
+                .insert(module_id, layouts.clone());
+            let executable_program_layouts = executable_program_layouts(
+                db,
+                &program_layout_cache,
+                &reachability.functions,
+                &reachability.globals,
+            );
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter_and_layouts(db, module_id, filter, Some(layouts))
+                body_check_with_filter_and_layouts(
+                    db,
+                    module_id,
+                    filter,
+                    Some(layouts.clone()),
+                    Some(&executable_program_layouts),
+                )
             });
             let flow_check = executable_flow_check(db, module_id, &reachability.functions);
-            let module =
-                checked_module_with_body_and_flow_check(db, module_id, body_check, flow_check);
+            let module = checked_module_with_body_and_flow_check(
+                db,
+                module_id,
+                body_check,
+                flow_check,
+                Some(layouts),
+            );
             checked_functions_by_module.insert(module_id, module_functions);
             checked_globals_by_module.insert(module_id, module_globals);
             checked_by_id.insert(module.id, module);
