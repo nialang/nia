@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{InternedTyId, ModuleId};
+use nia_ids::{InternedTyId, ModuleId, TyInternerId};
 use nia_ty::TyKind;
 
 use crate::{
@@ -75,6 +75,21 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
 
     fn input_interner_for_type(&self, ty: InternedTyId) -> Option<&nia_ty::TyInterner> {
         self.shared.input_type_interners.get(&ty.interner_id)
+    }
+
+    pub(crate) fn input_interner_by_id(
+        &self,
+        interner_id: TyInternerId,
+    ) -> Option<&nia_ty::TyInterner> {
+        if interner_id == self.interner.interner_id() {
+            return Some(&self.interner);
+        }
+        if let Some(extension_interner) = self.input.extension_interner
+            && interner_id == extension_interner.interner_id()
+        {
+            return Some(extension_interner);
+        }
+        self.shared.input_type_interners.get(&interner_id)
     }
 
     pub(crate) fn function_body_interner(

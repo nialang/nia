@@ -464,13 +464,13 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
     impl_generics: Vec<String>,
-    type_interner: nia_ty::TyInterner,
+    type_interner_id: TyInternerId,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionMethodSource {
     where_predicates: Vec<WherePredicateSignature>,
-    interner: nia_ty::TyInterner,
+    interner_id: TyInternerId,
 }
 
 pub(crate) struct BackendLowerShared {
@@ -1775,7 +1775,7 @@ fn index_local_extension_method_sources_by_def(
                     method.def_id,
                     ExtensionMethodSource {
                         where_predicates: method.where_predicates.clone(),
-                        interner: interner.clone(),
+                        interner_id: interner.interner_id(),
                     },
                 );
             }
@@ -1799,7 +1799,7 @@ fn index_program_extension_method_sources_by_def(
             method.def_id,
             ExtensionMethodSource {
                 where_predicates: method.where_predicates.clone(),
-                interner: type_normalization.interner.clone(),
+                interner_id: type_normalization.interner.interner_id(),
             },
         );
     }
@@ -1924,7 +1924,7 @@ fn index_extension_trait_method_candidates(
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     impl_generics: method.impl_generics.clone(),
-                    type_interner: source_interner.clone(),
+                    type_interner_id: source_interner.interner_id(),
                 });
         }
     }
@@ -1975,7 +1975,7 @@ fn index_program_extension_trait_method_candidates(
                 trait_args: method.trait_args.clone(),
                 where_predicates: method.where_predicates.clone(),
                 impl_generics: method.impl_generics.clone(),
-                type_interner: type_normalization.interner.clone(),
+                type_interner_id: type_normalization.interner.interner_id(),
             });
     }
     candidates
