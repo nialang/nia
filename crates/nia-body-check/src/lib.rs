@@ -159,13 +159,26 @@ pub enum BodyCheckFilter<'a> {
     #[default]
     All,
     ReachableFunctions(&'a HashSet<GlobalDefId>),
+    ReachableItems {
+        functions: &'a HashSet<GlobalDefId>,
+        globals: &'a HashSet<GlobalDefId>,
+    },
 }
 
 impl BodyCheckFilter<'_> {
-    fn includes(self, def_id: GlobalDefId) -> bool {
+    fn includes_function(self, def_id: GlobalDefId) -> bool {
         match self {
             Self::All => true,
             Self::ReachableFunctions(functions) => functions.contains(&def_id),
+            Self::ReachableItems { functions, .. } => functions.contains(&def_id),
+        }
+    }
+
+    fn includes_global(self, def_id: GlobalDefId) -> bool {
+        match self {
+            Self::All => true,
+            Self::ReachableFunctions(_) => true,
+            Self::ReachableItems { globals, .. } => globals.contains(&def_id),
         }
     }
 }
@@ -1415,6 +1428,9 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
+        if !self.body_filter.includes_global(self.global_def_id(def_id)) {
+            return;
+        }
         let Some(value) = &binding.value else {
             let Some(signature) = self.signatures.globals.get(&def_id) else {
                 return;
@@ -1470,7 +1486,10 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if !self.body_filter.includes(self.global_def_id(def_id)) {
+        if !self
+            .body_filter
+            .includes_function(self.global_def_id(def_id))
+        {
             return;
         }
         self.check_function(def_id, function);
@@ -1481,7 +1500,10 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if !self.body_filter.includes(self.global_def_id(def_id)) {
+        if !self
+            .body_filter
+            .includes_function(self.global_def_id(def_id))
+        {
             return;
         }
         self.check_function(def_id, function);
@@ -1493,7 +1515,10 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if !self.body_filter.includes(self.global_def_id(def_id)) {
+        if !self
+            .body_filter
+            .includes_function(self.global_def_id(def_id))
+        {
             return;
         }
         self.check_function(def_id, function);

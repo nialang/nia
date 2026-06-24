@@ -3,7 +3,7 @@ use super::*;
 use nia_defs::DefKind;
 use nia_executable_reachability::{
     ExecutableRootDefs, ReachableModuleInput, compute_executable_reachability,
-    filter_semantic_facts_for_reachable_functions,
+    filter_semantic_facts_for_reachable_items,
 };
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -1529,6 +1529,7 @@ fn checked_module_with_body_and_flow_check(
         body_ir: body_check.ir,
         semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         semantic_facts: body_check.facts,
+        executable_reachable_globals: None,
         body_diagnostics: body_check.diagnostics,
     }
 }
@@ -1600,6 +1601,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     };
     let mut checked_by_id = HashMap::new();
     let mut checked_functions_by_module = HashMap::<ModuleId, HashSet<GlobalDefId>>::new();
+    let mut checked_globals_by_module = HashMap::<ModuleId, HashSet<GlobalDefId>>::new();
     let reachability = loop {
         let reachable_item_signatures = checked_by_id
             .keys()
@@ -1644,17 +1646,33 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     .copied()
                     .filter(|def_id| def_id.module_id == *module_id)
                     .collect::<HashSet<_>>();
+                let module_globals = reachability
+                    .globals
+                    .iter()
+                    .copied()
+                    .filter(|def_id| def_id.module_id == *module_id)
+                    .collect::<HashSet<_>>();
                 !checked_by_id.contains_key(module_id)
                     || checked_functions_by_module.get(module_id) != Some(&module_functions)
+                    || checked_globals_by_module.get(module_id) != Some(&module_globals)
             })
             .collect::<Vec<_>>();
         if stale.is_empty() {
             break reachability;
         }
-        let filter = nia_body_check::BodyCheckFilter::ReachableFunctions(&reachability.functions);
+        let filter = nia_body_check::BodyCheckFilter::ReachableItems {
+            functions: &reachability.functions,
+            globals: &reachability.globals,
+        };
         for module_id in stale {
             let module_functions = reachability
                 .functions
+                .iter()
+                .copied()
+                .filter(|def_id| def_id.module_id == module_id)
+                .collect::<HashSet<_>>();
+            let module_globals = reachability
+                .globals
                 .iter()
                 .copied()
                 .filter(|def_id| def_id.module_id == module_id)
@@ -1666,6 +1684,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             let module =
                 checked_module_with_body_and_flow_check(db, module_id, body_check, flow_check);
             checked_functions_by_module.insert(module_id, module_functions);
+            checked_globals_by_module.insert(module_id, module_globals);
             checked_by_id.insert(module.id, module);
         }
     };
@@ -1689,20 +1708,35 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         .filter(|module_id| reachability.modules.contains(module_id))
         .filter_map(|module_id| checked_by_id.get(&module_id))
         .cloned()
-        .map(|module| filter_checked_module_for_codegen(module, &reachability.functions))
+        .map(|module| {
+            filter_checked_module_for_codegen(
+                module,
+                &reachability.functions,
+                &reachability.globals,
+            )
+        })
         .collect()
 }
 
 fn filter_checked_module_for_codegen(
     mut module: CheckedModule,
     reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
 ) -> CheckedModule {
     module
         .body_ir
         .function_bodies
         .retain(|def_id, _| reachable_functions.contains(def_id));
-    module.semantic_facts =
-        filter_semantic_facts_for_reachable_functions(module.semantic_facts, reachable_functions);
+    module
+        .body_ir
+        .global_inits
+        .retain(|def_id, _| reachable_globals.contains(def_id));
+    module.semantic_facts = filter_semantic_facts_for_reachable_items(
+        module.semantic_facts,
+        reachable_functions,
+        reachable_globals,
+    );
+    module.executable_reachable_globals = Some(reachable_globals.clone());
     module
 }
 
