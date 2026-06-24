@@ -64,6 +64,9 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
+    pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
+    pub(super) extension_associated_values:
+        fn(&QueryDb<CompilerContext>) -> ExtensionAssociatedValuesValue,
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
     pub(super) visible_extensions:
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
@@ -131,6 +134,8 @@ impl Default for CompilerQueryProviders {
             program_executable_signatures: provide_program_executable_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
+            extension_method_set: provide_extension_method_set,
+            extension_associated_values: provide_extension_associated_values,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
             value_resolution: provide_value_resolution,
@@ -909,19 +914,53 @@ pub(super) fn provide_program_abi_signatures(
     )
 }
 
+pub(super) fn provide_extension_method_set(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionMethodSetValue {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "extension_method_set",
+        || {
+            let inputs = extension_signature_inputs(db);
+            let inputs = inputs.extension_modules();
+            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            let (methods, diagnostics) =
+                collect_extension_methods(&inputs, &trait_solving.trait_impls);
+            Arc::new(ExtensionMethodSetQueryValue {
+                methods,
+                diagnostics,
+            })
+        },
+    )
+}
+
+pub(super) fn provide_extension_associated_values(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionAssociatedValuesValue {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "extension_associated_values",
+        || {
+            let inputs = extension_signature_inputs(db);
+            let inputs = inputs.extension_modules();
+            let (values, diagnostics) = collect_extension_associated_values(&inputs);
+            Arc::new(ExtensionAssociatedValuesQueryValue {
+                values,
+                diagnostics,
+            })
+        },
+    )
+}
+
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
-        let inputs = extension_signature_inputs(db);
-        let inputs = inputs.extension_modules();
-        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-        let (methods, mut diagnostics) =
-            collect_extension_methods(&inputs, &trait_solving.trait_impls);
-        let (associated_values, associated_value_diagnostics) =
-            collect_extension_associated_values(&inputs);
-        diagnostics.extend(associated_value_diagnostics);
+        let method_set = db.query(ExtensionMethodSetQuery);
+        let associated_values = db.query(ExtensionAssociatedValuesQuery);
+        let mut diagnostics = method_set.diagnostics.clone();
+        diagnostics.extend(associated_values.diagnostics.iter().cloned());
         Arc::new(ExtensionMethodsQueryValue {
-            methods,
-            associated_values,
+            methods: method_set.methods.clone(),
+            associated_values: associated_values.values.clone(),
             diagnostics,
         })
     })
@@ -943,7 +982,8 @@ pub(super) fn provide_visible_extensions(
         )))
     };
     let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
-    let extensions = db.query(ExtensionMethodsQuery);
+    let extension_methods = db.query(ExtensionMethodSetQuery);
+    let associated_values = db.query(ExtensionAssociatedValuesQuery);
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
         graph: &graph,
@@ -954,8 +994,8 @@ pub(super) fn provide_visible_extensions(
         visible_type_signatures: VisibleTypeSignatures {
             type_aliases: &visible_type_signatures.type_aliases,
         },
-        extensions: &extensions.methods,
-        associated_values: &extensions.associated_values,
+        extensions: &extension_methods.methods,
+        associated_values: &associated_values.values,
     }))
 }
 
@@ -2023,7 +2063,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
             .or_else(|| Some(db.query(LayoutsQuery(module_id))))
     };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
-    let extension_methods = db.query(ExtensionMethodsQuery);
+    let extension_methods = db.query(ExtensionMethodSetQuery);
     let program_function_signatures;
     let program_value_signatures;
     let program_type_signatures;
@@ -2706,7 +2746,7 @@ pub(super) fn provide_executable_checked_modules(
                 "executable_checked_modules.shared_inputs",
                 || {
                     let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
-                    let _ = db.query(ExtensionMethodsQuery);
+                    let _ = db.query(ExtensionMethodSetQuery);
                 },
             );
             executable_checked_modules_inner(db)
@@ -2719,7 +2759,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let graph = db.query(ModuleGraphQuery);
     let reachability_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
     let mut program_signatures = None;
-    let extension_methods = db.query(ExtensionMethodsQuery);
+    let extension_methods = db.query(ExtensionMethodSetQuery);
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
@@ -3157,7 +3197,7 @@ fn provide_backend_lowering_inner(
                 .iter()
                 .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
                 .collect::<Vec<_>>();
-            let extension_methods = db.query(ExtensionMethodsQuery);
+            let extension_methods = db.query(ExtensionMethodSetQuery);
             let function_bodies = function_bodies_from_checked_modules(&checked_modules);
             (
                 active_item_trees,
@@ -3266,9 +3306,10 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
         .map(|module_id| db.query(ModulePathQuery(*module_id)))
         .unwrap_or_else(synthetic_diagnostic_path);
     diagnostics.extend(
-        db.query(ExtensionMethodsQuery)
+        db.query(ExtensionMethodSetQuery)
             .diagnostics
             .iter()
+            .chain(db.query(ExtensionAssociatedValuesQuery).diagnostics.iter())
             .cloned()
             .map(|diagnostic| ProgramDiagnostic {
                 path: first_path.clone(),
