@@ -402,8 +402,9 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<HashMap<String, InternedTyId>> {
         let mut substitutions = HashMap::new();
+        let candidate_interner = self.candidate_type_interner(candidate).clone();
         let target_ty =
-            self.import_type_from_known_interner(&candidate.type_interner, candidate.target_ty);
+            self.import_type_from_known_interner(&candidate_interner, candidate.target_ty);
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
@@ -413,7 +414,7 @@ impl<'a> ModuleLowerer<'a> {
         let candidate_trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.import_type_from_known_interner(&candidate.type_interner, *arg))
+            .map(|arg| self.import_type_from_known_interner(&candidate_interner, *arg))
             .collect::<Vec<_>>();
         if !candidate_trait_args
             .iter()
@@ -502,6 +503,20 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &'b ExtensionTraitMethodCandidate,
     ) -> &'b [String] {
         &candidate.impl_generics
+    }
+
+    pub(crate) fn candidate_type_interner(
+        &self,
+        candidate: &ExtensionTraitMethodCandidate,
+    ) -> &nia_ty::TyInterner {
+        self.type_context
+            .input_interner_by_id(candidate.type_interner_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: missing backend extension candidate type interner {:?}",
+                    candidate.type_interner_id
+                )
+            })
     }
 
     pub(crate) fn trait_method_call_is_concrete(

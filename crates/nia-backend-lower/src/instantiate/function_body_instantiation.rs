@@ -998,14 +998,16 @@ impl<'a> ModuleLowerer<'a> {
         specific: &crate::ExtensionTraitMethodCandidate,
         general: &crate::ExtensionTraitMethodCandidate,
     ) -> bool {
+        let specific_interner = self.candidate_type_interner(specific).clone();
+        let general_interner = self.candidate_type_interner(general).clone();
         let specific_target = nia_ty::import_type_into(
             &mut self.type_context.interner,
-            &specific.type_interner,
+            &specific_interner,
             specific.target_ty,
         );
         let general_target = nia_ty::import_type_into(
             &mut self.type_context.interner,
-            &general.type_interner,
+            &general_interner,
             general.target_ty,
         );
         let target_subsumes = self.extension_pattern_subsumes(general_target, specific_target);
@@ -1015,12 +1017,12 @@ impl<'a> ModuleLowerer<'a> {
             |(specific_arg, general_arg)| {
                 let specific_arg = nia_ty::import_type_into(
                     &mut self.type_context.interner,
-                    &specific.type_interner,
+                    &specific_interner,
                     *specific_arg,
                 );
                 let general_arg = nia_ty::import_type_into(
                     &mut self.type_context.interner,
-                    &general.type_interner,
+                    &general_interner,
                     *general_arg,
                 );
                 any_strict |=

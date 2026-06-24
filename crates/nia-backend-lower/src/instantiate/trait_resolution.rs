@@ -145,8 +145,9 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &ExtensionTraitMethodCandidate,
         substitutions: &std::collections::HashMap<String, InternedTyId>,
     ) -> bool {
+        let candidate_interner = self.candidate_type_interner(candidate).clone();
         let predicates =
-            self.import_where_predicates(&candidate.where_predicates, &candidate.type_interner);
+            self.import_where_predicates(&candidate.where_predicates, &candidate_interner);
         let predicates = predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
@@ -340,7 +341,16 @@ impl<'a> ModuleLowerer<'a> {
         nia_ty::TyInterner,
     )> {
         if let Some(source) = self.extension_method_source(current) {
-            return Some((source.where_predicates.clone(), source.interner.clone()));
+            let interner = self
+                .type_context
+                .input_interner_by_id(source.interner_id)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Nia ICE: missing backend extension method source interner {:?}",
+                        source.interner_id
+                    )
+                });
+            return Some((source.where_predicates.clone(), interner.clone()));
         }
         let program_index = self.trait_impl_index_for_method(current)?;
         self.input.trait_impls.get(program_index).map(|signature| {
