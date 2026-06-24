@@ -2735,6 +2735,10 @@ fn main() i32 {
                 )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_body_check"
+                && dependency.to.name == "program_trait_solving_signatures"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_modules"
                 && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
         }));
