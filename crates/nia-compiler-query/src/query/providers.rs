@@ -923,6 +923,69 @@ pub(super) fn provide_program_executable_signatures(
     )
 }
 
+fn executable_program_signatures_without_functions(
+    db: &QueryDb<CompilerContext>,
+) -> ProgramExecutableSignatures {
+    let value_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
+    let value_modules = value_inputs.modules();
+    let type_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+    let type_modules = type_inputs.modules();
+    let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+    let trait_modules = trait_inputs.modules();
+    ProgramExecutableSignatures {
+        functions: HashMap::new(),
+        globals: collect_program_globals(&value_modules),
+        comptimes: collect_program_comptimes(&value_modules),
+        structs: collect_program_structs(&type_modules),
+        unions: collect_program_unions(&type_modules),
+        enums: collect_program_enums(&type_modules),
+        type_aliases: collect_program_type_aliases(&type_modules),
+        traits: collect_program_traits(&trait_modules),
+        trait_impls: collect_program_trait_impls(&trait_modules),
+    }
+}
+
+fn executable_program_functions_for_modules(
+    db: &QueryDb<CompilerContext>,
+    module_ids: impl IntoIterator<Item = ModuleId>,
+) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
+    module_ids
+        .into_iter()
+        .flat_map(|module_id| {
+            let signatures = db.query(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            ));
+            let defs = db.query(ModuleDefsQuery(module_id));
+            let interner = db
+                .query(SignatureTypeLoweringQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ))
+                .interner;
+            signatures
+                .functions
+                .into_iter()
+                .map(move |(def_id, signature)| {
+                    let global_def_id = GlobalDefId { module_id, def_id };
+                    let name = defs
+                        .defs
+                        .get(def_id)
+                        .map(|def| def.name.clone())
+                        .unwrap_or_else(|| format!("def{}", def_id.0));
+                    (
+                        global_def_id,
+                        ProgramFunctionSignature {
+                            name,
+                            signature,
+                            interner: interner.clone(),
+                        },
+                    )
+                })
+        })
+        .collect()
+}
+
 pub(super) fn provide_program_backend_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBackendSignatures> {
@@ -2207,6 +2270,31 @@ fn body_check_with_filter_and_layouts_with_inputs(
     };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodIndexQuery);
+    let program_function_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ))
+        .functions
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramFunctionSignature {
+            name: db
+                .query(ModuleDefsQuery(def_id.module_id))
+                .defs
+                .get(def_id.def_id)
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| format!("def{}", def_id.def_id.0)),
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ))
+                .interner,
+        })
+    };
+    let empty_program_functions = HashMap::new();
     let program_function_signatures;
     let program_value_signatures;
     let program_type_signatures;
@@ -2214,7 +2302,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let (program_functions, program_values, program_types, program_traits) =
         if let Some(signatures) = program_signatures_override {
             (
-                &signatures.functions,
+                &empty_program_functions,
                 nia_body_check::BodyProgramValueSignatures {
                     globals: &signatures.globals,
                     comptimes: &signatures.comptimes,
@@ -2352,6 +2440,10 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     layouts: Some(&program_layouts),
                 },
                 program_functions,
+                program_function_signature: program_signatures_override.map(|_| {
+                    &program_function_signature
+                        as &dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>
+                }),
                 program_values,
                 program_types,
                 program_traits,
@@ -3041,7 +3133,7 @@ pub(super) fn provide_executable_checked_modules(
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
-    let mut program_signatures = None;
+    let mut program_signatures = None::<ProgramExecutableSignatures>;
     let extension_methods = db.query(ExtensionMethodIndexQuery);
     let executable_array_length_cache =
         RefCell::new(HashMap::<ModuleId, nia_comptime_check::ComptimeArrayLengths>::new());
@@ -3212,14 +3304,14 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .filter(|def_id| def_id.module_id == module_id)
                 .collect::<HashSet<_>>();
             let program_signatures = program_signatures
-                .get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
+                .get_or_insert_with(|| executable_program_signatures_without_functions(db));
             let layouts = executable_layouts_for_reachable_items(
                 db,
                 module_id,
                 &reachability.functions,
                 &reachability.globals,
                 Some(&executable_array_length_cache),
-                Some(program_signatures.as_ref()),
+                Some(&*program_signatures),
             );
             let program_layout_cache = RefCell::new(HashMap::new());
             program_layout_cache
@@ -3231,7 +3323,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 &reachability.functions,
                 &reachability.globals,
                 Some(&executable_array_length_cache),
-                Some(program_signatures.as_ref()),
+                Some(&*program_signatures),
             );
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
                 body_check_with_filter_and_layouts_with_inputs(
@@ -3240,7 +3332,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     filter,
                     Some(layouts.clone()),
                     Some(&executable_program_layouts),
-                    Some(program_signatures.as_ref()),
+                    Some(&*program_signatures),
                 )
             });
             let flow_check = executable_flow_check(db, module_id, &reachability.functions);
@@ -3279,15 +3371,15 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             .map(|module| (module.id, module.layouts.clone()))
             .collect::<HashMap<_, _>>(),
     );
-    let program_signatures =
-        program_signatures.get_or_insert_with(|| db.query(ProgramExecutableSignaturesQuery));
+    let program_signatures = program_signatures
+        .get_or_insert_with(|| executable_program_signatures_without_functions(db));
     let executable_program_layouts = executable_program_layouts(
         db,
         &codegen_layout_cache,
         &reachability.functions,
         &reachability.globals,
         Some(&executable_array_length_cache),
-        Some(program_signatures.as_ref()),
+        Some(&*program_signatures),
     );
     let codegen_array_lengths = codegen_modules
         .iter()
@@ -3459,7 +3551,7 @@ pub(super) fn provide_monomorphization(
         let executable_signatures;
         let trait_solving_signatures;
         let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
-            executable_signatures = db.query(ProgramExecutableSignaturesQuery);
+            executable_signatures = executable_program_signatures_without_functions(db);
             (
                 &executable_signatures.enums,
                 executable_signatures.trait_impls.as_slice(),
@@ -3626,11 +3718,17 @@ fn provide_backend_lowering_inner(
         },
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let executable_program_signatures;
+    let mut executable_program_signatures;
+    let executable_program_functions;
     let backend_program_signatures;
     let program_signatures =
         if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-            executable_program_signatures = db.query(ProgramExecutableSignaturesQuery);
+            executable_program_signatures = executable_program_signatures_without_functions(db);
+            executable_program_functions = executable_program_functions_for_modules(
+                db,
+                checked_modules.iter().map(|module| module.id),
+            );
+            executable_program_signatures.functions = executable_program_functions;
             executable_program_signatures.codegen_maps()
         } else {
             backend_program_signatures = db.query(ProgramBackendSignaturesQuery);
