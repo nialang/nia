@@ -728,7 +728,7 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn struct_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
+    pub(crate) fn struct_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
         if def_id.module_id != self.input.module_id {
             let Some(program_signature) = self.input.program_structs.get(&def_id) else {
                 return Vec::new();
@@ -1332,7 +1332,7 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn union_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
+    pub(crate) fn union_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
         if def_id.module_id != self.input.module_id {
             let Some(program_signature) = self.input.program_unions.get(&def_id) else {
                 return Vec::new();

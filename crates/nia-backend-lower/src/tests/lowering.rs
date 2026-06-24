@@ -215,6 +215,8 @@ fn main() i32 {
         function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
         reachable_globals: None,
+        reachable_structs: None,
+        reachable_unions: None,
         program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
