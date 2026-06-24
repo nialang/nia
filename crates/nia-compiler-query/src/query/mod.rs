@@ -2591,7 +2591,7 @@ fn main() i32 {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_backend_signatures"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "comptime_enum_values"
         }));
@@ -2599,6 +2599,62 @@ fn main() i32 {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_type_normalizations"
+        }));
+    }
+
+    #[test]
+    fn executable_checked_modules_reuse_filtered_comptime_inputs() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+comptime fn len() usize {
+    4
+}
+
+fn unused() i32 {
+    missing_symbol
+}
+
+fn main() i32 {
+    var values: [len()]i32 = [0; len()];
+    values.len() as i32
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let trace = db.query_trace();
+
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "reachable comptime functions must remain available to executable body checking: {:?}",
+            module.body_diagnostics
+        );
+        assert!(
+            module
+                .comptime
+                .array_lengths
+                .values()
+                .any(|length| *length == 4),
+            "filtered executable comptime phases should retain reachable array lengths"
+        );
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_body_check"
+                && matches!(
+                    dependency.to.name,
+                    "comptime_values" | "comptime_array_lengths" | "comptime_typed_facts"
+                )
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
         }));
     }
 
