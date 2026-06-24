@@ -1993,12 +1993,14 @@ fn main() i32 {
         let db = query_db(loaded);
 
         let _ = db.query(ProgramVisibleTypeSignaturesQuery);
+        let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
         let _ = db.query(ProgramExecutableSignaturesQuery);
         let _ = db.query(ProgramBackendSignaturesQuery);
         let trace = db.query_trace();
 
         for query in [
             "program_visible_type_signatures",
+            "program_executable_reachability_signatures",
             "program_executable_signatures",
             "program_backend_signatures",
         ] {
@@ -2016,6 +2018,10 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_executable_signatures"
+                && dependency.to.name == "program_executable_reachability_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_executable_reachability_signatures"
                 && dependency.to.name == "signature_item_signatures"
         }));
     }
@@ -2469,7 +2475,7 @@ fn main() i32 {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_modules"
-                && dependency.to.name == "program_executable_signatures"
+                && dependency.to.name == "program_executable_reachability_signatures"
         }));
         assert!(!depends_on_body_signature_query(
             &trace,
