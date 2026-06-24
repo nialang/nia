@@ -16,7 +16,7 @@ use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
@@ -33,6 +33,7 @@ use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
+use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;

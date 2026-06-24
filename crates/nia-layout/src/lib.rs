@@ -227,6 +227,13 @@ pub struct LayoutComputationInput<'a> {
     pub program: ProgramLayoutContext<'a>,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct LayoutRoots<'a> {
+    pub types: &'a [InternedTyId],
+    pub structs: &'a [DefId],
+    pub unions: &'a [DefId],
+}
+
 pub fn compute_layouts_with_program_context(
     defs: &DefCollection,
     interner: &TyInterner,
@@ -246,6 +253,22 @@ pub fn compute_layouts_with_program_context(
         program,
     )
     .compute()
+}
+
+pub fn compute_layouts_for_roots_with_program_context(
+    input: LayoutComputationInput<'_>,
+    roots: LayoutRoots<'_>,
+) -> Layouts {
+    LayoutComputer::new(
+        input.defs,
+        input.interner,
+        input.signatures,
+        input.normalized,
+        input.array_lengths,
+        input.target,
+        input.program,
+    )
+    .compute_roots(roots)
 }
 
 pub fn compute_struct_instance_layout_with_program_context(
@@ -402,6 +425,34 @@ impl<'a> LayoutComputer<'a> {
         for (def_id, signature) in union_signatures {
             self.union_layout(signature.span, def_id, &signature, &[]);
         }
+        self.finish()
+    }
+
+    fn compute_roots(mut self, roots: LayoutRoots<'_>) -> Layouts {
+        for ty_id in roots.types {
+            if self.is_inferred_array_type(*ty_id) {
+                continue;
+            }
+            self.layout_ty(*ty_id, Span::default());
+        }
+        for def_id in roots.structs {
+            if let Some(signature) = self.signatures.structs.get(def_id).cloned()
+                && signature.generics.is_empty()
+            {
+                self.struct_layout(signature.span, *def_id, &signature, &[]);
+            }
+        }
+        for def_id in roots.unions {
+            if let Some(signature) = self.signatures.unions.get(def_id).cloned()
+                && signature.generics.is_empty()
+            {
+                self.union_layout(signature.span, *def_id, &signature, &[]);
+            }
+        }
+        self.finish()
+    }
+
+    fn finish(self) -> Layouts {
         Layouts {
             target: self.target,
             interner: self.interner,

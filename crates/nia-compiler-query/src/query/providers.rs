@@ -1321,6 +1321,15 @@ fn body_check_with_filter(
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
 ) -> nia_body_check::BodyCheck {
+    body_check_with_filter_and_layouts(db, module_id, filter, None)
+}
+
+fn body_check_with_filter_and_layouts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+    layouts: Option<nia_layout::Layouts>,
+) -> nia_body_check::BodyCheck {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
@@ -1349,7 +1358,7 @@ fn body_check_with_filter(
         &comptime_typed_facts,
     );
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
-    let layouts = db.query(LayoutsQuery(module_id));
+    let layouts = layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id)));
     let program_layouts = |module_id| Some(db.query(LayoutsQuery(module_id)));
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodsQuery);
@@ -1481,6 +1490,337 @@ fn collect_body_signature_subset(
         defs,
         lowered,
     )
+}
+
+fn executable_layouts_for_reachable_items(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
+) -> nia_layout::Layouts {
+    time_module_provider(db, "executable_layouts", module_id, || {
+        let defs = db.query(FullModuleDefsQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let type_lowering = db.query(TypeLoweringQuery(module_id));
+        let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
+        let item_signatures = db.query(ItemSignaturesQuery(module_id));
+        let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+        let local_array_lengths = |id| array_lengths.values.get(&id).copied();
+        let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+            Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        };
+        let roots = executable_layout_roots(
+            module_id,
+            &type_normalization.interner,
+            &item_signatures,
+            type_lowering
+                .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                .into_iter()
+                .map(|(_, ty)| ty),
+            reachable_functions,
+            reachable_globals,
+        );
+        nia_layout::compute_layouts_for_roots_with_program_context(
+            nia_layout::LayoutComputationInput {
+                defs: &defs,
+                interner: &type_normalization.interner,
+                signatures: &item_signatures,
+                normalized: &type_normalization.normalized,
+                array_lengths: &local_array_lengths,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&program_array_lengths),
+                    ..Default::default()
+                },
+            },
+            nia_layout::LayoutRoots {
+                types: &roots.types,
+                structs: &roots.structs,
+                unions: &roots.unions,
+            },
+        )
+    })
+}
+
+fn rooted_layouts_for_checked_module(
+    db: &QueryDb<CompilerContext>,
+    module: &CheckedModule,
+) -> nia_layout::Layouts {
+    let item_signatures = db.query(ItemSignaturesQuery(module.id));
+    let roots = checked_module_layout_roots(module, &item_signatures);
+    let array_lengths = &module.comptime.array_lengths;
+    let local_array_lengths = |id| array_lengths.get(&id).copied();
+    let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+    let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
+            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+    };
+    nia_layout::compute_layouts_for_roots_with_program_context(
+        nia_layout::LayoutComputationInput {
+            defs: &module.defs,
+            interner: &module.type_normalization.interner,
+            signatures: &item_signatures,
+            normalized: &module.type_normalization.normalized,
+            array_lengths: &local_array_lengths,
+            target: nia_layout::TargetDataLayout::LP64,
+            program: nia_layout::ProgramLayoutContext {
+                layouts: Some(&layout_query),
+                array_lengths: Some(&program_array_lengths),
+                ..Default::default()
+            },
+        },
+        nia_layout::LayoutRoots {
+            types: &roots.types,
+            structs: &roots.structs,
+            unions: &roots.unions,
+        },
+    )
+}
+
+fn executable_layout_roots(
+    module_id: ModuleId,
+    interner: &nia_ty::TyInterner,
+    signatures: &ItemSignatures,
+    type_uses: impl IntoIterator<Item = InternedTyId>,
+    reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
+) -> CollectedLayoutRoots {
+    let mut roots = LayoutRootCollector::new(interner);
+    for ty in type_uses {
+        roots.add(ty);
+    }
+    for function_id in reachable_functions
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module_id)
+    {
+        if let Some(signature) = signatures.functions.get(&function_id.def_id) {
+            for param in &signature.params {
+                roots.add(param.ty);
+            }
+            roots.add(signature.return_type);
+        }
+    }
+    for global_id in reachable_globals
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module_id)
+    {
+        if let Some(signature) = signatures.globals.get(&global_id.def_id)
+            && let Some(ty) = signature.explicit_type
+        {
+            roots.add(ty);
+        }
+    }
+    roots.finish()
+}
+
+fn checked_module_layout_roots(
+    module: &CheckedModule,
+    signatures: &ItemSignatures,
+) -> CollectedLayoutRoots {
+    let mut roots = LayoutRootCollector::new(&module.type_normalization.interner);
+    for (def_id, signature) in &signatures.structs {
+        if signature.generics.is_empty() {
+            roots.add_struct(*def_id);
+        }
+    }
+    for (def_id, signature) in &signatures.unions {
+        if signature.generics.is_empty() {
+            roots.add_union(*def_id);
+        }
+    }
+    for ty in module.semantic_facts.global_types.values().copied() {
+        roots.add(ty);
+    }
+    for facts in module.semantic_facts.function_facts.values() {
+        for ty in facts.local_types.values().copied() {
+            roots.add(ty);
+        }
+        for ty in facts.node_expr_types.values().copied() {
+            roots.add(ty);
+        }
+        for instantiation in &facts.generic_instantiations {
+            for ty in &instantiation.args {
+                roots.add(*ty);
+            }
+        }
+        for coercion in facts.node_array_to_slice_coercions.values() {
+            roots.add(coercion.array_ty);
+            roots.add(coercion.slice_ty);
+        }
+        for coercion in facts.node_pointer_array_to_slice_coercions.values() {
+            roots.add(coercion.pointer_ty);
+            roots.add(coercion.array_ty);
+            roots.add(coercion.slice_ty);
+        }
+        for coercion in facts.node_trait_object_coercions.values() {
+            roots.add(coercion.source_ty);
+            roots.add(coercion.target_ty);
+        }
+        for upcast in facts.node_trait_object_upcasts.values() {
+            roots.add(upcast.source_ty);
+            roots.add(upcast.target_ty);
+        }
+        for value in facts.node_builtin_values.values() {
+            collect_builtin_value_layout_roots(value, &mut roots);
+        }
+    }
+    for ty in module.semantic_facts.node_expr_types.values().copied() {
+        roots.add(ty);
+    }
+    for instantiation in &module.semantic_facts.generic_instantiations {
+        for ty in &instantiation.args {
+            roots.add(*ty);
+        }
+    }
+    for value in module.semantic_facts.node_builtin_values.values() {
+        collect_builtin_value_layout_roots(value, &mut roots);
+    }
+    roots.finish()
+}
+
+fn collect_builtin_value_layout_roots(
+    value: &nia_sema_ir::BuiltinValue,
+    roots: &mut LayoutRootCollector<'_>,
+) {
+    match value {
+        nia_sema_ir::BuiltinValue::Layout { ty, .. }
+        | nia_sema_ir::BuiltinValue::FieldOffset { ty, .. } => roots.add(*ty),
+        nia_sema_ir::BuiltinValue::Int(_) | nia_sema_ir::BuiltinValue::Usize(_) => {}
+    }
+}
+
+struct LayoutRootCollector<'a> {
+    interner: &'a nia_ty::TyInterner,
+    seen: HashSet<InternedTyId>,
+    types: Vec<InternedTyId>,
+    seen_structs: HashSet<nia_defs::DefId>,
+    structs: Vec<nia_defs::DefId>,
+    seen_unions: HashSet<nia_defs::DefId>,
+    unions: Vec<nia_defs::DefId>,
+}
+
+impl<'a> LayoutRootCollector<'a> {
+    fn new(interner: &'a nia_ty::TyInterner) -> Self {
+        Self {
+            interner,
+            seen: HashSet::new(),
+            types: Vec::new(),
+            seen_structs: HashSet::new(),
+            structs: Vec::new(),
+            seen_unions: HashSet::new(),
+            unions: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, ty: InternedTyId) {
+        if !self.seen.insert(ty) {
+            return;
+        }
+        self.types.push(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
+            | Some(TyKind::Optional { elem }) => self.add(elem),
+            Some(TyKind::Array { len, elem }) => {
+                self.add_array_len(len);
+                self.add(elem);
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.add(bound);
+                }
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                for param in params {
+                    self.add(param);
+                }
+                self.add(return_type);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.add(error);
+                self.add(value);
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                if def_id.module_id == self.interner.interner_id().module_id() {
+                    self.add_struct(def_id.def_id);
+                    self.add_union(def_id.def_id);
+                }
+                for arg in args {
+                    self.add(arg);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. })
+            | Some(TyKind::TraitObject {
+                trait_args: args, ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args: args, ..
+            }) => {
+                for arg in args {
+                    self.add(arg);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.add(self_ty);
+                for arg in trait_args {
+                    self.add(arg);
+                }
+            }
+            Some(TyKind::Primitive(_))
+            | Some(TyKind::Vector { .. })
+            | Some(TyKind::Error)
+            | Some(TyKind::ComptimeOnly)
+            | Some(TyKind::GenericParam(_))
+            | None => {}
+        }
+    }
+
+    fn add_struct(&mut self, def_id: nia_defs::DefId) {
+        if self.seen_structs.insert(def_id) {
+            self.structs.push(def_id);
+        }
+    }
+
+    fn add_union(&mut self, def_id: nia_defs::DefId) {
+        if self.seen_unions.insert(def_id) {
+            self.unions.push(def_id);
+        }
+    }
+
+    fn add_array_len(&mut self, len: nia_ty::ArrayLenTy) {
+        if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
+            self.add(ty);
+        }
+    }
+
+    fn finish(self) -> CollectedLayoutRoots {
+        CollectedLayoutRoots {
+            types: self.types,
+            structs: self.structs,
+            unions: self.unions,
+        }
+    }
+}
+
+struct CollectedLayoutRoots {
+    types: Vec<InternedTyId>,
+    structs: Vec<nia_defs::DefId>,
+    unions: Vec<nia_defs::DefId>,
 }
 
 fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
@@ -1677,8 +2017,14 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .copied()
                 .filter(|def_id| def_id.module_id == module_id)
                 .collect::<HashSet<_>>();
+            let layouts = executable_layouts_for_reachable_items(
+                db,
+                module_id,
+                &reachability.functions,
+                &reachability.globals,
+            );
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter(db, module_id, filter)
+                body_check_with_filter_and_layouts(db, module_id, filter, Some(layouts))
             });
             let flow_check = executable_flow_check(db, module_id, &reachability.functions);
             let module =
@@ -1711,6 +2057,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         .map(|module| {
             filter_checked_module_for_codegen(
                 module,
+                db,
                 &reachability.functions,
                 &reachability.globals,
             )
@@ -1720,6 +2067,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
 
 fn filter_checked_module_for_codegen(
     mut module: CheckedModule,
+    db: &QueryDb<CompilerContext>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
 ) -> CheckedModule {
@@ -1736,6 +2084,7 @@ fn filter_checked_module_for_codegen(
         reachable_functions,
         reachable_globals,
     );
+    module.layouts = rooted_layouts_for_checked_module(db, &module);
     module.executable_reachable_globals = Some(reachable_globals.clone());
     module
 }
