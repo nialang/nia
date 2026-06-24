@@ -126,6 +126,22 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins(
     resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
+pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
+    filtered_item_tree: &ActiveModuleItemTree,
+    full_item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: &nia_node_id::NodeOriginTable,
+) -> LocalResolution {
+    resolve_module_locals_from_filtered_items(
+        &filtered_item_tree.items,
+        &full_item_tree.items,
+        defs,
+        values,
+    )
+}
+
 pub fn resolve_module_locals_from_item_tree_with_origins(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
@@ -134,6 +150,32 @@ pub fn resolve_module_locals_from_item_tree_with_origins(
     _origins: (),
 ) -> LocalResolution {
     resolve_module_locals_from_items(&item_tree.items, defs, values)
+}
+
+fn resolve_module_locals_from_filtered_items(
+    filtered_items: &[ItemTreeNode],
+    full_items: &[ItemTreeNode],
+    defs: &DefCollection,
+    values: &ValueResolution,
+) -> LocalResolution {
+    let allocated = LocalDefinitionAllocator::allocate_items(full_items);
+    let mut resolver = LocalResolver {
+        defs,
+        values,
+        locals: allocated.locals,
+        node_local_defs: allocated.node_local_defs.clone(),
+        node_uses: HashMap::new(),
+        diagnostics: Vec::new(),
+        scopes: Vec::new(),
+        definition_ids: Some(allocated.node_local_defs),
+    };
+    resolver.resolve_items(filtered_items);
+    LocalResolution {
+        locals: resolver.locals,
+        node_local_defs: resolver.node_local_defs,
+        node_uses: resolver.node_uses,
+        diagnostics: resolver.diagnostics,
+    }
 }
 
 fn resolve_module_locals_from_items(
@@ -149,6 +191,7 @@ fn resolve_module_locals_from_items(
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
         scopes: Vec::new(),
+        definition_ids: None,
     };
     resolver.resolve_items(items);
     LocalResolution {
@@ -167,12 +210,322 @@ struct LocalResolver<'a> {
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<HashMap<String, ScopedLocal>>,
+    definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ScopedLocal {
     id: LocalId,
     span: Span,
+}
+
+#[derive(Default)]
+struct LocalDefinitionAllocator {
+    locals: LocalMap,
+    node_local_defs: HashMap<VersionedNodeKey, LocalId>,
+}
+
+impl LocalDefinitionAllocator {
+    fn allocate_items(items: &[ItemTreeNode]) -> Self {
+        let mut allocator = Self::default();
+        for item in items {
+            allocator.allocate_item_tree_node(item);
+        }
+        allocator
+    }
+
+    fn allocate_item_tree_node(&mut self, item: &ItemTreeNode) {
+        match &item.kind {
+            ItemTreeNodeKind::Function(function) => self.allocate_function(function),
+            ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    self.allocate_function(&method.function);
+                }
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                for associated_value in &extend.associated_values {
+                    if let Some(value) = &associated_value.binding.value {
+                        self.allocate_expr(value);
+                    }
+                }
+                for method in &extend.methods {
+                    self.allocate_function(&method.function);
+                }
+            }
+            ItemTreeNodeKind::Enum(item_enum) => {
+                for variant in &item_enum.variants {
+                    if let Some(value) = &variant.value {
+                        self.allocate_expr(value);
+                    }
+                }
+            }
+            ItemTreeNodeKind::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    self.allocate_expr(value);
+                }
+            }
+            ItemTreeNodeKind::Module(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::Struct(_)
+            | ItemTreeNodeKind::Union(_)
+            | ItemTreeNodeKind::TypeAlias(_) => {}
+        }
+    }
+
+    fn allocate_function(&mut self, function: &FunctionItem) {
+        for param in &function.params {
+            if let Some(name) = &param.name {
+                self.allocate_definition(
+                    name,
+                    LocalKind::Param,
+                    param.span,
+                    param.node_key.clone(),
+                );
+            }
+        }
+        if let Some(body) = &function.body {
+            self.allocate_block(body);
+        }
+    }
+
+    fn allocate_block(&mut self, block: &Block) {
+        for stmt in &block.stmts {
+            self.allocate_stmt(stmt);
+        }
+        if let Some(tail) = &block.tail {
+            self.allocate_expr(tail);
+        }
+    }
+
+    fn allocate_stmt(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::Binding(binding) => {
+                self.allocate_binding(stmt.span, binding, stmt.node_key.clone())
+            }
+            StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) | StmtKind::Defer(expr) => {
+                self.allocate_expr(expr);
+            }
+            StmtKind::ForIn(for_stmt) => {
+                self.allocate_expr(&for_stmt.iter);
+                if let Some(name) = for_stmt.pattern.name() {
+                    self.allocate_definition(
+                        name,
+                        LocalKind::Binding,
+                        for_stmt.pattern.span,
+                        for_stmt.pattern.node_key.clone(),
+                    );
+                }
+                self.allocate_block(&for_stmt.body);
+            }
+            StmtKind::While(while_stmt) => {
+                self.allocate_expr(&while_stmt.cond);
+                self.allocate_block(&while_stmt.body);
+            }
+            StmtKind::Loop(loop_stmt) => self.allocate_block(&loop_stmt.body),
+            StmtKind::Using(_) | StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+        }
+    }
+
+    fn allocate_binding(
+        &mut self,
+        span: Span,
+        binding: &BindingStmt,
+        fallback_key: VersionedNodeKey,
+    ) {
+        if let Some(value) = &binding.value {
+            self.allocate_expr(value);
+        }
+        let node_key = if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
+            fallback_key
+        } else {
+            binding.pattern_node_key.clone()
+        };
+        self.allocate_definition(
+            &binding.name,
+            if binding.is_comptime {
+                LocalKind::ComptimeBinding
+            } else if binding.is_let {
+                LocalKind::ConstBinding
+            } else {
+                LocalKind::Binding
+            },
+            span,
+            node_key,
+        );
+    }
+
+    fn allocate_expr(&mut self, expr: &Expr) {
+        match &expr.kind {
+            ExprKind::Ident(_)
+            | ExprKind::Builtin { .. }
+            | ExprKind::TypeTarget { .. }
+            | ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::Raw(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Underscore
+            | ExprKind::Error => {}
+            ExprKind::BracketSuffix { callee, args } => {
+                self.allocate_expr(callee);
+                for arg in args {
+                    if let Some(expr) = &arg.expr {
+                        self.allocate_expr(expr);
+                    }
+                }
+            }
+            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+                self.allocate_array_elements(elems);
+            }
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+                for field in fields {
+                    self.allocate_expr(&field.value);
+                }
+            }
+            ExprKind::Unary { expr, .. }
+            | ExprKind::OptionalSome { expr }
+            | ExprKind::ErrorOk { expr }
+            | ExprKind::ErrorErr { expr }
+            | ExprKind::Try { expr }
+            | ExprKind::Cast { expr, .. } => self.allocate_expr(expr),
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
+                self.allocate_expr(lhs);
+                self.allocate_expr(rhs);
+            }
+            ExprKind::Call { callee, args } => {
+                self.allocate_expr(callee);
+                for arg in args {
+                    self.allocate_expr(arg);
+                }
+            }
+            ExprKind::Qualified { lhs, .. } | ExprKind::Field { lhs, .. } => {
+                self.allocate_expr(lhs);
+            }
+            ExprKind::Index { lhs, index } => {
+                self.allocate_expr(lhs);
+                match index {
+                    IndexArg::Expr(index) => self.allocate_expr(index),
+                    IndexArg::Range(range) => {
+                        if let Some(start) = &range.start {
+                            self.allocate_expr(start);
+                        }
+                        if let Some(end) = &range.end {
+                            self.allocate_expr(end);
+                        }
+                    }
+                }
+            }
+            ExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.allocate_expr(start);
+                }
+                if let Some(end) = &range.end {
+                    self.allocate_expr(end);
+                }
+            }
+            ExprKind::Block(block) => self.allocate_block(block),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.allocate_expr(cond);
+                self.allocate_block(then_branch);
+                if let Some(else_branch) = else_branch {
+                    self.allocate_expr(else_branch);
+                }
+            }
+            ExprKind::IfPattern(if_pattern) => {
+                self.allocate_expr(&if_pattern.target);
+                let binding_kind = if if_pattern.binding_mode.is_let() {
+                    LocalKind::ConstBinding
+                } else {
+                    LocalKind::Binding
+                };
+                for arm in &if_pattern.arms {
+                    self.allocate_pattern(&arm.pattern, binding_kind);
+                    self.allocate_block(&arm.body);
+                }
+                if let Some(else_branch) = &if_pattern.else_branch {
+                    self.allocate_expr(else_branch);
+                }
+            }
+            ExprKind::Switch(switch) => {
+                self.allocate_expr(&switch.target);
+                for arm in &switch.arms {
+                    for pattern in &arm.patterns {
+                        self.allocate_switch_pattern(pattern);
+                    }
+                    match &arm.body {
+                        SwitchArmBody::Expr(expr) => self.allocate_expr(expr),
+                        SwitchArmBody::Stmt(stmt) => self.allocate_stmt(stmt),
+                        SwitchArmBody::Block(block) => self.allocate_block(block),
+                    }
+                }
+            }
+        }
+    }
+
+    fn allocate_array_elements(&mut self, elems: &nia_ast::ArrayElements) {
+        match elems {
+            nia_ast::ArrayElements::List(elems) => {
+                for elem in elems {
+                    self.allocate_expr(elem);
+                }
+            }
+            nia_ast::ArrayElements::Repeat { value, count } => {
+                self.allocate_expr(value);
+                self.allocate_expr(count);
+            }
+        }
+    }
+
+    fn allocate_switch_pattern(&mut self, pattern: &SwitchPattern) {
+        match &pattern.kind {
+            SwitchPatternKind::Wildcard => {}
+            SwitchPatternKind::Expr(expr) => self.allocate_expr(expr),
+            SwitchPatternKind::Range { start, end, .. } => {
+                self.allocate_expr(start);
+                self.allocate_expr(end);
+            }
+        }
+    }
+
+    fn allocate_pattern(&mut self, pattern: &Pattern, binding_kind: LocalKind) {
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::OptionalNull => {}
+            PatternKind::Bind { name, node_key } => {
+                self.allocate_definition(name, binding_kind, pattern.span, node_key.clone());
+            }
+            PatternKind::OptionalSome(pattern)
+            | PatternKind::ErrorOk(pattern)
+            | PatternKind::ErrorErr(pattern) => self.allocate_pattern(pattern, binding_kind),
+            PatternKind::Expr(pattern) => self.allocate_expr(pattern),
+            PatternKind::Range { start, end, .. } => {
+                self.allocate_expr(start);
+                self.allocate_expr(end);
+            }
+        }
+    }
+
+    fn allocate_definition(
+        &mut self,
+        name: &str,
+        kind: LocalKind,
+        span: Span,
+        node_key: VersionedNodeKey,
+    ) {
+        let id = self.locals.push(Local {
+            name: name.to_string(),
+            kind,
+            span,
+        });
+        self.node_local_defs.insert(node_key, id);
+    }
 }
 
 impl<'a> LocalResolver<'a> {
@@ -787,11 +1140,32 @@ impl<'a> LocalResolver<'a> {
         node_key: VersionedNodeKey,
         duplicate_message: &'static str,
     ) {
-        let id = self.locals.push(Local {
-            name: name.to_string(),
-            kind,
-            span,
-        });
+        let id = if let Some(definition_ids) = &self.definition_ids {
+            let Some(id) = definition_ids.get(&node_key).copied() else {
+                self.diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::LOCAL_RESOLVER_SCOPE,
+                        "local resolver filtered definition has no preallocated id",
+                    )
+                    .primary(
+                        span,
+                        "local definition was not present in preallocated local ids",
+                    )
+                    .debug("name", name)
+                    .debug("kind", kind)
+                    .debug("node_key", node_key.clone())
+                    .finish(),
+                );
+                return;
+            };
+            id
+        } else {
+            self.locals.push(Local {
+                name: name.to_string(),
+                kind,
+                span,
+            })
+        };
         let debug_node_key = node_key.clone();
         self.node_local_defs.insert(node_key, id);
         let Some(scope) = self.scopes.last_mut() else {
@@ -1241,6 +1615,95 @@ fn selected() i32 {
         );
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(locals.locals.iter().any(|(_, local)| local.name == "value"));
+    }
+
+    #[test]
+    fn filtered_local_resolution_preserves_full_tree_local_ids() {
+        let (module, errors) = parse_module(
+            r#"
+fn unused(a: i32) i32 {
+    var x = a;
+    x
+}
+
+fn used(b: i32) i32 {
+    var y = b;
+    y
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_module(&module);
+        let full = tree.active_items(&mut BoolResolver(true)).unwrap();
+        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &full);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let values = resolve_module_values_from_active_item_tree(
+            &full,
+            &defs,
+            ValueProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
+        let full_locals = resolve_module_locals_from_active_item_tree_with_origins(
+            &full,
+            &defs,
+            &values,
+            None,
+            &nia_node_id::NodeOriginTable::default(),
+        );
+
+        let mut filtered = full.clone();
+        for item in &mut filtered.items {
+            if let ItemTreeNodeKind::Function(function) = &mut item.kind
+                && function.name == "unused"
+            {
+                function.body = None;
+            }
+        }
+        let filtered_values = resolve_module_values_from_active_item_tree(
+            &filtered,
+            &defs,
+            ValueProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        let filtered_locals = resolve_module_locals_from_filtered_active_item_tree_with_origins(
+            &filtered,
+            &full,
+            &defs,
+            &filtered_values,
+            None,
+            &nia_node_id::NodeOriginTable::default(),
+        );
+        assert!(
+            filtered_locals.diagnostics.is_empty(),
+            "{:?}",
+            filtered_locals.diagnostics
+        );
+
+        for name in ["b", "y"] {
+            let full_id = local_id_by_name(&full_locals, name);
+            let filtered_id = local_id_by_name(&filtered_locals, name);
+            assert_eq!(filtered_id, full_id, "local id changed for {name}");
+        }
+        let unused_x = local_id_by_name(&full_locals, "x");
+        assert!(
+            !filtered_locals
+                .node_uses
+                .values()
+                .any(|use_kind| *use_kind == LocalUse::Local(unused_x)),
+            "{:?}",
+            filtered_locals.node_uses
+        );
+    }
+
+    fn local_id_by_name(locals: &LocalResolution, name: &str) -> LocalId {
+        locals
+            .locals
+            .iter()
+            .find_map(|(id, local)| (local.name == name).then_some(id))
+            .unwrap_or_else(|| panic!("expected local `{name}`"))
     }
 
     struct BoolResolver(bool);
