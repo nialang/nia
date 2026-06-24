@@ -208,6 +208,8 @@ pub struct ProgramLayoutContext<'a> {
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
     pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,
+    pub struct_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
+    pub union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
 }
 
 #[derive(Clone, Copy)]
@@ -701,8 +703,20 @@ impl<'a> LayoutComputer<'a> {
             let signature = import_struct_signature(&mut self.interner, &signature);
             return self.external_struct_layout(span, def_id, &signature, args);
         }
+        if let Some(program_struct) = self.program.struct_
+            && let Some(signature) = program_struct(def_id)
+        {
+            let signature = import_struct_signature(&mut self.interner, &signature);
+            return self.external_struct_layout(span, def_id, &signature, args);
+        }
         if let Some(program_unions) = self.program.unions
             && let Some(signature) = program_unions.get(&def_id).cloned()
+        {
+            let signature = import_union_signature(&mut self.interner, &signature);
+            return self.external_union_layout(span, def_id, &signature, args);
+        }
+        if let Some(program_union) = self.program.union
+            && let Some(signature) = program_union(def_id)
         {
             let signature = import_union_signature(&mut self.interner, &signature);
             return self.external_union_layout(span, def_id, &signature, args);

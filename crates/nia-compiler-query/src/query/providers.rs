@@ -2354,7 +2354,42 @@ fn executable_layouts_for_reachable_items(
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let program_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
+        let program_struct = |def_id: GlobalDefId| {
+            db.query(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+            .structs
+            .get(&def_id.def_id)
+            .cloned()
+            .map(|signature| ProgramStructSignature {
+                signature,
+                interner: db
+                    .query(SignatureTypeLoweringQuery(
+                        def_id.module_id,
+                        nia_item_tree::SignatureItemSet::Types,
+                    ))
+                    .interner,
+            })
+        };
+        let program_union = |def_id: GlobalDefId| {
+            db.query(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+            .unions
+            .get(&def_id.def_id)
+            .cloned()
+            .map(|signature| ProgramUnionSignature {
+                signature,
+                interner: db
+                    .query(SignatureTypeLoweringQuery(
+                        def_id.module_id,
+                        nia_item_tree::SignatureItemSet::Types,
+                    ))
+                    .interner,
+            })
+        };
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
@@ -2380,8 +2415,8 @@ fn executable_layouts_for_reachable_items(
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
                     array_lengths: Some(&executable_array_lengths),
-                    structs: Some(&program_signatures.structs),
-                    unions: Some(&program_signatures.unions),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
                     ..Default::default()
                 },
             },
@@ -2856,7 +2891,6 @@ pub(super) fn provide_executable_checked_modules(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
                 || {
-                    let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
                     let _ = db.query(ExtensionMethodIndexQuery);
                 },
             );
@@ -2868,9 +2902,86 @@ pub(super) fn provide_executable_checked_modules(
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
-    let reachability_signatures = db.query(ProgramExecutableReachabilitySignaturesQuery);
     let mut program_signatures = None;
     let extension_methods = db.query(ExtensionMethodIndexQuery);
+    let function_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ))
+        .functions
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramFunctionSignature {
+            name: db
+                .query(ModuleDefsQuery(def_id.module_id))
+                .defs
+                .get(def_id.def_id)
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| format!("def{}", def_id.def_id.0)),
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ))
+                .interner,
+        })
+    };
+    let struct_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .structs
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramStructSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let union_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .unions
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramUnionSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let trait_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ))
+        .traits
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramTraitSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Traits,
+                ))
+                .interner,
+        })
+    };
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
@@ -2909,10 +3020,10 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 module_functions: &module_functions,
             },
             nia_executable_reachability::ExecutableSignatureIndex {
-                functions: &reachability_signatures.functions,
-                structs: &reachability_signatures.structs,
-                unions: &reachability_signatures.unions,
-                traits: &reachability_signatures.traits,
+                function: &function_signature,
+                struct_: &struct_signature,
+                union: &union_signature,
+                trait_: &trait_signature,
             },
             &extension_methods.methods,
             &reachable_inputs,

@@ -34,6 +34,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             array_lengths: Some(&array_lengths),
             structs: Some(self.input.program_structs),
             unions: Some(self.input.program_unions),
+            ..Default::default()
         };
         let normalization = nia_type_normalize::normalize_module_types(
             self.input.module_id,
@@ -148,6 +149,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             array_lengths: Some(&array_lengths),
             structs: Some(self.input.program_structs),
             unions: Some(self.input.program_unions),
+            ..Default::default()
         };
         let layout_input = nia_layout::LayoutComputationInput {
             defs: self.input.defs,
