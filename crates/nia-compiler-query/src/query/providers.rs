@@ -1470,6 +1470,18 @@ fn body_check_with_filter(
     body_check_with_filter_and_layouts(db, module_id, filter, None, None, None)
 }
 
+struct BodyCheckResolutionInputs {
+    active_item_tree: ActiveModuleItemTree,
+    values: ValueResolution,
+    locals: LocalResolution,
+    semantic_uses: nia_sema_ir::SemanticUseTable,
+}
+
+struct BodyCheckWithResolutionInputs {
+    body_check: nia_body_check::BodyCheck,
+    inputs: BodyCheckResolutionInputs,
+}
+
 fn body_check_with_filter_and_layouts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -1478,6 +1490,25 @@ fn body_check_with_filter_and_layouts(
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
     program_signatures_override: Option<&ProgramExecutableSignatures>,
 ) -> nia_body_check::BodyCheck {
+    body_check_with_filter_and_layouts_with_inputs(
+        db,
+        module_id,
+        filter,
+        layouts,
+        program_layouts_override,
+        program_signatures_override,
+    )
+    .body_check
+}
+
+fn body_check_with_filter_and_layouts_with_inputs(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+    layouts: Option<nia_layout::Layouts>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    program_signatures_override: Option<&ProgramExecutableSignatures>,
+) -> BodyCheckWithResolutionInputs {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
@@ -1488,13 +1519,13 @@ fn body_check_with_filter_and_layouts(
     let filtered_values;
     let filtered_locals;
     let filtered_semantic_uses;
-    let (body_active_item_tree, values, locals, semantic_uses) = match filter {
-        nia_body_check::BodyCheckFilter::All => (
-            &active_item_tree,
-            db.query(ValueResolutionQuery(module_id)),
-            db.query(LocalResolutionQuery(module_id)),
-            db.query(SemanticUseTableQuery(module_id)),
-        ),
+    let inputs = match filter {
+        nia_body_check::BodyCheckFilter::All => BodyCheckResolutionInputs {
+            active_item_tree,
+            values: db.query(ValueResolutionQuery(module_id)),
+            locals: db.query(LocalResolutionQuery(module_id)),
+            semantic_uses: db.query(SemanticUseTableQuery(module_id)),
+        },
         _ => {
             filtered_active_item_tree =
                 active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter);
@@ -1531,12 +1562,12 @@ fn body_check_with_filter_and_layouts(
                 &filtered_locals,
                 &lowered,
             );
-            (
-                &filtered_active_item_tree,
-                filtered_values,
-                filtered_locals,
-                filtered_semantic_uses,
-            )
+            BodyCheckResolutionInputs {
+                active_item_tree: filtered_active_item_tree,
+                values: filtered_values,
+                locals: filtered_locals,
+                semantic_uses: filtered_semantic_uses,
+            }
         }
     };
     let source_path = db.query(ModulePathQuery(module_id));
@@ -1606,48 +1637,50 @@ fn body_check_with_filter_and_layouts(
     let program_comptime_array_lengths =
         |module_id| Some(db.query(ComptimeArrayLengthsQuery(module_id)));
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
-    nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-        nia_body_check::BodyCheckInput {
-            source_version: Some(source_version),
-            source_path: &source_path,
-            origins: &origins,
-            active_item_tree: body_active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &lowered,
-            signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-            comptime_signatures: &signatures,
-            normalization: &normalization,
-            target: &db.query(CompilerTargetQuery),
-            comptime: body_comptime,
-            comptime_module: &comptime_module.module,
-            layouts: &layouts,
-            extensions: &extensions.methods,
-            program_extension_methods: &extension_methods.methods,
-            extension_interner: Some(&extensions.interner),
-            program: nia_body_check::BodyProgramContext {
-                defs: Some(&program_defs),
-                type_normalizations: Some(&program_type_normalization),
-                extension_type_normalizations: Some(&extension_method_normalization),
-                signatures: Some(&item_signatures_for_module),
-                layouts: Some(&program_layouts),
+    let body_check =
+        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+            nia_body_check::BodyCheckInput {
+                source_version: Some(source_version),
+                source_path: &source_path,
+                origins: &origins,
+                active_item_tree: &inputs.active_item_tree,
+                defs: &defs,
+                values: &inputs.values,
+                locals: &inputs.locals,
+                semantic_uses: &inputs.semantic_uses,
+                lowered: &lowered,
+                signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+                comptime_signatures: &signatures,
+                normalization: &normalization,
+                target: &db.query(CompilerTargetQuery),
+                comptime: body_comptime,
+                comptime_module: &comptime_module.module,
+                layouts: &layouts,
+                extensions: &extensions.methods,
+                program_extension_methods: &extension_methods.methods,
+                extension_interner: Some(&extensions.interner),
+                program: nia_body_check::BodyProgramContext {
+                    defs: Some(&program_defs),
+                    type_normalizations: Some(&program_type_normalization),
+                    extension_type_normalizations: Some(&extension_method_normalization),
+                    signatures: Some(&item_signatures_for_module),
+                    layouts: Some(&program_layouts),
+                },
+                program_functions,
+                program_values,
+                program_types,
+                program_traits,
+                function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
+                program_comptime: nia_body_check::ProgramComptimeMaps {
+                    values: &program_comptime_values,
+                    array_lengths: &program_comptime_array_lengths,
+                    module: &program_comptime_module,
+                },
+                filter,
             },
-            program_functions,
-            program_values,
-            program_types,
-            program_traits,
-            function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
-            program_comptime: nia_body_check::ProgramComptimeMaps {
-                values: &program_comptime_values,
-                array_lengths: &program_comptime_array_lengths,
-                module: &program_comptime_module,
-            },
-            filter,
-        },
-        body_timing_mode(db.query(CompilerTimingsQuery)),
-    )
+            body_timing_mode(db.query(CompilerTimingsQuery)),
+        );
+    BodyCheckWithResolutionInputs { body_check, inputs }
 }
 
 fn body_local_item_signatures(
@@ -1740,9 +1773,7 @@ fn executable_layouts_for_reachable_items(
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let program_signatures = db.query(ProgramExecutableSignaturesQuery);
-        let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
-        let local_array_lengths = |id| array_lengths.values.get(&id).copied();
-        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
@@ -1763,10 +1794,10 @@ fn executable_layouts_for_reachable_items(
                 interner: &type_normalization.interner,
                 signatures: &item_signatures,
                 normalized: &type_normalization.normalized,
-                array_lengths: &local_array_lengths,
+                array_lengths: &executable_array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
-                    array_lengths: Some(&program_array_lengths),
+                    array_lengths: Some(&executable_array_lengths),
                     structs: Some(&program_signatures.structs),
                     unions: Some(&program_signatures.unions),
                     ..Default::default()
@@ -2161,20 +2192,24 @@ fn checked_module_with_body_and_flow_check(
 fn executable_checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    body_check: nia_body_check::BodyCheck,
+    body_check: BodyCheckWithResolutionInputs,
     flow_check: nia_flow_check::FlowCheck,
     layouts: nia_layout::Layouts,
 ) -> CheckedModule {
     let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
     let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
+    let BodyCheckWithResolutionInputs {
+        body_check,
+        inputs: body_inputs,
+    } = body_check;
     CheckedModule {
         id: module_id,
         path: db.query(ModulePathQuery(module_id)),
         defs: db.query(FullModuleDefsQuery(module_id)),
         type_resolution: db.query(TypeResolutionQuery(module_id)),
         type_lowering: db.query(TypeLoweringQuery(module_id)),
-        value_resolution: db.query(ValueResolutionQuery(module_id)),
-        local_resolution: db.query(LocalResolutionQuery(module_id)),
+        value_resolution: body_inputs.values,
+        local_resolution: body_inputs.locals,
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
         comptime: ComptimeCheck {
             interner: array_lengths.interner,
@@ -2193,7 +2228,7 @@ fn executable_checked_module_with_body_and_flow_check(
         },
         flow_check,
         body_ir: body_check.ir,
-        semantic_uses: db.query(SemanticUseTableQuery(module_id)),
+        semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
@@ -2356,7 +2391,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 &reachability.globals,
             );
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter_and_layouts(
+                body_check_with_filter_and_layouts_with_inputs(
                     db,
                     module_id,
                     filter,
