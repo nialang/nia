@@ -1576,29 +1576,6 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let graph = db.query(ModuleGraphQuery);
     let program_signatures = db.query(ProgramExecutableSignaturesQuery);
     let extension_methods = db.query(ExtensionMethodsQuery);
-    let checked_modules = db.query(CheckedModulesQuery);
-    let checked_by_id = checked_modules
-        .into_iter()
-        .map(|module| (module.id, module))
-        .collect::<HashMap<_, _>>();
-    let reachable_item_signatures = checked_by_id
-        .keys()
-        .copied()
-        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
-        .collect::<HashMap<_, _>>();
-    let reachable_inputs = checked_by_id
-        .values()
-        .map(|module| ReachableModuleInput {
-            module_id: module.id,
-            body_ir: &module.body_ir,
-            item_signatures: reachable_item_signatures
-                .get(&module.id)
-                .expect("reachable item signatures must exist for checked module"),
-            semantic_facts: &module.semantic_facts,
-            type_lowering: &module.type_lowering,
-            type_normalization: &module.type_normalization,
-        })
-        .collect::<Vec<_>>();
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
@@ -1615,20 +1592,75 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             })
             .collect::<Vec<_>>()
     };
-    let reachability = compute_executable_reachability(
-        &parse_ok,
-        &graph,
-        ExecutableRootDefs {
-            named_function: &named_function,
-            module_functions: &module_functions,
-        },
-        nia_executable_reachability::ExecutableSignatureIndex {
-            functions: &program_signatures.functions,
-            traits: &program_signatures.traits,
-        },
-        &extension_methods.methods,
-        &reachable_inputs,
-    );
+    let mut checked_by_id = HashMap::new();
+    let mut checked_functions_by_module = HashMap::<ModuleId, HashSet<GlobalDefId>>::new();
+    let reachability = loop {
+        let reachable_item_signatures = checked_by_id
+            .keys()
+            .copied()
+            .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+            .collect::<HashMap<_, _>>();
+        let reachable_inputs = checked_by_id
+            .values()
+            .map(|module: &CheckedModule| ReachableModuleInput {
+                module_id: module.id,
+                body_ir: &module.body_ir,
+                item_signatures: reachable_item_signatures
+                    .get(&module.id)
+                    .expect("reachable item signatures must exist for checked module"),
+                semantic_facts: &module.semantic_facts,
+                type_lowering: &module.type_lowering,
+                type_normalization: &module.type_normalization,
+            })
+            .collect::<Vec<_>>();
+        let reachability = compute_executable_reachability(
+            &parse_ok,
+            &graph,
+            ExecutableRootDefs {
+                named_function: &named_function,
+                module_functions: &module_functions,
+            },
+            nia_executable_reachability::ExecutableSignatureIndex {
+                functions: &program_signatures.functions,
+                traits: &program_signatures.traits,
+            },
+            &extension_methods.methods,
+            &reachable_inputs,
+        );
+        let stale = parse_ok
+            .iter()
+            .copied()
+            .filter(|module_id| reachability.modules.contains(module_id))
+            .filter(|module_id| {
+                let module_functions = reachability
+                    .functions
+                    .iter()
+                    .copied()
+                    .filter(|def_id| def_id.module_id == *module_id)
+                    .collect::<HashSet<_>>();
+                !checked_by_id.contains_key(module_id)
+                    || checked_functions_by_module.get(module_id) != Some(&module_functions)
+            })
+            .collect::<Vec<_>>();
+        if stale.is_empty() {
+            break reachability;
+        }
+        let filter = nia_body_check::BodyCheckFilter::ReachableFunctions(&reachability.functions);
+        for module_id in stale {
+            let module_functions = reachability
+                .functions
+                .iter()
+                .copied()
+                .filter(|def_id| def_id.module_id == module_id)
+                .collect::<HashSet<_>>();
+            let body_check = time_module_provider(db, "executable_body_check", module_id, || {
+                body_check_with_filter(db, module_id, filter)
+            });
+            let module = checked_module_with_body_check(db, module_id, body_check);
+            checked_functions_by_module.insert(module_id, module_functions);
+            checked_by_id.insert(module.id, module);
+        }
+    };
 
     if db.query(CompilerTimingsQuery).detail() {
         eprintln!(
