@@ -45,6 +45,14 @@ pub(crate) struct ExtensionModuleInput<'a> {
     pub(crate) normalization: &'a TypeNormalization,
 }
 
+pub(crate) struct ExtensionMethodIndexModuleInput<'a> {
+    pub(crate) module_id: nia_ids::ModuleId,
+    pub(crate) defs: &'a DefCollection,
+    pub(crate) lowering: &'a TypeLowering,
+    pub(crate) signatures: &'a ItemSignatures,
+    pub(crate) normalization: &'a TypeNormalization,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
@@ -458,6 +466,57 @@ pub(crate) fn collect_extension_methods(
     (extensions, diagnostics)
 }
 
+pub(crate) fn collect_extension_method_index(
+    modules: &[ExtensionMethodIndexModuleInput<'_>],
+) -> ExtensionMethods {
+    let mut extensions = ExtensionMethods::default();
+    let defs_by_module = modules
+        .iter()
+        .map(|module| (module.module_id, module.defs))
+        .collect::<HashMap<_, _>>();
+    for module in modules {
+        for impl_signature in &module.signatures.trait_impls {
+            let target_ty = module.normalization.normalize(impl_signature.target_ty);
+            if !is_extendable_target(&module.lowering.interner, target_ty) {
+                continue;
+            }
+            let trait_id = impl_trait_id_for_index(module, impl_signature, &defs_by_module);
+            let trait_args =
+                impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
+            let where_predicates =
+                normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
+            for method in &impl_signature.methods {
+                let mut impl_generics = impl_signature.generics.clone();
+                if matches!(
+                    module.lowering.interner.get(target_ty),
+                    Some(TyKind::TraitObjectPointee { .. })
+                ) && !impl_generics.iter().any(|generic| generic == "Self")
+                {
+                    impl_generics.push("Self".to_string());
+                }
+                extensions.insert(
+                    module.module_id,
+                    ExtensionMethod {
+                        name: method.name.clone(),
+                        def_id: GlobalDefId {
+                            module_id: module.module_id,
+                            def_id: method.def_id,
+                        },
+                        impl_id: impl_signature.impl_id,
+                        impl_generics,
+                        target_ty,
+                        trait_id,
+                        trait_args: trait_args.clone(),
+                        where_predicates: where_predicates.clone(),
+                        visibility: method.visibility,
+                    },
+                );
+            }
+        }
+    }
+    extensions
+}
+
 fn normalize_where_predicates(
     normalization: &TypeNormalization,
     predicates: &[WherePredicateSignature],
@@ -488,8 +547,8 @@ fn normalize_where_predicates(
         .collect()
 }
 
-pub(crate) fn collect_extension_associated_values(
-    modules: &[ExtensionModuleInput<'_>],
+pub(crate) fn collect_extension_associated_value_index(
+    modules: &[ExtensionMethodIndexModuleInput<'_>],
 ) -> (ExtensionAssociatedValues, Vec<Diagnostic>) {
     let mut values = ExtensionAssociatedValues::default();
     let mut diagnostics = Vec::new();
@@ -565,8 +624,52 @@ fn impl_trait_id(
     }
 }
 
+fn impl_trait_id_for_index(
+    module: &ExtensionMethodIndexModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
+) -> Option<TraitId> {
+    let trait_ty = impl_signature.trait_ty?;
+    let ty = module.normalization.normalize(trait_ty);
+    match module.lowering.interner.get(ty).cloned() {
+        Some(TyKind::Nominal { def_id, .. }) => matches!(
+            defs_by_module
+                .get(&def_id.module_id)
+                .and_then(|defs| defs.defs.get(def_id.def_id))
+                .map(|def| def.kind),
+            Some(nia_defs::DefKind::Trait)
+        )
+        .then_some(TraitId::Source(def_id)),
+        Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
+        _ => None,
+    }
+}
+
 fn impl_trait_args(
     module: &ExtensionModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    expected_trait_id: Option<TraitId>,
+) -> Option<Vec<nia_ids::InternedTyId>> {
+    let ty = module.normalization.normalize(impl_signature.trait_ty?);
+    match (expected_trait_id, module.normalization.interner.get(ty)) {
+        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
+            if *def_id == expected =>
+        {
+            Some(args.clone())
+        }
+        (
+            Some(TraitId::Builtin(expected)),
+            Some(TyKind::BuiltinTrait {
+                trait_id: found,
+                args,
+            }),
+        ) if *found == expected => Some(args.clone()),
+        _ => None,
+    }
+}
+
+fn impl_trait_args_for_index(
+    module: &ExtensionMethodIndexModuleInput<'_>,
     impl_signature: &TraitImplSignature,
     expected_trait_id: Option<TraitId>,
 ) -> Option<Vec<nia_ids::InternedTyId>> {

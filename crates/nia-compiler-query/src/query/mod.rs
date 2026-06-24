@@ -3,8 +3,9 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
     TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
-        VisibleExtensionsInput, VisibleTypeSignatures, collect_extension_associated_values,
+        ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleSignatureInput,
+        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
+        collect_extension_associated_value_index, collect_extension_method_index,
         collect_extension_methods, collect_program_comptimes, collect_program_enums,
         collect_program_functions_excluding, collect_program_globals, collect_program_structs,
         collect_program_traits, collect_program_type_aliases, collect_program_unions,
@@ -68,6 +69,7 @@ use resolve::*;
 use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
+type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
@@ -2143,6 +2145,7 @@ fn main() i32 {
         let db = query_db(loaded);
 
         let _ = db.query(ExtensionMethodsQuery);
+        let _ = db.query(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -2153,7 +2156,7 @@ fn main() i32 {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "extension_associated_values"
         }));
-        for query in ["extension_method_set", "extension_associated_values"] {
+        for query in ["extension_method_set"] {
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query && dependency.to.name == "module_defs"
             }));
@@ -2184,6 +2187,43 @@ fn main() i32 {
                 dependency.from.name == query && dependency.to.name == "program_type_normalizations"
             }));
         }
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_method_index"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_method_index"
+                && dependency.to.name == "signature_type_normalization"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_method_index"
+                && matches!(
+                    dependency.to.name,
+                    "item_signatures" | "declaration_type_lowering"
+                )
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_associated_values"
+                && dependency.to.name == "signature_item_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_associated_values"
+                && dependency.to.name == "signature_type_normalization"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_associated_values"
+                && matches!(
+                    dependency.to.name,
+                    "item_signatures" | "declaration_type_lowering"
+                )
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_method_index"
+                && matches!(
+                    dependency.to.name,
+                    "extension_method_set" | "program_trait_solving_signatures"
+                )
+        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "declaration_type_lowering"
                 && dependency.to.name == "program_defs_by_id"
@@ -2489,6 +2529,30 @@ fn main() i32 {
             &trace,
             "executable_checked_modules"
         ));
+    }
+
+    #[test]
+    fn executable_checked_program_uses_lazy_extension_method_index() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } } pub fn main() i32 { 1 }",
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let checked = db.query(CheckedProgramQuery);
+        let trace = db.query_trace();
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && dependency.to.name == "extension_method_index"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "checked_program"
+                && dependency.to.name == "extension_method_set"
+        }));
     }
 
     #[test]

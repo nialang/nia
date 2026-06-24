@@ -77,7 +77,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) comptime_enum_values: &'a [nia_comptime_check::ComptimeEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
-    pub(super) extension_methods: &'a ExtensionMethodSetQueryValue,
+    pub(super) extension_methods: &'a ExtensionMethodIndexQueryValue,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
     pub(super) program_signatures: &'a ProgramBackendSignatures,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
