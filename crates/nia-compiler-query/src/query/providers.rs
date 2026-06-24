@@ -1289,8 +1289,20 @@ fn with_comptime_input<T>(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
+    let value_type_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        )))
+    };
     let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
+    let value_signatures_for_module = |module_id| {
+        Some(db.query(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        )))
+    };
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -1315,7 +1327,10 @@ fn with_comptime_input<T>(
                 source_path: Some(&program_source_path),
                 defs: Some(&program_defs),
                 type_normalizations: Some(&extension_method_normalization),
+                value_type_normalizations: Some(&value_type_normalization),
                 signatures: Some(&item_signatures_for_module),
+                value_signatures: Some(&value_signatures_for_module),
+                global_initializer: None,
                 program_enums: &trait_solving_signatures.enums,
                 trait_impls: &trait_solving_signatures.trait_impls,
             },
@@ -1513,6 +1528,164 @@ impl BodyCheckComptimeInputs {
     }
 }
 
+fn filtered_comptime_global_initializer_for_body_check(
+    db: &QueryDb<CompilerContext>,
+    global_id: GlobalDefId,
+) -> Option<nia_comptime_ir::ResolvedComptimeExpr> {
+    let defs = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.defs",
+        global_id.module_id,
+        || db.query(FullModuleDefsQuery(global_id.module_id)),
+    );
+    let source_path = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.source_path",
+        global_id.module_id,
+        || db.query(ModulePathQuery(global_id.module_id)),
+    );
+    let active_item_tree = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.active_item_tree",
+        global_id.module_id,
+        || db.query(FullActiveModuleItemTreeQuery(global_id.module_id)),
+    );
+    let filtered_active_item_tree = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.filter_item_tree",
+        global_id.module_id,
+        || {
+            active_item_tree_for_body_check_filter(
+                global_id.module_id,
+                &defs,
+                &active_item_tree,
+                nia_body_check::BodyCheckFilter::ReachableItems {
+                    functions: &HashSet::new(),
+                    globals: &HashSet::from([global_id]),
+                },
+            )
+        },
+    );
+    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let public = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.public_surface",
+        global_id.module_id,
+        || db.query(PublicSurfaceQuery),
+    );
+    let empty_using = ModuleUsingScope::default();
+    let using_scope = public
+        .using_scopes
+        .get(&global_id.module_id)
+        .unwrap_or(&empty_using);
+    let source_version = db.query(ModuleSourceVersionQuery(global_id.module_id));
+    let origins = db.query(ModuleOriginsQuery(global_id.module_id));
+    let lowered = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.type_lowering",
+        global_id.module_id,
+        || db.query(TypeLoweringQuery(global_id.module_id)),
+    );
+    let lower_with_values = |values: ValueResolution| {
+        let locals = time_module_provider(
+            db,
+            "executable_body_check.comptime.global_initializer.local_resolution",
+            global_id.module_id,
+            || {
+                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
+                    &filtered_active_item_tree,
+                    &active_item_tree,
+                    &defs,
+                    &values,
+                    Some(source_version),
+                    &origins,
+                )
+            },
+        );
+        let semantic_uses = time_module_provider(
+            db,
+            "executable_body_check.comptime.global_initializer.semantic_uses",
+            global_id.module_id,
+            || {
+                semantic_use_table_from_resolution_inputs(
+                    global_id.module_id,
+                    &filtered_active_item_tree,
+                    &values,
+                    &locals,
+                    &lowered,
+                )
+            },
+        );
+        let lowered = time_module_provider(
+            db,
+            "executable_body_check.comptime.global_initializer.lower_module",
+            global_id.module_id,
+            || {
+                nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+                    active_item_tree: &filtered_active_item_tree,
+                    defs: &defs,
+                    values: &values,
+                    locals: &locals,
+                    semantic_uses: &semantic_uses,
+                    const_exprs: &lowered.const_exprs,
+                    source_path: &source_path,
+                })
+            },
+        );
+        lowered
+            .module
+            .global_initializers()
+            .get(&global_id)
+            .cloned()
+    };
+    let values_without_extensions = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.value_resolution",
+        global_id.module_id,
+        || {
+            nia_value_resolve::resolve_module_values_from_active_item_tree(
+                &filtered_active_item_tree,
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&db.query(ModuleGraphQuery)),
+                },
+                &public.surfaces,
+                using_scope,
+            )
+        },
+    );
+    if let Some(initializer) = lower_with_values(values_without_extensions) {
+        return Some(initializer);
+    }
+    let visible_extensions = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.visible_extensions",
+        global_id.module_id,
+        || db.query(VisibleExtensionsQuery(global_id.module_id)),
+    );
+    let values = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.value_resolution_with_extensions",
+        global_id.module_id,
+        || {
+            nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                &filtered_active_item_tree,
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&db.query(ModuleGraphQuery)),
+                },
+                &public.surfaces,
+                using_scope,
+                &visible_extensions.methods,
+                &visible_extensions.interner,
+            )
+        },
+    );
+    lower_with_values(values)
+}
+
 fn comptime_inputs_for_body_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -1548,8 +1721,22 @@ fn comptime_inputs_for_body_check(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
+    let value_type_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        )))
+    };
     let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
+    let value_signatures_for_module = |module_id| {
+        Some(db.query(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        )))
+    };
+    let program_global_initializer =
+        |global_id| filtered_comptime_global_initializer_for_body_check(db, global_id);
     let target = db.query(CompilerTargetQuery);
     let comptime_input = nia_comptime_check::ComptimeInput {
         module: &module.module,
@@ -1567,7 +1754,10 @@ fn comptime_inputs_for_body_check(
             source_path: Some(&program_source_path),
             defs: Some(&program_defs),
             type_normalizations: Some(&extension_method_normalization),
+            value_type_normalizations: Some(&value_type_normalization),
             signatures: Some(&item_signatures_for_module),
+            value_signatures: Some(&value_signatures_for_module),
+            global_initializer: Some(&program_global_initializer),
             program_enums: &trait_solving_signatures.enums,
             trait_impls: &trait_solving_signatures.trait_impls,
         },

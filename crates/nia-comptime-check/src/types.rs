@@ -2,7 +2,8 @@ use std::{collections::HashMap, fmt};
 
 use nia_ast::Expr;
 use nia_comptime_ir::{
-    ResolvedComptimeModule, ResolvedComptimePattern, ResolvedComptimePatternKind,
+    ResolvedComptimeExpr, ResolvedComptimeModule, ResolvedComptimePattern,
+    ResolvedComptimePatternKind,
 };
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
@@ -208,7 +209,11 @@ pub struct ComptimeProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
     pub type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
+    pub value_type_normalizations:
+        Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
+    pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
+    pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
@@ -220,7 +225,13 @@ impl fmt::Debug for ComptimeProgramContext<'_> {
             .field("source_path", &self.source_path.is_some())
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
+            .field(
+                "value_type_normalizations",
+                &self.value_type_normalizations.is_some(),
+            )
             .field("signatures", &self.signatures.is_some())
+            .field("value_signatures", &self.value_signatures.is_some())
+            .field("global_initializer", &self.global_initializer.is_some())
             .field("program_enums", &self.program_enums.len())
             .field("trait_impls", &self.trait_impls.len())
             .finish()
@@ -234,7 +245,10 @@ impl<'a> ComptimeProgramContext<'a> {
             source_path: None,
             defs: None,
             type_normalizations: None,
+            value_type_normalizations: None,
             signatures: None,
+            value_signatures: None,
+            global_initializer: None,
             program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],
         }
