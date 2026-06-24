@@ -1097,6 +1097,29 @@ mod tests {
         }
     }
 
+    fn loaded_program_with_entry_child(
+        entry: LoadedModule,
+        child_name: &str,
+        child: LoadedModule,
+    ) -> LoadedProgram {
+        let mut graph = ModuleGraph::new(entry.path.clone());
+        graph
+            .intern_declared_child(
+                entry.id,
+                child_name,
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern child module");
+        LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::Bare,
+            modules: vec![entry, child],
+            diagnostics: Vec::new(),
+        }
+    }
+
     fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
         loaded_module_with_revision(id, path, source, SourceRevision::INITIAL)
     }
@@ -2638,6 +2661,111 @@ fn main() i32 {
         assert!(
             module.body_ir.function_bodies.contains_key(&next),
             "executable body checking must include builtin trait witness bodies"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_do_not_body_check_unused_trait_witness_methods() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+trait Ops {
+    fn used(self) i32;
+    fn unused(self) i32;
+}
+
+struct Value {}
+
+extend Value : Ops {
+    fn used(self) i32 {
+        1
+    }
+
+    fn unused(self) i32 {
+        missing_symbol
+    }
+}
+
+fn main() i32 {
+    let value = Value {};
+    value.used()
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let unused = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Method && def.name == "unused").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("unused witness method");
+
+        assert!(
+            !module.body_ir.function_bodies.contains_key(&unused),
+            "executable body checking should not include unused trait witness bodies"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_do_not_body_check_unreachable_loaded_modules() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+pub module unused;
+
+fn main() i32 {
+    0
+}
+"#,
+        );
+        let unused = loaded_module(
+            ModuleId(1),
+            "unused.nia",
+            r#"
+pub fn expensive_or_invalid() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(entry, "unused", unused);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let trace = db.query_trace();
+
+        assert!(
+            modules.iter().all(|module| module.id != ModuleId(1)),
+            "unreachable module should not be kept for executable codegen"
+        );
+        assert!(
+            !trace.queries.iter().any(|query| {
+                query.frame.name == "body_check"
+                    && query.frame.description.contains("ModuleId(1)")
+                    && query.stats.executions > 0
+            }),
+            "unreachable module should not be body-checked: {:?}",
+            trace
+                .queries
+                .iter()
+                .filter(|query| query.frame.name == "body_check")
+                .collect::<Vec<_>>()
         );
     }
 
