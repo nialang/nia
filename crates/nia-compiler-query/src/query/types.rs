@@ -277,7 +277,14 @@ pub(super) struct ProgramVisibleTypeSignatures {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramExecutableSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
+    pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

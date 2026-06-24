@@ -130,6 +130,8 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     function_bodies: &function_bodies.bodies,
                     roots: backend_function_roots(input.runtime),
                     reachable_globals: checked_module.executable_reachable_globals.as_ref(),
+                    reachable_structs: checked_module.executable_reachable_structs.as_ref(),
+                    reachable_unions: checked_module.executable_reachable_unions.as_ref(),
                     program_function_bodies: &input.indexes.program_function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: &input.extension_methods.methods,

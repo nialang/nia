@@ -22,8 +22,9 @@ use std::time::Instant;
 
 use nia_ast::{Expr, Visibility};
 use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
-    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule,
+    BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey, BackendUnion,
 };
 use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
@@ -118,6 +119,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub roots: BackendFunctionRoots,
     pub reachable_globals: Option<&'a std::collections::HashSet<GlobalDefId>>,
+    pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
+    pub reachable_unions: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_extension_methods: &'a ExtensionMethods,
@@ -437,6 +440,7 @@ pub(crate) struct ModuleLowerer<'a> {
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
     def_names: HashMap<GlobalDefId, String>,
     function_sources: HashMap<GlobalDefId, BackendFunctionSource<'a>>,
+    aggregate_sources: HashMap<GlobalDefId, BackendAggregateSource<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -491,12 +495,222 @@ struct BackendFunctionSource<'a> {
     function: &'a nia_ast::FunctionItem,
 }
 
+#[derive(Clone, Copy)]
+enum BackendAggregateSource<'a> {
+    Struct {
+        node_key: &'a VersionedNodeKey,
+        span: nia_span::Span,
+        item: &'a nia_ast::StructItem,
+    },
+    Union {
+        node_key: &'a VersionedNodeKey,
+        span: nia_span::Span,
+        item: &'a nia_ast::UnionItem,
+    },
+}
+
 #[derive(Default)]
 struct ReachabilityWorklist {
     pending_functions: VecDeque<GlobalDefId>,
     queued_functions: HashSet<GlobalDefId>,
     pending_instances: Vec<FunctionInstanceRef>,
     queued_instances: HashSet<FunctionInstanceKey>,
+}
+
+#[derive(Default)]
+struct ReachableAggregateRoots {
+    seen_tys: HashSet<InternedTyId>,
+    seen_structs: HashSet<GlobalDefId>,
+    structs: Vec<GlobalDefId>,
+    seen_unions: HashSet<GlobalDefId>,
+    unions: Vec<GlobalDefId>,
+}
+
+impl ReachableAggregateRoots {
+    fn add_backend_function(
+        &mut self,
+        lowerer: &mut ModuleLowerer<'_>,
+        function: &BackendFunction,
+    ) {
+        self.add_ty(lowerer, function.return_type);
+        for param in &function.params {
+            self.add_ty(lowerer, param.passing_ty);
+            self.add_ty(lowerer, param.local_ty);
+        }
+        if let Some(body) = &function.function_body {
+            self.add_function_body(lowerer, body);
+        }
+    }
+
+    fn add_backend_function_instance(
+        &mut self,
+        lowerer: &mut ModuleLowerer<'_>,
+        function: &BackendFunctionInstance,
+    ) {
+        self.add_ty(lowerer, function.return_type);
+        for arg in &function.args {
+            self.add_ty(lowerer, *arg);
+        }
+        for param in &function.params {
+            self.add_ty(lowerer, param.passing_ty);
+            self.add_ty(lowerer, param.local_ty);
+        }
+        if let Some(body) = &function.function_body {
+            self.add_function_body(lowerer, body);
+        }
+    }
+
+    fn add_function_body(&mut self, lowerer: &mut ModuleLowerer<'_>, body: &FunctionBody) {
+        self.add_ty(lowerer, body.ty);
+        for local in &body.locals {
+            self.add_ty(lowerer, local.ty);
+        }
+    }
+
+    fn add_static_init(
+        &mut self,
+        lowerer: &mut ModuleLowerer<'_>,
+        init: &nia_static_ir::StaticInit,
+    ) {
+        match init {
+            nia_static_ir::StaticInit::Array(elems) => {
+                for elem in elems {
+                    self.add_static_init(lowerer, elem);
+                }
+            }
+            nia_static_ir::StaticInit::Repeat { value, .. } => {
+                self.add_static_init(lowerer, value);
+            }
+            nia_static_ir::StaticInit::Struct(fields) => {
+                for field in fields {
+                    self.add_static_init(lowerer, &field.value);
+                }
+            }
+            nia_static_ir::StaticInit::AddrOfFunction { args, .. } => {
+                for arg in args {
+                    self.add_ty(lowerer, *arg);
+                }
+            }
+            nia_static_ir::StaticInit::StaticArrayPointer {
+                array_ty,
+                array_init,
+            } => {
+                self.add_ty(lowerer, *array_ty);
+                self.add_static_init(lowerer, array_init);
+            }
+            nia_static_ir::StaticInit::Zero
+            | nia_static_ir::StaticInit::Int(_)
+            | nia_static_ir::StaticInit::Float(_)
+            | nia_static_ir::StaticInit::Bool(_)
+            | nia_static_ir::StaticInit::Char(_)
+            | nia_static_ir::StaticInit::Byte(_)
+            | nia_static_ir::StaticInit::Chars(_)
+            | nia_static_ir::StaticInit::Bytes(_)
+            | nia_static_ir::StaticInit::NullPtr
+            | nia_static_ir::StaticInit::AddrOfGlobal { .. } => {}
+        }
+    }
+
+    fn add_ty(&mut self, lowerer: &mut ModuleLowerer<'_>, ty: InternedTyId) {
+        if !self.seen_tys.insert(ty) {
+            return;
+        }
+        match lowerer.ty_kind(ty).cloned() {
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
+            | Some(TyKind::Optional { elem })
+            | Some(TyKind::Array { elem, .. }) => self.add_ty(lowerer, elem),
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.add_ty(lowerer, bound);
+                }
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                for param in params {
+                    self.add_ty(lowerer, param);
+                }
+                self.add_ty(lowerer, return_type);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.add_ty(lowerer, error);
+                self.add_ty(lowerer, value);
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                self.add_struct(def_id);
+                self.add_union(def_id);
+                for arg in args {
+                    self.add_ty(lowerer, arg);
+                }
+                for field_ty in lowerer.struct_field_tys(def_id) {
+                    self.add_ty(lowerer, field_ty);
+                }
+                for field_ty in lowerer.union_field_tys(def_id) {
+                    self.add_ty(lowerer, field_ty);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.add_ty(lowerer, arg);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.add_ty(lowerer, arg);
+                }
+                for binding in associated_type_bindings {
+                    for arg in binding.trait_args {
+                        self.add_ty(lowerer, arg);
+                    }
+                    self.add_ty(lowerer, binding.ty);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.add_ty(lowerer, self_ty);
+                for arg in trait_args {
+                    self.add_ty(lowerer, arg);
+                }
+            }
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::GenericParam(_)
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. },
+            )
+            | None => {}
+        }
+    }
+
+    fn add_struct(&mut self, def_id: GlobalDefId) {
+        if self.seen_structs.insert(def_id) {
+            self.structs.push(def_id);
+        }
+    }
+
+    fn add_union(&mut self, def_id: GlobalDefId) {
+        if self.seen_unions.insert(def_id) {
+            self.unions.push(def_id);
+        }
+    }
 }
 
 impl ReachabilityWorklist {
@@ -600,6 +814,7 @@ impl<'a> ModuleLowerer<'a> {
             effective_generics: HashMap::new(),
             def_names: HashMap::new(),
             function_sources: HashMap::new(),
+            aggregate_sources: HashMap::new(),
         }
     }
 
@@ -618,29 +833,36 @@ impl<'a> ModuleLowerer<'a> {
         for item in &self.input.active_item_tree.items {
             match &item.kind {
                 ItemTreeNodeKind::Struct(item_struct) => {
-                    if item_struct.generics.is_empty()
-                        && let Some(item) =
-                            self.lower_struct(&item.node_key, item.span, item_struct)
-                    {
-                        structs.push(item);
+                    self.index_aggregate_source(&item.node_key, item.span, item_struct);
+                    if self.input.roots != BackendFunctionRoots::EntryPoints {
+                        if item_struct.generics.is_empty()
+                            && let Some(item) =
+                                self.lower_struct(&item.node_key, item.span, item_struct)
+                        {
+                            structs.push(item);
+                        }
+                        struct_instances.extend(self.lower_struct_instances(
+                            &item.node_key,
+                            item.span,
+                            item_struct,
+                        ));
                     }
-                    struct_instances.extend(self.lower_struct_instances(
-                        &item.node_key,
-                        item.span,
-                        item_struct,
-                    ));
                 }
                 ItemTreeNodeKind::Union(item_union) => {
-                    if item_union.generics.is_empty()
-                        && let Some(item) = self.lower_union(&item.node_key, item.span, item_union)
-                    {
-                        unions.push(item);
+                    self.index_union_source(&item.node_key, item.span, item_union);
+                    if self.input.roots != BackendFunctionRoots::EntryPoints {
+                        if item_union.generics.is_empty()
+                            && let Some(item) =
+                                self.lower_union(&item.node_key, item.span, item_union)
+                        {
+                            unions.push(item);
+                        }
+                        union_instances.extend(self.lower_union_instances(
+                            &item.node_key,
+                            item.span,
+                            item_union,
+                        ));
                     }
-                    union_instances.extend(self.lower_union_instances(
-                        &item.node_key,
-                        item.span,
-                        item_union,
-                    ));
                 }
                 ItemTreeNodeKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
@@ -735,6 +957,16 @@ impl<'a> ModuleLowerer<'a> {
             &functions,
             &function_instances,
         );
+        self.complete_reachable_aggregates(
+            &mut structs,
+            &mut unions,
+            &globals,
+            &functions,
+            &function_instances,
+            &struct_instances,
+            &union_instances,
+            &trait_object_vtables,
+        );
 
         let mut backend_layouts =
             BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
@@ -793,6 +1025,44 @@ impl<'a> ModuleLowerer<'a> {
         Some(global_def_id)
     }
 
+    fn index_aggregate_source(
+        &mut self,
+        node_key: &'a VersionedNodeKey,
+        span: nia_span::Span,
+        item: &'a nia_ast::StructItem,
+    ) -> Option<GlobalDefId> {
+        let def_id = self.def_id_for_node(node_key, DefKind::Struct)?;
+        let global_def_id = self.global_def_id(def_id);
+        self.aggregate_sources.insert(
+            global_def_id,
+            BackendAggregateSource::Struct {
+                node_key,
+                span,
+                item,
+            },
+        );
+        Some(global_def_id)
+    }
+
+    fn index_union_source(
+        &mut self,
+        node_key: &'a VersionedNodeKey,
+        span: nia_span::Span,
+        item: &'a nia_ast::UnionItem,
+    ) -> Option<GlobalDefId> {
+        let def_id = self.def_id_for_node(node_key, DefKind::Union)?;
+        let global_def_id = self.global_def_id(def_id);
+        self.aggregate_sources.insert(
+            global_def_id,
+            BackendAggregateSource::Union {
+                node_key,
+                span,
+                item,
+            },
+        );
+        Some(global_def_id)
+    }
+
     fn is_backend_function_root(
         &self,
         def_id: GlobalDefId,
@@ -822,6 +1092,149 @@ impl<'a> ModuleLowerer<'a> {
                 globals.contains(&def_id)
             }
             _ => true,
+        }
+    }
+
+    fn is_backend_struct_reachable(&self, def_id: GlobalDefId) -> bool {
+        match self.input.reachable_structs {
+            Some(structs) if self.input.roots == BackendFunctionRoots::EntryPoints => {
+                structs.contains(&def_id)
+            }
+            _ => true,
+        }
+    }
+
+    fn is_backend_union_reachable(&self, def_id: GlobalDefId) -> bool {
+        match self.input.reachable_unions {
+            Some(unions) if self.input.roots == BackendFunctionRoots::EntryPoints => {
+                unions.contains(&def_id)
+            }
+            _ => true,
+        }
+    }
+
+    fn complete_reachable_aggregates(
+        &mut self,
+        structs: &mut Vec<BackendStruct>,
+        unions: &mut Vec<BackendUnion>,
+        globals: &[BackendGlobal],
+        functions: &[BackendFunction],
+        function_instances: &[BackendFunctionInstance],
+        struct_instances: &[nia_backend_ir::BackendStructInstance],
+        union_instances: &[nia_backend_ir::BackendUnionInstance],
+        trait_object_vtables: &[BackendTraitObjectVtable],
+    ) {
+        if self.input.roots != BackendFunctionRoots::EntryPoints {
+            return;
+        }
+        let mut roots = ReachableAggregateRoots::default();
+        for global in globals {
+            roots.add_ty(self, global.ty);
+            if let Some(init) = &global.init {
+                roots.add_static_init(self, init);
+            }
+        }
+        for function in functions {
+            roots.add_backend_function(self, function);
+        }
+        for instance in function_instances {
+            roots.add_backend_function_instance(self, instance);
+        }
+        for instance in struct_instances {
+            roots.add_struct(instance.def_id);
+            for arg in &instance.args {
+                roots.add_ty(self, *arg);
+            }
+            for field in &instance.fields {
+                roots.add_ty(self, field.ty);
+            }
+        }
+        for instance in union_instances {
+            roots.add_union(instance.def_id);
+            for arg in &instance.args {
+                roots.add_ty(self, *arg);
+            }
+            for field in &instance.fields {
+                roots.add_ty(self, field.ty);
+            }
+        }
+        for vtable in trait_object_vtables {
+            roots.add_ty(self, vtable.key.self_ty);
+            roots.add_ty(self, vtable.key.object_ty);
+            for arg in &vtable.trait_args {
+                roots.add_ty(self, *arg);
+            }
+            for entry in &vtable.entries {
+                if let BackendTraitObjectVtableFunction::FunctionInstance { args, .. } =
+                    &entry.function
+                {
+                    for arg in args {
+                        roots.add_ty(self, *arg);
+                    }
+                }
+            }
+        }
+        if let Some(reachable_structs) = self.input.reachable_structs {
+            for def_id in reachable_structs {
+                roots.add_struct(*def_id);
+            }
+        }
+        if let Some(reachable_unions) = self.input.reachable_unions {
+            for def_id in reachable_unions {
+                roots.add_union(*def_id);
+            }
+        }
+
+        let mut seen_structs = structs
+            .iter()
+            .map(|item| item.def_id)
+            .collect::<HashSet<_>>();
+        for def_id in roots.structs {
+            if def_id.module_id != self.input.module_id
+                || !self.is_backend_struct_reachable(def_id)
+                || !seen_structs.insert(def_id)
+            {
+                continue;
+            }
+            let Some(BackendAggregateSource::Struct {
+                node_key,
+                span,
+                item,
+            }) = self.aggregate_sources.get(&def_id).copied()
+            else {
+                continue;
+            };
+            if item.generics.is_empty()
+                && let Some(item) = self.lower_struct(node_key, span, item)
+            {
+                structs.push(item);
+            }
+        }
+
+        let mut seen_unions = unions
+            .iter()
+            .map(|item| item.def_id)
+            .collect::<HashSet<_>>();
+        for def_id in roots.unions {
+            if def_id.module_id != self.input.module_id
+                || !self.is_backend_union_reachable(def_id)
+                || !seen_unions.insert(def_id)
+            {
+                continue;
+            }
+            let Some(BackendAggregateSource::Union {
+                node_key,
+                span,
+                item,
+            }) = self.aggregate_sources.get(&def_id).copied()
+            else {
+                continue;
+            };
+            if item.generics.is_empty()
+                && let Some(item) = self.lower_union(node_key, span, item)
+            {
+                unions.push(item);
+            }
         }
     }
 

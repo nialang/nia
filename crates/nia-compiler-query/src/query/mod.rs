@@ -2769,6 +2769,56 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_backend_lowering_skips_unreachable_recursive_aggregates() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+struct Recursive {
+    next: Recursive,
+}
+
+fn unused(value: Recursive) i32 {
+    1
+}
+
+fn main() i32 {
+    0
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        assert!(
+            module.layouts.diagnostics.is_empty(),
+            "unreachable recursive aggregate should not force layout diagnostics: {:?}",
+            module.layouts.diagnostics
+        );
+
+        let checked = db.query(CheckedProgramQuery);
+        let backend_module = checked
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be backend-lowered");
+        assert!(
+            backend_module
+                .structs
+                .iter()
+                .all(|item| item.name != "Recursive"),
+            "unreachable recursive aggregate should not be lowered for codegen"
+        );
+    }
+
+    #[test]
     fn executable_checked_modules_include_reachable_global_initializers() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
