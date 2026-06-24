@@ -886,7 +886,9 @@ pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> Extens
     time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
         let inputs = extension_signature_inputs(db);
         let inputs = inputs.extension_modules();
-        let (methods, mut diagnostics) = collect_extension_methods(&inputs);
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let (methods, mut diagnostics) =
+            collect_extension_methods(&inputs, &trait_solving.trait_impls);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_values(&inputs);
         diagnostics.extend(associated_value_diagnostics);
@@ -1513,6 +1515,7 @@ impl BodyCheckComptimeInputs {
 
 fn comptime_inputs_for_body_check(
     db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
     defs: &DefCollection,
     source_path: &SourcePath,
     signatures: &ItemSignatures,
@@ -1520,16 +1523,22 @@ fn comptime_inputs_for_body_check(
     lowered: &TypeLowering,
     inputs: &BodyCheckResolutionInputs,
 ) -> BodyCheckComptimeInputs {
-    let module =
-        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            active_item_tree: &inputs.active_item_tree,
-            defs,
-            values: &inputs.values,
-            locals: &inputs.locals,
-            semantic_uses: &inputs.semantic_uses,
-            const_exprs: &lowered.const_exprs,
-            source_path,
-        });
+    let module = time_module_provider(
+        db,
+        "executable_body_check.comptime.lower_module",
+        module_id,
+        || {
+            nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+                active_item_tree: &inputs.active_item_tree,
+                defs,
+                values: &inputs.values,
+                locals: &inputs.locals,
+                semantic_uses: &inputs.semantic_uses,
+                const_exprs: &lowered.const_exprs,
+                source_path,
+            })
+        },
+    );
     let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
@@ -1563,23 +1572,48 @@ fn comptime_inputs_for_body_check(
             trait_impls: &trait_solving_signatures.trait_impls,
         },
     };
-    let mut array_lengths =
-        nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
+    let mut array_lengths = time_module_provider(
+        db,
+        "executable_body_check.comptime.array_lengths",
+        module_id,
+        || nia_comptime_check::compute_module_comptime_array_lengths(comptime_input),
+    );
     array_lengths.diagnostics.extend(module.diagnostics.clone());
-    let enum_values = nia_comptime_check::compute_module_comptime_enum_values(
-        comptime_input,
-        array_lengths.clone(),
+    let enum_values = time_module_provider(
+        db,
+        "executable_body_check.comptime.enum_values",
+        module_id,
+        || {
+            nia_comptime_check::compute_module_comptime_enum_values(
+                comptime_input,
+                array_lengths.clone(),
+            )
+        },
     );
-    let values = nia_comptime_check::compute_module_comptime_values(
-        comptime_input,
-        array_lengths.clone(),
-        enum_values.clone(),
+    let values = time_module_provider(
+        db,
+        "executable_body_check.comptime.values",
+        module_id,
+        || {
+            nia_comptime_check::compute_module_comptime_values(
+                comptime_input,
+                array_lengths.clone(),
+                enum_values.clone(),
+            )
+        },
     );
-    let typed_facts = nia_comptime_check::compute_module_comptime_typed_facts(
-        comptime_input,
-        array_lengths.clone(),
-        enum_values.clone(),
-        values.clone(),
+    let typed_facts = time_module_provider(
+        db,
+        "executable_body_check.comptime.typed_facts",
+        module_id,
+        || {
+            nia_comptime_check::compute_module_comptime_typed_facts(
+                comptime_input,
+                array_lengths.clone(),
+                enum_values.clone(),
+                values.clone(),
+            )
+        },
     );
     BodyCheckComptimeInputs {
         module,
@@ -1635,41 +1669,67 @@ fn body_check_with_filter_and_layouts_with_inputs(
             semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         },
         _ => {
-            filtered_active_item_tree =
-                active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter);
+            filtered_active_item_tree = time_module_provider(
+                db,
+                "executable_body_check.filter_item_tree",
+                module_id,
+                || {
+                    active_item_tree_for_body_check_filter(
+                        module_id,
+                        &defs,
+                        &active_item_tree,
+                        filter,
+                    )
+                },
+            );
             let public = db.query(PublicSurfaceQuery);
             let empty_using = ModuleUsingScope::default();
             let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
             let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
-            filtered_values =
-                nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
-                    &filtered_active_item_tree,
-                    &defs,
-                    nia_value_resolve::ProgramDefsContext {
-                        defs: Some(&program_defs),
-                        graph: Some(&db.query(ModuleGraphQuery)),
-                    },
-                    &public.surfaces,
-                    using_scope,
-                    &visible_extensions.methods,
-                    &visible_extensions.interner,
-                );
-            filtered_locals =
-                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
+            filtered_values = time_module_provider(
+                db,
+                "executable_body_check.value_resolution",
+                module_id,
+                || {
+                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                        &filtered_active_item_tree,
+                        &defs,
+                        nia_value_resolve::ProgramDefsContext {
+                            defs: Some(&program_defs),
+                            graph: Some(&db.query(ModuleGraphQuery)),
+                        },
+                        &public.surfaces,
+                        using_scope,
+                        &visible_extensions.methods,
+                        &visible_extensions.interner,
+                    )
+                },
+            );
+            filtered_locals = time_module_provider(
+                db,
+                "executable_body_check.local_resolution",
+                module_id,
+                || {
+                    nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
                     &filtered_active_item_tree,
                     &active_item_tree,
                     &defs,
                     &filtered_values,
                     Some(source_version),
                     &origins,
-                );
-            filtered_semantic_uses = semantic_use_table_from_resolution_inputs(
-                module_id,
-                &filtered_active_item_tree,
-                &filtered_values,
-                &filtered_locals,
-                &lowered,
+                )
+                },
             );
+            filtered_semantic_uses =
+                time_module_provider(db, "executable_body_check.semantic_uses", module_id, || {
+                    semantic_use_table_from_resolution_inputs(
+                        module_id,
+                        &filtered_active_item_tree,
+                        &filtered_values,
+                        &filtered_locals,
+                        &lowered,
+                    )
+                });
             BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
                 values: filtered_values,
@@ -1709,14 +1769,22 @@ fn body_check_with_filter_and_layouts_with_inputs(
             )
         }
         _ => {
-            filtered_comptime_inputs = Some(comptime_inputs_for_body_check(
+            filtered_comptime_inputs = Some(time_module_provider(
                 db,
-                &defs,
-                &source_path,
-                &signatures,
-                &normalization,
-                &lowered,
-                &inputs,
+                "executable_body_check.comptime_inputs",
+                module_id,
+                || {
+                    comptime_inputs_for_body_check(
+                        db,
+                        module_id,
+                        &defs,
+                        &source_path,
+                        &signatures,
+                        &normalization,
+                        &lowered,
+                        &inputs,
+                    )
+                },
             ));
             let filtered = filtered_comptime_inputs
                 .as_ref()
