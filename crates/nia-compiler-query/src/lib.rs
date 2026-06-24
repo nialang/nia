@@ -10,7 +10,7 @@ use nia_comptime_check::ComptimeCheck;
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_flow_check::FlowCheck;
-use nia_ids::ModuleId;
+use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ModuleGraph;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_layout::Layouts;
@@ -112,6 +112,7 @@ pub struct CheckedModule {
     pub body_ir: BodyIr,
     pub semantic_uses: SemanticUseTable,
     pub semantic_facts: SemanticFacts,
+    pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
     pub body_diagnostics: Vec<Diagnostic>,
 }
 

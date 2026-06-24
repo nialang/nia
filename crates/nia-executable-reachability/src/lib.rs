@@ -11,6 +11,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{ItemSignatures, ProgramFunctionSignature, ProgramTraitSignature};
 use nia_sema_ir::{FunctionSemanticFacts, SemanticFacts};
+use nia_static_ir::StaticInit;
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Copy)]
@@ -27,6 +28,7 @@ pub struct ReachableModuleInput<'a> {
 pub struct ExecutableReachability {
     pub modules: HashSet<ModuleId>,
     pub functions: HashSet<GlobalDefId>,
+    pub globals: HashSet<GlobalDefId>,
     pub stats: ExecutableReachabilityStats,
 }
 
@@ -65,6 +67,7 @@ pub fn compute_executable_reachability(
         .map(|module| (module.module_id, *module))
         .collect::<HashMap<_, _>>();
     let mut reachable_functions = executable_root_functions(graph, root_defs);
+    let mut reachable_globals = HashSet::new();
     let mut reachable_modules = reachable_functions
         .iter()
         .map(|def_id| def_id.module_id)
@@ -73,7 +76,11 @@ pub fn compute_executable_reachability(
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
     loop {
-        let before = (reachable_functions.len(), reachable_modules.len());
+        let before = (
+            reachable_functions.len(),
+            reachable_globals.len(),
+            reachable_modules.len(),
+        );
         let mut reachable_traits = ReachableTraitRefs::default();
         let current_reachable_modules = reachable_modules.clone();
         for module in modules_by_id
@@ -85,13 +92,20 @@ pub fn compute_executable_reachability(
                 module,
                 program_signatures,
                 &mut reachable_functions,
+                &mut reachable_globals,
                 &mut reachable_modules,
                 &mut pending_modules,
             );
-            collect_reachable_body_trait_ids(module, &reachable_functions, &mut reachable_traits);
+            collect_reachable_body_trait_ids(
+                module,
+                &reachable_functions,
+                &reachable_globals,
+                &mut reachable_traits,
+            );
             collect_reachable_fact_owner_modules(
                 module,
                 &reachable_functions,
+                &reachable_globals,
                 &mut reachable_modules,
                 &mut pending_modules,
                 &mut reachable_traits,
@@ -112,7 +126,13 @@ pub fn compute_executable_reachability(
             }
             reachable_modules.insert(module_id);
         }
-        if before == (reachable_functions.len(), reachable_modules.len()) {
+        if before
+            == (
+                reachable_functions.len(),
+                reachable_globals.len(),
+                reachable_modules.len(),
+            )
+        {
             break;
         }
     }
@@ -139,6 +159,7 @@ pub fn compute_executable_reachability(
     ExecutableReachability {
         modules: reachable_modules,
         functions: reachable_functions,
+        globals: reachable_globals,
         stats,
     }
 }
@@ -147,8 +168,21 @@ pub fn filter_semantic_facts_for_reachable_functions(
     facts: SemanticFacts,
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> SemanticFacts {
+    let reachable_globals = facts.global_types.keys().copied().collect::<HashSet<_>>();
+    filter_semantic_facts_for_reachable_items(facts, reachable_functions, &reachable_globals)
+}
+
+pub fn filter_semantic_facts_for_reachable_items(
+    facts: SemanticFacts,
+    reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
+) -> SemanticFacts {
     let mut reachable_facts = SemanticFacts {
-        global_types: facts.global_types,
+        global_types: facts
+            .global_types
+            .into_iter()
+            .filter(|(def_id, _)| reachable_globals.contains(def_id))
+            .collect(),
         ..Default::default()
     };
     for def_id in reachable_functions {
@@ -234,10 +268,12 @@ fn extend_reachable_functions_from_bodies(
     module: &ReachableModuleInput<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
     reachable_functions: &mut HashSet<GlobalDefId>,
+    reachable_globals: &mut HashSet<GlobalDefId>,
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    for def_id in typed_body_callees(module, reachable_functions) {
+    let refs = typed_body_refs(module, reachable_functions, reachable_globals);
+    for def_id in refs.functions {
         add_reachable_function(
             def_id,
             program_signatures,
@@ -246,24 +282,36 @@ fn extend_reachable_functions_from_bodies(
             pending_modules,
         );
     }
+    for def_id in refs.globals {
+        if reachable_globals.insert(def_id) {
+            add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
+        }
+    }
 }
 
-fn typed_body_callees(
+fn typed_body_refs(
     module: &ReachableModuleInput<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
-) -> Vec<GlobalDefId> {
+    reachable_globals: &HashSet<GlobalDefId>,
+) -> TypedBodyRefs {
     let mut refs = TypedBodyRefs::default();
     for (def_id, body) in &module.body_ir.function_bodies {
         if reachable_functions.contains(def_id) {
             collect_typed_body_refs(module, body, &mut refs);
         }
     }
-    refs.functions.into_iter().collect()
+    for (def_id, init) in &module.body_ir.global_inits {
+        if reachable_globals.contains(def_id) {
+            collect_static_init_refs(init, &mut refs);
+        }
+    }
+    refs
 }
 
 fn collect_reachable_body_trait_ids(
     module: &ReachableModuleInput<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
     traits: &mut ReachableTraitRefs,
 ) {
     let mut refs = TypedBodyRefs::default();
@@ -272,12 +320,18 @@ fn collect_reachable_body_trait_ids(
             collect_typed_body_refs(module, body, &mut refs);
         }
     }
+    for (def_id, init) in &module.body_ir.global_inits {
+        if reachable_globals.contains(def_id) {
+            collect_static_init_refs(init, &mut refs);
+        }
+    }
     traits.extend(refs.traits);
 }
 
 #[derive(Default)]
 struct TypedBodyRefs {
     functions: HashSet<GlobalDefId>,
+    globals: HashSet<GlobalDefId>,
     traits: ReachableTraitRefs,
 }
 
@@ -533,11 +587,11 @@ fn collect_typed_expr_refs(
         | TypedExprKind::ByteChar(_)
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
-        | TypedExprKind::Local(_)
-        | TypedExprKind::Global(_)
-        | TypedExprKind::EnumVariant(_)
-        | TypedExprKind::BuiltinValue(_)
-        | TypedExprKind::Trap => {}
+        | TypedExprKind::Local(_) => {}
+        TypedExprKind::Global(def_id) => {
+            refs.globals.insert(*def_id);
+        }
+        TypedExprKind::EnumVariant(_) | TypedExprKind::BuiltinValue(_) | TypedExprKind::Trap => {}
     }
 }
 
@@ -709,13 +763,54 @@ fn collect_typed_place_refs(
 ) {
     match &place.base {
         PlaceBase::Deref(expr) => collect_typed_expr_refs(module, expr, refs),
-        PlaceBase::Local(_) | PlaceBase::Global(_) | PlaceBase::Error => {}
+        PlaceBase::Global(def_id) => {
+            refs.globals.insert(*def_id);
+        }
+        PlaceBase::Local(_) | PlaceBase::Error => {}
     }
     for elem in &place.elems {
         match elem {
             PlaceElem::Index(expr) => collect_typed_expr_refs(module, expr, refs),
             PlaceElem::Field(_) | PlaceElem::Error => {}
         }
+    }
+}
+
+fn collect_static_init_refs(init: &StaticInit, refs: &mut TypedBodyRefs) {
+    match init {
+        StaticInit::Array(elems) => {
+            for elem in elems {
+                collect_static_init_refs(elem, refs);
+            }
+        }
+        StaticInit::Repeat { value, count } => {
+            if *count != 0 {
+                collect_static_init_refs(value, refs);
+            }
+        }
+        StaticInit::Struct(fields) => {
+            for field in fields {
+                collect_static_init_refs(&field.value, refs);
+            }
+        }
+        StaticInit::AddrOfGlobal { global, .. } => {
+            refs.globals.insert(*global);
+        }
+        StaticInit::AddrOfFunction { function, .. } => {
+            refs.functions.insert(*function);
+        }
+        StaticInit::StaticArrayPointer { array_init, .. } => {
+            collect_static_init_refs(array_init, refs);
+        }
+        StaticInit::Zero
+        | StaticInit::Int(_)
+        | StaticInit::Float(_)
+        | StaticInit::Bool(_)
+        | StaticInit::Char(_)
+        | StaticInit::Byte(_)
+        | StaticInit::Chars(_)
+        | StaticInit::Bytes(_)
+        | StaticInit::NullPtr => {}
     }
 }
 
@@ -815,6 +910,7 @@ fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
 fn collect_reachable_fact_owner_modules(
     module: &ReachableModuleInput<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut ReachableTraitRefs,
@@ -834,6 +930,14 @@ fn collect_reachable_fact_owner_modules(
             traits,
             &mut type_ids,
         );
+    }
+    for def_id in reachable_globals
+        .iter()
+        .filter(|def_id| def_id.module_id == module.module_id)
+    {
+        if let Some(ty) = module.semantic_facts.global_types.get(def_id) {
+            type_ids.push(*ty);
+        }
     }
     collect_module_signature_owner_type_ids(module.item_signatures, &mut type_ids);
     collect_ty_ids_owner_modules(

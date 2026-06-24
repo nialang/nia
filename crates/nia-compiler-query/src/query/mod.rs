@@ -2722,6 +2722,93 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_checked_modules_do_not_body_check_unreachable_globals() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+let unused = missing_symbol;
+
+fn main() i32 {
+    0
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let unused = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Global && def.name == "unused").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("unused global");
+
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "unreachable global body diagnostics should not block executable checking: {:?}",
+            module.body_diagnostics
+        );
+        assert!(
+            !module.body_ir.global_inits.contains_key(&unused),
+            "unreachable global initializers should not be retained for executable codegen"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_reachable_global_initializers() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+let used: i32 = 1;
+
+fn main() i32 {
+    used
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let used = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Global && def.name == "used").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("used global");
+
+        assert!(
+            module.body_ir.global_inits.contains_key(&used),
+            "reachable global initializers must be retained for executable codegen"
+        );
+    }
+
+    #[test]
     fn executable_checked_modules_do_not_flow_check_unreachable_functions() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),

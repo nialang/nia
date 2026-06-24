@@ -117,6 +117,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub roots: BackendFunctionRoots,
+    pub reachable_globals: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_extension_methods: &'a ExtensionMethods,
@@ -663,6 +664,15 @@ impl<'a> ModuleLowerer<'a> {
                     if binding.is_comptime {
                         continue;
                     }
+                    let Some(global_def_id) = self
+                        .def_id_for_node(&binding.node_key, DefKind::Global)
+                        .map(|def_id| self.global_def_id(def_id))
+                    else {
+                        continue;
+                    };
+                    if !self.is_backend_global_reachable(global_def_id) {
+                        continue;
+                    }
                     if let Some(global) = self.lower_global(&binding.node_key, item.span, binding) {
                         if let Some(init) = &global.init {
                             let mut refs = FunctionRefs::default();
@@ -796,6 +806,15 @@ impl<'a> ModuleLowerer<'a> {
             return false;
         }
         def.visibility != Visibility::Private
+    }
+
+    fn is_backend_global_reachable(&self, def_id: GlobalDefId) -> bool {
+        match self.input.reachable_globals {
+            Some(globals) if self.input.roots == BackendFunctionRoots::EntryPoints => {
+                globals.contains(&def_id)
+            }
+            _ => true,
+        }
     }
 
     fn is_generic_trait_impl_method(&self, def_id: GlobalDefId) -> bool {

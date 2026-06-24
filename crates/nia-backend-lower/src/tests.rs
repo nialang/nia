@@ -400,6 +400,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         layouts: &layouts,
         function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
+        reachable_globals: None,
         program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
