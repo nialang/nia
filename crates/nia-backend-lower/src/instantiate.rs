@@ -215,7 +215,14 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn extension_method_impl_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
-        self.extension_generics_by_method.get(&def_id).cloned()
+        self.extension_generics_by_method
+            .get(&def_id)
+            .or_else(|| {
+                self.shared
+                    .program_extension_generics_by_method
+                    .get(&def_id)
+            })
+            .cloned()
     }
 
     fn program_trait_method_generics(
@@ -1033,12 +1040,7 @@ impl<'a> ModuleLowerer<'a> {
         if def.kind != nia_defs::DefKind::Method {
             return Vec::new();
         }
-        let Some(impl_index) = self
-            .trait_context
-            .trait_impls_by_method
-            .get(&current)
-            .copied()
-        else {
+        let Some(impl_index) = self.trait_impl_index_for_method(current) else {
             return Vec::new();
         };
         let Some(impl_signature) = self.input.trait_impls.get(impl_index) else {

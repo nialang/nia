@@ -474,16 +474,37 @@ pub(crate) struct ExtensionMethodSource {
 }
 
 pub(crate) struct BackendLowerShared {
+    program_extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
+    program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
+    program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
     program_extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
+    program_trait_methods_with_defaults: HashSet<GlobalDefId>,
+    program_method_names_by_def: HashMap<GlobalDefId, String>,
     input_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
 }
 
 impl BackendLowerShared {
     fn new(modules: &[BackendLowerModuleInput<'_>], monomorphization: &Monomorphization) -> Self {
+        let first = modules.first();
         Self {
+            program_extension_generics_by_method: first
+                .map(|input| index_extension_generics_by_method(input.program_extension_methods))
+                .unwrap_or_default(),
+            program_extension_method_sources_by_def: first
+                .map(index_program_extension_method_sources_by_def)
+                .unwrap_or_default(),
+            program_trait_impls_by_method: first
+                .map(index_program_trait_impls_by_method)
+                .unwrap_or_default(),
             program_extension_trait_method_candidates:
                 index_program_extension_trait_method_candidates(modules),
+            program_trait_methods_with_defaults: first
+                .map(index_program_trait_methods_with_defaults)
+                .unwrap_or_default(),
+            program_method_names_by_def: first
+                .map(index_program_method_names_by_def)
+                .unwrap_or_default(),
             input_type_interners: index_input_type_interner_snapshots(modules, monomorphization),
         }
     }
@@ -797,10 +818,10 @@ impl<'a> ModuleLowerer<'a> {
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
-            extension_generics_by_method: index_extension_generics_by_method(
-                input.program_extension_methods,
+            extension_generics_by_method: index_local_extension_generics_by_method(
+                input.extensions,
             ),
-            extension_method_sources_by_def: index_extension_method_sources_by_def(input),
+            extension_method_sources_by_def: index_local_extension_method_sources_by_def(input),
             trait_context: trait_context::BackendTraitContext::new(input),
             instantiation: instantiation_context::BackendInstantiationContext::default(),
             foreign_function_refs: Vec::new(),
@@ -816,6 +837,40 @@ impl<'a> ModuleLowerer<'a> {
             function_sources: HashMap::new(),
             aggregate_sources: HashMap::new(),
         }
+    }
+
+    pub(crate) fn trait_impl_index_for_method(&self, def_id: GlobalDefId) -> Option<usize> {
+        self.trait_context
+            .trait_impls_by_method
+            .get(&def_id)
+            .copied()
+            .or_else(|| {
+                self.shared
+                    .program_trait_impls_by_method
+                    .get(&def_id)
+                    .copied()
+            })
+    }
+
+    pub(crate) fn extension_method_source(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<&ExtensionMethodSource> {
+        self.extension_method_sources_by_def
+            .get(&def_id)
+            .or_else(|| {
+                self.shared
+                    .program_extension_method_sources_by_def
+                    .get(&def_id)
+            })
+    }
+
+    pub(crate) fn method_name_for_def(&self, def_id: GlobalDefId) -> Option<&str> {
+        self.trait_context
+            .method_names_by_def
+            .get(&def_id)
+            .or_else(|| self.shared.program_method_names_by_def.get(&def_id))
+            .map(String::as_str)
     }
 
     fn lower_module(&mut self) -> BackendModule {
@@ -1239,12 +1294,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_generic_trait_impl_method(&self, def_id: GlobalDefId) -> bool {
-        let Some(impl_index) = self.trait_context.trait_impls_by_method.get(&def_id) else {
+        let Some(impl_index) = self.trait_impl_index_for_method(def_id) else {
             return false;
         };
         self.input
             .trait_impls
-            .get(*impl_index)
+            .get(impl_index)
             .is_some_and(|impl_signature| !impl_signature.generics.is_empty())
     }
 
@@ -1697,7 +1752,19 @@ fn index_extension_generics_by_method(
     generics_by_method
 }
 
-fn index_extension_method_sources_by_def(
+fn index_local_extension_generics_by_method(
+    extensions: &VisibleExtensionMethods,
+) -> HashMap<GlobalDefId, Vec<String>> {
+    let mut generics_by_method = HashMap::new();
+    for target in extensions.targets() {
+        for method in &target.methods {
+            generics_by_method.insert(method.def_id, method.impl_generics.clone());
+        }
+    }
+    generics_by_method
+}
+
+fn index_local_extension_method_sources_by_def(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, ExtensionMethodSource> {
     let mut sources = HashMap::new();
@@ -1714,17 +1781,27 @@ fn index_extension_method_sources_by_def(
             }
         }
     }
-    let type_normalizations = input.program_type_normalizations;
+    sources
+}
+
+fn index_program_extension_method_sources_by_def(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, ExtensionMethodSource> {
+    let mut sources = HashMap::new();
     for method in input.program_extension_methods.all_methods() {
-        let Some(type_normalization) = type_normalizations.get(&method.def_id.module_id) else {
+        let Some(type_normalization) = input
+            .program_type_normalizations
+            .get(&method.def_id.module_id)
+        else {
             continue;
         };
-        sources
-            .entry(method.def_id)
-            .or_insert_with(|| ExtensionMethodSource {
+        sources.insert(
+            method.def_id,
+            ExtensionMethodSource {
                 where_predicates: method.where_predicates.clone(),
                 interner: type_normalization.interner.clone(),
-            });
+            },
+        );
     }
     sources
 }
@@ -1767,7 +1844,9 @@ fn insert_input_type_interner_snapshot(
     }
 }
 
-fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, usize> {
+fn index_local_trait_impls_by_method(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, usize> {
     let impls = input
         .trait_impls
         .iter()
@@ -1788,6 +1867,24 @@ fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<G
             impls_by_method.insert(method.def_id, program_index);
         }
     }
+    impls_by_method
+}
+
+fn index_program_trait_impls_by_method(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, usize> {
+    let impls = input
+        .trait_impls
+        .iter()
+        .enumerate()
+        .map(|(program_index, impl_signature)| {
+            (
+                (impl_signature.module_id, impl_signature.impl_id),
+                program_index,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut impls_by_method = HashMap::new();
     for method in input.program_extension_methods.all_methods() {
         let Some(program_index) = impls
             .get(&(method.def_id.module_id, method.impl_id))
@@ -1884,8 +1981,10 @@ fn index_program_extension_trait_method_candidates(
     candidates
 }
 
-fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> HashSet<GlobalDefId> {
-    let mut methods = input
+fn index_local_trait_methods_with_defaults(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashSet<GlobalDefId> {
+    input
         .signatures
         .traits
         .values()
@@ -1895,27 +1994,32 @@ fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> Has
             module_id: input.module_id,
             def_id: method.def_id,
         })
-        .collect::<HashSet<_>>();
-    methods.extend(
-        input
-            .program_traits
-            .iter()
-            .flat_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .filter(|method| method.has_default)
-                    .map(|method| GlobalDefId {
-                        module_id: trait_id.module_id,
-                        def_id: method.def_id,
-                    })
-            }),
-    );
-    methods
+        .collect::<HashSet<_>>()
 }
 
-fn index_method_names_by_def(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, String> {
+fn index_program_trait_methods_with_defaults(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashSet<GlobalDefId> {
+    input
+        .program_traits
+        .iter()
+        .flat_map(|(trait_id, signature)| {
+            signature
+                .signature
+                .methods
+                .iter()
+                .filter(|method| method.has_default)
+                .map(|method| GlobalDefId {
+                    module_id: trait_id.module_id,
+                    def_id: method.def_id,
+                })
+        })
+        .collect()
+}
+
+fn index_local_method_names_by_def(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, String> {
     let mut names = input
         .defs
         .defs
@@ -1936,6 +2040,27 @@ fn index_method_names_by_def(input: &BackendLowerModuleInput<'_>) -> HashMap<Glo
                 .entry(method.def_id)
                 .or_insert_with(|| method.name.clone());
         }
+    }
+    names
+}
+
+fn index_program_method_names_by_def(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, String> {
+    let mut names = HashMap::new();
+    for (trait_id, signature) in input.program_traits {
+        for method in &signature.signature.methods {
+            names.insert(
+                GlobalDefId {
+                    module_id: trait_id.module_id,
+                    def_id: method.def_id,
+                },
+                method.name.clone(),
+            );
+        }
+    }
+    for method in input.program_extension_methods.all_methods() {
+        names.insert(method.def_id, method.name.clone());
     }
     names
 }

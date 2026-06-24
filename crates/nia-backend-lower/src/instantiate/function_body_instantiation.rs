@@ -885,6 +885,10 @@ impl<'a> ModuleLowerer<'a> {
         self.trait_context
             .trait_methods_with_defaults
             .contains(&method_id)
+            || self
+                .shared
+                .program_trait_methods_with_defaults
+                .contains(&method_id)
     }
 
     pub(crate) fn resolve_trait_method_impl(
@@ -896,10 +900,8 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let trait_method_name = self
-            .trait_context
-            .method_names_by_def
-            .get(&trait_method_id)
-            .cloned()
+            .method_name_for_def(trait_method_id)
+            .map(str::to_string)
             .unwrap_or_else(|| trait_method_name.to_string());
         let key = crate::ExtensionTraitMethodKey {
             trait_id: TraitId::Source(trait_id),

@@ -14,7 +14,7 @@ impl<'a> ModuleLowerer<'a> {
         if current.module_id != self.input.module_id {
             return None;
         }
-        let current_impl_index = *self.trait_context.trait_impls_by_method.get(&current)?;
+        let current_impl_index = self.trait_impl_index_for_method(current)?;
         let impl_signature = self.input.trait_impls.get(current_impl_index)?;
         if impl_signature.trait_id != key.trait_id {
             return None;
@@ -47,10 +47,8 @@ impl<'a> ModuleLowerer<'a> {
             .find(|method| {
                 method.is_trait_witness
                     && self
-                        .trait_context
-                        .trait_impls_by_method
-                        .get(&method.def_id)
-                        .is_some_and(|impl_index| *impl_index == current_impl_index)
+                        .trait_impl_index_for_method(method.def_id)
+                        .is_some_and(|impl_index| impl_index == current_impl_index)
                     && method.trait_id == Some(key.trait_id)
                     && method.name == key.method_name
                     && method.trait_args.len() == key.trait_arg_count
@@ -341,14 +339,10 @@ impl<'a> ModuleLowerer<'a> {
         Vec<nia_item_signatures::WherePredicateSignature>,
         nia_ty::TyInterner,
     )> {
-        if let Some(source) = self.extension_method_sources_by_def.get(&current) {
+        if let Some(source) = self.extension_method_source(current) {
             return Some((source.where_predicates.clone(), source.interner.clone()));
         }
-        let program_index = self
-            .trait_context
-            .trait_impls_by_method
-            .get(&current)
-            .copied()?;
+        let program_index = self.trait_impl_index_for_method(current)?;
         self.input.trait_impls.get(program_index).map(|signature| {
             (
                 signature.where_predicates.clone(),
@@ -606,7 +600,7 @@ impl<'a> ModuleLowerer<'a> {
         resolution
     }
 
-    pub(super) fn extension_trait_method_candidates(
+    pub(crate) fn extension_trait_method_candidates(
         &self,
         key: &ExtensionTraitMethodKey,
     ) -> Vec<ExtensionTraitMethodCandidate> {

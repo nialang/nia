@@ -6,8 +6,9 @@ use nia_trait_solve::TraitResolution;
 
 use crate::{
     BackendLowerModuleInput, BuiltinTraitGoalKey, ExtensionTraitMethodCandidate,
-    ExtensionTraitMethodKey, index_extension_trait_method_candidates, index_method_names_by_def,
-    index_trait_impls_by_method, index_trait_methods_with_defaults, trait_object_vtables,
+    ExtensionTraitMethodKey, index_extension_trait_method_candidates,
+    index_local_method_names_by_def, index_local_trait_impls_by_method,
+    index_local_trait_methods_with_defaults, trait_object_vtables,
 };
 
 pub(crate) struct BackendTraitContext {
@@ -23,14 +24,14 @@ pub(crate) struct BackendTraitContext {
 impl BackendTraitContext {
     pub(crate) fn new(input: &BackendLowerModuleInput<'_>) -> Self {
         Self {
-            trait_impls_by_method: index_trait_impls_by_method(input),
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
                 input.extension_interner.unwrap_or(input.function_interner),
             ),
             builtin_trait_resolutions: HashMap::new(),
-            trait_methods_with_defaults: index_trait_methods_with_defaults(input),
-            method_names_by_def: index_method_names_by_def(input),
+            trait_impls_by_method: index_local_trait_impls_by_method(input),
+            trait_methods_with_defaults: index_local_trait_methods_with_defaults(input),
+            method_names_by_def: index_local_method_names_by_def(input),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
     }
