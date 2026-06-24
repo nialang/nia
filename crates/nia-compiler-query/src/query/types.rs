@@ -502,6 +502,48 @@ impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionMethodSetQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionMethodSetQuery;
+
+impl QueryKey<CompilerContext> for ExtensionMethodSetQuery {
+    type Value = ExtensionMethodSetValue;
+
+    fn name() -> &'static str {
+        "extension_method_set"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_method_set)(db)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionAssociatedValuesQueryValue {
+    pub(super) values: nia_defs::ExtensionAssociatedValues,
+    pub(super) diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionAssociatedValuesQuery;
+
+impl QueryKey<CompilerContext> for ExtensionAssociatedValuesQuery {
+    type Value = ExtensionAssociatedValuesValue;
+
+    fn name() -> &'static str {
+        "extension_associated_values"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_associated_values)(db)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionMethodsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,

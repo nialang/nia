@@ -68,6 +68,8 @@ use resolve::*;
 use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
+type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
+type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 
 #[derive(Debug, Clone)]
@@ -2144,45 +2146,51 @@ fn main() i32 {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "extension_method_set"
         }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "extension_associated_values"
+        }));
+        for query in ["extension_method_set", "extension_associated_values"] {
+            assert!(trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "module_defs"
+            }));
+            assert!(trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "signature_item_signatures"
+            }));
+            assert!(trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "signature_type_lowering"
+            }));
+            assert!(trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query
+                    && dependency.to.name == "signature_type_normalization"
+            }));
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query
+                    && matches!(
+                        dependency.to.name,
+                        "item_signatures" | "declaration_type_lowering"
+                    )
+            }));
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "active_module_item_tree"
+            }));
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "full_module_defs"
+            }));
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query && dependency.to.name == "program_type_normalizations"
+            }));
+        }
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "declaration_type_lowering"
                 && dependency.to.name == "program_defs_by_id"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "signature_item_signatures"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "signature_type_lowering"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "signature_type_normalization"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && matches!(
-                    dependency.to.name,
-                    "item_signatures" | "declaration_type_lowering"
-                )
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "active_module_item_tree"
-        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "declaration_type_lowering"
                 && dependency.to.name == "program_full_defs_by_id"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods" && dependency.to.name == "full_module_defs"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "program_type_normalizations"
         }));
     }
 
