@@ -1496,14 +1496,20 @@ pub(super) fn provide_checked_module(
     module_id: ModuleId,
 ) -> CheckedModule {
     time_module_provider(db, "checked_module", module_id, || {
-        checked_module_with_body_check(db, module_id, db.query(BodyCheckQuery(module_id)))
+        checked_module_with_body_and_flow_check(
+            db,
+            module_id,
+            db.query(BodyCheckQuery(module_id)),
+            db.query(FlowCheckQuery(module_id)),
+        )
     })
 }
 
-fn checked_module_with_body_check(
+fn checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
+    flow_check: nia_flow_check::FlowCheck,
 ) -> CheckedModule {
     let path = db.query(ModulePathQuery(module_id));
     CheckedModule {
@@ -1519,7 +1525,7 @@ fn checked_module_with_body_check(
         static_check: db.query(StaticCheckQuery(module_id)),
         layouts: db.query(LayoutsQuery(module_id)),
         abi_check: db.query(AbiCheckQuery(module_id)),
-        flow_check: db.query(FlowCheckQuery(module_id)),
+        flow_check,
         body_ir: body_check.ir,
         semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         semantic_facts: body_check.facts,
@@ -1656,7 +1662,9 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
                 body_check_with_filter(db, module_id, filter)
             });
-            let module = checked_module_with_body_check(db, module_id, body_check);
+            let flow_check = executable_flow_check(db, module_id, &reachability.functions);
+            let module =
+                checked_module_with_body_and_flow_check(db, module_id, body_check, flow_check);
             checked_functions_by_module.insert(module_id, module_functions);
             checked_by_id.insert(module.id, module);
         }
@@ -1696,6 +1704,35 @@ fn filter_checked_module_for_codegen(
     module.semantic_facts =
         filter_semantic_facts_for_reachable_functions(module.semantic_facts, reachable_functions);
     module
+}
+
+fn executable_flow_check(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    reachable_functions: &HashSet<GlobalDefId>,
+) -> nia_flow_check::FlowCheck {
+    time_module_provider(db, "executable_flow_check", module_id, || {
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let type_lowering = db.query(SignatureTypeLoweringQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        nia_flow_check::check_active_module_flow_with_signatures_and_filter(
+            &active_item_tree,
+            &type_lowering.interner,
+            nia_flow_check::FlowCheckSignatures {
+                functions: &signatures.functions,
+            },
+            nia_flow_check::FlowCheckFilter::ReachableFunctions {
+                module_id,
+                functions: reachable_functions,
+            },
+        )
+    })
 }
 
 pub(super) fn provide_monomorphization(

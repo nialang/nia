@@ -4,6 +4,7 @@ use nia_ast::{
     SwitchArmBody, SwitchPattern, SwitchPatternKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ids::{DefId, GlobalDefId, ModuleId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -16,7 +17,29 @@ pub struct FlowCheck {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FlowCheckSignatures<'a> {
-    pub functions: &'a std::collections::HashMap<nia_ids::DefId, FunctionSignature>,
+    pub functions: &'a std::collections::HashMap<DefId, FunctionSignature>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum FlowCheckFilter<'a> {
+    #[default]
+    All,
+    ReachableFunctions {
+        module_id: ModuleId,
+        functions: &'a HashSet<GlobalDefId>,
+    },
+}
+
+impl FlowCheckFilter<'_> {
+    fn includes(self, def_id: DefId) -> bool {
+        match self {
+            Self::All => true,
+            Self::ReachableFunctions {
+                module_id,
+                functions,
+            } => functions.contains(&GlobalDefId { module_id, def_id }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,9 +101,24 @@ pub fn check_active_module_flow_with_signatures(
     interner: &TyInterner,
     signatures: FlowCheckSignatures<'_>,
 ) -> FlowCheck {
+    check_active_module_flow_with_signatures_and_filter(
+        item_tree,
+        interner,
+        signatures,
+        FlowCheckFilter::All,
+    )
+}
+
+pub fn check_active_module_flow_with_signatures_and_filter(
+    item_tree: &ActiveModuleItemTree,
+    interner: &TyInterner,
+    signatures: FlowCheckSignatures<'_>,
+    filter: FlowCheckFilter<'_>,
+) -> FlowCheck {
     let mut checker = FlowChecker {
         interner,
         signatures,
+        filter,
         diagnostics: Vec::new(),
         loop_depth: 0,
     };
@@ -93,6 +131,7 @@ pub fn check_active_module_flow_with_signatures(
 struct FlowChecker<'a> {
     interner: &'a TyInterner,
     signatures: FlowCheckSignatures<'a>,
+    filter: FlowCheckFilter<'a>,
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
 }
@@ -128,6 +167,12 @@ impl FlowChecker<'_> {
     }
 
     fn check_function(&mut self, function: &FunctionItem) {
+        let signature = self.signature_for_function(function);
+        if let Some((def_id, _)) = signature
+            && !self.filter.includes(def_id)
+        {
+            return;
+        }
         let Some(body) = &function.body else {
             return;
         };
@@ -146,7 +191,7 @@ impl FlowChecker<'_> {
     }
 
     fn function_requires_return(&self, function: &FunctionItem) -> bool {
-        let Some(signature) = self.signature_for_function(function) else {
+        let Some((_, signature)) = self.signature_for_function(function) else {
             return false;
         };
         !matches!(
@@ -155,11 +200,16 @@ impl FlowChecker<'_> {
         )
     }
 
-    fn signature_for_function(&self, function: &FunctionItem) -> Option<&FunctionSignature> {
+    fn signature_for_function(
+        &self,
+        function: &FunctionItem,
+    ) -> Option<(DefId, &FunctionSignature)> {
         self.signatures
             .functions
-            .values()
-            .find(|signature| signature.span == function.span)
+            .iter()
+            .find_map(|(def_id, signature)| {
+                (signature.span == function.span).then_some((*def_id, signature))
+            })
     }
 
     fn check_block(&mut self, block: &Block) -> Flow {

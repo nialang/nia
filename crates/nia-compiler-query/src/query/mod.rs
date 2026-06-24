@@ -2722,6 +2722,36 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_checked_modules_do_not_flow_check_unreachable_functions() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+fn unused() i32 {
+}
+
+fn main() i32 {
+    0
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+
+        assert!(
+            module.flow_check.diagnostics.is_empty(),
+            "unreachable function flow diagnostics should not block executable checking: {:?}",
+            module.flow_check.diagnostics
+        );
+    }
+
+    #[test]
     fn executable_checked_modules_do_not_body_check_unreachable_loaded_modules() {
         let entry = loaded_module(
             ModuleId(0),
