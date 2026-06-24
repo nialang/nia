@@ -896,25 +896,28 @@ pub(super) fn provide_program_executable_signatures(
         db.query(CompilerTimingsQuery),
         "program_executable_signatures",
         || {
-            let reachability = db.query(ProgramExecutableReachabilitySignaturesQuery);
-            let type_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
-            let type_modules = type_inputs.modules();
+            let function_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+            let function_modules = function_inputs.modules();
             let value_inputs =
                 module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
             let value_modules = value_inputs.modules();
-            let visible_types = db.query(ProgramVisibleTypeSignaturesQuery);
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+            let type_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let type_modules = type_inputs.modules();
+            let trait_inputs =
+                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+            let trait_modules = trait_inputs.modules();
             Arc::new(ProgramExecutableSignatures {
-                functions: reachability.functions.clone(),
+                functions: collect_program_functions_excluding(&function_modules, &HashSet::new()),
                 globals: collect_program_globals(&value_modules),
                 comptimes: collect_program_comptimes(&value_modules),
-                structs: reachability.structs.clone(),
-                unions: reachability.unions.clone(),
+                structs: collect_program_structs(&type_modules),
+                unions: collect_program_unions(&type_modules),
                 enums: collect_program_enums(&type_modules),
-                type_aliases: visible_types.type_aliases.clone(),
-                traits: reachability.traits.clone(),
-                trait_impls: trait_solving.trait_impls.clone(),
+                type_aliases: collect_program_type_aliases(&type_modules),
+                traits: collect_program_traits(&trait_modules),
+                trait_impls: collect_program_trait_impls(&trait_modules),
             })
         },
     )
