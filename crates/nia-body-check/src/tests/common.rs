@@ -265,6 +265,7 @@ fn pipeline_with_options(
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_functions: &program_signatures.functions,
+        program_function_signature: None,
         program_values: program_signatures.values(),
         program_types: program_signatures.types(),
         program_traits: program_signatures.traits(),

@@ -246,7 +246,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
@@ -269,6 +269,8 @@ pub struct BodyCheckInput<'a> {
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
     pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub program_function_signature:
+        Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>>,
     pub program_values: BodyProgramValueSignatures<'a>,
     pub program_types: BodyProgramTypeSignatures<'a>,
     pub program_traits: BodyProgramTraitSignatures<'a>,
@@ -326,7 +328,7 @@ pub struct BodyProgramTraitSignatures<'a> {
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
@@ -346,6 +348,8 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
     pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub program_function_signature:
+        Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>>,
     pub program_values: BodyProgramValueSignatures<'a>,
     pub program_types: BodyProgramTypeSignatures<'a>,
     pub program_traits: BodyProgramTraitSignatures<'a>,
@@ -440,6 +444,7 @@ pub fn check_module_bodies(
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_functions: &empty_functions,
+        program_function_signature: None,
         program_values: BodyProgramValueSignatures {
             globals: &empty_globals,
             comptimes: &empty_comptimes,
@@ -503,6 +508,7 @@ pub fn check_module_bodies_with_program_signatures(
         extension_interner: None,
         program: input.program,
         program_functions: input.program_functions,
+        program_function_signature: input.program_function_signature,
         program_values: input.program_values,
         program_types: input.program_types,
         program_traits: input.program_traits,
@@ -614,7 +620,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         function_signature_scope: match input.function_scope {
             FunctionCheckScope::LocalModule => FunctionSignatureScope::LocalModule,
             FunctionCheckScope::ProgramSignatures => {
-                FunctionSignatureScope::Program(input.program_functions)
+                if let Some(program_function_signature) = input.program_function_signature {
+                    FunctionSignatureScope::Resolver(program_function_signature)
+                } else {
+                    FunctionSignatureScope::Program(input.program_functions)
+                }
             }
         },
         program_globals: input.program_values.globals,
@@ -800,17 +810,19 @@ struct BodyChecker<'a> {
     body_filter: BodyCheckFilter<'a>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 enum FunctionSignatureScope<'a> {
     LocalModule,
     Program(&'a HashMap<GlobalDefId, ProgramFunctionSignature>),
+    Resolver(&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>),
 }
 
 impl<'a> FunctionSignatureScope<'a> {
-    fn program_signature(&self, def_id: &GlobalDefId) -> Option<&'a ProgramFunctionSignature> {
+    fn program_signature(&self, def_id: &GlobalDefId) -> Option<ProgramFunctionSignature> {
         match self {
             FunctionSignatureScope::LocalModule => None,
-            FunctionSignatureScope::Program(functions) => functions.get(def_id),
+            FunctionSignatureScope::Program(functions) => functions.get(def_id).cloned(),
+            FunctionSignatureScope::Resolver(function) => function(*def_id),
         }
     }
 
@@ -818,6 +830,7 @@ impl<'a> FunctionSignatureScope<'a> {
         match self {
             FunctionSignatureScope::LocalModule => true,
             FunctionSignatureScope::Program(functions) => functions.contains_key(def_id),
+            FunctionSignatureScope::Resolver(function) => function(*def_id).is_some(),
         }
     }
 }
@@ -1536,7 +1549,7 @@ impl<'a> BodyChecker<'a> {
             .function_signature_scope
             .program_signature(&global_def_id)
         {
-            self.import_program_function_signature(&program_signature.clone())
+            self.import_program_function_signature(&program_signature)
         } else {
             let Some(raw_signature) = self.signatures.functions.get(&def_id).cloned() else {
                 return;
