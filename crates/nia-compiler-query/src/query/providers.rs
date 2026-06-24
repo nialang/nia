@@ -1076,7 +1076,9 @@ fn filter_item_tree_node_for_body_check(
 ) {
     match &mut item.kind {
         nia_item_tree::ItemTreeNodeKind::Function(function) => {
-            if !body_check_filter_includes_function(module_id, defs, &function.node_key, filter) {
+            if !function.is_comptime
+                && !body_check_filter_includes_function(module_id, defs, &function.node_key, filter)
+            {
                 function.body = None;
             }
         }
@@ -1089,24 +1091,28 @@ fn filter_item_tree_node_for_body_check(
         }
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             for method in &mut item_trait.methods {
-                if !body_check_filter_includes_function(
-                    module_id,
-                    defs,
-                    &method.function.node_key,
-                    filter,
-                ) {
+                if !method.function.is_comptime
+                    && !body_check_filter_includes_function(
+                        module_id,
+                        defs,
+                        &method.function.node_key,
+                        filter,
+                    )
+                {
                     method.function.body = None;
                 }
             }
         }
         nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
             for method in &mut extend.methods {
-                if !body_check_filter_includes_function(
-                    module_id,
-                    defs,
-                    &method.function.node_key,
-                    filter,
-                ) {
+                if !method.function.is_comptime
+                    && !body_check_filter_includes_function(
+                        module_id,
+                        defs,
+                        &method.function.node_key,
+                        filter,
+                    )
+                {
                     method.function.body = None;
                 }
             }
@@ -1480,6 +1486,108 @@ struct BodyCheckResolutionInputs {
 struct BodyCheckWithResolutionInputs {
     body_check: nia_body_check::BodyCheck,
     inputs: BodyCheckResolutionInputs,
+    comptime: Option<ComptimeCheck>,
+}
+
+struct BodyCheckComptimeInputs {
+    module: ComptimeModuleLowering,
+    array_lengths: nia_comptime_check::ComptimeArrayLengths,
+    enum_values: nia_comptime_check::ComptimeEnumValues,
+    values: nia_comptime_check::ComptimeValues,
+    typed_facts: nia_comptime_check::ComptimeTypedFacts,
+}
+
+impl BodyCheckComptimeInputs {
+    fn into_check(self) -> ComptimeCheck {
+        ComptimeCheck {
+            interner: self.typed_facts.interner,
+            values: self.values.values,
+            typed_values: self.typed_facts.typed_values,
+            enum_values: self.enum_values.values,
+            typed_enum_values: self.enum_values.typed_values,
+            array_lengths: self.array_lengths.values,
+            diagnostics: self.typed_facts.diagnostics,
+        }
+    }
+}
+
+fn comptime_inputs_for_body_check(
+    db: &QueryDb<CompilerContext>,
+    defs: &DefCollection,
+    source_path: &SourcePath,
+    signatures: &ItemSignatures,
+    normalization: &TypeNormalization,
+    lowered: &TypeLowering,
+    inputs: &BodyCheckResolutionInputs,
+) -> BodyCheckComptimeInputs {
+    let module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            active_item_tree: &inputs.active_item_tree,
+            defs,
+            values: &inputs.values,
+            locals: &inputs.locals,
+            semantic_uses: &inputs.semantic_uses,
+            const_exprs: &lowered.const_exprs,
+            source_path,
+        });
+    let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
+    let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
+    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let extension_method_normalization = |module_id| {
+        Some(db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        )))
+    };
+    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+    let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
+    let target = db.query(CompilerTargetQuery);
+    let comptime_input = nia_comptime_check::ComptimeInput {
+        module: &module.module,
+        defs,
+        values: &inputs.values,
+        locals: &inputs.locals,
+        semantic_uses: &inputs.semantic_uses,
+        signatures,
+        interner: &normalization.interner,
+        normalized: &normalization.normalized,
+        target: &target,
+        source_path,
+        program: nia_comptime_check::ComptimeProgramContext {
+            module: Some(&program_module),
+            source_path: Some(&program_source_path),
+            defs: Some(&program_defs),
+            type_normalizations: Some(&extension_method_normalization),
+            signatures: Some(&item_signatures_for_module),
+            program_enums: &trait_solving_signatures.enums,
+            trait_impls: &trait_solving_signatures.trait_impls,
+        },
+    };
+    let mut array_lengths =
+        nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
+    array_lengths.diagnostics.extend(module.diagnostics.clone());
+    let enum_values = nia_comptime_check::compute_module_comptime_enum_values(
+        comptime_input,
+        array_lengths.clone(),
+    );
+    let values = nia_comptime_check::compute_module_comptime_values(
+        comptime_input,
+        array_lengths.clone(),
+        enum_values.clone(),
+    );
+    let typed_facts = nia_comptime_check::compute_module_comptime_typed_facts(
+        comptime_input,
+        array_lengths.clone(),
+        enum_values.clone(),
+        values.clone(),
+    );
+    BodyCheckComptimeInputs {
+        module,
+        array_lengths,
+        enum_values,
+        values,
+        typed_facts,
+    }
 }
 
 fn body_check_with_filter_and_layouts(
@@ -1580,15 +1688,49 @@ fn body_check_with_filter_and_layouts_with_inputs(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let comptime_values = db.query(ComptimeValuesQuery(module_id));
-    let comptime_array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
-    let comptime_typed_facts = db.query(ComptimeTypedFactsQuery(module_id));
-    let body_comptime = nia_body_check::BodyComptime::from_phases(
-        &comptime_values,
-        &comptime_array_lengths,
-        &comptime_typed_facts,
-    );
-    let comptime_module = db.query(ComptimeModuleQuery(module_id));
+    let mut filtered_comptime_inputs = None;
+    let full_comptime_values;
+    let full_comptime_array_lengths;
+    let full_comptime_typed_facts;
+    let full_comptime_module;
+    let (body_comptime, comptime_module) = match filter {
+        nia_body_check::BodyCheckFilter::All => {
+            full_comptime_values = db.query(ComptimeValuesQuery(module_id));
+            full_comptime_array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+            full_comptime_typed_facts = db.query(ComptimeTypedFactsQuery(module_id));
+            full_comptime_module = db.query(ComptimeModuleQuery(module_id));
+            (
+                nia_body_check::BodyComptime::from_phases(
+                    &full_comptime_values,
+                    &full_comptime_array_lengths,
+                    &full_comptime_typed_facts,
+                ),
+                &full_comptime_module.module,
+            )
+        }
+        _ => {
+            filtered_comptime_inputs = Some(comptime_inputs_for_body_check(
+                db,
+                &defs,
+                &source_path,
+                &signatures,
+                &normalization,
+                &lowered,
+                &inputs,
+            ));
+            let filtered = filtered_comptime_inputs
+                .as_ref()
+                .expect("filtered comptime inputs must be initialized");
+            (
+                nia_body_check::BodyComptime::from_phases(
+                    &filtered.values,
+                    &filtered.array_lengths,
+                    &filtered.typed_facts,
+                ),
+                &filtered.module.module,
+            )
+        }
+    };
     let layouts = layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id)));
     let program_layouts = |module_id| {
         program_layouts_override
@@ -1654,7 +1796,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 normalization: &normalization,
                 target: &db.query(CompilerTargetQuery),
                 comptime: body_comptime,
-                comptime_module: &comptime_module.module,
+                comptime_module,
                 layouts: &layouts,
                 extensions: &extensions.methods,
                 program_extension_methods: &extension_methods.methods,
@@ -1680,7 +1822,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
             },
             body_timing_mode(db.query(CompilerTimingsQuery)),
         );
-    BodyCheckWithResolutionInputs { body_check, inputs }
+    BodyCheckWithResolutionInputs {
+        body_check,
+        inputs,
+        comptime: filtered_comptime_inputs.map(BodyCheckComptimeInputs::into_check),
+    }
 }
 
 fn body_local_item_signatures(
@@ -1836,15 +1982,25 @@ fn executable_program_layouts<'a>(
 fn rooted_layouts_for_checked_module(
     db: &QueryDb<CompilerContext>,
     module: &CheckedModule,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
 ) -> nia_layout::Layouts {
     let item_signatures = db.query(ItemSignaturesQuery(module.id));
     let roots = checked_module_layout_roots(module);
     let array_lengths = &module.comptime.array_lengths;
     let local_array_lengths = |id| array_lengths.get(&id).copied();
-    let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+    let layout_query = |module_id| {
+        program_layouts_override
+            .and_then(|program_layouts| program_layouts(module_id))
+            .or_else(|| Some(db.query(LayoutsQuery(module_id))))
+    };
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-        Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
-            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        program_array_lengths_override
+            .and_then(|array_lengths| array_lengths(id))
+            .or_else(|| {
+                Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
+                    .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            })
     };
     nia_layout::compute_layouts_for_roots_with_program_context(
         nia_layout::LayoutComputationInput {
@@ -2196,11 +2352,10 @@ fn executable_checked_module_with_body_and_flow_check(
     flow_check: nia_flow_check::FlowCheck,
     layouts: nia_layout::Layouts,
 ) -> CheckedModule {
-    let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
-    let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
     let BodyCheckWithResolutionInputs {
         body_check,
         inputs: body_inputs,
+        comptime,
     } = body_check;
     CheckedModule {
         id: module_id,
@@ -2211,14 +2366,7 @@ fn executable_checked_module_with_body_and_flow_check(
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
-        comptime: ComptimeCheck {
-            interner: array_lengths.interner,
-            array_lengths: array_lengths.values,
-            enum_values: enum_values.values,
-            typed_enum_values: enum_values.typed_values,
-            diagnostics: array_lengths.diagnostics,
-            ..Default::default()
-        },
+        comptime: comptime.unwrap_or_else(|| db.query(ComptimeQuery(module_id))),
         static_check: nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
         },
@@ -2429,12 +2577,38 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         .filter(|module_id| reachability.modules.contains(module_id))
         .filter_map(|module_id| checked_by_id.get(&module_id))
         .cloned()
+        .collect::<Vec<_>>();
+    let codegen_layout_cache = RefCell::new(
+        codegen_modules
+            .iter()
+            .map(|module| (module.id, module.layouts.clone()))
+            .collect::<HashMap<_, _>>(),
+    );
+    let executable_program_layouts = executable_program_layouts(
+        db,
+        &codegen_layout_cache,
+        &reachability.functions,
+        &reachability.globals,
+    );
+    let codegen_array_lengths = codegen_modules
+        .iter()
+        .map(|module| (module.id, module.comptime.array_lengths.clone()))
+        .collect::<HashMap<_, _>>();
+    let executable_program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        codegen_array_lengths
+            .get(&id.module_id)
+            .and_then(|array_lengths| array_lengths.get(&id).copied())
+    };
+    codegen_modules = codegen_modules
+        .into_iter()
         .map(|module| {
             filter_checked_module_for_codegen(
                 module,
                 db,
                 &reachability.functions,
                 &reachability.globals,
+                Some(&executable_program_layouts),
+                Some(&executable_program_array_lengths),
             )
         })
         .collect::<Vec<_>>();
@@ -2451,6 +2625,8 @@ fn filter_checked_module_for_codegen(
     db: &QueryDb<CompilerContext>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
 ) -> CheckedModule {
     module
         .body_ir
@@ -2465,7 +2641,12 @@ fn filter_checked_module_for_codegen(
         reachable_functions,
         reachable_globals,
     );
-    module.layouts = rooted_layouts_for_checked_module(db, &module);
+    module.layouts = rooted_layouts_for_checked_module(
+        db,
+        &module,
+        program_layouts_override,
+        program_array_lengths_override,
+    );
     module.executable_reachable_globals = Some(reachable_globals.clone());
     module
 }
@@ -2669,11 +2850,20 @@ fn provide_backend_lowering_inner(
                 .collect::<Vec<_>>();
             let comptime_array_lengths = checked_modules
                 .iter()
-                .map(|checked_module| db.query(ComptimeArrayLengthsQuery(checked_module.id)))
+                .map(|checked_module| nia_comptime_check::ComptimeArrayLengths {
+                    interner: checked_module.comptime.interner.clone(),
+                    values: checked_module.comptime.array_lengths.clone(),
+                    diagnostics: checked_module.comptime.diagnostics.clone(),
+                })
                 .collect::<Vec<_>>();
             let comptime_enum_values = checked_modules
                 .iter()
-                .map(|checked_module| db.query(ComptimeEnumValuesQuery(checked_module.id)))
+                .map(|checked_module| nia_comptime_check::ComptimeEnumValues {
+                    interner: checked_module.comptime.interner.clone(),
+                    values: checked_module.comptime.enum_values.clone(),
+                    typed_values: checked_module.comptime.typed_enum_values.clone(),
+                    diagnostics: checked_module.comptime.diagnostics.clone(),
+                })
                 .collect::<Vec<_>>();
             let visible_extensions = checked_modules
                 .iter()
