@@ -331,6 +331,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("build")
+        .arg("--timings")
         .arg("--root")
         .arg(root.join("src").join("nested"))
         .output_timeout("run nia build");
@@ -358,8 +359,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         stdout.contains(&format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia"))),
         "{stdout}"
     );
-    assert!(stderr.is_empty(), "{stderr}");
-    assert!(root.join(".nia-build/runner/nia-build-runner").is_file());
+    assert!(!stderr.contains("error"), "{stderr}");
+    assert!(root.join(".nia-build/runner").is_dir());
     assert!(root.join(".nia-cache").is_dir());
     assert!(root.join(".nia-build/app").is_file());
 

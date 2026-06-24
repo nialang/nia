@@ -38,6 +38,7 @@ extend Build {
         build_dir: fs::Path,
         cache_dir: fs::Path,
         toolchain_executable: fs::Path,
+        step_arg_index: usize,
     ) Build {
         {
             init: init,
@@ -46,6 +47,7 @@ extend Build {
             build_dir: build_dir,
             cache_dir: cache_dir,
             toolchain_executable: toolchain_executable,
+            step_arg_index: step_arg_index,
             default_step: null,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
@@ -211,7 +213,7 @@ extend Build {
     }
 
     pub fn requested_step(&self) ?process::Arg {
-        self.init.args().get(1usize)
+        self.init.args().get(self.step_arg_index)
     }
 
     pub fn run_requested_step(&mut self) Error!void {

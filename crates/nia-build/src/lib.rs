@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fmt,
-    fmt::Write as _,
-    fs, io,
+    env, fmt, fs, io,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
-    time::Instant,
+    sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::{Duration, Instant},
 };
 
 use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest, TimingMode};
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
+
+const BUILD_RUNNER_FINGERPRINT_VERSION: &str = "nia-build-runner-fingerprint-v2";
+static SHARED_RUNNER_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
@@ -113,7 +116,16 @@ pub enum BuildError {
         source: String,
         error: DriverError,
     },
+    BuildRunnerFingerprint {
+        path: PathBuf,
+        operation: &'static str,
+        error: io::Error,
+    },
     RunRunner {
+        path: PathBuf,
+        error: io::Error,
+    },
+    AcquireBuildLock {
         path: PathBuf,
         error: io::Error,
     },
@@ -177,10 +189,28 @@ impl fmt::Display for BuildError {
                     nia_driver::render_driver_error(error, Some(path), Some(source))
                 )
             }
+            Self::BuildRunnerFingerprint {
+                path,
+                operation,
+                error,
+            } => {
+                write!(
+                    f,
+                    "failed to {operation} build runner fingerprint `{}`: {error}",
+                    path.display()
+                )
+            }
             Self::RunRunner { path, error } => {
                 write!(
                     f,
                     "failed to run build runner `{}`: {error}",
+                    path.display()
+                )
+            }
+            Self::AcquireBuildLock { path, error } => {
+                write!(
+                    f,
+                    "failed to acquire build lock `{}`: {error}",
                     path.display()
                 )
             }
@@ -210,10 +240,13 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     time_stage(timings, "build_prepare_directories", || {
         prepare_build_directories(&plan)
     })?;
-    time_stage(timings, "build_compile_runner", || {
+    let runner_executable = time_stage(timings, "build_compile_runner", || {
         compile_build_runner(&plan)
     })?;
-    time_stage(timings, "build_run_runner", || run_build_runner(&plan))
+    let _lock = time_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
+    time_stage(timings, "build_run_runner", || {
+        run_build_runner(&plan, &runner_executable)
+    })
 }
 
 pub fn resolve_build_plan(request: BuildRequest) -> Result<BuildPlan, BuildError> {
@@ -256,42 +289,63 @@ fn build_runner_source_for_path(
     plan: &BuildPlan,
     path: String,
 ) -> Result<BuildRunnerSource, BuildError> {
-    let package_root = nia_path_literal("package root", &plan.package_root)?;
-    let build_dir = nia_path_literal("build dir", &plan.build_dir)?;
-    let cache_dir = nia_path_literal("cache dir", &plan.cache_dir)?;
-    let toolchain_executable =
-        nia_path_literal("toolchain executable", &plan.toolchain_executable)?;
+    let _ = plan;
     let mut source = String::new();
     source.push_str(
         r#"
 using std::build;
+using std::collections;
 using std::fs;
 using std::mem;
 using std::process;
 using build_script;
+
+fn path_arg(
+    init: process::Init,
+    allocator: &mut mem::Allocator,
+    index: usize,
+    storage: &mut collections::ArrayList[char],
+) build::Error!fs::Path {
+    let arg = if let ?value = init.args().get(index) {
+        value
+    } else null {
+        return build::Error::Internal!;
+    };
+    fs::Path::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
+}
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var page_allocator = mem::PageAllocator::init();
     var allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
     defer allocator.deinit().ok().exit().?;
 
+    var package_root_text = collections::ArrayList[char]::init();
+    defer package_root_text.deinit(&mut allocator).exit().?;
+    var build_dir_text = collections::ArrayList[char]::init();
+    defer build_dir_text.deinit(&mut allocator).exit().?;
+    var cache_dir_text = collections::ArrayList[char]::init();
+    defer cache_dir_text.deinit(&mut allocator).exit().?;
+    var toolchain_text = collections::ArrayList[char]::init();
+    defer toolchain_text.deinit(&mut allocator).exit().?;
+
+    let package_root = path_arg(init, &mut allocator, 1usize, &mut package_root_text).exit().?;
+    let build_dir = path_arg(init, &mut allocator, 2usize, &mut build_dir_text).exit().?;
+    let cache_dir = path_arg(init, &mut allocator, 3usize, &mut cache_dir_text).exit().?;
+    let toolchain_executable = path_arg(init, &mut allocator, 4usize, &mut toolchain_text).exit().?;
+
     var api = build::Build::init(
         init,
         &mut allocator,
-"#
-        .trim_start(),
+"#,
     );
-    writeln!(&mut source, "        fs::Path::init({package_root}),")
-        .expect("writing to String cannot fail");
-    writeln!(&mut source, "        fs::Path::init({build_dir}),")
-        .expect("writing to String cannot fail");
-    writeln!(&mut source, "        fs::Path::init({cache_dir}),")
-        .expect("writing to String cannot fail");
-    writeln!(
-        &mut source,
-        "        fs::Path::init({toolchain_executable}),"
-    )
-    .expect("writing to String cannot fail");
+    source.push_str(
+        r#"        package_root,
+        build_dir,
+        cache_dir,
+        toolchain_executable,
+        5usize,
+"#,
+    );
     source.push_str(
         r#"    );
     defer api.deinit().exit().?;
@@ -305,12 +359,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     Ok(BuildRunnerSource { path, source })
 }
 
-fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
+fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
     fs::create_dir_all(&plan.runner_dir).map_err(|error| BuildError::CreateRunnerDirectory {
         path: plan.runner_dir.clone(),
         error,
     })?;
     let runner = build_runner_source(plan)?;
+    let fingerprint = build_runner_fingerprint(plan, &runner)?;
+    let local_runner = local_build_runner_executable(plan, &fingerprint);
+    if build_runner_cache_valid(&local_runner) {
+        return Ok(local_runner);
+    }
+    let shared_runner = shared_build_runner_executable(&fingerprint);
+    if shared_runner.is_file() {
+        install_shared_build_runner(&local_runner, &shared_runner)?;
+        return Ok(local_runner);
+    }
+    let _compile_lock = SharedRunnerCompileLock::acquire(&fingerprint)?;
+    if build_runner_cache_valid(&local_runner) {
+        return Ok(local_runner);
+    }
+    if shared_runner.is_file() {
+        install_shared_build_runner(&local_runner, &shared_runner)?;
+        return Ok(local_runner);
+    }
+    if let Some(parent) = local_runner.parent() {
+        fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    let stage_id = SHARED_RUNNER_STAGE_ID.fetch_add(1, Ordering::Relaxed);
+    let staged_runner =
+        local_runner.with_extension(format!("tmp.{}.{}", std::process::id(), stage_id));
     let driver = Driver::new();
     driver.set_source(runner.path.clone(), runner.source.clone());
     let mut module_map = ModuleMap::new();
@@ -322,7 +403,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
         CheckRequest::new(runner.path.clone())
             .with_module_map(module_map)
             .with_timings(plan.timings),
-        &plan.runner_executable,
+        &staged_runner,
     ));
     output
         .result
@@ -331,7 +412,11 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
             path: runner.path,
             source: runner.source,
             error,
-        })
+        })?;
+    make_executable_if_needed(&staged_runner, &staged_runner)?;
+    publish_runner(&staged_runner, &local_runner)?;
+    save_shared_build_runner(&local_runner, &fingerprint)?;
+    Ok(local_runner)
 }
 
 fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
@@ -345,55 +430,510 @@ fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
     })
 }
 
-fn nia_path_literal(role: &'static str, path: &Path) -> Result<String, BuildError> {
-    let Some(text) = path.to_str() else {
-        return Err(BuildError::NonUtf8Path {
-            role,
-            path: path.to_path_buf(),
-        });
-    };
-    Ok(nia_string_literal(text))
+fn build_runner_fingerprint(
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+) -> Result<String, BuildError> {
+    let mut hash = StableFingerprint::new();
+    hash.string(BUILD_RUNNER_FINGERPRINT_VERSION);
+    hash.string(&runner.source);
+    hash_current_executable(&mut hash)?;
+    hash_nia_files_relative(&mut hash, &plan.package_root, SourceTreeKind::Package)?;
+    let std_root = workspace_std_root();
+    hash_nia_files_relative(&mut hash, &std_root, SourceTreeKind::Std)?;
+    Ok(hash.finish())
 }
 
-fn nia_string_literal(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
-    out.push('"');
-    for ch in text.chars() {
-        match ch {
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\0' => out.push_str("\\0"),
-            ch if ch.is_control() => {
-                use std::fmt::Write;
-                write!(&mut out, "\\u{{{:x}}}", ch as u32).expect("writing to String cannot fail");
-            }
-            ch => out.push(ch),
+fn build_runner_cache_valid(runner: &Path) -> bool {
+    runner.is_file()
+}
+
+fn local_build_runner_executable(plan: &BuildPlan, fingerprint: &str) -> PathBuf {
+    plan.runner_dir.join(fingerprint).join("nia-build-runner")
+}
+
+fn shared_build_runner_executable(fingerprint: &str) -> PathBuf {
+    let mut path = env::temp_dir();
+    path.push("nia_build_runner_cache");
+    path.push(build_runner_cache_namespace());
+    path.push(fingerprint);
+    path.push("nia-build-runner");
+    path
+}
+
+fn build_runner_cache_namespace() -> String {
+    let mut hash = StableFingerprint::new();
+    hash.path(&workspace_std_root());
+    hash.string(env!("CARGO_PKG_VERSION"));
+    if let Ok(executable) = env::current_exe() {
+        hash.path(&executable);
+    }
+    hash.finish()
+}
+
+fn install_shared_build_runner(
+    local_runner: &Path,
+    shared_runner: &Path,
+) -> Result<(), BuildError> {
+    if let Some(parent) = local_runner.parent() {
+        fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    let stage_id = SHARED_RUNNER_STAGE_ID.fetch_add(1, Ordering::Relaxed);
+    let staged_runner =
+        local_runner.with_extension(format!("tmp.{}.{}", std::process::id(), stage_id));
+    fs::copy(shared_runner, &staged_runner).map_err(|error| {
+        BuildError::BuildRunnerFingerprint {
+            path: staged_runner.clone(),
+            operation: "copy",
+            error,
+        }
+    })?;
+    make_executable_if_needed(&staged_runner, shared_runner)?;
+    publish_runner(&staged_runner, local_runner)
+}
+
+fn save_shared_build_runner(local_runner: &Path, fingerprint: &str) -> Result<(), BuildError> {
+    let shared_runner = shared_build_runner_executable(fingerprint);
+    if let Some(parent) = shared_runner.parent() {
+        fs::create_dir_all(parent).map_err(|error| BuildError::BuildRunnerFingerprint {
+            path: parent.to_path_buf(),
+            operation: "create",
+            error,
+        })?;
+    }
+    let stage_id = SHARED_RUNNER_STAGE_ID.fetch_add(1, Ordering::Relaxed);
+    let staged_runner =
+        shared_runner.with_extension(format!("tmp.{}.{}", std::process::id(), stage_id));
+    fs::copy(local_runner, &staged_runner).map_err(|error| BuildError::BuildRunnerFingerprint {
+        path: staged_runner.clone(),
+        operation: "copy",
+        error,
+    })?;
+    make_executable_if_needed(&staged_runner, local_runner)?;
+    match fs::rename(&staged_runner, &shared_runner) {
+        Ok(()) => {}
+        Err(error) if shared_runner.is_file() => {
+            let _ = fs::remove_file(&staged_runner);
+            let _ = error;
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&staged_runner);
+            return Err(BuildError::BuildRunnerFingerprint {
+                path: shared_runner,
+                operation: "rename",
+                error,
+            });
         }
     }
-    out.push('"');
-    out
+    Ok(())
 }
 
-fn run_build_runner(plan: &BuildPlan) -> Result<(), BuildError> {
-    let mut command = Command::new(&plan.runner_executable);
+fn publish_runner(staged_runner: &Path, final_runner: &Path) -> Result<(), BuildError> {
+    match fs::rename(staged_runner, final_runner) {
+        Ok(()) => Ok(()),
+        Err(error) if final_runner.is_file() => {
+            let _ = fs::remove_file(staged_runner);
+            let _ = error;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(staged_runner);
+            Err(BuildError::BuildRunnerFingerprint {
+                path: final_runner.to_path_buf(),
+                operation: "rename",
+                error,
+            })
+        }
+    }
+}
+
+fn make_executable_if_needed(path: &Path, source: &Path) -> Result<(), BuildError> {
+    #[cfg(unix)]
+    {
+        let permissions = fs::metadata(source)
+            .map_err(|error| BuildError::BuildRunnerFingerprint {
+                path: source.to_path_buf(),
+                operation: "metadata",
+                error,
+            })?
+            .permissions();
+        fs::set_permissions(path, permissions).map_err(|error| {
+            BuildError::BuildRunnerFingerprint {
+                path: path.to_path_buf(),
+                operation: "chmod",
+                error,
+            }
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        let _ = source;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceTreeKind {
+    Package,
+    Std,
+}
+
+fn hash_current_executable(hash: &mut StableFingerprint) -> Result<(), BuildError> {
+    let executable = env::current_exe().map_err(|error| BuildError::CurrentExecutable { error })?;
+    hash.path(&executable);
+    let metadata =
+        fs::metadata(&executable).map_err(|error| BuildError::BuildRunnerFingerprint {
+            path: executable.clone(),
+            operation: "metadata",
+            error,
+        })?;
+    hash.bytes(&metadata.len().to_le_bytes());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        hash.bytes(&metadata.mtime().to_le_bytes());
+        hash.bytes(&metadata.mtime_nsec().to_le_bytes());
+    }
+    Ok(())
+}
+
+fn hash_nia_files_relative(
+    hash: &mut StableFingerprint,
+    root: &Path,
+    kind: SourceTreeKind,
+) -> Result<(), BuildError> {
+    let mut files = Vec::new();
+    collect_nia_files(root, kind, &mut files)?;
+    files.sort();
+    for file in files {
+        let relative = file.strip_prefix(root).unwrap_or(&file);
+        hash.path(relative);
+        let text =
+            fs::read_to_string(&file).map_err(|error| BuildError::BuildRunnerFingerprint {
+                path: file.clone(),
+                operation: "read",
+                error,
+            })?;
+        hash.string(&text);
+    }
+    Ok(())
+}
+
+fn collect_nia_files(
+    root: &Path,
+    kind: SourceTreeKind,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), BuildError> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(BuildError::BuildRunnerFingerprint {
+                path: root.to_path_buf(),
+                operation: "read",
+                error,
+            });
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| BuildError::BuildRunnerFingerprint {
+            path: root.to_path_buf(),
+            operation: "read",
+            error,
+        })?;
+        let path = entry.path();
+        let name = entry.file_name();
+        if kind == SourceTreeKind::Package
+            && matches!(name.to_str(), Some(".nia-build" | ".nia-cache"))
+        {
+            continue;
+        }
+        let file_type = entry
+            .file_type()
+            .map_err(|error| BuildError::BuildRunnerFingerprint {
+                path: path.clone(),
+                operation: "read",
+                error,
+            })?;
+        if file_type.is_dir() {
+            collect_nia_files(&path, kind, out)?;
+        } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "nia") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn workspace_std_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .join("lib/std")
+}
+
+struct StableFingerprint {
+    state: u64,
+}
+
+impl StableFingerprint {
+    fn new() -> Self {
+        Self {
+            state: 0xcbf29ce484222325,
+        }
+    }
+
+    fn string(&mut self, text: &str) {
+        self.bytes(&(text.len() as u64).to_le_bytes());
+        self.bytes(text.as_bytes());
+    }
+
+    fn path(&mut self, path: &Path) {
+        self.string(&path.to_string_lossy());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.state ^= u64::from(*byte);
+            self.state = self.state.wrapping_mul(0x100000001b3);
+        }
+    }
+
+    fn finish(self) -> String {
+        format!("{:016x}", self.state)
+    }
+}
+
+fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), BuildError> {
+    let mut command = Command::new(runner_executable);
     command.current_dir(&plan.package_root);
+    command.arg(&plan.package_root);
+    command.arg(&plan.build_dir);
+    command.arg(&plan.cache_dir);
+    command.arg(&plan.toolchain_executable);
     if let Some(step) = plan.step.as_runner_arg() {
         command.arg(step);
     }
     match command.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(BuildError::RunnerFailed {
-            path: plan.runner_executable.clone(),
+            path: runner_executable.to_path_buf(),
             status,
         }),
         Err(error) => Err(BuildError::RunRunner {
-            path: plan.runner_executable.clone(),
+            path: runner_executable.to_path_buf(),
             error,
         }),
     }
+}
+
+struct BuildLock {
+    path: PathBuf,
+    token: String,
+}
+
+impl BuildLock {
+    fn acquire(plan: &BuildPlan) -> Result<Self, BuildError> {
+        const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+
+        fs::create_dir_all(&plan.build_dir).map_err(|error| BuildError::CreateBuildDirectory {
+            path: plan.build_dir.clone(),
+            error,
+        })?;
+        let path = plan.build_dir.join(".lock");
+        let start = Instant::now();
+        let mut sleep = Duration::from_millis(10);
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => {
+                    let token = write_lock_owner(&path, file)?;
+                    return Ok(Self { path, token });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    reclaim_stale_build_lock(&path, STALE_AFTER);
+                }
+                Err(error) => {
+                    return Err(BuildError::AcquireBuildLock {
+                        path: path.clone(),
+                        error,
+                    });
+                }
+            }
+            if start.elapsed() >= STALE_AFTER {
+                reclaim_stale_build_lock(&path, Duration::ZERO);
+            }
+            thread::sleep(sleep);
+            sleep = (sleep * 2).min(Duration::from_millis(250));
+        }
+    }
+}
+
+impl Drop for BuildLock {
+    fn drop(&mut self) {
+        if fs::read_to_string(&self.path).is_ok_and(|current| current.trim_end() == self.token) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+struct SharedRunnerCompileLock {
+    path: PathBuf,
+    token: String,
+}
+
+impl SharedRunnerCompileLock {
+    fn acquire(fingerprint: &str) -> Result<Self, BuildError> {
+        const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+
+        let shared_runner = shared_build_runner_executable(fingerprint);
+        let lock_path = shared_runner.with_extension("compile.lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| BuildError::BuildRunnerFingerprint {
+                path: parent.to_path_buf(),
+                operation: "create",
+                error,
+            })?;
+        }
+        let start = Instant::now();
+        let mut sleep = Duration::from_millis(10);
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(file) => {
+                    let token = write_lock_owner(&lock_path, file)?;
+                    return Ok(Self {
+                        path: lock_path,
+                        token,
+                    });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    reclaim_stale_build_lock(&lock_path, STALE_AFTER);
+                }
+                Err(error) => {
+                    return Err(BuildError::BuildRunnerFingerprint {
+                        path: lock_path.clone(),
+                        operation: "lock",
+                        error,
+                    });
+                }
+            }
+            if start.elapsed() >= STALE_AFTER {
+                reclaim_stale_build_lock(&lock_path, Duration::ZERO);
+            }
+            thread::sleep(sleep);
+            sleep = (sleep * 2).min(Duration::from_millis(250));
+        }
+    }
+}
+
+impl Drop for SharedRunnerCompileLock {
+    fn drop(&mut self) {
+        if fs::read_to_string(&self.path).is_ok_and(|current| current.trim_end() == self.token) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn write_lock_owner(path: &Path, mut file: fs::File) -> Result<String, BuildError> {
+    use std::io::Write as _;
+
+    let pid = std::process::id();
+    let start_time = process_start_time(pid).unwrap_or(0);
+    let token = format!("{}:{}", pid, start_time);
+    writeln!(file, "{token}").map_err(|error| BuildError::AcquireBuildLock {
+        path: path.to_path_buf(),
+        error,
+    })?;
+    Ok(token)
+}
+
+fn reclaim_stale_build_lock(path: &Path, stale_after: Duration) {
+    if build_lock_owner_is_alive(path) {
+        return;
+    };
+    if read_lock_owner(path).is_none() && !build_lock_is_stale_by_age(path, stale_after) {
+        return;
+    }
+    let _ = fs::remove_file(path);
+}
+
+fn build_lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
+    if stale_after == Duration::ZERO {
+        return true;
+    }
+    fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age >= stale_after)
+}
+
+#[cfg(unix)]
+fn build_lock_owner_is_alive(path: &Path) -> bool {
+    let Some((pid, expected_start_time)) = read_lock_owner(path) else {
+        return false;
+    };
+    process_is_alive(pid, expected_start_time)
+}
+
+#[cfg(not(unix))]
+fn build_lock_owner_is_alive(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age < Duration::from_secs(15 * 60))
+}
+
+fn read_lock_owner(path: &Path) -> Option<(u32, u64)> {
+    let owner = fs::read_to_string(path).ok()?;
+    let token = owner.split_whitespace().next()?;
+    let (pid, start_time) = token.split_once(':')?;
+    Some((pid.parse().ok()?, start_time.parse().ok()?))
+}
+
+#[cfg(target_os = "linux")]
+fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
+    let Some(start_time) = process_start_time(pid) else {
+        return false;
+    };
+    expected_start_time == start_time
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn process_start_time(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_start_time(_pid: u32) -> Option<u64> {
+    None
 }
 
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
@@ -462,28 +1002,30 @@ mod tests {
         assert!(runner.source.contains("using std::fs;"));
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using build_script;"));
+        assert!(runner.source.contains("fn path_arg("));
+        assert!(runner.source.contains("fs::Path::from_utf8_into("));
         assert!(runner.source.contains("var api = build::Build::init("));
-        assert!(runner.source.contains("fs::Path::init("));
-        assert!(runner.source.contains(&format!(
-            "fs::Path::init({})",
-            nia_string_literal(root.to_str().expect("utf-8 temp path"))
-        )));
-        assert!(runner.source.contains(&format!(
-            "fs::Path::init({})",
-            nia_string_literal(root.join(".nia-build").to_str().expect("utf-8 build path"))
-        )));
-        assert!(runner.source.contains(&format!(
-            "fs::Path::init({})",
-            nia_string_literal(root.join(".nia-cache").to_str().expect("utf-8 cache path"))
-        )));
-        assert!(runner.source.contains(&format!(
-            "fs::Path::init({})",
-            nia_string_literal(
-                plan.toolchain_executable
-                    .to_str()
-                    .expect("utf-8 toolchain executable path")
-            )
-        )));
+        assert!(
+            runner
+                .source
+                .contains("path_arg(init, &mut allocator, 1usize")
+        );
+        assert!(
+            runner
+                .source
+                .contains("path_arg(init, &mut allocator, 2usize")
+        );
+        assert!(
+            runner
+                .source
+                .contains("path_arg(init, &mut allocator, 3usize")
+        );
+        assert!(
+            runner
+                .source
+                .contains("path_arg(init, &mut allocator, 4usize")
+        );
+        assert!(runner.source.contains("5usize,"));
         assert!(
             runner
                 .source
@@ -527,8 +1069,131 @@ mod tests {
     }
 
     #[test]
-    fn escapes_paths_in_generated_runner_source() {
-        let root = temp_root("escapes_paths_in_generated_runner_source");
+    fn build_lock_serializes_same_package_root() {
+        let root = temp_root("build_lock_serializes_same_package_root");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let first = BuildLock::acquire(&plan).expect("first build lock");
+        let second_plan = plan.clone();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            ready_tx.send(()).expect("send ready");
+            let second = BuildLock::acquire(&second_plan).expect("second build lock");
+            release_tx.send(()).expect("send acquired");
+            drop(second);
+        });
+
+        ready_rx.recv().expect("second thread ready");
+        assert!(
+            release_rx
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err()
+        );
+        drop(first);
+        release_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("second lock acquired after first release");
+        handle.join().expect("second lock thread");
+    }
+
+    #[test]
+    fn parses_build_lock_owner_token() {
+        let root = temp_root("parses_build_lock_owner_token");
+        let lock = root.join(".lock");
+        std::fs::write(&lock, "123:456\n").expect("write lock");
+
+        assert_eq!(read_lock_owner(&lock), Some((123, 456)));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn build_lock_owner_rejects_reused_pid_with_different_start_time() {
+        let root = temp_root("build_lock_owner_rejects_reused_pid_with_different_start_time");
+        let lock = root.join(".lock");
+        let pid = std::process::id();
+        let current_start_time = process_start_time(pid).expect("current process start time");
+        std::fs::write(&lock, format!("{pid}:{}\n", current_start_time + 1)).expect("write lock");
+
+        assert!(!build_lock_owner_is_alive(&lock));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn reclaim_stale_build_lock_removes_dead_owner_without_age_delay() {
+        let root = temp_root("reclaim_stale_build_lock_removes_dead_owner_without_age_delay");
+        let lock = root.join(".lock");
+        let pid = std::process::id();
+        let current_start_time = process_start_time(pid).expect("current process start time");
+        std::fs::write(&lock, format!("{pid}:{}\n", current_start_time + 1)).expect("write lock");
+
+        reclaim_stale_build_lock(&lock, Duration::from_secs(15 * 60));
+
+        assert!(!lock.exists());
+    }
+
+    #[test]
+    fn build_runner_fingerprint_tracks_package_nia_sources() {
+        let root = temp_root("build_runner_fingerprint_tracks_package_nia_sources");
+        std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let before = build_runner_fingerprint(&plan, &runner).expect("fingerprint before");
+
+        std::fs::write(root.join("helper.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write helper");
+        let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
+
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn build_runner_fingerprint_is_independent_of_package_root_path() {
+        let first = temp_root("build_runner_fingerprint_is_independent_of_package_root_path_first");
+        let second =
+            temp_root("build_runner_fingerprint_is_independent_of_package_root_path_second");
+        std::fs::create_dir_all(first.join("src")).expect("create first src");
+        std::fs::create_dir_all(second.join("src")).expect("create second src");
+        for root in [&first, &second] {
+            std::fs::write(root.join("build.nia"), "using std::build;\n")
+                .expect("write build script");
+            std::fs::write(root.join("src/helper.nia"), "pub fn value() i32 { 1 }\n")
+                .expect("write helper");
+        }
+        let first_plan =
+            resolve_build_plan(BuildRequest::new().with_root(&first)).expect("first build plan");
+        let second_plan =
+            resolve_build_plan(BuildRequest::new().with_root(&second)).expect("second build plan");
+        let first_runner = build_runner_source(&first_plan).expect("first runner source");
+        let second_runner = build_runner_source(&second_plan).expect("second runner source");
+
+        assert_eq!(
+            build_runner_fingerprint(&first_plan, &first_runner).expect("first fingerprint"),
+            build_runner_fingerprint(&second_plan, &second_runner).expect("second fingerprint"),
+        );
+    }
+
+    #[test]
+    fn build_runner_cache_is_keyed_by_fingerprint_path() {
+        let root = temp_root("build_runner_cache_is_keyed_by_fingerprint_path");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let first = local_build_runner_executable(&plan, "abc");
+        let second = local_build_runner_executable(&plan, "def");
+
+        assert_ne!(first, second);
+        assert!(!build_runner_cache_valid(&first));
+
+        std::fs::create_dir_all(first.parent().expect("runner parent")).expect("create runner dir");
+        std::fs::write(&first, "").expect("write runner executable");
+
+        assert!(build_runner_cache_valid(&first));
+        assert!(!build_runner_cache_valid(&second));
+    }
+
+    #[test]
+    fn generated_runner_source_does_not_embed_package_paths() {
+        let root = temp_root("generated_runner_source_does_not_embed_package_paths");
         let package_root = root.join("quote\"slash\\tab\t");
         std::fs::create_dir_all(&package_root).expect("create package root");
         std::fs::write(package_root.join("build.nia"), "").expect("write build script");
@@ -537,9 +1202,12 @@ mod tests {
             resolve_build_plan(BuildRequest::new().with_root(&package_root)).expect("build plan");
         let runner = build_runner_source(&plan).expect("build runner source");
 
-        assert!(runner.source.contains("\\\""));
-        assert!(runner.source.contains("\\\\"));
-        assert!(runner.source.contains("\\t"));
+        assert!(
+            !runner
+                .source
+                .contains(&package_root.to_string_lossy().to_string())
+        );
+        assert!(!runner.source.contains("quote\\\"slash"));
     }
 
     fn temp_root(name: &str) -> PathBuf {

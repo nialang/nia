@@ -67,6 +67,7 @@ pub struct Build {
     build_dir: fs::Path,
     cache_dir: fs::Path,
     toolchain_executable: fs::Path,
+    step_arg_index: usize,
     default_step: ?StepHandle,
     steps: collections::ArrayList[Step],
     dependencies: collections::ArrayList[StepDependency],

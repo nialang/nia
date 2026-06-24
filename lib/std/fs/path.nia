@@ -11,6 +11,25 @@ extend Path {
         { text: text }
     }
 
+    pub fn from_utf8_into(
+        allocator: &mut mem::Allocator,
+        bytes: &[u8],
+        out: &mut collections::ArrayList[char],
+    ) Error!Path {
+        out.clear_retaining_capacity();
+        var index = 0usize;
+        while index < bytes.len() {
+            let decoded = if let ?value = unicode::utf8_decode_first(&bytes[index..]) {
+                value
+            } else null {
+                return Error::Invalid!;
+            };
+            out.push(allocator, decoded.char()).as_fs_error().?;
+            index += decoded.len();
+        }
+        !Path::init(out.as_slice())
+    }
+
     pub fn text(&self) &[char] {
         self.text
     }
