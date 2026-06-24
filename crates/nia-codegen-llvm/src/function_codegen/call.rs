@@ -89,6 +89,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     receiver,
                     nia_function_ir::FunctionRangeBound::End,
                 ),
+                nia_function_ir::FunctionBuiltinMethod::ToChar => Err(self.error(
+                    expr.span,
+                    "`to_char` builtin method must be lowered as an expression",
+                )),
             };
         }
         if let FunctionCallee::BuiltinPlaceMethod {

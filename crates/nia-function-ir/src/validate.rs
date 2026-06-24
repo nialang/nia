@@ -384,6 +384,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Splat { value: inner }
             | FunctionExprKind::Bitmask { vector: inner }
             | FunctionExprKind::BitIntrinsic { value: inner, .. }
+            | FunctionExprKind::CharFromU32 { value: inner }
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {

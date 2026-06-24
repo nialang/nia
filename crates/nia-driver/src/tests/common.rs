@@ -166,6 +166,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
+        | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::StaticArrayPointer { array: expr, .. } => {
             function_expr_contains_builtin_eq(expr)
         }

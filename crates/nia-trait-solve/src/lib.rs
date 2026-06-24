@@ -41,6 +41,13 @@ pub enum TraitResolution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TraitSelection {
+    User(UserImpl),
+    Unsatisfied,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrinsicImpl {
     pub goal: TraitGoal,
 }
@@ -225,6 +232,7 @@ where
             BuiltinTrait::Len => self.can_have_len(self_ty),
             BuiltinTrait::Start => self.can_have_range_start(self_ty),
             BuiltinTrait::End => self.can_have_range_end(self_ty),
+            BuiltinTrait::ToChar => self.can_convert_to_char(self_ty),
             BuiltinTrait::Iterator => false,
         }
     }
@@ -486,6 +494,13 @@ where
         }
     }
 
+    fn can_convert_to_char(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::GenericParam(_) | TyKind::Primitive(PrimitiveTy::U32))
+        )
+    }
+
     fn normalize(&self, ty: InternedTyId) -> InternedTyId {
         self.normalization.normalize(ty)
     }
@@ -518,17 +533,31 @@ where
         {
             return TraitResolution::Assumed(goal);
         }
-        let user_impls = self.matching_user_impls(&goal);
-        if user_impls.len() > 1 {
-            return TraitResolution::Ambiguous;
-        }
-        if let Some(user_impl) = user_impls.into_iter().next() {
-            return TraitResolution::User(user_impl);
+        match self.select_user_impl_for_normalized_goal(&goal) {
+            TraitSelection::User(user_impl) => return TraitResolution::User(user_impl),
+            TraitSelection::Ambiguous => return TraitResolution::Ambiguous,
+            TraitSelection::Unsatisfied => {}
         }
         if self.intrinsic_trait_impl_exists(&goal) {
             return TraitResolution::Intrinsic(IntrinsicImpl { goal });
         }
         TraitResolution::Unsatisfied
+    }
+
+    pub fn select_user_impl(&mut self, goal: TraitGoal) -> TraitSelection {
+        let goal = self.normalize_goal(goal);
+        self.select_user_impl_for_normalized_goal(&goal)
+    }
+
+    fn select_user_impl_for_normalized_goal(&mut self, goal: &TraitGoal) -> TraitSelection {
+        let user_impls = self.matching_user_impls(&goal);
+        if user_impls.len() > 1 {
+            return TraitSelection::Ambiguous;
+        }
+        if let Some(user_impl) = user_impls.into_iter().next() {
+            return TraitSelection::User(user_impl);
+        }
+        TraitSelection::Unsatisfied
     }
 
     pub fn proves(&mut self, goal: TraitGoal) -> bool {
@@ -735,6 +764,7 @@ where
             BuiltinTrait::End => {
                 goal.trait_args.is_empty() && self.intrinsic_range_end_output_ty(self_ty).is_some()
             }
+            BuiltinTrait::ToChar => goal.trait_args.is_empty() && self.intrinsic_to_char(self_ty),
             BuiltinTrait::Iterator => false,
         }
     }
@@ -838,6 +868,13 @@ where
             }
             _ => None,
         }
+    }
+
+    fn intrinsic_to_char(&mut self, self_ty: InternedTyId) -> bool {
+        matches!(
+            self.kind(self_ty),
+            Some(TyKind::Primitive(PrimitiveTy::U32))
+        )
     }
 
     pub fn intrinsic_deref_target_ty(

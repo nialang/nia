@@ -24,6 +24,7 @@ use nia_function_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
+    IntPredicate,
     builder::Builder,
     types::BasicTypeEnum,
     values::{BasicValueEnum, FunctionValue, PointerValue},
@@ -370,6 +371,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::BitIntrinsic { op, value } => {
                 self.emit_bit_intrinsic(expr, *op, value)
             }
+            FunctionExprKind::CharFromU32 { value } => self.emit_char_from_u32(expr, value),
             FunctionExprKind::StaticArrayPointer { array, .. } => {
                 self.emit_static_array_pointer(expr.span, array)
             }
@@ -589,6 +591,97 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         call.try_as_basic_value()
             .unwrap_basic()
             .map_err(|_| self.error(expr.span, "bit intrinsic did not produce a value"))
+    }
+
+    fn emit_char_from_u32(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let value = self.emit_expr(value)?.into_int_value()?;
+        let i32_ty = self.module.context.i32_type();
+        let max = i32_ty.const_int(0x10ffff, false);
+        let surrogate_start = i32_ty.const_int(0xd800, false);
+        let surrogate_end = i32_ty.const_int(0xdfff, false);
+        let in_range = self
+            .builder
+            .build_int_compare(IntPredicate::ULE, value, max, "char.range")
+            .map_err(|_| self.error(expr.span, "failed to check char range"))?;
+        let before_surrogates = self
+            .builder
+            .build_int_compare(
+                IntPredicate::ULT,
+                value,
+                surrogate_start,
+                "char.before_surrogate",
+            )
+            .map_err(|_| self.error(expr.span, "failed to check char surrogate range"))?;
+        let after_surrogates = self
+            .builder
+            .build_int_compare(
+                IntPredicate::UGT,
+                value,
+                surrogate_end,
+                "char.after_surrogate",
+            )
+            .map_err(|_| self.error(expr.span, "failed to check char surrogate range"))?;
+        let not_surrogate = self
+            .builder
+            .build_or(before_surrogates, after_surrogates, "char.not_surrogate")
+            .map_err(|_| self.error(expr.span, "failed to combine char validity"))?;
+        let valid = self
+            .builder
+            .build_and(in_range, not_surrogate, "char.valid")
+            .map_err(|_| self.error(expr.span, "failed to combine char validity"))?;
+        let optional_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let out = self
+            .builder
+            .build_alloca(optional_ty, "char.optional")
+            .map_err(|_| self.error(expr.span, "failed to allocate char optional"))?;
+        let tag_ptr = self
+            .builder
+            .build_struct_gep(optional_ty, out, 0, "char.optional.tag")
+            .map_err(|_| self.error(expr.span, "failed to build char optional tag"))?;
+        let tag = self
+            .builder
+            .build_select(
+                valid.into(),
+                self.module
+                    .context
+                    .i8_type()
+                    .const_int(
+                        nia_function_ir::FunctionOptionalTag::Some
+                            .discriminant()
+                            .into(),
+                        false,
+                    )
+                    .into(),
+                self.module
+                    .context
+                    .i8_type()
+                    .const_int(
+                        nia_function_ir::FunctionOptionalTag::Null
+                            .discriminant()
+                            .into(),
+                        false,
+                    )
+                    .into(),
+                "char.optional.tag",
+            )
+            .map_err(|_| self.error(expr.span, "failed to select char optional tag"))?;
+        self.builder
+            .build_store(tag_ptr, tag)
+            .map_err(|_| self.error(expr.span, "failed to store char optional tag"))?;
+        let payload_ptr = self
+            .builder
+            .build_struct_gep(optional_ty, out, 1, "char.optional.payload")
+            .map_err(|_| self.error(expr.span, "failed to build char optional payload"))?;
+        self.builder
+            .build_store(payload_ptr, value)
+            .map_err(|_| self.error(expr.span, "failed to store char optional payload"))?;
+        self.builder
+            .build_load(optional_ty, out, "char.optional")
+            .map_err(|_| self.error(expr.span, "failed to load char optional"))
     }
 
     fn emit_trait_object_coercion(

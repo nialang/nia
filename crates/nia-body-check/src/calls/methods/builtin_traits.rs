@@ -495,6 +495,11 @@ impl<'a> BodyChecker<'a> {
         if matches!(trait_id, BuiltinTrait::Len) {
             return self.primitive(PrimitiveTy::Usize);
         }
+        if matches!(trait_id, BuiltinTrait::ToChar) {
+            return self.interner.intern(TyKind::Optional {
+                elem: self.primitive(PrimitiveTy::Char),
+            });
+        }
         if matches!(
             trait_id,
             BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
@@ -551,6 +556,7 @@ fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod>
         BuiltinTraitMethod::Len => Some(BuiltinMethod::Len),
         BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
         BuiltinTraitMethod::End => Some(BuiltinMethod::End),
+        BuiltinTraitMethod::ToChar => Some(BuiltinMethod::ToChar),
         _ => None,
     }
 }

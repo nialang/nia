@@ -9,6 +9,7 @@ use nia_function_ir::{
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
+use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn resolve_builtin_operator_calls_in_body(
@@ -350,6 +351,9 @@ impl<'a> ModuleLowerer<'a> {
                     op,
                     value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
                 },
+                FunctionExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
+                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                },
                 FunctionExprKind::AddrOf(place) => {
                     FunctionExprKind::AddrOf(self.resolve_builtin_operator_calls_in_place(place))
                 }
@@ -580,6 +584,22 @@ impl<'a> ModuleLowerer<'a> {
                             receiver,
                         }
                     } else {
+                        if self.trait_method_call_requires_concrete_impl(
+                            self_ty,
+                            trait_id,
+                            &trait_args,
+                            &args,
+                        ) {
+                            self.diagnostics
+                                .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
+                                    format!(
+                                        "no visible implementation found for trait method call `{method_name}`"
+                                    ),
+                                )
+                                .primary(receiver.span, format!("no implementation matched `{method_name}` for this receiver"))
+                                .debug("trait_id", trait_id)
+                                .finish());
+                        }
                         FunctionCallee::TraitMethod {
                             trait_id,
                             method_id,
@@ -639,6 +659,22 @@ impl<'a> ModuleLowerer<'a> {
                             args: instance_args,
                         }
                     } else {
+                        if self.trait_method_call_requires_concrete_impl(
+                            self_ty,
+                            trait_id,
+                            &trait_args,
+                            &args,
+                        ) {
+                            self.diagnostics.push(
+                                nia_diagnostic::Diagnostic::user_error(
+                                    nia_diagnostic::codes::LLVM_CODEGEN,
+                                    format!(
+                                        "no visible implementation found for trait associated function call `{method_name}`"
+                                    ),
+                                )
+                                .finish(),
+                            );
+                        }
                         FunctionCallee::TraitAssociatedFunction {
                             trait_id,
                             method_id,
@@ -951,6 +987,11 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         }
+        if method == FunctionBuiltinMethod::ToChar && self.is_u32(self_ty) {
+            return FunctionExprKind::CharFromU32 {
+                value: Box::new(receiver),
+            };
+        }
         FunctionExprKind::Call {
             callee: FunctionCallee::BuiltinMethod {
                 method,
@@ -959,6 +1000,14 @@ impl<'a> ModuleLowerer<'a> {
             },
             args,
         }
+    }
+
+    fn is_u32(&self, ty: InternedTyId) -> bool {
+        let ty = self.input.type_normalization.normalize(ty);
+        matches!(
+            self.type_context.active_interner_for_type(ty).get(ty),
+            Some(TyKind::Primitive(PrimitiveTy::U32))
+        )
     }
 
     fn resolve_builtin_operator_impl_method(
@@ -1065,5 +1114,6 @@ fn builtin_method_trait(
         FunctionBuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
         FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
+        FunctionBuiltinMethod::ToChar => Some((BuiltinTrait::ToChar, BuiltinTraitMethod::ToChar)),
     }
 }

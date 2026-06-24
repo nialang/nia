@@ -333,6 +333,9 @@ impl<'a> ModuleLowerer<'a> {
                     op,
                     value: Box::new(self.instantiate_expr(*value, substitutions)),
                 },
+                FunctionExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
+                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                },
                 FunctionExprKind::ExtractElement { vector, index } => {
                     FunctionExprKind::ExtractElement {
                         vector: Box::new(self.instantiate_expr(*vector, substitutions)),
@@ -906,6 +909,9 @@ impl<'a> ModuleLowerer<'a> {
         if let Some(candidate) = self.current_impl_trait_method(&key, trait_args, self_ty) {
             return Some(candidate);
         }
+        if let Some(candidate) = self.selected_user_trait_method_impl(&key, trait_args, self_ty) {
+            return Some(candidate);
+        }
         let candidates = self.program_extension_trait_method_candidates(&key);
         let candidates = candidates
             .iter()
@@ -992,12 +998,12 @@ impl<'a> ModuleLowerer<'a> {
     ) -> bool {
         let specific_target = nia_ty::import_type_into(
             &mut self.type_context.interner,
-            &specific.source_interner,
+            &specific.type_interner,
             specific.target_ty,
         );
         let general_target = nia_ty::import_type_into(
             &mut self.type_context.interner,
-            &general.source_interner,
+            &general.type_interner,
             general.target_ty,
         );
         let target_subsumes = self.extension_pattern_subsumes(general_target, specific_target);
@@ -1007,12 +1013,12 @@ impl<'a> ModuleLowerer<'a> {
             |(specific_arg, general_arg)| {
                 let specific_arg = nia_ty::import_type_into(
                     &mut self.type_context.interner,
-                    &specific.source_interner,
+                    &specific.type_interner,
                     *specific_arg,
                 );
                 let general_arg = nia_ty::import_type_into(
                     &mut self.type_context.interner,
-                    &general.source_interner,
+                    &general.type_interner,
                     *general_arg,
                 );
                 any_strict |=

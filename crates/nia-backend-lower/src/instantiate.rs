@@ -332,6 +332,7 @@ impl<'a> ModuleLowerer<'a> {
             instantiation_module_id,
             body_interner,
             substitutions,
+            !is_instance || type_arg_count == 0,
         );
         if instantiation_module_id != self.input.module_id
             && let Some((extensions, interner)) =
@@ -395,7 +396,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<HashMap<String, InternedTyId>> {
         let mut substitutions = HashMap::new();
         let target_ty =
-            self.import_type_from_known_interner(&candidate.source_interner, candidate.target_ty);
+            self.import_type_from_known_interner(&candidate.type_interner, candidate.target_ty);
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
@@ -405,7 +406,7 @@ impl<'a> ModuleLowerer<'a> {
         let candidate_trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.import_type_from_known_interner(&candidate.source_interner, *arg))
+            .map(|arg| self.import_type_from_known_interner(&candidate.type_interner, *arg))
             .collect::<Vec<_>>();
         if !candidate_trait_args
             .iter()
@@ -516,20 +517,11 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         method_args: &[InternedTyId],
     ) -> bool {
+        if self.instantiation.defer_concrete_trait_diagnostics {
+            return false;
+        }
         self.trait_method_call_is_concrete(self_ty, trait_args, method_args)
-            && !self
-                .current_trait_assumptions()
-                .into_iter()
-                .any(|assumption| {
-                    assumption.trait_id == TraitId::Source(trait_id)
-                        && self.types_match(assumption.self_ty, self_ty)
-                        && assumption.trait_args.len() == trait_args.len()
-                        && assumption
-                            .trait_args
-                            .iter()
-                            .zip(trait_args)
-                            .all(|(assumed, required)| self.types_match(*assumed, *required))
-                })
+            && !self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
     }
 
     pub(crate) fn default_trait_method_self_arg(

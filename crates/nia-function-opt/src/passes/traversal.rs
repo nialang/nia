@@ -159,6 +159,7 @@ where
         | FunctionExprKind::Splat { value: expr }
         | FunctionExprKind::Bitmask { vector: expr }
         | FunctionExprKind::BitIntrinsic { value: expr, .. }
+        | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }

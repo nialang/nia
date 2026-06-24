@@ -16,6 +16,7 @@ pub(crate) struct BackendInstantiationContext<'a> {
     pub(crate) instantiation_module_id: Option<ModuleId>,
     pub(crate) body_interner: Option<&'a nia_ty::TyInterner>,
     pub(crate) type_substitutions: Option<TypeSubstitutionId>,
+    pub(crate) defer_concrete_trait_diagnostics: bool,
 }
 
 pub(crate) struct BackendInstantiationSnapshot<'a> {
@@ -28,6 +29,7 @@ pub(crate) struct BackendInstantiationSnapshot<'a> {
     instantiation_module_id: Option<ModuleId>,
     body_interner: Option<&'a nia_ty::TyInterner>,
     type_substitutions: Option<TypeSubstitutionId>,
+    defer_concrete_trait_diagnostics: bool,
 }
 
 impl<'a> BackendInstantiationContext<'a> {
@@ -39,6 +41,7 @@ impl<'a> BackendInstantiationContext<'a> {
             instantiation_module_id: self.instantiation_module_id.take(),
             body_interner: self.body_interner.take(),
             type_substitutions: self.type_substitutions.take(),
+            defer_concrete_trait_diagnostics: self.defer_concrete_trait_diagnostics,
         }
     }
 
@@ -49,6 +52,7 @@ impl<'a> BackendInstantiationContext<'a> {
         self.instantiation_module_id = snapshot.instantiation_module_id;
         self.body_interner = snapshot.body_interner;
         self.type_substitutions = snapshot.type_substitutions;
+        self.defer_concrete_trait_diagnostics = snapshot.defer_concrete_trait_diagnostics;
     }
 
     pub(crate) fn set_function_scope(
@@ -66,10 +70,12 @@ impl<'a> BackendInstantiationContext<'a> {
         instantiation_module_id: ModuleId,
         body_interner: Option<&'a nia_ty::TyInterner>,
         type_substitutions: TypeSubstitutionId,
+        defer_concrete_trait_diagnostics: bool,
     ) {
         self.function = Some(function);
         self.instantiation_module_id = Some(instantiation_module_id);
         self.body_interner = body_interner;
         self.type_substitutions = Some(type_substitutions);
+        self.defer_concrete_trait_diagnostics = defer_concrete_trait_diagnostics;
     }
 }

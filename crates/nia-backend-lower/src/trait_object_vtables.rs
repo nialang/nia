@@ -201,6 +201,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Splat { value: inner }
             | FunctionExprKind::Bitmask { vector: inner }
             | FunctionExprKind::BitIntrinsic { value: inner, .. }
+            | FunctionExprKind::CharFromU32 { value: inner }
             | FunctionExprKind::Unary { expr: inner, .. } => {
                 self.collect_trait_object_vtables_from_expr(inner, out, seen);
             }

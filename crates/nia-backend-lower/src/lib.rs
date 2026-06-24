@@ -427,6 +427,7 @@ pub(crate) struct ModuleLowerer<'a> {
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
+    extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     trait_context: trait_context::BackendTraitContext,
     instantiation: instantiation_context::BackendInstantiationContext<'a>,
     foreign_function_refs: Vec<GlobalDefId>,
@@ -459,7 +460,13 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
     impl_generics: Vec<String>,
-    source_interner: nia_ty::TyInterner,
+    type_interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ExtensionMethodSource {
+    where_predicates: Vec<WherePredicateSignature>,
+    interner: nia_ty::TyInterner,
 }
 
 pub(crate) struct BackendLowerShared {
@@ -579,6 +586,7 @@ impl<'a> ModuleLowerer<'a> {
             extension_generics_by_method: index_extension_generics_by_method(
                 input.program_extension_methods,
             ),
+            extension_method_sources_by_def: index_extension_method_sources_by_def(input),
             trait_context: trait_context::BackendTraitContext::new(input),
             instantiation: instantiation_context::BackendInstantiationContext::default(),
             foreign_function_refs: Vec::new(),
@@ -1276,6 +1284,38 @@ fn index_extension_generics_by_method(
     generics_by_method
 }
 
+fn index_extension_method_sources_by_def(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<GlobalDefId, ExtensionMethodSource> {
+    let mut sources = HashMap::new();
+    if let Some(interner) = input.extension_interner {
+        for target in input.extensions.targets() {
+            for method in &target.methods {
+                sources.insert(
+                    method.def_id,
+                    ExtensionMethodSource {
+                        where_predicates: method.where_predicates.clone(),
+                        interner: interner.clone(),
+                    },
+                );
+            }
+        }
+    }
+    let type_normalizations = input.program_type_normalizations;
+    for method in input.program_extension_methods.all_methods() {
+        let Some(type_normalization) = type_normalizations.get(&method.def_id.module_id) else {
+            continue;
+        };
+        sources
+            .entry(method.def_id)
+            .or_insert_with(|| ExtensionMethodSource {
+                where_predicates: method.where_predicates.clone(),
+                interner: type_normalization.interner.clone(),
+            });
+    }
+    sources
+}
+
 fn index_input_type_interner_snapshots(
     modules: &[BackendLowerModuleInput<'_>],
     monomorphization: &Monomorphization,
@@ -1374,7 +1414,7 @@ fn index_extension_trait_method_candidates(
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     impl_generics: method.impl_generics.clone(),
-                    source_interner: source_interner.clone(),
+                    type_interner: source_interner.clone(),
                 });
         }
     }
@@ -1403,7 +1443,13 @@ fn index_program_extension_trait_method_candidates(
         let Some(trait_id) = method.trait_id else {
             continue;
         };
-        let Some(impl_signature) = impls.get(&(method.def_id.module_id, method.impl_id)) else {
+        if !impls.contains_key(&(method.def_id.module_id, method.impl_id)) {
+            continue;
+        };
+        let Some(type_normalization) = input
+            .program_type_normalizations
+            .get(&method.def_id.module_id)
+        else {
             continue;
         };
         candidates
@@ -1419,7 +1465,7 @@ fn index_program_extension_trait_method_candidates(
                 trait_args: method.trait_args.clone(),
                 where_predicates: method.where_predicates.clone(),
                 impl_generics: method.impl_generics.clone(),
-                source_interner: impl_signature.interner.clone(),
+                type_interner: type_normalization.interner.clone(),
             });
     }
     candidates

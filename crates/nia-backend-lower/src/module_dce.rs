@@ -60,7 +60,7 @@ impl<'a> ModuleLowerer<'a> {
         for instance in function_instances.iter() {
             if !removable_instances.contains(&FunctionInstanceKey::from(instance)) {
                 collect_function_refs_from_optional_body(
-                    self.input.module_id,
+                    instance.arg_module_id,
                     &instance.function_body,
                     &mut refs,
                 );

@@ -341,6 +341,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::BitIntrinsic { value: expr, .. }
+            | FunctionExprKind::CharFromU32 { value: expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
@@ -944,6 +945,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Splat { value: expr }
             | FunctionExprKind::Bitmask { vector: expr }
             | FunctionExprKind::BitIntrinsic { value: expr, .. }
+            | FunctionExprKind::CharFromU32 { value: expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }

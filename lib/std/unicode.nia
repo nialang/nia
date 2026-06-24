@@ -3,6 +3,11 @@ pub struct Utf8 {
     len: usize,
 }
 
+pub struct Utf8Decode {
+    char: char,
+    len: usize,
+}
+
 extend Utf8 {
     pub fn init(bytes: [4]u8, len: usize) Utf8 {
         { bytes: bytes, len: len }
@@ -17,7 +22,29 @@ extend Utf8 {
     }
 }
 
+extend Utf8Decode {
+    pub fn init(char: char, len: usize) Utf8Decode {
+        { char: char, len: len }
+    }
+
+    pub fn char(&self) char {
+        self.char
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+}
+
 extend char {
+    pub fn from_u32(value: u32) ?char {
+        value.to_char()
+    }
+
+    pub fn codepoint(self) u32 {
+        self as u32
+    }
+
     pub fn encode_utf8(self) Utf8 {
         let code = self as u32;
         if code <= 127u32 {
@@ -44,5 +71,72 @@ extend char {
                 128u8 + (code % 64u32) as u8,
             ], 4)
         }
+    }
+}
+
+extend u32 {
+    pub fn is_valid_char(self) bool {
+        is_valid_scalar_value(self)
+    }
+}
+
+pub fn is_valid_scalar_value(value: u32) bool {
+    value <= 0x10ffffu32 and not (value >= 0xd800u32 and value <= 0xdfffu32)
+}
+
+pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
+    if bytes.len() == 0usize {
+        return null;
+    }
+    let first = bytes[0];
+    var code: u32;
+    var width: usize;
+    if first < 0x80u8 {
+        code = first as u32;
+        width = 1usize;
+    } else if (first & 0xe0u8) == 0xc0u8 {
+        code = (first & 0x1fu8) as u32;
+        width = 2usize;
+    } else if (first & 0xf0u8) == 0xe0u8 {
+        code = (first & 0x0fu8) as u32;
+        width = 3usize;
+    } else if (first & 0xf8u8) == 0xf0u8 {
+        code = (first & 0x07u8) as u32;
+        width = 4usize;
+    } else {
+        return null;
+    }
+    if bytes.len() < width {
+        return null;
+    }
+    var index = 1usize;
+    while index < width {
+        let continuation = bytes[index];
+        if (continuation & 0xc0u8) != 0x80u8 {
+            return null;
+        }
+        code = (code << 6u32) | ((continuation & 0x3fu8) as u32);
+        index += 1usize;
+    }
+    if not is_valid_utf8_scalar_for_width(code, width) {
+        return null;
+    }
+    if let ?ch = code.to_char() {
+        ?Utf8Decode::init(ch, width)
+    } else null {
+        null
+    }
+}
+
+fn is_valid_utf8_scalar_for_width(code: u32, width: usize) bool {
+    if not is_valid_scalar_value(code) {
+        return false;
+    }
+    switch width {
+        1usize => code <= 0x7fu32,
+        2usize => code >= 0x80u32 and code <= 0x7ffu32,
+        3usize => code >= 0x800u32 and code <= 0xffffu32,
+        4usize => code >= 0x10000u32 and code <= 0x10ffffu32,
+        _ => false,
     }
 }
