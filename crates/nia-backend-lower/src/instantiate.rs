@@ -505,18 +505,11 @@ impl<'a> ModuleLowerer<'a> {
         &candidate.impl_generics
     }
 
-    pub(crate) fn candidate_type_interner(
+    pub(crate) fn candidate_type_interner<'b>(
         &self,
-        candidate: &ExtensionTraitMethodCandidate,
-    ) -> &nia_ty::TyInterner {
-        self.type_context
-            .input_interner_by_id(candidate.type_interner_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: missing backend extension candidate type interner {:?}",
-                    candidate.type_interner_id
-                )
-            })
+        candidate: &'b ExtensionTraitMethodCandidate,
+    ) -> &'b nia_ty::TyInterner {
+        &candidate.interner
     }
 
     pub(crate) fn trait_method_call_is_concrete(

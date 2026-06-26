@@ -213,6 +213,7 @@ pub struct ComptimeProgramContext<'a> {
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
+    pub comptime_values: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeValues>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
@@ -231,6 +232,7 @@ impl fmt::Debug for ComptimeProgramContext<'_> {
             )
             .field("signatures", &self.signatures.is_some())
             .field("value_signatures", &self.value_signatures.is_some())
+            .field("comptime_values", &self.comptime_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
             .field("program_enums", &self.program_enums.len())
             .field("trait_impls", &self.trait_impls.len())
@@ -248,6 +250,7 @@ impl<'a> ComptimeProgramContext<'a> {
             value_type_normalizations: None,
             signatures: None,
             value_signatures: None,
+            comptime_values: None,
             global_initializer: None,
             program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],

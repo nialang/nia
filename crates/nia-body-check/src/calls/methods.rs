@@ -33,6 +33,7 @@ pub(super) struct MethodGenericContext<'a> {
 #[derive(Clone)]
 pub(super) struct TraitMethodCandidate {
     pub(super) trait_id: GlobalDefId,
+    pub(super) trait_method_id: GlobalDefId,
     pub(super) method_id: GlobalDefId,
     pub(super) self_ty: InternedTyId,
     pub(super) trait_generics: Vec<String>,
@@ -164,18 +165,23 @@ impl<'a> BodyChecker<'a> {
         dynamic_candidates: Vec<DynamicTraitMethodCandidate>,
     ) -> Option<InternedTyId> {
         let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
+        let viable_candidates = self.viable_method_candidates(&call, &candidates);
+        let trait_candidates = if trait_candidates.is_empty() && viable_candidates.is_empty() {
+            self.trait_method_candidates_for_receiver(receiver_ty, call.name)
+        } else {
+            trait_candidates
+        };
         if !dynamic_candidates.is_empty() {
             return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
         }
-        if candidates.is_empty() && !trait_candidates.is_empty() {
+        if viable_candidates.is_empty() && !trait_candidates.is_empty() {
             return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
         }
-        if candidates.is_empty()
+        if viable_candidates.is_empty()
             && let Some(return_ty) = self.check_builtin_trait_method_call_with_receiver_ty(&call)
         {
             return Some(return_ty);
         }
-        let viable_candidates = self.viable_method_candidates(&call, &candidates);
         let candidate = self.single_method_candidate(call.span, call.name, &viable_candidates)?;
         let method_id = candidate.method.def_id;
         let Some(signature) = self
