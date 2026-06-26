@@ -9,6 +9,7 @@ license.workspace = true
 nia-build.workspace = true
 nia-driver.workspace = true
 nia-ice.workspace = true
+nia-loader-query.workspace = true
 nia-linker.workspace = true
 
 [[bin]]

@@ -188,6 +188,7 @@ version = "0.4.3"
 dependencies = [
  "nia-driver",
  "nia-imports",
+ "nia-loader-query",
  "nia-source",
 ]
 
@@ -199,6 +200,7 @@ dependencies = [
  "nia-driver",
  "nia-ice",
  "nia-linker",
+ "nia-loader-query",
 ]
 
 [[package]]
