@@ -5,8 +5,9 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
-    EnumSignature, FieldSignature, ItemSignatures, ProgramStructSignature, ProgramUnionSignature,
-    StructSignature, UnionSignature,
+    EnumSignature, FieldSignature, ItemSignatures, ProgramEnumSignature, ProgramStructSignature,
+    ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, TypeAliasSignature,
+    UnionSignature,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
@@ -208,8 +209,12 @@ pub struct ProgramLayoutContext<'a> {
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
     pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,
+    pub enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+    pub type_aliases: Option<&'a HashMap<GlobalDefId, ProgramTypeAliasSignature>>,
     pub struct_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
     pub union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
+    pub enum_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramEnumSignature>>,
+    pub type_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>>,
 }
 
 #[derive(Clone, Copy)]
@@ -721,7 +726,50 @@ impl<'a> LayoutComputer<'a> {
             let signature = import_union_signature(&mut self.interner, &signature);
             return self.external_union_layout(span, def_id, &signature, args);
         }
+        if let Some(program_enums) = self.program.enums
+            && let Some(signature) = program_enums.get(&def_id).cloned()
+        {
+            let signature = import_enum_signature(&mut self.interner, &signature);
+            return self.enum_layout(span, &signature);
+        }
+        if let Some(program_enum) = self.program.enum_
+            && let Some(signature) = program_enum(def_id)
+        {
+            let signature = import_enum_signature(&mut self.interner, &signature);
+            return self.enum_layout(span, &signature);
+        }
+        if let Some(program_type_aliases) = self.program.type_aliases
+            && let Some(signature) = program_type_aliases.get(&def_id).cloned()
+        {
+            let signature = import_type_alias_signature(&mut self.interner, &signature);
+            return self.type_alias_layout(span, &signature, args);
+        }
+        if let Some(program_type_alias) = self.program.type_alias
+            && let Some(signature) = program_type_alias(def_id)
+        {
+            let signature = import_type_alias_signature(&mut self.interner, &signature);
+            return self.type_alias_layout(span, &signature, args);
+        }
         None
+    }
+
+    fn type_alias_layout(
+        &mut self,
+        span: Span,
+        signature: &TypeAliasSignature,
+        args: &[InternedTyId],
+    ) -> Option<TypeLayout> {
+        if signature.generics.len() != args.len() {
+            return None;
+        }
+        let substitutions: HashMap<String, InternedTyId> = signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect();
+        let target = substitute_generics(&mut self.interner, signature.target, &substitutions);
+        self.layout_ty(target, span)
     }
 
     fn external_struct_layout(
@@ -1023,6 +1071,30 @@ fn import_union_signature(
         where_predicates: source.signature.where_predicates.clone(),
         fields: import_fields(target, &source.interner, &source.signature.fields),
         is_extern: source.signature.is_extern,
+        span: source.signature.span,
+    }
+}
+
+fn import_enum_signature(target: &mut TyInterner, source: &ProgramEnumSignature) -> EnumSignature {
+    EnumSignature {
+        backing_type: nia_ty::import_type_into(
+            target,
+            &source.interner,
+            source.signature.backing_type,
+        ),
+        is_open: source.signature.is_open,
+        variants: source.signature.variants.clone(),
+        span: source.signature.span,
+    }
+}
+
+fn import_type_alias_signature(
+    target: &mut TyInterner,
+    source: &ProgramTypeAliasSignature,
+) -> TypeAliasSignature {
+    TypeAliasSignature {
+        generics: source.signature.generics.clone(),
+        target: nia_ty::import_type_into(target, &source.interner, source.signature.target),
         span: source.signature.span,
     }
 }

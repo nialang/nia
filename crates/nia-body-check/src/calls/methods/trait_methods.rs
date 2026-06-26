@@ -7,6 +7,7 @@ impl<'a> BodyChecker<'a> {
         call: MethodCall<'_>,
         candidates: Vec<TraitMethodCandidate>,
     ) -> Option<InternedTyId> {
+        let candidates = self.trait_method_candidates_matching_expected(&call, &candidates);
         let candidate = self.single_trait_method_candidate(call.span, call.name, &candidates)?;
         let Some(receiver_kind) = candidate
             .signature
@@ -433,6 +434,35 @@ impl<'a> BodyChecker<'a> {
             ));
         }
     }
+
+    fn trait_method_candidates_matching_expected(
+        &mut self,
+        call: &MethodCall<'_>,
+        candidates: &[TraitMethodCandidate],
+    ) -> Vec<TraitMethodCandidate> {
+        let Some(expected) = call.expected else {
+            return candidates.to_vec();
+        };
+        let expected = self.normalize_projection(expected);
+        let filtered = candidates
+            .iter()
+            .filter(|candidate| {
+                let mut substitutions =
+                    self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+                substitutions.insert("Self".to_string(), candidate.self_ty);
+                let return_type =
+                    self.substitute_generics(candidate.signature.return_type, &substitutions);
+                let return_type = self.normalize_projection(return_type);
+                self.types_match(expected, return_type)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if filtered.is_empty() {
+            candidates.to_vec()
+        } else {
+            filtered
+        }
+    }
 }
 
 impl<'a> BodyChecker<'a> {
@@ -444,10 +474,9 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<TraitMethodCandidate> {
         let mut selected = None;
         let mut count = 0;
-        for candidate in candidates {
-            if candidates.iter().any(|other| {
-                other.method_id != candidate.method_id
-                    && self.trait_method_candidate_more_specific(other, candidate)
+        for (index, candidate) in candidates.iter().enumerate() {
+            if candidates.iter().enumerate().any(|(other_index, other)| {
+                other_index != index && self.trait_method_candidate_more_specific(other, candidate)
             }) {
                 continue;
             }
@@ -472,7 +501,7 @@ impl<'a> BodyChecker<'a> {
         general: &TraitMethodCandidate,
     ) -> bool {
         if specific.trait_id != general.trait_id
-            || specific.method_id != general.method_id
+            || specific.trait_method_id != general.trait_method_id
             || specific.trait_args.len() != general.trait_args.len()
         {
             return false;

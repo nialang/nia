@@ -347,7 +347,41 @@ impl Analyzer<'_> {
         ty.owner()
     }
 
-    fn source_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<TyInterner> {
+    fn source_interner_for_type(&self, ty: nia_ids::InternedTyId) -> Option<TyInterner> {
+        if ty.interner_id == self.input.interner.interner_id()
+            && self.input.interner.get(ty).is_some()
+        {
+            return Some(self.input.interner.clone());
+        }
+        let module_id = ty.interner_id.module_id();
+        if let Some(normalization) = self.value_type_normalization_for_module(module_id)
+            && normalization.interner.get(ty).is_some()
+        {
+            return Some(normalization.interner);
+        }
+        if let Some(interner) = self
+            .type_normalization_for_module(module_id)
+            .map(|normalization| normalization.interner)
+            && interner.get(ty).is_some()
+        {
+            return Some(interner);
+        }
+        if ty.interner_id == self.input.interner.interner_id() {
+            return Some(self.input.interner.clone());
+        }
+        None
+    }
+
+    fn working_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
+        self.working_interners
+            .values()
+            .find(|interner| interner_id == interner.interner_id())
+    }
+
+    fn source_interner_snapshot_by_id(
+        &self,
+        interner_id: nia_ids::TyInternerId,
+    ) -> Option<TyInterner> {
         if interner_id == self.input.interner.interner_id() {
             return Some(self.input.interner.clone());
         }
@@ -361,23 +395,13 @@ impl Analyzer<'_> {
         (interner_id == interner.interner_id()).then_some(interner)
     }
 
-    fn working_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
-        self.working_interners
-            .values()
-            .find(|interner| interner_id == interner.interner_id())
-    }
-
     pub(super) fn active_interner_for_type(&self, ty: nia_ids::InternedTyId) -> TyInterner {
-        let source = self
-            .source_interner_by_id(ty.interner_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: missing source type interner {:?} for comptime type {:?}",
-                    ty.interner_id, ty
-                )
-            });
-        let active = if let Some(working) = self.working_interner_by_id(ty.interner_id) {
-            if !source.is_prefix_of(working) {
+        let active = if let Some(working) = self.working_interner_by_id(ty.interner_id)
+            && working.get(ty).is_some()
+        {
+            if let Some(source) = self.source_interner_snapshot_by_id(ty.interner_id)
+                && !source.is_prefix_of(working)
+            {
                 panic!(
                     "Nia ICE: comptime working type interner {:?} diverged from source snapshot",
                     ty.interner_id
@@ -385,7 +409,12 @@ impl Analyzer<'_> {
             }
             working.clone()
         } else {
-            source
+            self.source_interner_for_type(ty).unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: missing source type interner {:?} for comptime type {:?}",
+                    ty.interner_id, ty
+                )
+            })
         };
         if active.get(ty).is_none() {
             panic!(

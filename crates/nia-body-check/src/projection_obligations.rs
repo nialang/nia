@@ -7,7 +7,6 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
 };
-use nia_item_tree::ItemTreeNodeKind;
 use nia_span::Span;
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
@@ -24,6 +23,14 @@ struct TraitObligation {
 struct TraitObligationAssociatedTypeBinding {
     name: String,
     ty: InternedTyId,
+}
+
+#[derive(Debug, Clone)]
+struct MethodTraitImplContext {
+    target_ty: InternedTyId,
+    trait_ref: Option<(TraitId, Vec<InternedTyId>)>,
+    where_predicates: Vec<WherePredicateSignature>,
+    associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
 }
 
 impl From<TraitObligation> for TraitGoal {
@@ -153,12 +160,11 @@ impl<'a> BodyChecker<'a> {
         };
         match method.kind {
             DefKind::Method => {
-                if let Some(impl_signature) = self
-                    .trait_impl_signature_for_method(self.global_def_id(def_id))
-                    .cloned()
+                if let Some(impl_context) =
+                    self.trait_impl_context_for_method(self.global_def_id(def_id))
                 {
                     let predicates =
-                        self.instantiate_impl_where_predicates_for_method(def_id, &impl_signature);
+                        self.instantiate_impl_where_predicates_for_method(def_id, &impl_context);
                     self.push_where_predicate_obligations(obligations, &predicates);
                 }
                 if let Some(owner_ty) = self.method_owner_type(def_id) {
@@ -182,18 +188,16 @@ impl<'a> BodyChecker<'a> {
     fn instantiate_impl_where_predicates_for_method(
         &mut self,
         def_id: DefId,
-        impl_signature: &TraitImplSignature,
+        impl_context: &MethodTraitImplContext,
     ) -> Vec<WherePredicateSignature> {
         let Some(owner_ty) = self.method_owner_type(def_id) else {
-            return impl_signature.where_predicates.clone();
+            return impl_context.where_predicates.clone();
         };
-        let target_ty =
-            self.import_type_from(&self.normalization.interner, impl_signature.target_ty);
-        let target_ty = self.normalization.normalize(target_ty);
+        let target_ty = self.normalization.normalize(impl_context.target_ty);
         let owner_ty = self.normalization.normalize(owner_ty);
         let mut substitutions = HashMap::new();
         self.match_type_pattern(target_ty, owner_ty, &mut substitutions);
-        impl_signature
+        impl_context
             .where_predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
@@ -686,19 +690,18 @@ impl<'a> BodyChecker<'a> {
                 }
                 let method_id = self.global_def_id(def_id);
                 let target_ty = self.method_owner_type(def_id)?;
-                let impl_signature = self.trait_impl_signature_for_method(method_id)?.clone();
-                let (trait_id, trait_args) = self.trait_impl_signature_trait(&impl_signature)?;
+                let impl_context = self.trait_impl_context_for_method(method_id)?;
+                let (trait_id, trait_args) = impl_context.trait_ref?;
                 Some(TraitObligation {
                     self_ty: target_ty,
                     trait_id,
                     trait_args,
-                    associated_type_bindings: impl_signature
+                    associated_type_bindings: impl_context
                         .associated_types
                         .iter()
                         .map(|associated_type| TraitObligationAssociatedTypeBinding {
                             name: associated_type.name.clone(),
-                            ty: self
-                                .import_type_from(&self.normalization.interner, associated_type.ty),
+                            ty: associated_type.ty,
                         })
                         .collect(),
                 })
@@ -707,41 +710,102 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn trait_impl_signature_trait(
+    fn trait_impl_context_for_method(
         &mut self,
-        impl_signature: &TraitImplSignature,
-    ) -> Option<(TraitId, Vec<InternedTyId>)> {
-        let trait_ty =
-            self.import_type_from(&self.normalization.interner, impl_signature.trait_ty?);
-        let trait_ty = self.normalization.normalize(trait_ty);
-        self.trait_id_and_args(trait_ty)
+        method_id: GlobalDefId,
+    ) -> Option<MethodTraitImplContext> {
+        if method_id.module_id == self.defs.module_id
+            && let Some(signature) = self
+                .local_trait_impl_signature_for_method(method_id)
+                .cloned()
+        {
+            return self.local_trait_impl_context(&signature);
+        }
+        let lookup = self.extension_methods_by_id.get(&method_id)?;
+        let impl_signature = self
+            .program_trait_impls
+            .iter()
+            .find(|impl_signature| {
+                impl_signature.module_id == method_id.module_id
+                    && impl_signature.impl_id == lookup.impl_id
+            })?
+            .clone();
+        Some(self.program_trait_impl_context(&impl_signature))
     }
 
-    pub(crate) fn trait_impl_signature_for_method(
+    fn local_trait_impl_signature_for_method(
         &self,
         method_id: GlobalDefId,
     ) -> Option<&TraitImplSignature> {
-        if method_id.module_id != self.defs.module_id {
-            return None;
-        }
-        self.active_item_tree.items.iter().find_map(|item| {
-            let ItemTreeNodeKind::Extend(extend) = &item.kind else {
-                return None;
-            };
-            let has_method = extend.methods.iter().any(|method| {
-                self.defs
-                    .def_nodes
-                    .get(&method.function.node_key)
-                    .is_some_and(|def_id| def_id == method_id.def_id)
-            });
-            if !has_method {
-                return None;
-            }
-            self.signatures
-                .trait_impls
+        self.signatures.trait_impls.iter().find(|signature| {
+            signature
+                .methods
                 .iter()
-                .find(|signature| signature.span == extend.target.span)
+                .any(|method| method.def_id == method_id.def_id)
         })
+    }
+
+    fn local_trait_impl_context(
+        &mut self,
+        signature: &TraitImplSignature,
+    ) -> Option<MethodTraitImplContext> {
+        let source = self.normalization.interner.clone();
+        let target_ty = self.import_type_from(&source, signature.target_ty);
+        let trait_ref = match signature.trait_ty {
+            Some(trait_ty) => {
+                let trait_ty = self.import_type_from(&source, trait_ty);
+                let trait_ty = self.normalization.normalize(trait_ty);
+                Some(self.trait_id_and_args(trait_ty)?)
+            }
+            None => None,
+        };
+        Some(MethodTraitImplContext {
+            target_ty,
+            trait_ref,
+            where_predicates: self
+                .import_where_predicates_from(&source, &signature.where_predicates),
+            associated_types: self
+                .import_trait_impl_associated_types_from(&source, &signature.associated_types),
+        })
+    }
+
+    fn program_trait_impl_context(
+        &mut self,
+        signature: &ProgramTraitImplSignature,
+    ) -> MethodTraitImplContext {
+        let source = signature.interner.clone();
+        MethodTraitImplContext {
+            target_ty: self.import_type_from(&source, signature.target_ty),
+            trait_ref: Some((
+                signature.trait_id,
+                signature
+                    .trait_args
+                    .iter()
+                    .map(|arg| self.import_type_from(&source, *arg))
+                    .collect(),
+            )),
+            where_predicates: self
+                .import_where_predicates_from(&source, &signature.where_predicates),
+            associated_types: self
+                .import_trait_impl_associated_types_from(&source, &signature.associated_types),
+        }
+    }
+
+    fn import_trait_impl_associated_types_from(
+        &mut self,
+        source: &nia_ty::TyInterner,
+        associated_types: &[nia_item_signatures::TraitImplAssociatedTypeSignature],
+    ) -> Vec<nia_item_signatures::TraitImplAssociatedTypeSignature> {
+        associated_types
+            .iter()
+            .map(
+                |associated_type| nia_item_signatures::TraitImplAssociatedTypeSignature {
+                    name: associated_type.name.clone(),
+                    ty: self.import_type_from(source, associated_type.ty),
+                    span: associated_type.span,
+                },
+            )
+            .collect()
     }
 
     fn push_trait_obligation_from_bound(
@@ -903,6 +967,13 @@ impl<'a> BodyChecker<'a> {
             if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
                 continue;
             }
+            let where_predicates = self.import_where_predicates_from(
+                &impl_signature.interner,
+                &impl_signature.where_predicates,
+            );
+            if !self.where_predicates_can_hold(&where_predicates, &substitutions) {
+                continue;
+            }
             let trait_args = impl_signature
                 .trait_args
                 .iter()
@@ -955,6 +1026,29 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         self.extensions
             .has_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id)
+    }
+
+    pub(crate) fn where_predicates_can_hold(
+        &mut self,
+        predicates: &[WherePredicateSignature],
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> bool {
+        predicates.iter().all(|predicate| {
+            let predicate = self.substitute_where_predicate(predicate, substitutions);
+            if self.type_contains_generic_param(predicate.ty) {
+                return true;
+            }
+            predicate.bounds.iter().all(|bound| {
+                let bound_ty = self.substitute_generics(bound.trait_ty, substitutions);
+                if self.type_contains_generic_param(bound_ty) {
+                    return true;
+                }
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound_ty) else {
+                    return false;
+                };
+                self.current_context_proves_trait_obligation(predicate.ty, trait_id, trait_args)
+            })
+        })
     }
 
     fn check_type_projection_obligations(

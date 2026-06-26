@@ -30,7 +30,7 @@ use nia_comptime_check::{
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
@@ -838,7 +838,9 @@ impl<'a> FunctionSignatureScope<'a> {
 #[derive(Debug, Clone)]
 struct ExtensionMethodLookup {
     target_ty: InternedTyId,
+    impl_id: nia_ids::TraitImplId,
     impl_generics: Vec<String>,
+    where_predicates: Vec<nia_defs::WherePredicateSignature>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -943,7 +945,9 @@ impl<'a> BodyChecker<'a> {
                     },
                     ExtensionMethodLookup {
                         target_ty,
+                        impl_id: impl_signature.impl_id,
                         impl_generics: impl_signature.generics.clone(),
+                        where_predicates: impl_signature.where_predicates.clone(),
                     },
                 );
             }
@@ -970,28 +974,41 @@ impl<'a> BodyChecker<'a> {
                     .entry(method.def_id)
                     .or_insert_with(|| ExtensionMethodLookup {
                         target_ty,
+                        impl_id: method.impl_id,
                         impl_generics: method.impl_generics.clone(),
+                        where_predicates: method.where_predicates.clone(),
                     });
             }
         }
-        for method in program_extensions.all_methods() {
-            if methods.contains_key(&method.def_id) {
-                continue;
+        if let Some(program_normalizations) = program_normalizations {
+            for method in program_extensions.all_methods() {
+                if method.trait_id.is_some() || methods.contains_key(&method.def_id) {
+                    continue;
+                }
+                if method.def_id.module_id != module_id && method.visibility != Visibility::Public {
+                    continue;
+                }
+                let Some(normalization) = program_normalizations(method.def_id.module_id) else {
+                    continue;
+                };
+                let source_interner = &normalization.interner;
+                let target_ty = normalization.normalize(method.target_ty);
+                let target_ty = nia_ty::import_type_into(interner, source_interner, target_ty);
+                let where_predicates = import_where_predicates_between_interners(
+                    interner,
+                    source_interner,
+                    &method.where_predicates,
+                );
+                methods.insert(
+                    method.def_id,
+                    ExtensionMethodLookup {
+                        target_ty,
+                        impl_id: method.impl_id,
+                        impl_generics: method.impl_generics.clone(),
+                        where_predicates,
+                    },
+                );
             }
-            let Some(normalization) = program_normalizations
-                .and_then(|normalization| normalization(method.def_id.module_id))
-            else {
-                continue;
-            };
-            let target_ty = normalization.normalize(method.target_ty);
-            let target_ty = nia_ty::import_type_into(interner, &normalization.interner, target_ty);
-            methods.insert(
-                method.def_id,
-                ExtensionMethodLookup {
-                    target_ty,
-                    impl_generics: method.impl_generics.clone(),
-                },
-            );
         }
         Arc::new(methods)
     }

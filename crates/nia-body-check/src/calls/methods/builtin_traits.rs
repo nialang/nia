@@ -447,11 +447,9 @@ impl<'a> BodyChecker<'a> {
             1 => Some(Vec::new()),
             2 => {
                 let rhs = args.first()?;
-                let rhs_expected = if self.is_numeric_literal_expr(rhs) {
-                    Some(self_ty)
-                } else {
-                    None
-                };
+                let rhs_expected = self
+                    .unique_visible_builtin_trait_arg_candidate(self_ty, trait_id)
+                    .or_else(|| self.is_numeric_literal_expr(rhs).then_some(self_ty));
                 let rhs_ty = self.check_expr_with_expected(rhs, rhs_expected);
                 if let Some(expected) = rhs_expected {
                     self.expect_expr_type(rhs, expected, rhs_ty, "call argument");
@@ -484,6 +482,21 @@ impl<'a> BodyChecker<'a> {
                 trait_args
             }
         })
+    }
+
+    fn unique_visible_builtin_trait_arg_candidate(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+    ) -> Option<InternedTyId> {
+        let candidates = self.visible_trait_arg_candidates(self_ty, TraitId::Builtin(trait_id));
+        let [candidate] = candidates.as_slice() else {
+            return None;
+        };
+        let [arg] = candidate.as_slice() else {
+            return None;
+        };
+        Some(*arg)
     }
 
     fn builtin_trait_method_output(
@@ -545,6 +558,16 @@ impl<'a> BodyChecker<'a> {
                     is_readonly: matches!(trait_id, BuiltinTrait::GetPtrRead),
                     elem: target,
                 })
+            }
+            BuiltinTrait::Iterator => {
+                let item = self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id: TraitId::Builtin(trait_id),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+                });
+                let item = self.normalize_projection(item);
+                self.interner.intern(TyKind::Optional { elem: item })
             }
             _ => self.error(),
         }
