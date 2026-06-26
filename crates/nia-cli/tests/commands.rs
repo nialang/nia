@@ -753,7 +753,7 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&llvm.stderr);
     assert!(stdout.contains("define i32 @"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
-    assert!(stderr.contains("timing check:"), "{stderr}");
+    assert!(stderr.contains("timing codegen:"), "{stderr}");
     assert!(stderr.contains("timing emit_llvm_ir:"), "{stderr}");
     assert!(
         stderr.contains("query timing backend_lowering:"),
@@ -862,7 +862,8 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&checked.stdout);
     assert!(stdout.contains("CheckedProgram"), "{stdout}");
-    assert!(stdout.contains("backend_lowering"), "{stdout}");
+    assert!(stdout.contains("modules"), "{stdout}");
+    assert!(!stdout.contains("backend_lowering"), "{stdout}");
 }
 
 #[test]

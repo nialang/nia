@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{env, fs, path::PathBuf, process::ExitCode, time::Instant};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 use nia_driver::{
     BUILTIN_MODULE_MAP_NAME, ENTRY_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel,
     PACKAGE_MODULE_MAP_NAME, Runtime, SourcePath,
 };
+use nia_loader_query::{EntryRuntime, LoadRequest};
+
+static EMIT_EXE_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
+const EMIT_EXE_ARTIFACT_FINGERPRINT_VERSION: &str = "nia-emit-exe-artifact-v1";
 
 mod help;
 
@@ -647,7 +657,7 @@ impl ParsedEmitTarget {
     }
 
     fn accepts_opt_report(self) -> bool {
-        !matches!(self, Self::Tokens | Self::Ast)
+        matches!(self, Self::Backend | Self::Llvm | Self::Obj | Self::Exe)
     }
 }
 
@@ -725,14 +735,21 @@ fn run_check(
     runtime: Runtime,
 ) -> ExitCode {
     let output = time_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, runtime)
+        check_with_driver(path, module_map.clone(), optimization, timings, runtime)
     });
-    let program = match checked_program_from_output(output, path, source) {
-        Ok(program) => program,
+    match checked_program_from_output(output, path, source) {
+        Ok(_) => {}
         Err(code) => return code,
-    };
+    }
     if opt_report {
-        print_optimization_report(&program);
+        let output = time_stage(timings, "codegen", || {
+            codegen_with_driver(path, module_map, optimization, timings, runtime)
+        });
+        let codegen = match codegen_program_from_output(output, path, source) {
+            Ok(program) => program,
+            Err(code) => return code,
+        };
+        print_optimization_report(&codegen);
     }
     ExitCode::SUCCESS
 }
@@ -744,7 +761,7 @@ fn check_with_driver(
     timings: nia_driver::TimingMode,
     runtime: Runtime,
 ) -> nia_driver::DriverOutput<nia_driver::CheckedProgram> {
-    nia_driver::Driver::new().check(
+    nia_driver::Driver::new().check_entry(
         nia_driver::CheckRequest::new(path)
             .with_module_map(module_map)
             .with_optimization(optimization)
@@ -770,6 +787,39 @@ fn checked_program_from_output(
     }
 }
 
+fn codegen_with_driver(
+    path: &str,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
+    runtime: Runtime,
+) -> nia_driver::DriverOutput<nia_driver::CodegenProgram> {
+    nia_driver::Driver::new().codegen(
+        nia_driver::CheckRequest::new(path)
+            .with_module_map(module_map)
+            .with_optimization(optimization)
+            .with_timings(timings)
+            .with_runtime(runtime),
+    )
+}
+
+fn codegen_program_from_output(
+    output: nia_driver::DriverOutput<nia_driver::CodegenProgram>,
+    path: &str,
+    source: &str,
+) -> Result<nia_driver::CodegenProgram, ExitCode> {
+    match output.result {
+        Ok(program) => Ok(program),
+        Err(error) => {
+            eprint!(
+                "{}",
+                nia_driver::render_driver_error(&error, Some(path), Some(source))
+            );
+            Err(ExitCode::FAILURE)
+        }
+    }
+}
+
 fn run_emit(
     path: &str,
     source: &str,
@@ -782,9 +832,7 @@ fn run_emit(
     match target {
         EmitTarget::Tokens => time_stage(timings, "lex", || run_lex(source)),
         EmitTarget::Ast => time_stage(timings, "parse", || run_parse(path, source)),
-        EmitTarget::Checked => {
-            run_emit_checked(path, source, module_map, optimization, timings, opt_report)
-        }
+        EmitTarget::Checked => run_emit_checked(path, source, module_map, optimization, timings),
         EmitTarget::Backend => {
             run_emit_backend(path, source, module_map, optimization, timings, opt_report)
         }
@@ -850,7 +898,6 @@ fn run_emit_checked(
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
-    opt_report: bool,
 ) -> ExitCode {
     let output = time_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
@@ -859,9 +906,6 @@ fn run_emit_checked(
         Ok(program) => program,
         Err(code) => return code,
     };
-    if opt_report {
-        print_optimization_report_to_stderr(&program);
-    }
     println!("{program:#?}");
     ExitCode::SUCCESS
 }
@@ -874,10 +918,10 @@ fn run_emit_backend(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let output = time_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
+    let output = time_stage(timings, "codegen", || {
+        codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
-    let program = match checked_program_from_output(output, path, source) {
+    let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
         Err(code) => return code,
     };
@@ -896,10 +940,10 @@ fn run_emit_llvm(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let output = time_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
+    let output = time_stage(timings, "codegen", || {
+        codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
-    let program = match checked_program_from_output(output, path, source) {
+    let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
         Err(code) => return code,
     };
@@ -907,7 +951,7 @@ fn run_emit_llvm(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_llvm_ir", || {
-        nia_driver::Driver::new().emit_llvm_ir_from_checked(&program)
+        nia_driver::Driver::new().emit_llvm_ir_from_codegen(&program)
     });
     match output.result {
         Ok(artifact) => {
@@ -942,10 +986,10 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let output = time_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, options.runtime)
+    let output = time_stage(timings, "codegen", || {
+        codegen_with_driver(path, module_map, optimization, timings, options.runtime)
     });
-    let program = match checked_program_from_output(output, path, source) {
+    let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
         Err(code) => return code,
     };
@@ -953,7 +997,7 @@ fn run_emit_obj(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_checked(&program)
+        nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -995,8 +1039,34 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let output = time_stage(timings, "check_exe", || {
-        check_with_driver(
+    let cache_entry = if let Some(cache_dir) = &options.cache_dir {
+        let entry = time_stage(timings, "emit_exe_cache_fingerprint", || {
+            emit_exe_artifact_cache_entry(
+                path,
+                module_map.clone(),
+                optimization,
+                &options,
+                cache_dir,
+            )
+        });
+        let entry = match entry {
+            Ok(cache) => cache,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if time_stage(timings, "emit_exe_cache_restore", || {
+            restore_emit_exe_artifact_cache(&entry, &options.output)
+        }) {
+            return ExitCode::SUCCESS;
+        }
+        Some(entry)
+    } else {
+        None
+    };
+    let output = time_stage(timings, "codegen_exe", || {
+        codegen_with_driver(
             path,
             module_map,
             optimization,
@@ -1004,7 +1074,7 @@ fn run_emit_exe(
             Runtime::Freestanding,
         )
     });
-    let program = match checked_program_from_output(output, path, source) {
+    let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
         Err(code) => return code,
     };
@@ -1012,7 +1082,7 @@ fn run_emit_exe(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_checked(&program)
+        nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -1027,12 +1097,22 @@ fn run_emit_exe(
     let output = time_stage(timings, "link_executable", || {
         nia_driver::Driver::new().link_executable_from_objects(
             &objects,
-            options.output,
-            options.link_options,
+            options.output.clone(),
+            options.link_options.clone(),
         )
     });
     match output.result {
-        Ok(_) => ExitCode::SUCCESS,
+        Ok(artifact) => {
+            if let Some(cache) = cache_entry {
+                if let Err(error) = time_stage(timings, "emit_exe_cache_publish", || {
+                    publish_emit_exe_artifact_cache(&artifact.path, &cache)
+                }) {
+                    eprintln!("{error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             eprint!(
                 "{}",
@@ -1040,6 +1120,199 @@ fn run_emit_exe(
             );
             ExitCode::FAILURE
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EmitExeArtifactCacheEntry {
+    executable: PathBuf,
+}
+
+fn emit_exe_artifact_cache_entry(
+    path: &str,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    options: &EmitExeOptions,
+    cache_dir: &Path,
+) -> Result<EmitExeArtifactCacheEntry, String> {
+    let mut hash = StableFingerprint::new();
+    hash.string(EMIT_EXE_ARTIFACT_FINGERPRINT_VERSION);
+    hash.string(env!("CARGO_PKG_VERSION"));
+    hash.string(path);
+    hash.string(&format!("{:?}", optimization));
+    hash.string(&format!("{:?}", nia_driver::DriverConfig::default().target));
+    hash.string(&format!("{:?}", options.link_options));
+    hash_loaded_emit_exe_modules(&mut hash, path, module_map)?;
+    let fingerprint = hash.finish();
+    Ok(EmitExeArtifactCacheEntry {
+        executable: cache_dir
+            .join("artifacts")
+            .join("executables")
+            .join(fingerprint)
+            .join("app"),
+    })
+}
+
+fn hash_loaded_emit_exe_modules(
+    hash: &mut StableFingerprint,
+    path: &str,
+    module_map: ModuleMap,
+) -> Result<(), String> {
+    let loaded = nia_loader_query::load_program_request(
+        LoadRequest::new(path)
+            .with_module_map(module_map)
+            .with_entry_runtime(EntryRuntime::Freestanding),
+    );
+    if !loaded.diagnostics.is_empty() {
+        return Ok(());
+    }
+    let mut modules = loaded
+        .modules
+        .iter()
+        .map(|module| module.path.as_str().to_string())
+        .collect::<Vec<_>>();
+    modules.sort();
+    modules.dedup();
+    for module_path in modules {
+        hash.string(&module_path);
+        if module_path.starts_with("<nia:") {
+            hash.string("<generated>");
+            continue;
+        }
+        match fs::read_to_string(&module_path) {
+            Ok(source) => hash.string(&source),
+            Err(error) => {
+                return Err(format!(
+                    "failed to read `{module_path}` for executable cache fingerprint: {error}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn restore_emit_exe_artifact_cache(cache: &EmitExeArtifactCacheEntry, output: &Path) -> bool {
+    if !cache.executable.is_file() {
+        return false;
+    }
+    let Some(parent) = output.parent() else {
+        return fs::copy(&cache.executable, output).is_ok();
+    };
+    if !parent.as_os_str().is_empty() && fs::create_dir_all(parent).is_err() {
+        return false;
+    }
+    let staged = output.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        EMIT_EXE_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    if fs::copy(&cache.executable, &staged).is_err() {
+        let _ = fs::remove_file(&staged);
+        return false;
+    }
+    if make_executable_like(&staged, &cache.executable).is_err() {
+        let _ = fs::remove_file(&staged);
+        return false;
+    }
+    match fs::rename(&staged, output) {
+        Ok(()) => true,
+        Err(_) => {
+            let _ = fs::remove_file(&staged);
+            false
+        }
+    }
+}
+
+fn publish_emit_exe_artifact_cache(
+    output: &Path,
+    cache: &EmitExeArtifactCacheEntry,
+) -> Result<(), String> {
+    if cache.executable.is_file() {
+        return Ok(());
+    }
+    let parent = cache
+        .executable
+        .parent()
+        .ok_or_else(|| "invalid executable cache path".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "failed to create executable cache directory `{}`: {error}",
+            parent.display()
+        )
+    })?;
+    let staged = cache.executable.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        EMIT_EXE_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::copy(output, &staged).map_err(|error| {
+        format!(
+            "failed to copy executable `{}` into cache `{}`: {error}",
+            output.display(),
+            staged.display()
+        )
+    })?;
+    make_executable_like(&staged, output).map_err(|error| {
+        format!(
+            "failed to set executable cache permissions `{}`: {error}",
+            staged.display()
+        )
+    })?;
+    match fs::rename(&staged, &cache.executable) {
+        Ok(()) => Ok(()),
+        Err(error) if cache.executable.is_file() => {
+            let _ = fs::remove_file(&staged);
+            let _ = error;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&staged);
+            Err(format!(
+                "failed to publish executable cache `{}`: {error}",
+                cache.executable.display()
+            ))
+        }
+    }
+}
+
+fn make_executable_like(path: &Path, source: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::metadata(source)?.permissions())?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        let _ = source;
+    }
+    Ok(())
+}
+
+struct StableFingerprint {
+    state: u64,
+}
+
+impl StableFingerprint {
+    fn new() -> Self {
+        Self {
+            state: 0xcbf29ce484222325,
+        }
+    }
+
+    fn string(&mut self, text: &str) {
+        self.bytes(&(text.len() as u64).to_le_bytes());
+        self.bytes(text.as_bytes());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.state ^= u64::from(*byte);
+            self.state = self.state.wrapping_mul(0x100000001b3);
+        }
+    }
+
+    fn finish(self) -> String {
+        format!("{:016x}", self.state)
     }
 }
 
@@ -1107,15 +1380,21 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
 
 struct EmitExeOptions {
     output: PathBuf,
+    cache_dir: Option<PathBuf>,
     link_options: nia_linker::LinkOptions,
 }
 
 fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
+    let mut cache_dir = None::<PathBuf>;
     let mut link_options = nia_linker::LinkOptions::default();
     let mut explicit_linker_program = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--cache-dir=") {
+            cache_dir = Some(PathBuf::from(value));
+            continue;
+        }
         if let Some(value) = arg.strip_prefix("--runtime=") {
             let runtime = parse_runtime(value)
                 .map_err(|message| format!("{message} for `nia emit --exe`"))?;
@@ -1179,6 +1458,12 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
                     return Err("missing path after `-o`".to_string());
                 };
                 output = Some(PathBuf::from(path));
+            }
+            "--cache-dir" => {
+                let Some(path) = iter.next() else {
+                    return Err("missing path after `--cache-dir`".to_string());
+                };
+                cache_dir = Some(PathBuf::from(path));
             }
             "--runtime" => {
                 let Some(value) = iter.next() else {
@@ -1252,6 +1537,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<EmitExeOpti
     }
     Ok(EmitExeOptions {
         output: output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)),
+        cache_dir,
         link_options,
     })
 }
@@ -1291,11 +1577,11 @@ fn default_output_path(source: &str, extension: &str) -> PathBuf {
     path
 }
 
-fn print_optimization_report(program: &nia_driver::CheckedProgram) {
+fn print_optimization_report(program: &nia_driver::CodegenProgram) {
     print!("{}", nia_driver::optimization_report(program));
 }
 
-fn print_optimization_report_to_stderr(program: &nia_driver::CheckedProgram) {
+fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
     eprint!("{}", nia_driver::optimization_report(program));
 }
 
@@ -1314,5 +1600,111 @@ mod tests {
         assert_eq!(code, ExitCode::FAILURE);
         assert!(message.contains("internal compiler error: forced failure"));
         assert!(message.contains("Please report it"));
+    }
+
+    #[test]
+    fn emit_exe_artifact_cache_fingerprint_tracks_loaded_source_graph() {
+        let root = temp_root("emit_exe_artifact_cache_fingerprint_tracks_loaded_source_graph");
+        std::fs::create_dir_all(root.join("src")).expect("create src");
+        std::fs::write(
+            root.join("src/main.nia"),
+            r#"
+module helper;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    _ = helper::value();
+    !{}
+}
+"#,
+        )
+        .expect("write main");
+        std::fs::write(root.join("src/helper.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write helper");
+        let source = root.join("src/main.nia").to_string_lossy().into_owned();
+        let cache_dir = root.join(".nia-cache");
+        let options = EmitExeOptions {
+            output: root.join(".nia-build/app"),
+            cache_dir: Some(cache_dir.clone()),
+            link_options: nia_linker::LinkOptions::default(),
+        };
+
+        let before = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint before");
+        std::fs::write(root.join("src/helper.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("edit helper");
+        let after = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint after");
+
+        assert_ne!(before.executable, after.executable);
+    }
+
+    #[test]
+    fn emit_exe_artifact_cache_fingerprint_ignores_unloaded_package_sources() {
+        let root =
+            temp_root("emit_exe_artifact_cache_fingerprint_ignores_unloaded_package_sources");
+        std::fs::create_dir_all(root.join("src")).expect("create src");
+        std::fs::write(
+            root.join("src/main.nia"),
+            r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+        )
+        .expect("write main");
+        std::fs::write(root.join("src/unused.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write unused");
+        let source = root.join("src/main.nia").to_string_lossy().into_owned();
+        let cache_dir = root.join(".nia-cache");
+        let options = EmitExeOptions {
+            output: root.join(".nia-build/app"),
+            cache_dir: Some(cache_dir.clone()),
+            link_options: nia_linker::LinkOptions::default(),
+        };
+
+        let before = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint before");
+        std::fs::write(root.join("src/unused.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("edit unused");
+        let after = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint after");
+
+        assert_eq!(before.executable, after.executable);
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("nia-cli-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp root");
+        root
     }
 }

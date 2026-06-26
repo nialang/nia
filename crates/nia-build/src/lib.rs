@@ -12,7 +12,8 @@ use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest, Timin
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 
-const BUILD_RUNNER_FINGERPRINT_VERSION: &str = "nia-build-runner-fingerprint-v2";
+const BUILD_RUNNER_FINGERPRINT_VERSION: &str = "nia-build-runner-fingerprint-v3";
+const BUILD_RUNNER_TOOLCHAIN_ABI_VERSION: &str = "nia-build-runner-toolchain-abi-v1";
 static SHARED_RUNNER_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,12 +437,49 @@ fn build_runner_fingerprint(
 ) -> Result<String, BuildError> {
     let mut hash = StableFingerprint::new();
     hash.string(BUILD_RUNNER_FINGERPRINT_VERSION);
+    hash.string(BUILD_RUNNER_TOOLCHAIN_ABI_VERSION);
+    hash.string(env!("CARGO_PKG_VERSION"));
     hash.string(&runner.source);
-    hash_current_executable(&mut hash)?;
-    hash_nia_files_relative(&mut hash, &plan.package_root, SourceTreeKind::Package)?;
+    hash_loaded_build_runner_modules(&mut hash, plan, runner)?;
     let std_root = workspace_std_root();
-    hash_nia_files_relative(&mut hash, &std_root, SourceTreeKind::Std)?;
+    hash_nia_files_relative(&mut hash, &std_root)?;
     Ok(hash.finish())
+}
+
+fn hash_loaded_build_runner_modules(
+    hash: &mut StableFingerprint,
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+) -> Result<(), BuildError> {
+    let mut module_map = ModuleMap::new();
+    module_map.insert(
+        "build_script",
+        SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
+    );
+    let sources = nia_source::SourceDatabase::new();
+    sources.set_source(SourcePath::new(runner.path.clone()), runner.source.clone());
+    let loaded = nia_loader_query::load_program_request(
+        nia_loader_query::LoadRequest::new(runner.path.clone())
+            .with_module_map(module_map)
+            .with_sources(sources),
+    );
+
+    let mut paths = loaded
+        .modules
+        .iter()
+        .filter_map(|module| {
+            let node = loaded.graph.get(module.id)?;
+            (node.module_path.package == "build_script")
+                .then(|| PathBuf::from(module.path.as_str()))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+
+    for path in paths {
+        hash_nia_file(hash, &plan.package_root, &path)?;
+    }
+    Ok(())
 }
 
 fn build_runner_cache_valid(runner: &Path) -> bool {
@@ -465,9 +503,6 @@ fn build_runner_cache_namespace() -> String {
     let mut hash = StableFingerprint::new();
     hash.path(&workspace_std_root());
     hash.string(env!("CARGO_PKG_VERSION"));
-    if let Ok(executable) = env::current_exe() {
-        hash.path(&executable);
-    }
     hash.finish()
 }
 
@@ -576,59 +611,29 @@ fn make_executable_if_needed(path: &Path, source: &Path) -> Result<(), BuildErro
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SourceTreeKind {
-    Package,
-    Std,
-}
-
-fn hash_current_executable(hash: &mut StableFingerprint) -> Result<(), BuildError> {
-    let executable = env::current_exe().map_err(|error| BuildError::CurrentExecutable { error })?;
-    hash.path(&executable);
-    let metadata =
-        fs::metadata(&executable).map_err(|error| BuildError::BuildRunnerFingerprint {
-            path: executable.clone(),
-            operation: "metadata",
-            error,
-        })?;
-    hash.bytes(&metadata.len().to_le_bytes());
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-
-        hash.bytes(&metadata.mtime().to_le_bytes());
-        hash.bytes(&metadata.mtime_nsec().to_le_bytes());
-    }
-    Ok(())
-}
-
-fn hash_nia_files_relative(
-    hash: &mut StableFingerprint,
-    root: &Path,
-    kind: SourceTreeKind,
-) -> Result<(), BuildError> {
+fn hash_nia_files_relative(hash: &mut StableFingerprint, root: &Path) -> Result<(), BuildError> {
     let mut files = Vec::new();
-    collect_nia_files(root, kind, &mut files)?;
+    collect_nia_files(root, &mut files)?;
     files.sort();
     for file in files {
-        let relative = file.strip_prefix(root).unwrap_or(&file);
-        hash.path(relative);
-        let text =
-            fs::read_to_string(&file).map_err(|error| BuildError::BuildRunnerFingerprint {
-                path: file.clone(),
-                operation: "read",
-                error,
-            })?;
-        hash.string(&text);
+        hash_nia_file(hash, root, &file)?;
     }
     Ok(())
 }
 
-fn collect_nia_files(
-    root: &Path,
-    kind: SourceTreeKind,
-    out: &mut Vec<PathBuf>,
-) -> Result<(), BuildError> {
+fn hash_nia_file(hash: &mut StableFingerprint, root: &Path, file: &Path) -> Result<(), BuildError> {
+    let relative = file.strip_prefix(root).unwrap_or(file);
+    hash.path(relative);
+    let text = fs::read_to_string(file).map_err(|error| BuildError::BuildRunnerFingerprint {
+        path: file.to_path_buf(),
+        operation: "read",
+        error,
+    })?;
+    hash.string(&text);
+    Ok(())
+}
+
+fn collect_nia_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -647,12 +652,6 @@ fn collect_nia_files(
             error,
         })?;
         let path = entry.path();
-        let name = entry.file_name();
-        if kind == SourceTreeKind::Package
-            && matches!(name.to_str(), Some(".nia-build" | ".nia-cache"))
-        {
-            continue;
-        }
         let file_type = entry
             .file_type()
             .map_err(|error| BuildError::BuildRunnerFingerprint {
@@ -661,7 +660,7 @@ fn collect_nia_files(
                 error,
             })?;
         if file_type.is_dir() {
-            collect_nia_files(&path, kind, out)?;
+            collect_nia_files(&path, out)?;
         } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "nia") {
             out.push(path);
         }
@@ -1133,15 +1132,38 @@ mod tests {
     }
 
     #[test]
-    fn build_runner_fingerprint_tracks_package_nia_sources() {
-        let root = temp_root("build_runner_fingerprint_tracks_package_nia_sources");
+    fn build_runner_fingerprint_ignores_non_build_graph_package_sources() {
+        let root = temp_root("build_runner_fingerprint_ignores_non_build_graph_package_sources");
+        std::fs::create_dir_all(root.join("src")).expect("create src");
         std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
+        std::fs::write(root.join("src/main.nia"), "fn main() void {}\n").expect("write app");
         let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
         let runner = build_runner_source(&plan).expect("build runner source");
         let before = build_runner_fingerprint(&plan, &runner).expect("fingerprint before");
 
-        std::fs::write(root.join("helper.nia"), "pub fn value() i32 { 1 }\n")
+        std::fs::write(root.join("src/main.nia"), "fn main() i32 { 1 }\n").expect("edit app");
+        let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn build_runner_fingerprint_tracks_build_script_module_graph_sources() {
+        let root = temp_root("build_runner_fingerprint_tracks_build_script_module_graph_sources");
+        std::fs::create_dir_all(root.join("build")).expect("create build module dir");
+        std::fs::write(
+            root.join("build.nia"),
+            "module helper;\nusing std::build;\n",
+        )
+        .expect("write build script");
+        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 1 }\n")
             .expect("write helper");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let before = build_runner_fingerprint(&plan, &runner).expect("fingerprint before");
+
+        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("edit helper");
         let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
 
         assert_ne!(before, after);
@@ -1189,6 +1211,14 @@ mod tests {
 
         assert!(build_runner_cache_valid(&first));
         assert!(!build_runner_cache_valid(&second));
+    }
+
+    #[test]
+    fn shared_runner_cache_namespace_is_toolchain_family_stable() {
+        let first = build_runner_cache_namespace();
+        let second = build_runner_cache_namespace();
+
+        assert_eq!(first, second);
     }
 
     #[test]

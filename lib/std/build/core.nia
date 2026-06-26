@@ -179,18 +179,23 @@ extend Build {
     fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
         var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        var cache_dir_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
         let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
+        let cache_dir_arg = self.cache_dir.encode(&mut cache_dir_storage[..]).as_build_error().?;
         let emit_arg = b"emit\0";
         let exe_arg = b"--exe\0";
         let output_arg = b"-o\0";
-        var argv: [7]&u8 = [
+        let cache_dir_flag = b"--cache-dir\0";
+        var argv: [9]&u8 = [
             toolchain.ptr(),
             &emit_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
             &output_arg.*[0],
             output.ptr(),
+            &cache_dir_flag.*[0],
+            cache_dir_arg.ptr(),
             0usize as &u8,
         ];
         self.run_toolchain_argv(toolchain, &argv[0])
