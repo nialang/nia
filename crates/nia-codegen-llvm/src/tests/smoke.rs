@@ -2,18 +2,18 @@
 use super::common::*;
 
 #[test]
-fn checked_program_smoke_matrix_emits_llvm_ir() {
+fn codegen_program_smoke_matrix_emits_llvm_ir() {
     for case in emit_smoke_cases() {
-        let root = temp_dir(&format!("checked_program_smoke_matrix_{}", case.name));
+        let root = temp_dir(&format!("codegen_program_smoke_matrix_{}", case.name));
         write_smoke_case(&root, case);
-        let checked = check_program(root.join(case.root).to_string_lossy().into_owned());
+        let codegen = codegen_program(root.join(case.root).to_string_lossy().into_owned());
         assert!(
-            checked.diagnostics.is_empty(),
-            "{} check diagnostics: {:?}",
+            codegen.diagnostics.is_empty(),
+            "{} codegen diagnostics: {:?}",
             case.name,
-            checked.diagnostics
+            codegen.diagnostics
         );
-        let output = emit_llvm_ir(&checked.backend_lowering.program);
+        let output = emit_llvm_ir(&codegen.backend_lowering.program);
         assert!(
             output.diagnostics.is_empty(),
             "{} codegen diagnostics: {:?}",
@@ -22,7 +22,7 @@ fn checked_program_smoke_matrix_emits_llvm_ir() {
         );
         assert_eq!(
             output.modules.len(),
-            checked.backend_lowering.program.modules.len(),
+            codegen.backend_lowering.program.modules.len(),
             "{} should emit one LLVM module per backend module",
             case.name
         );
@@ -54,8 +54,8 @@ fn checked_program_smoke_matrix_emits_llvm_ir() {
 }
 
 #[test]
-fn checked_program_emits_llvm_ir_with_each_nia_optimization_level() {
-    let root = temp_dir("checked_program_emits_llvm_ir_with_each_nia_optimization_level");
+fn codegen_program_emits_llvm_ir_with_each_nia_optimization_level() {
+    let root = temp_dir("codegen_program_emits_llvm_ir_with_each_nia_optimization_level");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -81,18 +81,18 @@ fn main() i32 {
         NiaOptimizationLevel::Os,
         NiaOptimizationLevel::Oz,
     ] {
-        let checked = check_program_with_options(main.to_string_lossy().into_owned(), level);
+        let codegen = codegen_program_with_options(main.to_string_lossy().into_owned(), level);
         assert!(
-            checked.diagnostics.is_empty(),
-            "{level:?} check diagnostics: {:?}",
-            checked.diagnostics
+            codegen.diagnostics.is_empty(),
+            "{level:?} codegen diagnostics: {:?}",
+            codegen.diagnostics
         );
-        assert_eq!(checked.optimization, level.policy(), "{level:?}");
+        assert_eq!(codegen.optimization, level.policy(), "{level:?}");
 
         let output = emit_llvm_ir_with_options(
-            &checked.backend_lowering.program,
+            &codegen.backend_lowering.program,
             LlvmCodegenOptions {
-                optimization: checked.optimization,
+                optimization: codegen.optimization,
             },
         );
         assert!(
@@ -102,7 +102,7 @@ fn main() i32 {
         );
         assert_eq!(
             output.modules.len(),
-            checked.backend_lowering.program.modules.len(),
+            codegen.backend_lowering.program.modules.len(),
             "{level:?}"
         );
         let joined_ir = output

@@ -28,10 +28,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 }
 
@@ -53,10 +53,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("define i32 @nia__m0__d"));
@@ -82,10 +82,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("define i32 @add("), "{ir}");
@@ -114,10 +114,10 @@ fn main() NiaString {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let nia_string = mangled_symbol(ir, '%', 0, "NiaString");
@@ -150,13 +150,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let checked = check_freestanding_executable_with_options(
+    let codegen = codegen_freestanding_executable_with_options(
         main.to_string_lossy().into_owned(),
         NiaOptimizationLevel::default(),
     );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = output
         .modules
@@ -193,13 +193,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let checked = check_freestanding_executable_with_options(
+    let codegen = codegen_freestanding_executable_with_options(
         main.to_string_lossy().into_owned(),
         NiaOptimizationLevel::default(),
     );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = output
         .modules
@@ -243,13 +243,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write test source");
 
-    let checked = check_freestanding_executable_with_options(
+    let codegen = codegen_freestanding_executable_with_options(
         main.to_string_lossy().into_owned(),
         NiaOptimizationLevel::default(),
     );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = output
         .modules
@@ -327,10 +327,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("call void @nia__m0__d"), "{ir}");
@@ -359,10 +359,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("insertvalue"));
@@ -397,10 +397,10 @@ fn main() usize {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
 }
 
@@ -435,10 +435,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("@.nia.static.array"), "{ir}");
@@ -462,10 +462,10 @@ fn main() usize {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("%zst.local = alloca i8"), "{ir}");
@@ -490,10 +490,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));
@@ -527,10 +527,10 @@ fn main(i: usize) i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("getelementptr"), "{ir}");
@@ -570,10 +570,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));

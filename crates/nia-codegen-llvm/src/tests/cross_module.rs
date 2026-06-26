@@ -27,10 +27,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("double 1.500000e+00"));
@@ -64,10 +64,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let target = mangled_symbol(ir, '@', 0, "target");
@@ -111,10 +111,10 @@ pub fn add(a: i32, b: i32) i32 {
     )
     .expect("write math source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let main_ir = output
         .modules
@@ -156,10 +156,10 @@ pub struct Point {
     )
     .expect("write geom source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let main_ir = output
         .modules

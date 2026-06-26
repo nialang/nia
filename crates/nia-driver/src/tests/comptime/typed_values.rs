@@ -317,7 +317,7 @@ var signed_global: i32 = signed_value;
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let main_module = program
         .backend_lowering
@@ -366,7 +366,7 @@ var value: i32 = n as i32;
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let main_module = program
         .backend_lowering
@@ -451,7 +451,7 @@ var value: i32 = n as i32;
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let main_module = program
         .backend_lowering

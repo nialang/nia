@@ -39,8 +39,29 @@ pub(super) fn check_program_with_options(
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
     checked_program_from_output(
+        crate::Driver::new().check_all_modules(
+            crate::CheckRequest::new(entry_path).with_optimization(optimization),
+        ),
+    )
+}
+
+pub(super) fn check_entry_program(entry_path: impl Into<String>) -> crate::CheckedProgram {
+    checked_program_from_output(
+        crate::Driver::new().check_entry(crate::CheckRequest::new(entry_path)),
+    )
+}
+
+pub(super) fn codegen_program(entry_path: impl Into<String>) -> crate::CodegenProgram {
+    codegen_program_with_options(entry_path, NiaOptimizationLevel::default())
+}
+
+pub(super) fn codegen_program_with_options(
+    entry_path: impl Into<String>,
+    optimization: NiaOptimizationLevel,
+) -> crate::CodegenProgram {
+    codegen_program_from_output(
         crate::Driver::new()
-            .check(crate::CheckRequest::new(entry_path).with_optimization(optimization)),
+            .codegen(crate::CheckRequest::new(entry_path).with_optimization(optimization)),
     )
 }
 
@@ -50,7 +71,7 @@ pub(super) fn check_program_with_map(
 ) -> crate::CheckedProgram {
     checked_program_from_output(
         crate::Driver::new()
-            .check(crate::CheckRequest::new(entry_path).with_module_map(module_map)),
+            .check_all_modules(crate::CheckRequest::new(entry_path).with_module_map(module_map)),
     )
 }
 
@@ -59,7 +80,7 @@ pub(super) fn check_freestanding_executable_with_options(
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
     checked_program_from_output(
-        crate::Driver::new().check(
+        crate::Driver::new().check_all_modules(
             crate::CheckRequest::new(entry_path)
                 .with_optimization(optimization)
                 .with_runtime(crate::Runtime::Freestanding),
@@ -73,7 +94,7 @@ pub(super) fn check_freestanding_executable_with_map_and_options(
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
     checked_program_from_output(
-        crate::Driver::new().check(
+        crate::Driver::new().check_all_modules(
             crate::CheckRequest::new(entry_path)
                 .with_module_map(module_map)
                 .with_optimization(optimization)
@@ -87,6 +108,15 @@ pub(super) fn checked_program_from_output(
 ) -> crate::CheckedProgram {
     match output.result {
         Ok(program) | Err(crate::DriverError::CheckDiagnostics(program)) => program,
+        Err(error) => panic!("unexpected driver error: {error:?}"),
+    }
+}
+
+pub(super) fn codegen_program_from_output(
+    output: crate::DriverOutput<crate::CodegenProgram>,
+) -> crate::CodegenProgram {
+    match output.result {
+        Ok(program) | Err(crate::DriverError::CodegenProgramDiagnostics(program)) => program,
         Err(error) => panic!("unexpected driver error: {error:?}"),
     }
 }

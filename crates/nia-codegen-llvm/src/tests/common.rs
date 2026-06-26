@@ -41,25 +41,25 @@ pub(super) fn has_internal_diagnostic(
     })
 }
 
-pub(super) fn check_program(entry_path: impl Into<String>) -> nia_compiler_query::CheckedProgram {
-    check_program_with_options(entry_path, NiaOptimizationLevel::default())
+pub(super) fn codegen_program(entry_path: impl Into<String>) -> nia_compiler_query::CodegenProgram {
+    codegen_program_with_options(entry_path, NiaOptimizationLevel::default())
 }
 
-pub(super) fn check_program_with_options(
+pub(super) fn codegen_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
-) -> nia_compiler_query::CheckedProgram {
+) -> nia_compiler_query::CodegenProgram {
     let loaded = nia_loader_query::load_program_with_map(entry_path, nia_imports::ModuleMap::new());
     nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
     )
-    .check_program()
+    .codegen_program()
 }
 
-pub(super) fn check_freestanding_executable_with_options(
+pub(super) fn codegen_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
-) -> nia_compiler_query::CheckedProgram {
+) -> nia_compiler_query::CodegenProgram {
     let loaded = nia_loader_query::load_program_with_map_and_entry_runtime(
         entry_path,
         nia_imports::ModuleMap::new(),
@@ -68,7 +68,7 @@ pub(super) fn check_freestanding_executable_with_options(
     nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
     )
-    .check_program()
+    .codegen_program()
 }
 
 pub(super) struct EmitSmokeCase {

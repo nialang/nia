@@ -50,7 +50,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -67,7 +67,7 @@ fn id(x: Byte) u8 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -943,7 +943,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert_eq!(program.monomorphization.instances.len(), 1);
 }
@@ -961,7 +961,7 @@ fn main() i32 {
     );
 
     let path = root.join("main.nia").to_string_lossy().into_owned();
-    let default_program = check_program(path.clone());
+    let default_program = codegen_program(path.clone());
     assert!(
         default_program.diagnostics.is_empty(),
         "{:?}",
@@ -984,7 +984,7 @@ fn main() i32 {
         NiaOptimizationLevel::Os,
         NiaOptimizationLevel::Oz,
     ] {
-        let program = check_program_with_options(path.clone(), level);
+        let program = codegen_program_with_options(path.clone(), level);
 
         assert!(
             program.diagnostics.is_empty(),
@@ -1089,7 +1089,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = checked_program_from_output(Driver::new().check(CheckRequest::new(
+    let program = codegen_program_from_output(Driver::new().codegen(CheckRequest::new(
         root.join("main.nia").to_string_lossy().into_owned(),
     )));
 
@@ -1112,7 +1112,8 @@ fn main() i32 {
 "#,
     );
 
-    let program = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
+    let program =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert_eq!(program.modules.len(), 1);
@@ -1123,12 +1124,14 @@ fn driver_invalidates_reused_loader_sources() {
     let driver = Driver::new();
     driver.set_source("main.nia", "fn main() i32 { 1 }");
 
-    let first = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
+    let first =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
     driver.set_source("main.nia", "fn main() i32 { true }");
 
-    let second = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
+    let second =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(!second.diagnostics.is_empty());
 }
 
@@ -1148,7 +1151,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let module = &program.backend_lowering.program.modules[0];
     assert_eq!(module.function_instances.len(), 1);
@@ -1219,7 +1222,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     let diagnostic = program
         .diagnostics
         .iter()

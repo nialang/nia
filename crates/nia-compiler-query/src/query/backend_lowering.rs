@@ -18,17 +18,16 @@ pub(super) struct BackendLoweringIndexes<'a> {
 }
 
 pub(super) fn build_backend_lowering_indexes<'a>(
+    visible_extension_modules: &'a [(ModuleId, VisibleExtensionsValue)],
     checked_modules: &'a [CheckedModule],
     comptime_array_lengths: &'a [nia_comptime_check::ComptimeArrayLengths],
-    visible_extensions: &'a [VisibleExtensionsValue],
     function_bodies: &'a [LoweredFunctionBodies],
 ) -> BackendLoweringIndexes<'a> {
-    let program_extensions = checked_modules
+    let program_extensions = visible_extension_modules
         .iter()
-        .zip(visible_extensions.iter())
-        .map(|(checked_module, visible_extensions)| {
+        .map(|(module_id, visible_extensions)| {
             (
-                checked_module.id,
+                *module_id,
                 (&visible_extensions.methods, &visible_extensions.interner),
             )
         })
@@ -128,7 +127,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_comptime: &input.indexes.program_comptime,
                     layouts: &checked_module.layouts,
                     function_bodies: &function_bodies.bodies,
-                    roots: backend_function_roots(input.runtime),
+                    roots: backend_function_roots(input.runtime, checked_module),
                     reachable_globals: checked_module.executable_reachable_globals.as_ref(),
                     reachable_structs: checked_module.executable_reachable_structs.as_ref(),
                     reachable_unions: checked_module.executable_reachable_unions.as_ref(),
@@ -152,7 +151,13 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .collect()
 }
 
-fn backend_function_roots(runtime: RuntimeModel) -> nia_backend_lower::BackendFunctionRoots {
+fn backend_function_roots(
+    runtime: RuntimeModel,
+    checked_module: &CheckedModule,
+) -> nia_backend_lower::BackendFunctionRoots {
+    if checked_module.executable_type_only {
+        return nia_backend_lower::BackendFunctionRoots::NoFunctions;
+    }
     match runtime {
         RuntimeModel::Bare => nia_backend_lower::BackendFunctionRoots::FunctionBodies,
         RuntimeModel::FreestandingExecutable => {

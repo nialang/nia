@@ -461,7 +461,7 @@ extend[E] i32 : Format[E] {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let vtable_instance_refs = program
         .backend_lowering
