@@ -9,12 +9,14 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+use nia_ty::TyInterner;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FunctionInstanceRef {
     pub(crate) def_id: GlobalDefId,
     pub(crate) arg_module_id: ModuleId,
     pub(crate) args: Vec<InternedTyId>,
+    pub(crate) arg_interner: Option<TyInterner>,
     pub(crate) span: Span,
 }
 
@@ -158,6 +160,7 @@ fn collect_function_refs_from_expr(
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                arg_interner: None,
                 span: expr.span,
             });
         }
@@ -323,6 +326,7 @@ fn collect_function_refs_from_callee(
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                arg_interner: None,
                 span,
             });
         }
@@ -340,6 +344,7 @@ fn collect_function_refs_from_callee(
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
                     args: args.clone(),
+                    arg_interner: None,
                     span,
                 });
             }
@@ -430,6 +435,7 @@ pub(crate) fn collect_function_refs_from_static_init(
                     def_id: *function,
                     arg_module_id: module_id,
                     args: args.clone(),
+                    arg_interner: None,
                     span: Span::default(),
                 });
             }
