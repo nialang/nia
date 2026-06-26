@@ -225,6 +225,49 @@ pub fn resolve_module_values_from_active_item_tree_with_extensions(
     )
 }
 
+pub fn resolve_module_values_from_exprs(
+    exprs: impl IntoIterator<Item = Expr>,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+) -> ValueResolution {
+    let empty_extensions = VisibleExtensionMethods::default();
+    let empty_interner = TyInterner::default();
+    resolve_module_values_from_exprs_with_extensions(
+        exprs,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        &empty_extensions,
+        &empty_interner,
+    )
+}
+
+pub fn resolve_module_values_from_exprs_with_extensions(
+    exprs: impl IntoIterator<Item = Expr>,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    extensions: &VisibleExtensionMethods,
+    extension_interner: &TyInterner,
+) -> ValueResolution {
+    resolve_module_values_from_exprs_inner(
+        exprs,
+        ValueResolveInputs {
+            defs,
+            graph: program_defs.graph,
+            program_defs,
+            public_surfaces: Some(public_surfaces),
+            using_scope: Some(using_scope),
+            extensions: Some(extensions),
+            extension_interner: Some(extension_interner),
+        },
+    )
+}
+
 fn resolve_module_values_from_item_tree_inner(
     item_tree: &ModuleItemTree,
     inputs: ValueResolveInputs<'_>,
@@ -232,38 +275,26 @@ fn resolve_module_values_from_item_tree_inner(
     resolve_module_values_from_items(&item_tree.items, inputs)
 }
 
+fn resolve_module_values_from_exprs_inner(
+    exprs: impl IntoIterator<Item = Expr>,
+    inputs: ValueResolveInputs<'_>,
+) -> ValueResolution {
+    let mut resolver = ValueResolver::new(inputs);
+    for expr in exprs {
+        resolver.visit_expr(&expr);
+    }
+    resolver.finish()
+}
+
 fn resolve_module_values_from_items(
     items: &[ItemTreeNode],
     inputs: ValueResolveInputs<'_>,
 ) -> ValueResolution {
-    let mut resolver = ValueResolver {
-        defs: inputs.defs,
-        graph: inputs.graph,
-        program_defs: inputs.program_defs,
-        public_surfaces: inputs.public_surfaces,
-        using_scope: inputs.using_scope,
-        extensions: inputs.extensions,
-        extension_interner: inputs.extension_interner,
-        node_names: HashMap::new(),
-        node_qualified_values: HashMap::new(),
-        node_builtin_associated_values: HashMap::new(),
-        node_variant_enums: HashMap::new(),
-        node_qualified_type_prefixes: HashMap::new(),
-        node_builtins: HashMap::new(),
-        diagnostics: Vec::new(),
-    };
+    let mut resolver = ValueResolver::new(inputs);
     for item in items {
         resolver.visit_item_tree_node(item);
     }
-    ValueResolution {
-        node_names: resolver.node_names,
-        node_qualified_values: resolver.node_qualified_values,
-        node_builtin_associated_values: resolver.node_builtin_associated_values,
-        node_variant_enums: resolver.node_variant_enums,
-        node_qualified_type_prefixes: resolver.node_qualified_type_prefixes,
-        node_builtins: resolver.node_builtins,
-        diagnostics: resolver.diagnostics,
-    }
+    resolver.finish()
 }
 
 struct ValueResolveInputs<'a> {
@@ -294,6 +325,37 @@ struct ValueResolver<'a> {
 }
 
 impl ValueResolver<'_> {
+    fn new<'a>(inputs: ValueResolveInputs<'a>) -> ValueResolver<'a> {
+        ValueResolver {
+            defs: inputs.defs,
+            graph: inputs.graph,
+            program_defs: inputs.program_defs,
+            public_surfaces: inputs.public_surfaces,
+            using_scope: inputs.using_scope,
+            extensions: inputs.extensions,
+            extension_interner: inputs.extension_interner,
+            node_names: HashMap::new(),
+            node_qualified_values: HashMap::new(),
+            node_builtin_associated_values: HashMap::new(),
+            node_variant_enums: HashMap::new(),
+            node_qualified_type_prefixes: HashMap::new(),
+            node_builtins: HashMap::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn finish(self) -> ValueResolution {
+        ValueResolution {
+            node_names: self.node_names,
+            node_qualified_values: self.node_qualified_values,
+            node_builtin_associated_values: self.node_builtin_associated_values,
+            node_variant_enums: self.node_variant_enums,
+            node_qualified_type_prefixes: self.node_qualified_type_prefixes,
+            node_builtins: self.node_builtins,
+            diagnostics: self.diagnostics,
+        }
+    }
+
     fn graph(&self) -> Option<&ModuleGraph> {
         self.graph.or(self.program_defs.graph)
     }
