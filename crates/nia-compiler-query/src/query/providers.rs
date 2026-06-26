@@ -1214,6 +1214,24 @@ fn semantic_use_table_from_resolution_inputs(
     locals: &LocalResolution,
     type_lowering: &TypeLowering,
 ) -> nia_sema_ir::SemanticUseTable {
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(
+        module_id,
+        active_item_tree,
+        values,
+        None,
+        locals,
+        type_lowering,
+    )
+}
+
+fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    values: &ValueResolution,
+    const_expr_value_resolution: Option<&ValueResolution>,
+    locals: &LocalResolution,
+    type_lowering: &TypeLowering,
+) -> nia_sema_ir::SemanticUseTable {
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
 
     for (key, local_use) in &locals.node_uses {
@@ -1233,6 +1251,45 @@ fn semantic_use_table_from_resolution_inputs(
             .iter()
             .map(|(key, value)| (key.clone(), *value)),
     );
+    if let Some(const_expr_value_resolution) = const_expr_value_resolution {
+        let const_expr_nodes = const_expr_node_keys(&type_lowering.const_exprs);
+        builder.extend_node_global_value_uses(
+            const_expr_value_resolution
+                .node_qualified_values
+                .iter()
+                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .map(|(key, global_id)| (key.clone(), *global_id)),
+        );
+        builder.extend_node_builtin_associated_values(
+            const_expr_value_resolution
+                .node_builtin_associated_values
+                .iter()
+                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .map(|(key, value)| (key.clone(), *value)),
+        );
+        for (key, resolution) in &const_expr_value_resolution.node_names {
+            if !const_expr_nodes.contains(key) {
+                continue;
+            }
+            match resolution {
+                nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                    builder.insert_node_global_value_use(
+                        key.clone(),
+                        GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        },
+                    );
+                }
+                nia_value_resolve::ValueNameResolution::External(global_id) => {
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
+                }
+                nia_value_resolve::ValueNameResolution::Module
+                | nia_value_resolve::ValueNameResolution::LocalDeferred
+                | nia_value_resolve::ValueNameResolution::Error => {}
+            }
+        }
+    }
     for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {
@@ -1262,6 +1319,29 @@ fn semantic_use_table_from_resolution_inputs(
         type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
     );
     builder.finish()
+}
+
+fn const_expr_node_keys(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+) -> HashSet<nia_node_id::VersionedNodeKey> {
+    struct ExprNodeCollector {
+        keys: HashSet<nia_node_id::VersionedNodeKey>,
+    }
+
+    impl<'ast> nia_ast_walk::Visitor<'ast> for ExprNodeCollector {
+        fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+            self.keys.insert(expr.node_key.clone());
+            nia_ast_walk::walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = ExprNodeCollector {
+        keys: HashSet::new(),
+    };
+    for expr in const_exprs.values() {
+        nia_ast_walk::Visitor::visit_expr(&mut collector, expr);
+    }
+    collector.keys
 }
 
 fn active_item_tree_for_body_check_filter(
@@ -1814,6 +1894,26 @@ fn filtered_comptime_global_initializer_for_body_check(
         global_id.module_id,
         || db.query(TypeLoweringQuery(global_id.module_id)),
     );
+    let const_expr_value_resolution = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.const_expr_value_resolution",
+        global_id.module_id,
+        || {
+            let visible_extensions = db.query(VisibleExtensionsQuery(global_id.module_id));
+            nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+                lowered.const_exprs.values().cloned(),
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&db.query(ModuleGraphQuery)),
+                },
+                &public.surfaces,
+                using_scope,
+                &visible_extensions.methods,
+                &visible_extensions.interner,
+            )
+        },
+    );
     let lower_with_values = |values: ValueResolution| {
         let locals = time_module_provider(
             db,
@@ -1835,10 +1935,11 @@ fn filtered_comptime_global_initializer_for_body_check(
             "executable_body_check.comptime.global_initializer.semantic_uses",
             global_id.module_id,
             || {
-                semantic_use_table_from_resolution_inputs(
+                semantic_use_table_from_resolution_inputs_with_const_expr_values(
                     global_id.module_id,
                     &filtered_active_item_tree,
                     &values,
+                    Some(&const_expr_value_resolution),
                     &locals,
                     &lowered,
                 )
@@ -2146,10 +2247,24 @@ fn body_check_with_filter_and_layouts_with_inputs(
             );
             filtered_semantic_uses =
                 time_module_provider(db, "executable_body_check.semantic_uses", module_id, || {
-                    semantic_use_table_from_resolution_inputs(
+                    let const_expr_value_resolution =
+                        nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+                            lowered.const_exprs.values().cloned(),
+                            &defs,
+                            nia_value_resolve::ProgramDefsContext {
+                                defs: Some(&program_defs),
+                                graph: Some(&db.query(ModuleGraphQuery)),
+                            },
+                            &public.surfaces,
+                            using_scope,
+                            &visible_extensions.methods,
+                            &visible_extensions.interner,
+                        );
+                    semantic_use_table_from_resolution_inputs_with_const_expr_values(
                         module_id,
                         &filtered_active_item_tree,
                         &filtered_values,
+                        Some(&const_expr_value_resolution),
                         &filtered_locals,
                         &lowered,
                     )

@@ -17,7 +17,7 @@ use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
@@ -2796,6 +2796,85 @@ fn main() i32 {
             dependency.from.name == "executable_checked_modules"
                 && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
         }));
+    }
+
+    #[test]
+    fn executable_filtered_comptime_resolves_forwarded_array_len_values() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module facade;
+using entry::facade;
+
+fn main() i32 {
+    var values: [facade::LEN]u8 = [0; facade::LEN];
+    values.len() as i32
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(1),
+            "facade.nia",
+            r#"
+module raw;
+using self::raw;
+
+pub comptime let LEN: usize = raw::LEN;
+"#,
+        );
+        let raw = loaded_module(
+            ModuleId(2),
+            "facade/raw.nia",
+            r#"
+pub comptime let LEN: usize = 4usize;
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "facade",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern facade module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "raw",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern raw module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, facade, raw],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let entry = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+
+        assert!(
+            entry.body_diagnostics.is_empty(),
+            "filtered executable body checking should resolve forwarded comptime array lengths: {:?}",
+            entry.body_diagnostics
+        );
+        assert!(
+            entry
+                .comptime
+                .array_lengths
+                .values()
+                .any(|length| *length == 4),
+            "filtered executable comptime should evaluate forwarded array length"
+        );
     }
 
     #[test]
