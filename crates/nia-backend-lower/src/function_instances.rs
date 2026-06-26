@@ -40,6 +40,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
                     args,
+                    arg_interner: Some(self.type_context.interner.clone()),
                     span: instance.span,
                 }
             })
@@ -95,10 +96,11 @@ impl<'a> ModuleLowerer<'a> {
 
         while let Some(instance) = pending.pop_front() {
             if instance.def_id.module_id != self.input.module_id {
-                self.foreign_function_instance_refs.push(instance);
+                self.foreign_function_instance_refs
+                    .push(self.with_current_arg_interner(instance));
                 continue;
             }
-            let args = self.canonicalize_instance_args(&instance.args);
+            let args = self.canonicalize_instance_ref_args(&instance);
             let key = (instance.def_id, instance.arg_module_id, args.clone());
             if seen.contains(&key) {
                 continue;
@@ -175,6 +177,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: discovered.def_id,
                             arg_module_id: discovered.arg_module_id,
                             args: discovered_args,
+                            arg_interner: Some(self.type_context.interner.clone()),
                             span: discovered.span,
                         },
                     );
@@ -629,6 +632,34 @@ impl<'a> ModuleLowerer<'a> {
             self.import_type_from_known_interner(&source, arg)
         };
         self.instantiate_ty(local, &HashMap::new())
+    }
+
+    pub(crate) fn canonicalize_instance_ref_args(
+        &mut self,
+        instance: &FunctionInstanceRef,
+    ) -> Vec<InternedTyId> {
+        instance
+            .args
+            .iter()
+            .copied()
+            .map(|arg| {
+                if let Some(interner) = &instance.arg_interner
+                    && arg.interner_id == interner.interner_id()
+                    && interner.get(arg).is_some()
+                    && (arg.interner_id != self.type_context.interner.interner_id()
+                        || self.type_context.interner.get(arg).is_none())
+                {
+                    let local = self.import_type_from_known_interner(interner, arg);
+                    return self.instantiate_ty(local, &HashMap::new());
+                }
+                self.canonicalize_instance_arg(arg)
+            })
+            .collect()
+    }
+
+    fn with_current_arg_interner(&self, mut instance: FunctionInstanceRef) -> FunctionInstanceRef {
+        instance.arg_interner = Some(self.type_context.interner.clone());
+        instance
     }
 
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {

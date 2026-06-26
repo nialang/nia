@@ -771,6 +771,7 @@ impl ReachabilityWorklist {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
                     args: args.clone(),
+                    arg_interner: None,
                     span: vtable.span,
                 }]),
             }
@@ -1559,6 +1560,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
                             args: args.clone(),
+                            arg_interner: None,
                             span: vtable.span,
                         }),
                     }
