@@ -32,10 +32,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("__add"), "{ir}");
@@ -76,10 +76,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("__add"), "{ir}");
@@ -135,10 +135,10 @@ fn main() bool {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("__ne"), "{ir}");
@@ -184,10 +184,10 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let checked = check_program(main.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("__neg"), "{ir}");

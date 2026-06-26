@@ -83,6 +83,14 @@ pub struct CheckedProgram {
     pub graph: ModuleGraph,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<CheckedModule>,
+    pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodegenProgram {
+    pub graph: ModuleGraph,
+    pub optimization: OptimizationPolicy,
+    pub modules: Vec<CheckedModule>,
     pub monomorphization: Monomorphization,
     pub backend_lowering: BackendLowering,
     pub diagnostics: Vec<ProgramDiagnostic>,
@@ -115,6 +123,7 @@ pub struct CheckedModule {
     pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
     pub executable_reachable_structs: Option<std::collections::HashSet<GlobalDefId>>,
     pub executable_reachable_unions: Option<std::collections::HashSet<GlobalDefId>>,
+    pub executable_type_only: bool,
     pub body_diagnostics: Vec<Diagnostic>,
 }
 

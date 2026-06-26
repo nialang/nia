@@ -1493,6 +1493,71 @@ extend types::Point {
 }
 
 #[test]
+fn executable_facade_reexport_does_not_body_check_unused_reexport_extension_providers() {
+    let root = temp_dir(
+        "executable_facade_reexport_does_not_body_check_unused_reexport_extension_providers",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module facade;
+module impls;
+module types;
+using entry::facade;
+
+fn consume(used: facade::Used) i32 {
+    _ = used;
+    1
+}
+
+fn main() i32 {
+    consume(facade::Used {})
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+pub using entry::types::{Used, Unused};
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Used {}
+pub struct Unused {}
+"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using entry::types;
+
+extend types::Unused {
+    pub fn expensive_or_invalid(&self) i32 {
+        missing_symbol
+    }
+}
+"#,
+    );
+
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .modules
+            .iter()
+            .all(|module| { !module.path.as_str().ends_with("impls.nia") }),
+        "unused facade re-export extension provider should not enter executable checking: {:?}",
+        program
+            .modules
+            .iter()
+            .map(|module| module.path.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods() {
     let root = temp_dir(
         "facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods",
@@ -1795,7 +1860,7 @@ extend[T] &T {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 
     let instances = program

@@ -28,6 +28,7 @@ pub struct ReachableModuleInput<'a> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExecutableReachability {
     pub modules: HashSet<ModuleId>,
+    pub type_modules: HashSet<ModuleId>,
     pub functions: HashSet<GlobalDefId>,
     pub globals: HashSet<GlobalDefId>,
     pub stats: ExecutableReachabilityStats,
@@ -73,6 +74,7 @@ pub fn compute_executable_reachability(
         .iter()
         .map(|def_id| def_id.module_id)
         .collect::<HashSet<_>>();
+    let mut reachable_type_modules = HashSet::new();
     add_reachable_module(graph.entry(), &mut reachable_modules, &mut VecDeque::new());
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
@@ -81,6 +83,7 @@ pub fn compute_executable_reachability(
             reachable_functions.len(),
             reachable_globals.len(),
             reachable_modules.len(),
+            reachable_type_modules.len(),
         );
         let mut reachable_traits = ReachableTraitRefs::default();
         let current_reachable_modules = reachable_modules.clone();
@@ -109,6 +112,7 @@ pub fn compute_executable_reachability(
                 &reachable_functions,
                 &reachable_globals,
                 &mut reachable_modules,
+                &mut reachable_type_modules,
                 &mut pending_modules,
                 &mut reachable_traits,
             );
@@ -133,6 +137,7 @@ pub fn compute_executable_reachability(
                 reachable_functions.len(),
                 reachable_globals.len(),
                 reachable_modules.len(),
+                reachable_type_modules.len(),
             )
         {
             break;
@@ -160,6 +165,7 @@ pub fn compute_executable_reachability(
 
     ExecutableReachability {
         modules: reachable_modules,
+        type_modules: reachable_type_modules,
         functions: reachable_functions,
         globals: reachable_globals,
         stats,
@@ -451,10 +457,11 @@ fn collect_typed_expr_refs(
     refs: &mut TypedBodyRefs,
 ) {
     match &expr.kind {
-        TypedExprKind::Function(def_id)
-        | TypedExprKind::FunctionInstance { def_id, .. }
-        | TypedExprKind::Field { field: def_id, .. } => {
+        TypedExprKind::Function(def_id) | TypedExprKind::FunctionInstance { def_id, .. } => {
             refs.functions.insert(*def_id);
+        }
+        TypedExprKind::Field { lhs, .. } => {
+            collect_typed_expr_refs(module, lhs, refs);
         }
         TypedExprKind::Range(range) => {
             if let Some(start) = range.start.as_deref() {
@@ -910,6 +917,10 @@ fn add_reachable_module(
     }
 }
 
+fn add_reachable_type_module(module_id: ModuleId, type_modules: &mut HashSet<ModuleId>) {
+    type_modules.insert(module_id);
+}
+
 fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
     graph.module_id_for_module_path(&nia_imports::ModulePath {
         package: nia_imports::STD_MODULE_MAP_NAME.to_string(),
@@ -928,6 +939,7 @@ fn collect_reachable_fact_owner_modules(
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
     modules: &mut HashSet<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
@@ -942,6 +954,7 @@ fn collect_reachable_fact_owner_modules(
         collect_function_fact_owner_modules(
             function_facts,
             modules,
+            type_modules,
             pending_modules,
             traits,
             &mut type_ids,
@@ -962,7 +975,7 @@ fn collect_reachable_fact_owner_modules(
         &module.type_lowering.interner,
         &module.type_normalization.interner,
         modules,
-        pending_modules,
+        type_modules,
         traits,
     );
 }
@@ -988,6 +1001,7 @@ fn collect_where_predicate_type_ids(
 fn collect_function_fact_owner_modules(
     facts: &FunctionSemanticFacts,
     modules: &mut HashSet<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut ReachableTraitRefs,
     type_ids: &mut Vec<InternedTyId>,
@@ -1018,7 +1032,14 @@ fn collect_function_fact_owner_modules(
         }
     }
     for call in facts.node_resolved_calls.values() {
-        collect_resolved_call_owner_modules(call, modules, pending_modules, traits, type_ids);
+        collect_resolved_call_owner_modules(
+            call,
+            modules,
+            type_modules,
+            pending_modules,
+            traits,
+            type_ids,
+        );
     }
     for reference in facts.node_function_references.values() {
         add_reachable_module(reference.def_id.module_id, modules, pending_modules);
@@ -1030,6 +1051,7 @@ fn collect_function_fact_owner_modules(
 fn collect_resolved_call_owner_modules(
     call: &nia_sema_ir::ResolvedCall,
     modules: &mut HashSet<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut ReachableTraitRefs,
     type_ids: &mut Vec<InternedTyId>,
@@ -1061,12 +1083,7 @@ fn collect_resolved_call_owner_modules(
             ..
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
-            collect_trait_id_owner_module(
-                TraitId::Source(*trait_id),
-                modules,
-                pending_modules,
-                traits,
-            );
+            collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
             traits.insert_method(TraitId::Source(*trait_id), method_name.clone());
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
@@ -1082,12 +1099,7 @@ fn collect_resolved_call_owner_modules(
             ..
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
-            collect_trait_id_owner_module(
-                TraitId::Source(*trait_id),
-                modules,
-                pending_modules,
-                traits,
-            );
+            collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
             traits.insert_method(TraitId::Source(*trait_id), method_name.clone());
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
@@ -1104,7 +1116,7 @@ fn collect_resolved_call_owner_modules(
             ..
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
-            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
+            collect_trait_id_owner_module(*trait_id, type_modules, traits);
             traits.insert_method(*trait_id, method_name.clone());
             type_ids.push(*object_ty);
             type_ids.extend(trait_args.iter().copied());
@@ -1143,7 +1155,7 @@ fn collect_ty_ids_owner_modules<'a>(
     type_lowering_interner: &TyInterner,
     normalization_interner: &TyInterner,
     modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
     let mut pending = tys
@@ -1157,7 +1169,7 @@ fn collect_ty_ids_owner_modules<'a>(
     let mut seen = HashSet::new();
     while let Some(pending_ty) = pending.pop_front() {
         let ty_id = pending_ty.ty;
-        add_reachable_module(type_owner(ty_id).module_id(), modules, pending_modules);
+        add_reachable_type_module(type_owner(ty_id).module_id(), type_modules);
         let interner_id = pending_ty
             .interner
             .map(TyInterner::interner_id)
@@ -1186,7 +1198,7 @@ fn collect_ty_ids_owner_modules<'a>(
             program_signatures,
             &mut pending,
             modules,
-            pending_modules,
+            type_modules,
             traits,
         );
     }
@@ -1208,12 +1220,12 @@ fn collect_ty_owner_modules<'a>(
     program_signatures: ExecutableSignatureIndex<'a>,
     type_ids: &mut VecDeque<PendingTy<'a>>,
     modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
     match ty {
         TyKind::Nominal { def_id, args } => {
-            add_reachable_module(def_id.module_id, modules, pending_modules);
+            add_reachable_type_module(def_id.module_id, type_modules);
             push_tys(type_ids, args.iter().copied());
             collect_nominal_signature_owner_type_ids(*def_id, program_signatures, type_ids);
         }
@@ -1256,13 +1268,13 @@ fn collect_ty_owner_modules<'a>(
             trait_args,
             associated_type_bindings,
         } => {
-            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
+            collect_trait_id_owner_module(*trait_id, type_modules, traits);
             push_tys(type_ids, trait_args.iter().copied());
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
                 type_ids,
                 modules,
-                pending_modules,
+                type_modules,
                 traits,
             );
         }
@@ -1273,7 +1285,7 @@ fn collect_ty_owner_modules<'a>(
             ..
         } => {
             push_ty(type_ids, *self_ty);
-            collect_trait_id_owner_module(*trait_id, modules, pending_modules, traits);
+            collect_trait_id_owner_module(*trait_id, type_modules, traits);
             push_tys(type_ids, trait_args.iter().copied());
         }
         TyKind::BuiltinTrait { args, .. } => push_tys(type_ids, args.iter().copied()),
@@ -1337,13 +1349,12 @@ fn collect_array_len_owner_modules(
 
 fn collect_trait_id_owner_module(
     trait_id: TraitId,
-    modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
     traits.insert_trait(trait_id);
     if let TraitId::Source(def_id) = trait_id {
-        add_reachable_module(def_id.module_id, modules, pending_modules);
+        add_reachable_type_module(def_id.module_id, type_modules);
     }
 }
 
@@ -1351,12 +1362,13 @@ fn collect_associated_binding_owner_modules<'a>(
     bindings: &[AssociatedTypeBindingTy],
     type_ids: &mut VecDeque<PendingTy<'a>>,
     modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
+    let _ = modules;
     for binding in bindings {
         if let Some(trait_id) = binding.trait_id {
-            collect_trait_id_owner_module(trait_id, modules, pending_modules, traits);
+            collect_trait_id_owner_module(trait_id, type_modules, traits);
         }
         push_tys(type_ids, binding.trait_args.iter().copied());
         push_ty(type_ids, binding.ty);

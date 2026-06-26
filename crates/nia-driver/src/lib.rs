@@ -5,8 +5,8 @@ mod report;
 
 pub use inspect::{AstInspection, TokensInspection, ast_inspection, tokens_inspection};
 pub use nia_compiler_query::{
-    BackendOptimizationChange, CheckedModule, CheckedProgram, LoadedModule, LoadedProgram,
-    ProgramDiagnostic, TimingMode,
+    BackendOptimizationChange, CheckedModule, CheckedProgram, CodegenProgram, LoadedModule,
+    LoadedProgram, ProgramDiagnostic, TimingMode,
 };
 pub use nia_imports::{
     BUILTIN_MODULE_MAP_NAME, ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME,

@@ -15,7 +15,7 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
 
-use crate::{CheckedProgram, LoadedProgram};
+use crate::{CheckedProgram, CodegenProgram, LoadedProgram};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runtime {
@@ -98,9 +98,9 @@ impl Driver {
         }
     }
 
-    pub fn check(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
+    pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
-            let program = self.check_inner(request);
+            let program = self.check_all_modules_inner(request);
             if !program.diagnostics.is_empty() {
                 return DriverOutput::from_check_diagnostics(program);
             }
@@ -108,7 +108,43 @@ impl Driver {
         })
     }
 
-    fn check_inner(&self, request: CheckRequest) -> CheckedProgram {
+    fn check_all_modules_inner(&self, request: CheckRequest) -> CheckedProgram {
+        self.compile_with(request, CompilerDatabase::check_program)
+    }
+
+    pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
+        DriverOutput::catch_ice(|| {
+            let program = self.check_entry_inner(request);
+            if !program.diagnostics.is_empty() {
+                return DriverOutput::from_check_diagnostics(program);
+            }
+            DriverOutput::success(program)
+        })
+    }
+
+    fn check_entry_inner(&self, request: CheckRequest) -> CheckedProgram {
+        self.compile_with(request, CompilerDatabase::entry_check_program)
+    }
+
+    pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
+        DriverOutput::catch_ice(|| {
+            let program = self.codegen_inner(request);
+            if !program.diagnostics.is_empty() {
+                return DriverOutput::from_codegen_diagnostics(program);
+            }
+            DriverOutput::success(program)
+        })
+    }
+
+    fn codegen_inner(&self, request: CheckRequest) -> CodegenProgram {
+        self.compile_with(request, CompilerDatabase::codegen_program)
+    }
+
+    fn compile_with<T>(
+        &self,
+        request: CheckRequest,
+        compile: impl FnOnce(&CompilerDatabase) -> T,
+    ) -> T {
         let loaded = self.load_program(&request);
         let compile_request = CompileRequest::new(loaded)
             .with_optimization(request.optimization)
@@ -127,24 +163,24 @@ impl Driver {
                 database
             }
         };
-        let checked = database.check_program();
+        let output = compile(&database);
         drop(compiler_guard);
-        checked
+        output
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
-            let program = match self.check(request.check).result {
+            let program = match self.codegen(request.check).result {
                 Ok(program) => program,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_llvm_ir_from_checked(&program)
+            self.emit_llvm_ir_from_codegen(&program)
         })
     }
 
-    pub fn emit_llvm_ir_from_checked(
+    pub fn emit_llvm_ir_from_codegen(
         &self,
-        program: &CheckedProgram,
+        program: &CodegenProgram,
     ) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
@@ -164,17 +200,17 @@ impl Driver {
 
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
-            let program = match self.check(request.check).result {
+            let program = match self.codegen(request.check).result {
                 Ok(program) => program,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_native_objects_from_checked(&program)
+            self.emit_native_objects_from_codegen(&program)
         })
     }
 
-    pub fn emit_native_objects_from_checked(
+    pub fn emit_native_objects_from_codegen(
         &self,
-        program: &CheckedProgram,
+        program: &CodegenProgram,
     ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
             let output = nia_codegen_llvm::emit_native_objects(
@@ -535,6 +571,10 @@ impl<T> DriverOutput<T> {
         Self::from_error(DriverError::CheckDiagnostics(program))
     }
 
+    fn from_codegen_diagnostics(program: CodegenProgram) -> Self {
+        Self::from_error(DriverError::CodegenProgramDiagnostics(program))
+    }
+
     pub(crate) fn catch_ice(f: impl FnOnce() -> Self) -> Self {
         match nia_ice::catch_ice(f) {
             Ok(output) => output,
@@ -546,6 +586,7 @@ impl<T> DriverOutput<T> {
 #[derive(Debug)]
 pub enum DriverError {
     CheckDiagnostics(CheckedProgram),
+    CodegenProgramDiagnostics(CodegenProgram),
     CodegenDiagnostics(Vec<Diagnostic>),
     InternalDiagnostic(Diagnostic),
     InvalidArtifactRequest(String),

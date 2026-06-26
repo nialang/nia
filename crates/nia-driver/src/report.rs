@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{BackendOptimizationChange, CheckedProgram, DriverError, NiaOptimizationLevel};
+use crate::{
+    BackendOptimizationChange, CheckedProgram, CodegenProgram, DriverError, NiaOptimizationLevel,
+};
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
     render_diagnostic,
@@ -7,13 +9,13 @@ use nia_diagnostic::{
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 use std::fs;
 
-pub fn optimization_report(program: &CheckedProgram) -> String {
+pub fn optimization_report(program: &CodegenProgram) -> String {
     let mut out = optimization_report_lines(program).join("\n");
     out.push('\n');
     out
 }
 
-pub fn optimization_report_lines(program: &CheckedProgram) -> Vec<String> {
+pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
     let report = &program.backend_lowering.optimization_report;
     let policy = program.optimization;
     let mut lines = Vec::new();
@@ -82,8 +84,15 @@ pub fn render_program_diagnostics(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    let diagnostics = program
-        .diagnostics
+    render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+}
+
+fn render_program_diagnostic_items(
+    diagnostics: &[crate::ProgramDiagnostic],
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = diagnostics
         .iter()
         .map(|diagnostic| ProgramDiagnosticReportItem {
             path: diagnostic.path.as_str(),
@@ -106,6 +115,14 @@ pub fn render_program_diagnostics(
     out
 }
 
+pub fn render_codegen_program_diagnostics(
+    program: &CodegenProgram,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+}
+
 pub fn render_driver_error(
     error: &DriverError,
     primary_path: Option<&str>,
@@ -114,6 +131,9 @@ pub fn render_driver_error(
     match error {
         DriverError::CheckDiagnostics(program) => {
             render_program_diagnostics(program, primary_path, primary_source)
+        }
+        DriverError::CodegenProgramDiagnostics(program) => {
+            render_codegen_program_diagnostics(program, primary_path, primary_source)
         }
         DriverError::CodegenDiagnostics(diagnostics) => {
             render_codegen_diagnostics(diagnostics, primary_path, primary_source)

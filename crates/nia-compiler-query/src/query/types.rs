@@ -275,14 +275,6 @@ pub(super) struct ProgramVisibleTypeSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramExecutableReachabilitySignatures {
-    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
-    pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramExecutableSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
@@ -475,38 +467,6 @@ impl QueryKey<CompilerContext> for ProgramVisibleTypeSignaturesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_visible_type_signatures)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramExecutableReachabilitySignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramExecutableReachabilitySignaturesQuery {
-    type Value = Arc<ProgramExecutableReachabilitySignatures>;
-
-    fn name() -> &'static str {
-        "program_executable_reachability_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context()
-            .providers
-            .program_executable_reachability_signatures)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramExecutableSignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramExecutableSignaturesQuery {
-    type Value = Arc<ProgramExecutableSignatures>;
-
-    fn name() -> &'static str {
-        "program_executable_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_executable_signatures)(db)
     }
 }
 

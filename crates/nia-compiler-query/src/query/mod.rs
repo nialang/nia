@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
-    TimingMode, module_diagnostics,
+    CheckedModule, CheckedProgram, CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
+    RuntimeModel, TimingMode, module_diagnostics,
     program_signatures::{
         ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleSignatureInput,
         VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
@@ -125,6 +125,50 @@ impl CompilerDatabase {
             ),
             Err(payload) => match payload.downcast::<QueryError>() {
                 Ok(err) => checked_program_from_query_error(
+                    self.current_graph(),
+                    self.current_optimization(),
+                    *err,
+                ),
+                Err(payload) => std::panic::resume_unwind(payload),
+            },
+        }
+    }
+
+    pub fn entry_check_program(&self) -> CheckedProgram {
+        let _permit = compiler_check_permit();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.db.try_query(EntryCheckedProgramQuery)
+        })) {
+            Ok(Ok(checked)) => checked,
+            Ok(Err(err)) => checked_program_from_query_error(
+                self.current_graph(),
+                self.current_optimization(),
+                err,
+            ),
+            Err(payload) => match payload.downcast::<QueryError>() {
+                Ok(err) => checked_program_from_query_error(
+                    self.current_graph(),
+                    self.current_optimization(),
+                    *err,
+                ),
+                Err(payload) => std::panic::resume_unwind(payload),
+            },
+        }
+    }
+
+    pub fn codegen_program(&self) -> CodegenProgram {
+        let _permit = compiler_check_permit();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.db.try_query(CodegenProgramQuery)
+        })) {
+            Ok(Ok(codegen)) => codegen,
+            Ok(Err(err)) => codegen_program_from_query_error(
+                self.current_graph(),
+                self.current_optimization(),
+                err,
+            ),
+            Err(payload) => match payload.downcast::<QueryError>() {
+                Ok(err) => codegen_program_from_query_error(
                     self.current_graph(),
                     self.current_optimization(),
                     *err,
@@ -504,6 +548,22 @@ fn checked_program_from_query_error(
     err: QueryError,
 ) -> CheckedProgram {
     CheckedProgram {
+        graph,
+        optimization,
+        modules: Vec::new(),
+        diagnostics: vec![ProgramDiagnostic {
+            path: SourcePath::new("<query>"),
+            diagnostic: query_error_diagnostic(err),
+        }],
+    }
+}
+
+fn codegen_program_from_query_error(
+    graph: ModuleGraph,
+    optimization: OptimizationPolicy,
+    err: QueryError,
+) -> CodegenProgram {
+    CodegenProgram {
         graph,
         optimization,
         modules: Vec::new(),
@@ -1251,7 +1311,7 @@ fn main() i32 {
             )]);
             let checked =
                 CompilerDatabase::new(CompileRequest::new(loaded).with_optimization(level))
-                    .check_program();
+                    .codegen_program();
             let policy = level.policy();
 
             assert!(
@@ -1724,7 +1784,7 @@ fn main() i32 {
                 ),
             ])));
 
-        let first = database.check_program();
+        let first = database.codegen_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
         let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
@@ -1904,7 +1964,7 @@ fn main() i32 {
             )])),
             providers,
         )
-        .check_program();
+        .codegen_program();
 
         assert!(checked.modules.is_empty());
     }
@@ -1929,7 +1989,7 @@ fn main() i32 {
             .with_optimization(NiaOptimizationLevel::Oz),
             providers,
         )
-        .check_program();
+        .codegen_program();
 
         assert!(checked.modules.is_empty());
         assert_eq!(checked.optimization, policy);
@@ -1997,15 +2057,11 @@ fn main() i32 {
         let db = query_db(loaded);
 
         let _ = db.query(ProgramVisibleTypeSignaturesQuery);
-        let _ = db.query(ProgramExecutableReachabilitySignaturesQuery);
-        let _ = db.query(ProgramExecutableSignaturesQuery);
         let _ = db.query(ProgramBackendSignaturesQuery);
         let trace = db.query_trace();
 
         for query in [
             "program_visible_type_signatures",
-            "program_executable_reachability_signatures",
-            "program_executable_signatures",
             "program_backend_signatures",
         ] {
             assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2020,13 +2076,11 @@ fn main() i32 {
             dependency.from.name == "program_backend_signatures"
                 && dependency.to.name == "signature_item_signatures"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_executable_signatures"
-                && dependency.to.name == "program_executable_reachability_signatures"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_executable_reachability_signatures"
-                && dependency.to.name == "signature_item_signatures"
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            matches!(
+                dependency.from.name,
+                "program_executable_reachability_signatures" | "program_executable_signatures"
+            )
         }));
     }
 
@@ -2545,7 +2599,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.query(CheckedProgramQuery);
+        let checked = db.query(CodegenProgramQuery);
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -2943,9 +2997,8 @@ fn main() i32 {
             module.layouts.diagnostics
         );
 
-        let checked = db.query(CheckedProgramQuery);
-        let backend_module = checked
-            .backend_lowering
+        let backend_lowering = db.query(BackendLoweringQuery);
+        let backend_module = backend_lowering
             .program
             .modules
             .iter()
@@ -2957,6 +3010,67 @@ fn main() i32 {
                 .iter()
                 .all(|item| item.name != "Recursive"),
             "unreachable recursive aggregate should not be lowered for codegen"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_keep_type_owner_modules_type_only() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module types;
+using entry::types;
+
+fn main(value: types::Used) i32 {
+    value.value
+}
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(1),
+            "types.nia",
+            r#"
+pub struct Used {
+    value: i32,
+}
+
+pub fn unused_bad() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let type_module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("type owner module should be present for backend type lookup");
+        assert!(
+            type_module.executable_type_only,
+            "type owner module should not be treated as an executable body module"
+        );
+        assert!(
+            type_module.body_ir.function_bodies.is_empty(),
+            "type owner module should not retain or check function bodies"
+        );
+
+        let trace = db.query_trace();
+        assert!(
+            !trace.queries.iter().any(|query| {
+                query.frame.name == "executable_body_check"
+                    && query.frame.description.contains("ModuleId(1)")
+                    && query.stats.executions > 0
+            }),
+            "type owner module should not be executable-body-checked: {:?}",
+            trace
+                .queries
+                .iter()
+                .filter(|query| query.frame.name == "executable_body_check")
+                .collect::<Vec<_>>()
         );
     }
 

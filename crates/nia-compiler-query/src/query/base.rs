@@ -19,6 +19,36 @@ impl QueryKey<CompilerContext> for CheckedProgramQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct EntryCheckedProgramQuery;
+
+impl QueryKey<CompilerContext> for EntryCheckedProgramQuery {
+    type Value = CheckedProgram;
+
+    fn name() -> &'static str {
+        "entry_checked_program"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.entry_checked_program)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CodegenProgramQuery;
+
+impl QueryKey<CompilerContext> for CodegenProgramQuery {
+    type Value = CodegenProgram;
+
+    fn name() -> &'static str {
+        "codegen_program"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.codegen_program)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleGraphQuery;
 
 impl QueryKey<CompilerContext> for ModuleGraphQuery {

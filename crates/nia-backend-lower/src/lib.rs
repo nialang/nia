@@ -181,6 +181,7 @@ pub enum BackendFunctionRoots {
     Public,
     EntryPoints,
     FunctionBodies,
+    NoFunctions,
 }
 
 pub fn lower_backend_program(
@@ -464,7 +465,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
     impl_generics: Vec<String>,
-    type_interner_id: TyInternerId,
+    interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone)]
@@ -498,7 +499,7 @@ impl BackendLowerShared {
                 .map(index_program_trait_impls_by_method)
                 .unwrap_or_default(),
             program_extension_trait_method_candidates:
-                index_program_extension_trait_method_candidates(modules),
+                index_program_extension_trait_method_candidates(first),
             program_trait_methods_with_defaults: first
                 .map(index_program_trait_methods_with_defaults)
                 .unwrap_or_default(),
@@ -889,7 +890,10 @@ impl<'a> ModuleLowerer<'a> {
             match &item.kind {
                 ItemTreeNodeKind::Struct(item_struct) => {
                     self.index_aggregate_source(&item.node_key, item.span, item_struct);
-                    if self.input.roots != BackendFunctionRoots::EntryPoints {
+                    if !matches!(
+                        self.input.roots,
+                        BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
+                    ) {
                         if item_struct.generics.is_empty()
                             && let Some(item) =
                                 self.lower_struct(&item.node_key, item.span, item_struct)
@@ -905,7 +909,10 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemTreeNodeKind::Union(item_union) => {
                     self.index_union_source(&item.node_key, item.span, item_union);
-                    if self.input.roots != BackendFunctionRoots::EntryPoints {
+                    if !matches!(
+                        self.input.roots,
+                        BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
+                    ) {
                         if item_union.generics.is_empty()
                             && let Some(item) =
                                 self.lower_union(&item.node_key, item.span, item_union)
@@ -1123,6 +1130,9 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         function: &nia_ast::FunctionItem,
     ) -> bool {
+        if self.input.roots == BackendFunctionRoots::NoFunctions {
+            return false;
+        }
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
                 || (self.input.function_bodies.contains_key(&def_id)
@@ -1142,6 +1152,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_backend_global_reachable(&self, def_id: GlobalDefId) -> bool {
+        if self.input.roots == BackendFunctionRoots::NoFunctions {
+            return false;
+        }
         match self.input.reachable_globals {
             Some(globals) if self.input.roots == BackendFunctionRoots::EntryPoints => {
                 globals.contains(&def_id)
@@ -1152,7 +1165,12 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_backend_struct_reachable(&self, def_id: GlobalDefId) -> bool {
         match self.input.reachable_structs {
-            Some(structs) if self.input.roots == BackendFunctionRoots::EntryPoints => {
+            Some(structs)
+                if matches!(
+                    self.input.roots,
+                    BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
+                ) =>
+            {
                 structs.contains(&def_id)
             }
             _ => true,
@@ -1161,7 +1179,12 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_backend_union_reachable(&self, def_id: GlobalDefId) -> bool {
         match self.input.reachable_unions {
-            Some(unions) if self.input.roots == BackendFunctionRoots::EntryPoints => {
+            Some(unions)
+                if matches!(
+                    self.input.roots,
+                    BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
+                ) =>
+            {
                 unions.contains(&def_id)
             }
             _ => true,
@@ -1179,7 +1202,10 @@ impl<'a> ModuleLowerer<'a> {
         union_instances: &[nia_backend_ir::BackendUnionInstance],
         trait_object_vtables: &[BackendTraitObjectVtable],
     ) {
-        if self.input.roots != BackendFunctionRoots::EntryPoints {
+        if !matches!(
+            self.input.roots,
+            BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
+        ) {
             return;
         }
         let mut roots = ReachableAggregateRoots::default();
@@ -1924,7 +1950,7 @@ fn index_extension_trait_method_candidates(
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     impl_generics: method.impl_generics.clone(),
-                    type_interner_id: source_interner.interner_id(),
+                    interner: source_interner.clone(),
                 });
         }
     }
@@ -1932,9 +1958,9 @@ fn index_extension_trait_method_candidates(
 }
 
 fn index_program_extension_trait_method_candidates(
-    modules: &[BackendLowerModuleInput<'_>],
+    input: Option<&BackendLowerModuleInput<'_>>,
 ) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
-    let Some(input) = modules.first() else {
+    let Some(input) = input else {
         return HashMap::new();
     };
     let impls = input
@@ -1949,34 +1975,44 @@ fn index_program_extension_trait_method_candidates(
         .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
-    for method in input.program_extension_methods.all_methods() {
-        let Some(trait_id) = method.trait_id else {
-            continue;
-        };
-        if !impls.contains_key(&(method.def_id.module_id, method.impl_id)) {
-            continue;
-        };
-        let Some(type_normalization) = input
-            .program_type_normalizations
-            .get(&method.def_id.module_id)
-        else {
-            continue;
-        };
-        candidates
-            .entry(ExtensionTraitMethodKey {
-                trait_id,
-                method_name: method.name.clone(),
-                trait_arg_count: method.trait_args.len(),
-            })
-            .or_default()
-            .push(ExtensionTraitMethodCandidate {
-                target_ty: method.target_ty,
-                method_def_id: method.def_id,
-                trait_args: method.trait_args.clone(),
-                where_predicates: method.where_predicates.clone(),
-                impl_generics: method.impl_generics.clone(),
-                type_interner_id: type_normalization.interner.interner_id(),
-            });
+    for (module_id, (extensions, interner)) in input.program_extensions {
+        for target in extensions.targets() {
+            for method in &target.methods {
+                let Some(trait_id) = method.trait_id else {
+                    continue;
+                };
+                if !method.is_trait_witness
+                    || !impls.contains_key(&(method.def_id.module_id, method.impl_id))
+                {
+                    continue;
+                };
+                let candidate = ExtensionTraitMethodCandidate {
+                    target_ty: target.target_ty,
+                    method_def_id: method.def_id,
+                    trait_args: method.trait_args.clone(),
+                    where_predicates: method.where_predicates.clone(),
+                    impl_generics: method.impl_generics.clone(),
+                    interner: (*interner).clone(),
+                };
+                let bucket = candidates
+                    .entry(ExtensionTraitMethodKey {
+                        trait_id,
+                        method_name: method.name.clone(),
+                        trait_arg_count: method.trait_args.len(),
+                    })
+                    .or_default();
+                if let Some(existing) = bucket
+                    .iter_mut()
+                    .find(|existing| existing.method_def_id == method.def_id)
+                {
+                    if *module_id == method.def_id.module_id {
+                        *existing = candidate;
+                    }
+                } else {
+                    bucket.push(candidate);
+                }
+            }
+        }
     }
     candidates
 }

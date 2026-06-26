@@ -12,6 +12,8 @@ use std::time::Instant;
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
+    pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
+    pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
     pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> ModuleGraph,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
@@ -56,10 +58,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_visible_type_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramVisibleTypeSignatures>,
-    pub(super) program_executable_reachability_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramExecutableReachabilitySignatures>,
-    pub(super) program_executable_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramExecutableSignatures>,
     pub(super) program_backend_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
@@ -103,6 +101,8 @@ impl Default for CompilerQueryProviders {
     fn default() -> Self {
         Self {
             checked_program: provide_checked_program,
+            entry_checked_program: provide_entry_checked_program,
+            codegen_program: provide_codegen_program,
             module_graph: provide_module_graph,
             parse_ok_module_ids: provide_parse_ok_module_ids,
             module_item_tree: provide_module_item_tree,
@@ -130,9 +130,6 @@ impl Default for CompilerQueryProviders {
             program_body_trait_signatures: provide_program_body_trait_signatures,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_visible_type_signatures: provide_program_visible_type_signatures,
-            program_executable_reachability_signatures:
-                provide_program_executable_reachability_signatures,
-            program_executable_signatures: provide_program_executable_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
             extension_method_index: provide_extension_method_index,
@@ -167,10 +164,52 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         let graph = db.query(ModuleGraphQuery);
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
+        let diagnostic_modules = db.query(CheckedModulesQuery);
+        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
+        CheckedProgram {
+            graph,
+            optimization,
+            modules: diagnostic_modules,
+            diagnostics,
+        }
+    })
+}
+
+pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
+    time_provider(
+        db.query(CompilerTimingsQuery),
+        "entry_checked_program",
+        || {
+            let graph = db.query(ModuleGraphQuery);
+            let optimization = db.query(CompilerOptimizationQuery);
+            let mut diagnostics = early_program_diagnostics(db);
+            let diagnostic_modules = db.query(ExecutableCheckedModulesQuery);
+            diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
+            CheckedProgram {
+                graph,
+                optimization,
+                modules: diagnostic_modules,
+                diagnostics,
+            }
+        },
+    )
+}
+
+pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
+    time_provider(db.query(CompilerTimingsQuery), "codegen_program", || {
+        let graph = db.query(ModuleGraphQuery);
+        let optimization = db.query(CompilerOptimizationQuery);
+        let mut diagnostics = early_program_diagnostics(db);
         let modules = checked_modules_for_codegen(db);
-        diagnostics.extend(checked_module_diagnostics(db, &modules));
+        let diagnostic_modules =
+            if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
+                checked_modules_for_diagnostics(db)
+            } else {
+                modules.clone()
+            };
+        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
         if !diagnostics.is_empty() {
-            return CheckedProgram {
+            return CodegenProgram {
                 graph,
                 optimization,
                 modules,
@@ -182,7 +221,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         let monomorphization = db.query(MonomorphizationQuery);
         diagnostics.extend(monomorphization_diagnostics(&modules, &monomorphization));
         if !diagnostics.is_empty() {
-            return CheckedProgram {
+            return CodegenProgram {
                 graph,
                 optimization,
                 modules,
@@ -193,7 +232,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         }
         let backend_lowering = db.query(BackendLoweringQuery);
         diagnostics.extend(backend_lowering_diagnostics(&modules, &backend_lowering));
-        CheckedProgram {
+        CodegenProgram {
             graph,
             optimization,
             modules,
@@ -853,76 +892,6 @@ pub(super) fn provide_program_visible_type_signatures(
     )
 }
 
-pub(super) fn provide_program_executable_reachability_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramExecutableReachabilitySignatures> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_executable_reachability_signatures",
-        || {
-            let timings = db.query(CompilerTimingsQuery);
-            let function_inputs = time_provider(
-                timings,
-                "program_executable_reachability_signatures.functions",
-                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions),
-            );
-            let function_modules = function_inputs.modules();
-            let type_inputs = time_provider(
-                timings,
-                "program_executable_reachability_signatures.types",
-                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types),
-            );
-            let type_modules = type_inputs.modules();
-            let trait_inputs = time_provider(
-                timings,
-                "program_executable_reachability_signatures.traits",
-                || module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits),
-            );
-            let trait_modules = trait_inputs.modules();
-            Arc::new(ProgramExecutableReachabilitySignatures {
-                functions: collect_program_functions_excluding(&function_modules, &HashSet::new()),
-                structs: collect_program_structs(&type_modules),
-                unions: collect_program_unions(&type_modules),
-                traits: collect_program_traits(&trait_modules),
-            })
-        },
-    )
-}
-
-pub(super) fn provide_program_executable_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramExecutableSignatures> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_executable_signatures",
-        || {
-            let function_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
-            let function_modules = function_inputs.modules();
-            let value_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
-            let value_modules = value_inputs.modules();
-            let type_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
-            let type_modules = type_inputs.modules();
-            let trait_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
-            let trait_modules = trait_inputs.modules();
-            Arc::new(ProgramExecutableSignatures {
-                functions: collect_program_functions_excluding(&function_modules, &HashSet::new()),
-                globals: collect_program_globals(&value_modules),
-                comptimes: collect_program_comptimes(&value_modules),
-                structs: collect_program_structs(&type_modules),
-                unions: collect_program_unions(&type_modules),
-                enums: collect_program_enums(&type_modules),
-                type_aliases: collect_program_type_aliases(&type_modules),
-                traits: collect_program_traits(&trait_modules),
-                trait_impls: collect_program_trait_impls(&trait_modules),
-            })
-        },
-    )
-}
-
 fn executable_program_signatures_without_functions(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramExecutableSignatures {
@@ -1165,6 +1134,7 @@ pub(super) fn provide_visible_extensions(
         module_id,
         graph: &graph,
         using_scope,
+        using_scopes: &public.using_scopes,
         public_surfaces: &public.surfaces,
         defs: &defs,
         normalizations: &extension_method_normalization,
@@ -1536,12 +1506,7 @@ fn with_comptime_input_and_program_signatures<T>(
     let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        )))
-    };
+    let program_type_normalization = |module_id| Some(db.query(TypeNormalizationQuery(module_id)));
     let value_type_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
             module_id,
@@ -1588,10 +1553,11 @@ fn with_comptime_input_and_program_signatures<T>(
                 module: Some(&program_module),
                 source_path: Some(&program_source_path),
                 defs: Some(&program_defs),
-                type_normalizations: Some(&extension_method_normalization),
+                type_normalizations: Some(&program_type_normalization),
                 value_type_normalizations: Some(&value_type_normalization),
                 signatures: Some(&item_signatures_for_module),
                 value_signatures: Some(&value_signatures_for_module),
+                comptime_values: None,
                 global_initializer: None,
                 program_enums,
                 trait_impls,
@@ -1978,12 +1944,7 @@ fn comptime_inputs_for_body_check(
     let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        )))
-    };
+    let program_type_normalization = |module_id| Some(db.query(TypeNormalizationQuery(module_id)));
     let value_type_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
             module_id,
@@ -2025,10 +1986,11 @@ fn comptime_inputs_for_body_check(
             module: Some(&program_module),
             source_path: Some(&program_source_path),
             defs: Some(&program_defs),
-            type_normalizations: Some(&extension_method_normalization),
+            type_normalizations: Some(&program_type_normalization),
             value_type_normalizations: Some(&value_type_normalization),
             signatures: Some(&item_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
+            comptime_values: None,
             global_initializer: Some(&program_global_initializer),
             program_enums,
             trait_impls,
@@ -2440,10 +2402,10 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     layouts: Some(&program_layouts),
                 },
                 program_functions,
-                program_function_signature: program_signatures_override.map(|_| {
+                program_function_signature: Some(
                     &program_function_signature
-                        as &dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>
-                }),
+                        as &dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
+                ),
                 program_values,
                 program_types,
                 program_traits,
@@ -2593,6 +2555,42 @@ fn executable_layouts_for_reachable_items(
                     .interner,
             })
         };
+        let program_enum = |def_id: GlobalDefId| {
+            db.query(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+            .enums
+            .get(&def_id.def_id)
+            .cloned()
+            .map(|signature| ProgramEnumSignature {
+                signature,
+                interner: db
+                    .query(SignatureTypeLoweringQuery(
+                        def_id.module_id,
+                        nia_item_tree::SignatureItemSet::Types,
+                    ))
+                    .interner,
+            })
+        };
+        let program_type_alias = |def_id: GlobalDefId| {
+            db.query(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+            .type_aliases
+            .get(&def_id.def_id)
+            .cloned()
+            .map(|signature| ProgramTypeAliasSignature {
+                signature,
+                interner: db
+                    .query(SignatureTypeLoweringQuery(
+                        def_id.module_id,
+                        nia_item_tree::SignatureItemSet::Types,
+                    ))
+                    .interner,
+            })
+        };
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if let Some(array_length_cache) = array_length_cache {
                 if !array_length_cache.borrow().contains_key(&id.module_id) {
@@ -2619,10 +2617,13 @@ fn executable_layouts_for_reachable_items(
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
+        let mut layout_interner = type_normalization.interner.clone();
         let roots = executable_layout_roots(
             module_id,
-            &type_normalization.interner,
+            &mut layout_interner,
             &item_signatures,
+            &program_struct,
+            &program_union,
             type_lowering
                 .versioned_type_uses_from_active_item_tree(&active_item_tree)
                 .into_iter()
@@ -2630,10 +2631,10 @@ fn executable_layouts_for_reachable_items(
             reachable_functions,
             reachable_globals,
         );
-        nia_layout::compute_layouts_for_roots_with_program_context(
+        let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
             nia_layout::LayoutComputationInput {
                 defs: &defs,
-                interner: &type_normalization.interner,
+                interner: &layout_interner,
                 signatures: &item_signatures,
                 normalized: &type_normalization.normalized,
                 array_lengths: &executable_array_lengths,
@@ -2642,6 +2643,8 @@ fn executable_layouts_for_reachable_items(
                     array_lengths: Some(&executable_array_lengths),
                     struct_: Some(&program_struct),
                     union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
                     ..Default::default()
                 },
             },
@@ -2650,7 +2653,8 @@ fn executable_layouts_for_reachable_items(
                 structs: &roots.structs,
                 unions: &roots.unions,
             },
-        )
+        );
+        layouts
     })
 }
 
@@ -2728,13 +2732,15 @@ fn rooted_layouts_for_checked_module(
 
 fn executable_layout_roots(
     module_id: ModuleId,
-    interner: &nia_ty::TyInterner,
+    interner: &mut nia_ty::TyInterner,
     signatures: &ItemSignatures,
+    program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
+    program_union: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     type_uses: impl IntoIterator<Item = InternedTyId>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
 ) -> CollectedLayoutRoots {
-    let mut roots = LayoutRootCollector::new(interner);
+    let mut roots = LayoutRootCollector::with_program(interner, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
     }
@@ -2748,6 +2754,16 @@ fn executable_layout_roots(
                 roots.add(param.ty);
             }
             roots.add(signature.return_type);
+        }
+    }
+    for impl_signature in &signatures.trait_impls {
+        if impl_signature.methods.iter().any(|method| {
+            reachable_functions.contains(&GlobalDefId {
+                module_id,
+                def_id: method.def_id,
+            })
+        }) {
+            roots.add(impl_signature.target_ty);
         }
     }
     for global_id in reachable_globals
@@ -2765,11 +2781,20 @@ fn executable_layout_roots(
 }
 
 fn checked_module_layout_roots(module: &CheckedModule) -> CollectedLayoutRoots {
-    let mut roots = LayoutRootCollector::new(&module.type_normalization.interner);
-    for ty in module.semantic_facts.global_types.values().copied() {
+    let mut interner = module.type_normalization.interner.clone();
+    let mut roots = LayoutRootCollector::new(&mut interner);
+    collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
+    roots.finish()
+}
+
+fn collect_semantic_layout_roots(
+    semantic_facts: &nia_sema_ir::SemanticFacts,
+    roots: &mut LayoutRootCollector<'_>,
+) {
+    for ty in semantic_facts.global_types.values().copied() {
         roots.add(ty);
     }
-    for facts in module.semantic_facts.function_facts.values() {
+    for facts in semantic_facts.function_facts.values() {
         for ty in facts.local_types.values().copied() {
             roots.add(ty);
         }
@@ -2799,21 +2824,20 @@ fn checked_module_layout_roots(module: &CheckedModule) -> CollectedLayoutRoots {
             roots.add(upcast.target_ty);
         }
         for value in facts.node_builtin_values.values() {
-            collect_builtin_value_layout_roots(value, &mut roots);
+            collect_builtin_value_layout_roots(value, roots);
         }
     }
-    for ty in module.semantic_facts.node_expr_types.values().copied() {
+    for ty in semantic_facts.node_expr_types.values().copied() {
         roots.add(ty);
     }
-    for instantiation in &module.semantic_facts.generic_instantiations {
+    for instantiation in &semantic_facts.generic_instantiations {
         for ty in &instantiation.args {
             roots.add(*ty);
         }
     }
-    for value in module.semantic_facts.node_builtin_values.values() {
-        collect_builtin_value_layout_roots(value, &mut roots);
+    for value in semantic_facts.node_builtin_values.values() {
+        collect_builtin_value_layout_roots(value, roots);
     }
-    roots.finish()
 }
 
 fn collect_builtin_value_layout_roots(
@@ -2828,7 +2852,9 @@ fn collect_builtin_value_layout_roots(
 }
 
 struct LayoutRootCollector<'a> {
-    interner: &'a nia_ty::TyInterner,
+    interner: &'a mut nia_ty::TyInterner,
+    program_struct: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
+    program_union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
     seen: HashSet<InternedTyId>,
     types: Vec<InternedTyId>,
     seen_structs: HashSet<nia_defs::DefId>,
@@ -2842,9 +2868,11 @@ struct LayoutRootCollector<'a> {
 }
 
 impl<'a> LayoutRootCollector<'a> {
-    fn new(interner: &'a nia_ty::TyInterner) -> Self {
+    fn new(interner: &'a mut nia_ty::TyInterner) -> Self {
         Self {
             interner,
+            program_struct: None,
+            program_union: None,
             seen: HashSet::new(),
             types: Vec::new(),
             seen_structs: HashSet::new(),
@@ -2856,6 +2884,17 @@ impl<'a> LayoutRootCollector<'a> {
             seen_global_unions: HashSet::new(),
             global_unions: Vec::new(),
         }
+    }
+
+    fn with_program(
+        interner: &'a mut nia_ty::TyInterner,
+        program_struct: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
+        program_union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
+    ) -> Self {
+        let mut collector = Self::new(interner);
+        collector.program_struct = Some(program_struct);
+        collector.program_union = Some(program_union);
+        collector
     }
 
     fn add(&mut self, ty: InternedTyId) {
@@ -2895,9 +2934,10 @@ impl<'a> LayoutRootCollector<'a> {
             Some(TyKind::Nominal { def_id, args }) => {
                 self.add_global_struct(def_id);
                 self.add_global_union(def_id);
-                for arg in args {
-                    self.add(arg);
+                for arg in &args {
+                    self.add(*arg);
                 }
+                self.add_nominal_fields(def_id, &args);
             }
             Some(TyKind::BuiltinTrait { args, .. })
             | Some(TyKind::TraitObject {
@@ -2927,6 +2967,264 @@ impl<'a> LayoutRootCollector<'a> {
             | Some(TyKind::GenericParam(_))
             | None => {}
         }
+    }
+
+    fn add_nominal_fields(&mut self, def_id: GlobalDefId, args: &[InternedTyId]) {
+        if def_id.module_id == self.interner.interner_id().module_id() {
+            return;
+        }
+        if let Some(program_struct) = self.program_struct
+            && let Some(signature) = program_struct(def_id)
+        {
+            let signature = self.import_program_struct_signature(signature);
+            self.add_aggregate_fields(&signature.generics, &signature.fields, args);
+            return;
+        }
+        if let Some(program_union) = self.program_union
+            && let Some(signature) = program_union(def_id)
+        {
+            let signature = self.import_program_union_signature(signature);
+            self.add_aggregate_fields(&signature.generics, &signature.fields, args);
+        }
+    }
+
+    fn import_program_struct_signature(
+        &mut self,
+        signature: ProgramStructSignature,
+    ) -> StructSignature {
+        StructSignature {
+            generics: signature.signature.generics,
+            where_predicates: signature.signature.where_predicates,
+            fields: signature
+                .signature
+                .fields
+                .into_iter()
+                .map(|mut field| {
+                    field.ty =
+                        nia_ty::import_type_into(self.interner, &signature.interner, field.ty);
+                    field
+                })
+                .collect(),
+            is_extern: signature.signature.is_extern,
+            span: signature.signature.span,
+        }
+    }
+
+    fn import_program_union_signature(
+        &mut self,
+        signature: ProgramUnionSignature,
+    ) -> UnionSignature {
+        UnionSignature {
+            generics: signature.signature.generics,
+            where_predicates: signature.signature.where_predicates,
+            fields: signature
+                .signature
+                .fields
+                .into_iter()
+                .map(|mut field| {
+                    field.ty =
+                        nia_ty::import_type_into(self.interner, &signature.interner, field.ty);
+                    field
+                })
+                .collect(),
+            is_extern: signature.signature.is_extern,
+            span: signature.signature.span,
+        }
+    }
+
+    fn add_aggregate_fields(
+        &mut self,
+        generics: &[String],
+        fields: &[nia_item_signatures::FieldSignature],
+        args: &[InternedTyId],
+    ) {
+        if generics.len() != args.len() {
+            return;
+        }
+        let substitutions = generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect::<HashMap<_, _>>();
+        for field in fields {
+            let field_ty = self.substitute_generics(field.ty, &substitutions);
+            self.add(field_ty);
+        }
+    }
+
+    fn substitute_generics(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::VolatilePointer { is_readonly, elem })
+            }
+            Some(TyKind::Slice { is_readonly, elem }) => {
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::Slice { is_readonly, elem })
+            }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::SlicePointee { elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let len = self.substitute_array_len_generics(len, substitutions);
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.substitute_generics(bound, substitutions));
+                self.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_generics(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_generics(return_type, substitutions);
+                self.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.substitute_generics(elem, substitutions);
+                self.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.substitute_generics(error, substitutions);
+                let value = self.substitute_generics(value, substitutions);
+                self.intern(TyKind::ErrorUnion { error, value })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                self.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                self.intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.substitute_generics(self_ty, substitutions);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                self.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
+            Some(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_generics(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_generics(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.intern(TyKind::TraitObject {
+                    is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_generics(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_generics(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.intern(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Primitive(_))
+            | Some(TyKind::Vector { .. })
+            | Some(TyKind::Error)
+            | Some(TyKind::ComptimeOnly)
+            | None => ty,
+        }
+    }
+
+    fn substitute_array_len_generics(
+        &mut self,
+        len: nia_ty::ArrayLenTy,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> nia_ty::ArrayLenTy {
+        match len {
+            nia_ty::ArrayLenTy::Builtin { builtin, ty } => nia_ty::ArrayLenTy::Builtin {
+                builtin,
+                ty: self.substitute_generics(ty, substitutions),
+            },
+            nia_ty::ArrayLenTy::Infer
+            | nia_ty::ArrayLenTy::ConstValue(_)
+            | nia_ty::ArrayLenTy::ConstExpr(_) => len,
+        }
+    }
+
+    fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        self.interner.intern(kind)
     }
 
     fn add_struct(&mut self, def_id: nia_defs::DefId) {
@@ -3043,6 +3341,7 @@ fn checked_module_with_body_and_flow_check(
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
+        executable_type_only: false,
         body_diagnostics: body_check.diagnostics,
     }
 }
@@ -3083,7 +3382,54 @@ fn executable_checked_module_with_body_and_flow_check(
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
+        executable_type_only: false,
         body_diagnostics: body_check.diagnostics,
+    }
+}
+
+fn executable_signature_checked_module(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    layouts: nia_layout::Layouts,
+) -> CheckedModule {
+    let type_normalization = db.query(TypeNormalizationQuery(module_id));
+    CheckedModule {
+        id: module_id,
+        path: db.query(ModulePathQuery(module_id)),
+        defs: db.query(FullModuleDefsQuery(module_id)),
+        type_resolution: db.query(TypeResolutionQuery(module_id)),
+        type_lowering: db.query(TypeLoweringQuery(module_id)),
+        value_resolution: db.query(ValueResolutionQuery(module_id)),
+        local_resolution: nia_local_resolve::LocalResolution {
+            locals: nia_local_resolve::LocalMap::default(),
+            node_local_defs: HashMap::new(),
+            node_uses: HashMap::new(),
+            diagnostics: Vec::new(),
+        },
+        type_normalization: type_normalization.clone(),
+        comptime: db.query(ComptimeQuery(module_id)),
+        static_check: nia_static_check::StaticCheck {
+            diagnostics: Vec::new(),
+        },
+        layouts,
+        abi_check: nia_abi_check::AbiCheck {
+            diagnostics: Vec::new(),
+        },
+        flow_check: nia_flow_check::FlowCheck {
+            diagnostics: Vec::new(),
+        },
+        body_ir: nia_body_ir::BodyIr {
+            interner: type_normalization.interner,
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        },
+        semantic_uses: nia_sema_ir::SemanticUseTable::default(),
+        semantic_facts: nia_sema_ir::SemanticFacts::default(),
+        executable_reachable_globals: Some(HashSet::new()),
+        executable_reachable_structs: None,
+        executable_reachable_unions: None,
+        executable_type_only: true,
+        body_diagnostics: Vec::new(),
     }
 }
 
@@ -3115,9 +3461,6 @@ pub(super) fn provide_executable_checked_modules(
         db.query(CompilerTimingsQuery),
         "executable_checked_modules",
         || {
-            if db.query(CompilerRuntimeQuery) != RuntimeModel::FreestandingExecutable {
-                return db.query(CheckedModulesQuery);
-            }
             time_provider(
                 db.query(CompilerTimingsQuery),
                 "executable_checked_modules.shared_inputs",
@@ -3347,8 +3690,9 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
 
     if db.query(CompilerTimingsQuery).detail() {
         eprintln!(
-            "query timing executable_checked_modules.reachable: modules={} functions={} bodies={} full_bodies={}",
+            "query timing executable_checked_modules.reachable: modules={} type_modules={} functions={} bodies={} full_bodies={}",
             reachability.modules.len(),
+            reachability.type_modules.len(),
             reachability.functions.len(),
             reachability.stats.reachable_bodies,
             reachability.stats.checked_bodies
@@ -3359,8 +3703,10 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         );
     }
 
-    let mut codegen_modules = parse_ok
-        .into_iter()
+    let parse_ok_modules = parse_ok;
+    let mut codegen_modules = parse_ok_modules
+        .iter()
+        .copied()
         .filter(|module_id| reachability.modules.contains(module_id))
         .filter_map(|module_id| checked_by_id.get(&module_id))
         .cloned()
@@ -3381,6 +3727,18 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         Some(&executable_array_length_cache),
         Some(&*program_signatures),
     );
+    let type_only_modules = parse_ok_modules
+        .iter()
+        .copied()
+        .filter(|module_id| reachability.type_modules.contains(module_id))
+        .filter(|module_id| !reachability.modules.contains(module_id))
+        .map(|module_id| {
+            let layouts = executable_program_layouts(module_id)
+                .unwrap_or_else(|| db.query(LayoutsQuery(module_id)));
+            executable_signature_checked_module(db, module_id, layouts)
+        })
+        .collect::<Vec<_>>();
+    codegen_modules.extend(type_only_modules);
     let codegen_array_lengths = codegen_modules
         .iter()
         .map(|module| (module.id, module.comptime.array_lengths.clone()))
@@ -3409,7 +3767,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             )
         })
         .collect::<Vec<_>>();
-    let aggregate_roots = executable_reachable_aggregate_roots(&codegen_modules);
+    let aggregate_roots =
+        executable_reachable_aggregate_roots(&struct_signature, &union_signature, &codegen_modules);
     for module in &mut codegen_modules {
         module.executable_reachable_structs = Some(aggregate_roots.structs.clone());
         module.executable_reachable_unions = Some(aggregate_roots.unions.clone());
@@ -3449,58 +3808,17 @@ fn filter_checked_module_for_codegen(
 }
 
 fn executable_reachable_aggregate_roots(
+    struct_signature: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
+    union_signature: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     modules: &[CheckedModule],
 ) -> ExecutableReachableAggregateRoots {
     let mut structs = HashSet::new();
     let mut unions = HashSet::new();
     for module in modules {
-        let mut roots = LayoutRootCollector::new(&module.type_normalization.interner);
-        for ty in module.semantic_facts.global_types.values().copied() {
-            roots.add(ty);
-        }
-        for facts in module.semantic_facts.function_facts.values() {
-            for ty in facts.local_types.values().copied() {
-                roots.add(ty);
-            }
-            for ty in facts.node_expr_types.values().copied() {
-                roots.add(ty);
-            }
-            for instantiation in &facts.generic_instantiations {
-                for ty in &instantiation.args {
-                    roots.add(*ty);
-                }
-            }
-            for coercion in facts.node_array_to_slice_coercions.values() {
-                roots.add(coercion.array_ty);
-                roots.add(coercion.slice_ty);
-            }
-            for coercion in facts.node_pointer_array_to_slice_coercions.values() {
-                roots.add(coercion.pointer_ty);
-                roots.add(coercion.array_ty);
-            }
-            for coercion in facts.node_trait_object_coercions.values() {
-                roots.add(coercion.source_ty);
-                roots.add(coercion.target_ty);
-            }
-            for upcast in facts.node_trait_object_upcasts.values() {
-                roots.add(upcast.source_ty);
-                roots.add(upcast.target_ty);
-            }
-            for value in facts.node_builtin_values.values() {
-                collect_builtin_value_layout_roots(value, &mut roots);
-            }
-        }
-        for ty in module.semantic_facts.node_expr_types.values().copied() {
-            roots.add(ty);
-        }
-        for instantiation in &module.semantic_facts.generic_instantiations {
-            for ty in &instantiation.args {
-                roots.add(*ty);
-            }
-        }
-        for value in module.semantic_facts.node_builtin_values.values() {
-            collect_builtin_value_layout_roots(value, &mut roots);
-        }
+        let mut interner = module.type_normalization.interner.clone();
+        let mut roots =
+            LayoutRootCollector::with_program(&mut interner, struct_signature, union_signature);
+        collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
         let roots = roots.finish_global();
         structs.extend(roots.structs);
         unions.extend(roots.unions);
@@ -3601,6 +3919,23 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
     }
 }
 
+fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
+    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
+        return db.query(ExecutableCheckedModulesQuery);
+    }
+    let graph = db.query(ModuleGraphQuery);
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .filter(|module_id| {
+                graph.get(*module_id).is_some_and(|node| {
+                    node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
+                })
+            })
+            .map(CheckedModuleQuery),
+    )
+}
+
 fn function_bodies_from_checked_modules(
     checked_modules: &[CheckedModule],
 ) -> Vec<LoweredFunctionBodies> {
@@ -3641,6 +3976,7 @@ fn provide_backend_lowering_inner(
     let monomorphization = db.query(MonomorphizationQuery);
     let checked_modules = all_checked_modules;
     let (
+        all_visible_extensions,
         active_item_trees,
         item_signatures,
         comptime_array_lengths,
@@ -3652,6 +3988,11 @@ fn provide_backend_lowering_inner(
         db.query(CompilerTimingsQuery),
         "backend_lowering.inputs",
         || {
+            let all_visible_extensions = db
+                .query(ParseOkModuleIdsQuery)
+                .into_iter()
+                .map(|module_id| (module_id, db.query(VisibleExtensionsQuery(module_id))))
+                .collect::<Vec<_>>();
             let active_item_trees = checked_modules
                 .iter()
                 .map(|checked_module| db.query(FullActiveModuleItemTreeQuery(checked_module.id)))
@@ -3684,6 +4025,7 @@ fn provide_backend_lowering_inner(
             let extension_methods = db.query(ExtensionMethodIndexQuery);
             let function_bodies = function_bodies_from_checked_modules(&checked_modules);
             (
+                all_visible_extensions,
                 active_item_trees,
                 item_signatures,
                 comptime_array_lengths,
@@ -3710,9 +4052,9 @@ fn provide_backend_lowering_inner(
         "backend_lowering.indexes",
         || {
             build_backend_lowering_indexes(
+                &all_visible_extensions,
                 &checked_modules,
                 &comptime_array_lengths,
-                &visible_extensions,
                 &function_bodies,
             )
         },

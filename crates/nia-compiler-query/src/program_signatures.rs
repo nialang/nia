@@ -1979,6 +1979,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub module_id: nia_ids::ModuleId,
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
+    pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
     pub public_surfaces: &'a PublicSurfaces,
     pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     pub normalizations: TypeNormalizationResolver<'a>,
@@ -1999,6 +2000,7 @@ pub(crate) fn visible_extensions_for_module(
         module_id,
         graph,
         using_scope,
+        using_scopes,
         public_surfaces,
         defs,
         normalizations,
@@ -2010,7 +2012,7 @@ pub(crate) fn visible_extensions_for_module(
         module_id,
         graph,
         using_scope,
-        public_surfaces,
+        using_scopes,
         defs,
         normalizations,
         visible_type_signatures,
@@ -2190,32 +2192,15 @@ fn import_where_predicates(
 fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
-    if let Some(module) = context.graph.get(context.module_id) {
-        queue.extend(module.children.values().copied());
-        if let Some(parent) = module.parent {
-            queue.push_back(parent);
-        }
-    }
-    queue.extend(context.using_scope.modules.values().copied());
-    queue.extend(
-        context
-            .using_scope
-            .types
-            .values()
-            .map(|entry| entry.target_module),
-    );
+    enqueue_using_scope_modules(context.using_scope, &mut queue);
     queue.extend(public_inherent_extension_providers_for_using_scope(context));
-    queue.extend(public_inherent_extension_providers_for_active_package_facades(context));
 
     while let Some(visible) = queue.pop_front() {
         if visible == context.module_id || !seen.insert(visible) {
             continue;
         }
-        if let Some(module) = context.graph.get(visible) {
-            queue.extend(module.children.values().copied());
-            if let Some(parent) = module.parent {
-                queue.push_back(parent);
-            }
+        if let Some(using_scope) = context.using_scopes.get(&visible) {
+            enqueue_using_scope_modules(using_scope, &mut queue);
         }
     }
 
@@ -2224,69 +2209,24 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
     modules
 }
 
+fn enqueue_using_scope_modules(
+    using_scope: &nia_defs::ModuleUsingScope,
+    queue: &mut VecDeque<nia_ids::ModuleId>,
+) {
+    queue.extend(using_scope.modules.values().copied());
+    queue.extend(using_scope.types.values().map(|entry| entry.target_module));
+}
+
 struct VisibilityClosureContext<'a> {
     module_id: nia_ids::ModuleId,
     graph: &'a nia_imports::ModuleGraph,
     using_scope: &'a nia_defs::ModuleUsingScope,
-    public_surfaces: &'a PublicSurfaces,
+    using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
     defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: TypeNormalizationResolver<'a>,
     visible_type_signatures: VisibleTypeSignatures<'a>,
     extensions: &'a ExtensionMethods,
     associated_values: &'a ExtensionAssociatedValues,
-}
-
-fn public_inherent_extension_providers_for_active_package_facades(
-    context: &VisibilityClosureContext<'_>,
-) -> Vec<nia_ids::ModuleId> {
-    let mut providers = Vec::new();
-    for module in context.graph.modules() {
-        if !module.module_path.is_package_root()
-            || !context
-                .graph
-                .package_facade_active(&module.module_path.package)
-        {
-            continue;
-        }
-        let Some(surface) = context.public_surfaces.get(module.id) else {
-            continue;
-        };
-        for type_def_id in surface.types.values().filter_map(|item| {
-            nominal_def_id_for_public_type(
-                GlobalDefId {
-                    module_id: item.target_module,
-                    def_id: item.target_def_id,
-                },
-                context.defs,
-                context.normalizations,
-                context.visible_type_signatures,
-            )
-        }) {
-            providers.extend(public_inherent_method_providers_for_nominal(
-                context.module_id,
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.extensions,
-            ));
-            providers.extend(public_trait_impl_providers_for_nominal(
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.extensions,
-            ));
-            providers.extend(public_associated_value_providers_for_nominal(
-                context.module_id,
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.associated_values,
-            ));
-        }
-    }
-    providers.sort();
-    providers.dedup();
-    providers
 }
 
 fn public_inherent_extension_providers_for_using_scope(
@@ -2330,40 +2270,6 @@ fn public_inherent_extension_providers_for_using_scope(
             context.normalizations,
             context.associated_values,
         ));
-    }
-    if let Some(surface) = context.public_surfaces.get(context.module_id) {
-        for type_def_id in surface.types.values().filter_map(|item| {
-            nominal_def_id_for_public_type(
-                GlobalDefId {
-                    module_id: item.target_module,
-                    def_id: item.target_def_id,
-                },
-                context.defs,
-                context.normalizations,
-                context.visible_type_signatures,
-            )
-        }) {
-            providers.extend(public_inherent_method_providers_for_nominal(
-                context.module_id,
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.extensions,
-            ));
-            providers.extend(public_trait_impl_providers_for_nominal(
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.extensions,
-            ));
-            providers.extend(public_associated_value_providers_for_nominal(
-                context.module_id,
-                context.graph,
-                type_def_id,
-                context.normalizations,
-                context.associated_values,
-            ));
-        }
     }
     providers.sort();
     providers.dedup();
