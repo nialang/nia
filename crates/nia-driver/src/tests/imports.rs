@@ -789,6 +789,7 @@ fn std_facade_range_iterates_half_open_usize_ranges() {
         &root.join("main.nia"),
         r#"
 using std;
+using std::*;
 
 fn main() usize {
     var total = 0usize;
@@ -810,7 +811,8 @@ fn std_facade_range_function_can_be_imported_directly() {
     write(
         &root.join("main.nia"),
         r#"
-using std::range;
+using std;
+using std::*;
 
 fn sum_to(count: usize) usize {
     var total = 0usize;
@@ -841,6 +843,7 @@ fn std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
         &root.join("main.nia"),
         r#"
 using std;
+using std::*;
 
 fn main() i64 {
     var total = 0i64;
@@ -863,6 +866,7 @@ fn std_facade_range_iterates_inclusive_i32_ranges() {
         &root.join("main.nia"),
         r#"
 using std;
+using std::*;
 
 fn main() i32 {
     var total = 0i32;
@@ -885,6 +889,7 @@ fn std_facade_range_iterates_inclusive_and_from_usize_ranges() {
         &root.join("main.nia"),
         r#"
 using std;
+using std::*;
 
 fn main() usize {
     var total = 0usize;
@@ -916,6 +921,7 @@ fn std_facade_exposes_range_constructors() {
         &root.join("main.nia"),
         r#"
 using std;
+using std::*;
 
 fn main() usize {
     var iter: std::Range[usize] = std::range(1usize..3usize);
@@ -1209,6 +1215,198 @@ fn std_module_declaration_visibility(graph: &ModuleGraph, path: &[&str]) -> Visi
         .find(|declaration| declaration.name == *child_name)
         .unwrap_or_else(|| panic!("missing std::{} declaration", path.join("::")))
         .visibility
+}
+
+#[test]
+fn std_hash_facade_exposes_builtin_hash_impls() {
+    let root = temp_dir("std_hash_facade_exposes_builtin_hash_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::hash;
+
+fn main() u64 {
+    var hasher = hash::Wyhash::init(1u64);
+    42usize.hash(&mut hasher);
+    true.hash(&mut hasher);
+    hasher.finish()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_hash_facade_enables_default_hash_map_key_impls() {
+    let root = temp_dir("std_hash_facade_enables_default_hash_map_key_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+using std::collections;
+using std::hash;
+using std::mem;
+
+fn main() mem::Error!usize {
+    var buffer: [4096]u8 = [0; 4096];
+    var allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
+    var map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    defer map.deinit(&mut allocator).?;
+    _ = map.put(&mut allocator, 1, 2).?;
+    !map.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn hidden_trait_impl_does_not_satisfy_generic_obligation() {
+    let root = temp_dir("hidden_trait_impl_does_not_satisfy_generic_obligation");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+module types;
+module impls;
+
+using entry::api;
+using entry::types;
+
+fn need[T](value: T) i32
+where T: api::Show
+{
+    value.show()
+}
+
+fn main(value: types::Box) i32 {
+    need[types::Box](value)
+}
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub trait Show {
+    fn show(&self) i32;
+}
+"#,
+    );
+    write(&root.join("types.nia"), r#"pub struct Box { value: i32 }"#);
+    write(
+        &root.join("impls.nia"),
+        r#"
+using entry::api;
+using entry::types;
+
+extend types::Box : api::Show {
+    fn show(&self) i32 {
+        self.value
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("trait bound not satisfied: Box: Show")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn imported_trait_impl_satisfies_generic_obligation() {
+    let root = temp_dir("imported_trait_impl_satisfies_generic_obligation");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+module types;
+module impls;
+
+using entry::api;
+using entry::types;
+using entry::impls;
+
+fn need[T](value: T) i32
+where T: api::Show
+{
+    value.show()
+}
+
+fn main(value: types::Box) i32 {
+    need[types::Box](value)
+}
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub trait Show {
+    fn show(&self) i32;
+}
+"#,
+    );
+    write(&root.join("types.nia"), r#"pub struct Box { value: i32 }"#);
+    write(
+        &root.join("impls.nia"),
+        r#"
+using entry::api;
+using entry::types;
+
+extend types::Box : api::Show {
+    pub fn show(&self) i32 {
+        self.value
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_hash_map_requires_hash_facade_for_default_key_impls() {
+    let root = temp_dir("std_hash_map_requires_hash_facade_for_default_key_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+using std::collections;
+using std::mem;
+
+fn main() mem::Error!usize {
+    var buffer: [4096]u8 = [0; 4096];
+    var allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
+    var map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    defer map.deinit(&mut allocator).?;
+    _ = map.put(&mut allocator, 1, 2).?;
+    !map.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            let summary = &diagnostic.diagnostic.summary;
+            summary.contains("requires i32: std::hash::Hash[std::hash::Wyhash]")
+                || summary.contains("unknown struct field `put`")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -1704,7 +1902,7 @@ fn main(boxed: containers::Box[bool]) i32 {
     write(
         &root.join("containers.nia"),
         r#"
-trait Marker {}
+pub trait Marker {}
 
 extend i32 : Marker {}
 
@@ -1740,29 +1938,37 @@ fn imported_extension_method_where_clause_allows_satisfied_candidates() {
         &root.join("main.nia"),
         r#"
 module containers;
+module impls;
 using entry::containers;
+using entry::impls;
 
-fn main(boxed: containers::Box[i32]) i32 {
-    boxed.tag()
+fn need[T](value: T) i32
+where T: containers::Marker
+{
+    value.mark()
+}
+
+fn main(value: i32) i32 {
+    need[i32](value)
 }
 "#,
     );
     write(
         &root.join("containers.nia"),
         r#"
-trait Marker {}
-
-extend i32 : Marker {}
-
-pub struct Box[T] {
-    value: T,
+pub trait Marker {
+    fn mark(self) i32;
 }
+"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using entry::containers;
 
-extend[T] Box[T]
-where T: Marker {
-    pub fn tag(& self) i32 {
-        _ = self;
-        1
+extend i32 : containers::Marker {
+    fn mark(self) i32 {
+        self
     }
 }
 "#,

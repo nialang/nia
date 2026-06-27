@@ -1092,6 +1092,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
         solver.resolve(TraitGoal {

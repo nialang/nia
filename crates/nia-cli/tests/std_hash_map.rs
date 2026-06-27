@@ -257,6 +257,9 @@ fn emit_exe_std_hash_map_supports_basic_operations() {
         &main,
         r#"
 using std;
+using std::collections;
+using std::HashMap;
+using std::hash;
 using std::mem;
 using std::process;
 
@@ -1073,7 +1076,10 @@ fn emit_exe_std_hash_map_formats_entries() {
         &main,
         r#"
 using std;
+using std::HashMap;
 using std::debug;
+using std::fmt;
+using std::hash;
 using std::mem;
 using std::process;
 
@@ -1126,6 +1132,8 @@ fn emit_exe_std_hash_map_model_churn_and_clone() {
         &main,
         r#"
 using std;
+using std::HashMap;
+using std::hash;
 using std::mem;
 using std::process;
 
@@ -1302,6 +1310,8 @@ fn emit_exe_std_hash_map_reserve_exact_compacts_tombstones() {
         &main,
         r#"
 using std;
+using std::HashMap;
+using std::hash;
 using std::mem;
 using std::process;
 
@@ -1419,6 +1429,8 @@ fn emit_exe_std_hash_map_assume_capacity_operations() {
         &main,
         r#"
 using std;
+using std::HashMap;
+using std::hash;
 using std::mem;
 using std::process;
 

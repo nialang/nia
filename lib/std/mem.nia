@@ -6,6 +6,11 @@ pub(pkg) module general_purpose_allocator;
 pub(pkg) module page_allocator;
 pub(pkg) module types;
 
+using pkg::mem::arena_allocator;
+using pkg::mem::fixed_buffer_allocator;
+using pkg::mem::general_purpose_allocator;
+using pkg::mem::page_allocator;
+
 pub using types::{Block, Error, Layout, Order};
 pub using arena_allocator::ArenaAllocator;
 pub using allocator::Allocator;

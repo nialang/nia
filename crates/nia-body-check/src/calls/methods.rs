@@ -75,15 +75,23 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let span = expr.span;
-        let receiver_ty = self.check_expr(receiver);
-        let candidates = self.method_candidates_for_receiver(receiver_ty, name);
+        let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
+            this.check_expr(receiver)
+        });
+        let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
+            this.method_candidates_for_receiver(receiver_ty, name)
+        });
         let trait_candidates = if candidates.is_empty() {
-            self.trait_method_candidates_for_receiver(receiver_ty, name)
+            self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+                this.trait_method_candidates_for_receiver(receiver_ty, name)
+            })
         } else {
             Vec::new()
         };
         let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
-            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+            self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
+                this.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+            })
         } else {
             Vec::new()
         };
@@ -121,15 +129,23 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let span = expr.span;
-        let receiver_ty = self.check_expr(receiver);
-        let candidates = self.method_candidates_for_receiver(receiver_ty, name);
+        let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
+            this.check_expr(receiver)
+        });
+        let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
+            this.method_candidates_for_receiver(receiver_ty, name)
+        });
         let trait_candidates = if candidates.is_empty() {
-            self.trait_method_candidates_for_receiver(receiver_ty, name)
+            self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+                this.trait_method_candidates_for_receiver(receiver_ty, name)
+            })
         } else {
             Vec::new()
         };
         let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
-            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+            self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
+                this.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
+            })
         } else {
             Vec::new()
         };
@@ -165,29 +181,43 @@ impl<'a> BodyChecker<'a> {
         dynamic_candidates: Vec<DynamicTraitMethodCandidate>,
     ) -> Option<InternedTyId> {
         let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
-        let viable_candidates = self.viable_method_candidates(&call, &candidates);
+        let viable_candidates = self.profile_stage("body_check.profile.method.viable", |this| {
+            this.viable_method_candidates(&call, &candidates)
+        });
         let trait_candidates = if trait_candidates.is_empty() && viable_candidates.is_empty() {
-            self.trait_method_candidates_for_receiver(receiver_ty, call.name)
+            self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+                this.trait_method_candidates_for_receiver(receiver_ty, call.name)
+            })
         } else {
             trait_candidates
         };
         if !dynamic_candidates.is_empty() {
-            return self.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates);
+            return self.profile_stage("body_check.profile.method.dynamic_call", |this| {
+                this.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates)
+            });
         }
         if viable_candidates.is_empty() && !trait_candidates.is_empty() {
-            return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
+            return self.profile_stage("body_check.profile.method.trait_call", |this| {
+                this.check_trait_method_call_with_receiver_ty(call, trait_candidates)
+            });
         }
         if viable_candidates.is_empty()
-            && let Some(return_ty) = self.check_builtin_trait_method_call_with_receiver_ty(&call)
+            && let Some(return_ty) = self
+                .profile_stage("body_check.profile.method.builtin_trait_call", |this| {
+                    this.check_builtin_trait_method_call_with_receiver_ty(&call)
+                })
         {
             return Some(return_ty);
         }
-        let candidate = self.single_method_candidate(call.span, call.name, &viable_candidates)?;
+        let candidate = self
+            .profile_stage("body_check.profile.method.single_candidate", |this| {
+                this.single_method_candidate(call.span, call.name, &viable_candidates)
+            })?;
         let method_id = candidate.method.def_id;
-        let Some(signature) = self
-            .resolved_function_signature(method_id)
-            .map(|resolved| resolved.signature)
-        else {
+        let Some(signature) = self.profile_stage("body_check.profile.method.signature", |this| {
+            this.resolved_function_signature(method_id)
+                .map(|resolved| resolved.signature)
+        }) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call.span,
@@ -225,22 +255,30 @@ impl<'a> BodyChecker<'a> {
         };
         self.check_receiver_match(call.receiver, receiver_ty, receiver_kind);
 
-        let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
+        let Some(method_instantiation_args) = self
+            .profile_stage("body_check.profile.method.lower_type_args", |this| {
+                this.lowered_method_type_args(call.type_args)
+            })
+        else {
             for arg in call.args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        let Some(mut substitutions) = self.method_generic_substitutions(
-            MethodGenericContext {
-                span: call.span,
-                target_substitutions: &candidate.target_substitutions,
-                method_args: call.type_args,
-                lowered_method_args: &method_instantiation_args,
-                expected: call.expected,
-            },
-            &signature,
-        ) else {
+        let Some(mut substitutions) =
+            self.profile_stage("body_check.profile.method.generic_substitutions", |this| {
+                this.method_generic_substitutions(
+                    MethodGenericContext {
+                        span: call.span,
+                        target_substitutions: &candidate.target_substitutions,
+                        method_args: call.type_args,
+                        lowered_method_args: &method_instantiation_args,
+                        expected: call.expected,
+                    },
+                    &signature,
+                )
+            })
+        else {
             for arg in call.args {
                 self.check_expr(arg);
             }
@@ -253,7 +291,9 @@ impl<'a> BodyChecker<'a> {
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
         if call.type_args.is_none() {
-            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            self.profile_stage("body_check.profile.method.infer_args", |this| {
+                this.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            });
             if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
                 return Some(self.error());
@@ -265,12 +305,36 @@ impl<'a> BodyChecker<'a> {
                 .map(|param| self.substitute_generics(param.ty, &substitutions))
                 .collect();
         }
-        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, call.span);
-        self.check_direct_call_args(call.span, call.args, &params, false);
-        let target_args = self.extension_target_instance_args(method_id, &substitutions);
-        if !target_args.is_empty() || !method_instantiation_args.is_empty() {
-            let mut instance_args = target_args;
-            instance_args.extend(method_instantiation_args);
+        self.profile_stage("body_check.profile.method.infer_where", |this| {
+            this.infer_method_generics_from_where_predicates(
+                &signature,
+                &candidate.method.where_predicates,
+                &mut substitutions,
+            );
+        });
+        self.profile_stage("body_check.profile.method.check_where", |this| {
+            this.check_where_predicates_hold(
+                &signature.where_predicates,
+                &substitutions,
+                call.span,
+            );
+            this.check_where_predicates_hold(
+                &candidate.method.where_predicates,
+                &substitutions,
+                call.span,
+            );
+        });
+        self.profile_stage("body_check.profile.method.check_args", |this| {
+            this.check_direct_call_args(call.span, call.args, &params, false);
+        });
+        let Some(instance_args) = self
+            .profile_stage("body_check.profile.method.instance_args", |this| {
+                this.complete_instance_args_for_def(call.span, method_id, &substitutions)
+            })
+        else {
+            return Some(self.error());
+        };
+        if !instance_args.is_empty() {
             self.record_generic_instantiation(method_id, &instance_args, call.span);
             self.record_resolved_node_call(
                 call.span,
@@ -292,9 +356,11 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         }
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
-        let return_type = self.normalize_projection(return_type);
-        Some(self.normalize_aliases_in_type(return_type))
+        self.profile_stage("body_check.profile.method.return_type", |this| {
+            let return_type = this.substitute_generics(signature.return_type, &substitutions);
+            let return_type = this.normalize_projection(return_type);
+            Some(this.normalize_aliases_in_type(return_type))
+        })
     }
     fn builtin_place_method_receiver_coercion(
         &mut self,

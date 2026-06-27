@@ -157,10 +157,12 @@ fn emit_exe_std_fmt_formats_primitives_and_array_list() {
         &main,
         r#"
 using std;
+using std::collections;
 using std::fmt;
 using std::io;
 using std::mem;
 using std::process;
+using std::slice;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var raw: [256]u8 = [_]u8[0; 256];

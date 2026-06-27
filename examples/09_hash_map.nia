@@ -1,5 +1,8 @@
 using std;
 using std::debug;
+using std::fmt;
+using std::HashMap;
+using std::hash;
 using std::mem;
 using std::process;
 using process::{Init, ExitCode};

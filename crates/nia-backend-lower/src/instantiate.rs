@@ -539,6 +539,20 @@ impl<'a> ModuleLowerer<'a> {
             && !self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
     }
 
+    pub(crate) fn builtin_trait_method_call_requires_concrete_impl(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+        method_args: &[InternedTyId],
+    ) -> bool {
+        if self.instantiation.defer_concrete_trait_diagnostics {
+            return false;
+        }
+        self.trait_method_call_is_concrete(self_ty, trait_args, method_args)
+            && !self.builtin_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
+    }
+
     pub(crate) fn default_trait_method_self_arg(
         &mut self,
         trait_id: GlobalDefId,
@@ -570,11 +584,37 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
+        };
+        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
+        let goal = TraitGoal {
+            self_ty,
+            trait_id: TraitId::Source(trait_id),
+            trait_args: trait_args.to_vec(),
+        };
+        solver.proves(goal)
+    }
+
+    fn builtin_trait_goal_is_satisfied(
+        &mut self,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> bool {
+        let assumptions = self.current_trait_assumptions();
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
         solver.proves(TraitGoal {
             self_ty,
-            trait_id: TraitId::Source(trait_id),
+            trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
         })
     }
@@ -982,6 +1022,34 @@ impl<'a> ModuleLowerer<'a> {
         self.type_context.type_substitution(substitutions, name)
     }
 
+    pub(super) fn effective_instance_args_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        substitutions: TypeSubstitutionId,
+    ) -> Option<Vec<InternedTyId>> {
+        let own_generics = if def_id.module_id == self.input.module_id {
+            self.function_sources
+                .get(&def_id)
+                .map(|source| source.function.generics.as_slice())
+                .unwrap_or(&[])
+        } else {
+            self.input
+                .program_functions
+                .get(&def_id)
+                .map(|signature| signature.signature.generics.as_slice())
+                .unwrap_or(&[])
+        };
+        let generics = self.effective_generics(def_id, own_generics).to_vec();
+        if generics.is_empty() {
+            return Some(Vec::new());
+        }
+        generics
+            .iter()
+            .map(|generic| self.type_substitution(substitutions, generic))
+            .collect::<Option<Vec<_>>>()
+            .map(|args| self.canonicalize_instance_args(&args))
+    }
+
     fn cache_type_instantiation(
         &mut self,
         key: TypeInstantiationKey,
@@ -1022,6 +1090,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(
             &mut self.type_context.interner,

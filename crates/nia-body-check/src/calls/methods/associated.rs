@@ -194,6 +194,13 @@ impl<'a> BodyChecker<'a> {
                 return Some(self.error());
             }
         }
+        self.infer_method_generics_from_where_predicates(
+            &signature,
+            &candidate.method.where_predicates,
+            &mut substitutions,
+        );
+        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
+        self.check_where_predicates_hold(&candidate.method.where_predicates, &substitutions, span);
         let params: Vec<InternedTyId> = signature
             .params
             .iter()
@@ -201,10 +208,12 @@ impl<'a> BodyChecker<'a> {
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
         self.check_direct_call_args(span, value_args, &params, false);
-        let target_args = self.extension_target_instance_args(method_id, &substitutions);
-        if !target_args.is_empty() || !method_instantiation_args.is_empty() {
-            let mut instance_args = target_args;
-            instance_args.extend(method_instantiation_args);
+        let Some(instance_args) =
+            self.complete_instance_args_for_def(span, method_id, &substitutions)
+        else {
+            return Some(self.error());
+        };
+        if !instance_args.is_empty() {
             self.record_generic_instantiation(method_id, &instance_args, span);
             self.record_resolved_node_call(
                 span,

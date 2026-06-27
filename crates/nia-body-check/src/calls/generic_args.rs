@@ -44,6 +44,44 @@ impl<'a> BodyChecker<'a> {
         lowered
     }
 
+    pub(crate) fn complete_instance_args_for_generics(
+        &mut self,
+        span: Span,
+        generics: &[String],
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+    ) -> Option<Vec<InternedTyId>> {
+        let mut complete = true;
+        for generic in generics {
+            if !substitutions.contains_key(generic) {
+                complete = false;
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!("cannot infer generic parameter `{generic}`"),
+                ));
+            }
+        }
+        if !complete {
+            return None;
+        }
+        Some(
+            generics
+                .iter()
+                .filter_map(|generic| substitutions.get(generic).copied())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub(crate) fn complete_instance_args_for_def(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+    ) -> Option<Vec<InternedTyId>> {
+        let generics = self.effective_generics_for_def(def_id);
+        self.complete_instance_args_for_generics(span, &generics, substitutions)
+    }
+
     pub(crate) fn record_generic_instantiation(
         &mut self,
         def_id: GlobalDefId,

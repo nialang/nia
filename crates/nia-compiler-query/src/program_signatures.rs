@@ -1986,6 +1986,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
     pub extensions: &'a ExtensionMethods,
     pub associated_values: &'a ExtensionAssociatedValues,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2007,6 +2008,7 @@ pub(crate) fn visible_extensions_for_module(
         visible_type_signatures,
         extensions,
         associated_values,
+        trait_impls,
     } = input;
     let visibility_context = VisibilityClosureContext {
         module_id,
@@ -2020,6 +2022,7 @@ pub(crate) fn visible_extensions_for_module(
         associated_values,
     };
     let visible_modules = declared_module_closure(&visibility_context);
+    let witness_modules = declared_witness_module_closure(&visibility_context);
     let Some(current_normalization) = normalizations(module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
@@ -2043,7 +2046,8 @@ pub(crate) fn visible_extensions_for_module(
             continue;
         }
         let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
-            trait_id_is_visible(module_id, &visible_modules, trait_id, public_surfaces, defs)
+            witness_modules.contains(&method.def_id.module_id)
+                && trait_id_is_visible(module_id, &witness_modules, trait_id, public_surfaces, defs)
         });
         let Some(method_normalization) = normalizations(method.def_id.module_id) else {
             continue;
@@ -2083,6 +2087,20 @@ pub(crate) fn visible_extensions_for_module(
                 is_trait_witness: trait_is_visible,
             },
         );
+    }
+    for impl_signature in trait_impls {
+        if !witness_modules.contains(&impl_signature.module_id) {
+            continue;
+        }
+        if trait_id_is_visible(
+            module_id,
+            &witness_modules,
+            impl_signature.trait_id,
+            public_surfaces,
+            defs,
+        ) {
+            visible.insert_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id);
+        }
     }
     for value in associated_values.visible_values(
         module_id,
@@ -2209,6 +2227,42 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
     modules
 }
 
+fn declared_witness_module_closure(
+    context: &VisibilityClosureContext<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    let mut seen = HashSet::new();
+    let roots = context
+        .using_scope
+        .modules
+        .values()
+        .copied()
+        .chain(
+            context
+                .using_scope
+                .types
+                .values()
+                .map(|entry| entry.target_module),
+        )
+        .collect::<Vec<_>>();
+    for module_id in roots {
+        if module_id == context.module_id {
+            continue;
+        }
+        seen.insert(module_id);
+        if let Some(using_scope) = context.using_scopes.get(&module_id) {
+            for provider in using_scope.modules.values().copied() {
+                if provider != context.module_id {
+                    seen.insert(provider);
+                }
+            }
+        }
+    }
+
+    let mut modules = seen.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    modules
+}
+
 fn enqueue_using_scope_modules(
     using_scope: &nia_defs::ModuleUsingScope,
     queue: &mut VecDeque<nia_ids::ModuleId>,
@@ -2252,12 +2306,6 @@ fn public_inherent_extension_providers_for_using_scope(
     {
         providers.extend(public_inherent_method_providers_for_nominal(
             context.module_id,
-            context.graph,
-            type_def_id,
-            context.normalizations,
-            context.extensions,
-        ));
-        providers.extend(public_trait_impl_providers_for_nominal(
             context.graph,
             type_def_id,
             context.normalizations,
@@ -2326,31 +2374,6 @@ fn public_inherent_method_providers_for_nominal(
         };
         let target_ty = normalization.normalize(method.target_ty);
         if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
-            providers.push(method.def_id.module_id);
-        }
-    }
-    providers
-}
-
-fn public_trait_impl_providers_for_nominal(
-    graph: &nia_imports::ModuleGraph,
-    target_def_id: GlobalDefId,
-    normalizations: TypeNormalizationResolver<'_>,
-    extensions: &ExtensionMethods,
-) -> Vec<nia_ids::ModuleId> {
-    let mut providers = Vec::new();
-    for method in extensions.all_methods() {
-        if method.trait_id.is_none() {
-            continue;
-        }
-        let Some(normalization) = normalizations(method.def_id.module_id) else {
-            continue;
-        };
-        let target_ty = normalization.normalize(method.target_ty);
-        if nominal_target_def_id(&normalization.interner, target_ty) != Some(target_def_id) {
-            continue;
-        }
-        if graph.get(method.def_id.module_id).is_some() {
             providers.push(method.def_id.module_id);
         }
     }

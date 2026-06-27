@@ -5,6 +5,12 @@ pub(pkg) module limit;
 pub(pkg) module runtime;
 pub(pkg) module traits;
 
+using pkg::io::buffered;
+using pkg::io::file_adapter;
+using pkg::io::fixed_buffer;
+using pkg::io::limit;
+using pkg::io::runtime;
+
 pub using traits::{BufferError, Reader, Writer};
 pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter};
 pub using buffered::{BufferedReader, BufferedWriter};

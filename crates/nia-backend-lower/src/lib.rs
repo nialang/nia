@@ -470,6 +470,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionMethodSource {
+    target_ty: InternedTyId,
     where_predicates: Vec<WherePredicateSignature>,
     interner_id: TyInternerId,
 }
@@ -1127,7 +1128,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_backend_function_root(
-        &self,
+        &mut self,
         def_id: GlobalDefId,
         function: &nia_ast::FunctionItem,
     ) -> bool {
@@ -1137,7 +1138,7 @@ impl<'a> ModuleLowerer<'a> {
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
                 || (self.input.function_bodies.contains_key(&def_id)
-                    && !self.is_generic_trait_impl_method(def_id));
+                    && !self.has_effective_generics(def_id, &function.generics));
         }
         let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
             return false;
@@ -1320,14 +1321,8 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn is_generic_trait_impl_method(&self, def_id: GlobalDefId) -> bool {
-        let Some(impl_index) = self.trait_impl_index_for_method(def_id) else {
-            return false;
-        };
-        self.input
-            .trait_impls
-            .get(impl_index)
-            .is_some_and(|impl_signature| !impl_signature.generics.is_empty())
+    fn has_effective_generics(&mut self, def_id: GlobalDefId, own_generics: &[String]) -> bool {
+        !self.effective_generics(def_id, own_generics).is_empty()
     }
 
     fn lower_reachable_function_closure(
@@ -1802,6 +1797,7 @@ fn index_local_extension_method_sources_by_def(
                 sources.insert(
                     method.def_id,
                     ExtensionMethodSource {
+                        target_ty: target.target_ty,
                         where_predicates: method.where_predicates.clone(),
                         interner_id: interner.interner_id(),
                     },
@@ -1826,6 +1822,7 @@ fn index_program_extension_method_sources_by_def(
         sources.insert(
             method.def_id,
             ExtensionMethodSource {
+                target_ty: method.target_ty,
                 where_predicates: method.where_predicates.clone(),
                 interner_id: type_normalization.interner.interner_id(),
             },

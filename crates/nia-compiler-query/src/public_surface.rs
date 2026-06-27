@@ -766,6 +766,15 @@ fn expand_root_group_item(
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
+            if let Some(module_id) =
+                visible_child_module_for_mode(context, current.module_id, &name.name)
+            {
+                return UsingExpansion::Resolved(vec![ResolvedEntry {
+                    name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                    name_span: name.alias_span.unwrap_or(name.name_span),
+                    kind: ResolvedEntryKind::Module(module_id),
+                }]);
+            }
             if let Some(module_id) = local_modules.get(&name.name).copied() {
                 return UsingExpansion::Resolved(vec![ResolvedEntry {
                     name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
@@ -802,6 +811,27 @@ fn expand_root_group_item(
             expand_namespace(namespace, selector, context, source.clone())
         }
     }
+}
+
+fn visible_child_module_for_mode(
+    context: &UsingExpansionContext<'_>,
+    parent_module: ModuleId,
+    name: &str,
+) -> Option<ModuleId> {
+    let parent = context.graph.get(parent_module)?;
+    let target = parent.children.get(name).copied()?;
+    let declaration = parent
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == name && declaration.target == target)?;
+    module_declaration_visible_for_wildcard(
+        context.mode,
+        declaration.visibility,
+        context.graph,
+        parent_module,
+        context.accessing_module,
+    )
+    .then_some(target)
 }
 
 fn expand_module_host(

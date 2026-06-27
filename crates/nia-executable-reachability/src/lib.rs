@@ -10,7 +10,8 @@ use nia_defs::ExtensionMethods;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
-    ProgramFunctionSignature, ProgramStructSignature, ProgramTraitSignature, ProgramUnionSignature,
+    ProgramFunctionSignature, ProgramStructSignature, ProgramTraitImplSignature,
+    ProgramTraitSignature, ProgramUnionSignature,
 };
 use nia_sema_ir::{FunctionSemanticFacts, SemanticFacts};
 use nia_static_ir::StaticInit;
@@ -62,19 +63,56 @@ pub fn compute_executable_reachability(
     root_defs: ExecutableRootDefs<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
     extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules: &[ReachableModuleInput<'_>],
+) -> ExecutableReachability {
+    compute_executable_reachability_with_seed(
+        None,
+        parse_ok,
+        graph,
+        root_defs,
+        program_signatures,
+        extension_methods,
+        trait_impls,
+        modules,
+    )
+}
+
+pub fn compute_executable_reachability_with_seed(
+    seed: Option<&ExecutableReachability>,
+    parse_ok: &[ModuleId],
+    graph: &ModuleGraph,
+    root_defs: ExecutableRootDefs<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
     modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
     let modules_by_id = modules
         .iter()
         .map(|module| (module.module_id, *module))
         .collect::<HashMap<_, _>>();
-    let mut reachable_functions = executable_root_functions(graph, root_defs);
-    let mut reachable_globals = HashSet::new();
-    let mut reachable_modules = reachable_functions
-        .iter()
-        .map(|def_id| def_id.module_id)
-        .collect::<HashSet<_>>();
-    let mut reachable_type_modules = HashSet::new();
+    let mut reachable_functions = HashSet::new();
+    let mut reachable_globals = seed.map(|seed| seed.globals.clone()).unwrap_or_default();
+    let mut reachable_modules = seed.map(|seed| seed.modules.clone()).unwrap_or_default();
+    let mut reachable_type_modules = seed
+        .map(|seed| seed.type_modules.clone())
+        .unwrap_or_default();
+    let mut pending_seed_modules = VecDeque::new();
+    for def_id in seed
+        .into_iter()
+        .flat_map(|seed| seed.functions.iter().copied())
+        .chain(executable_root_functions(graph, root_defs))
+    {
+        add_reachable_function(
+            def_id,
+            program_signatures,
+            &mut reachable_functions,
+            &mut reachable_modules,
+            &mut pending_seed_modules,
+        );
+    }
+    reachable_modules.extend(reachable_functions.iter().map(|def_id| def_id.module_id));
     add_reachable_module(graph.entry(), &mut reachable_modules, &mut VecDeque::new());
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
@@ -85,8 +123,21 @@ pub fn compute_executable_reachability(
             reachable_modules.len(),
             reachable_type_modules.len(),
         );
-        let mut reachable_traits = ReachableTraitRefs::default();
         let current_reachable_modules = reachable_modules.clone();
+        let mut reachable_traits = collect_reachable_traits_for_modules(
+            &modules_by_id,
+            &current_reachable_modules,
+            &reachable_functions,
+            &reachable_globals,
+        );
+        extend_reachable_traits_from_generic_instances(
+            &modules_by_id,
+            &current_reachable_modules,
+            program_signatures,
+            extension_methods,
+            &reachable_functions,
+            &mut reachable_traits,
+        );
         for module in modules_by_id
             .values()
             .filter(|module| current_reachable_modules.contains(&module.module_id))
@@ -99,12 +150,6 @@ pub fn compute_executable_reachability(
                 &mut reachable_globals,
                 &mut reachable_modules,
                 &mut pending_modules,
-            );
-            collect_reachable_body_trait_ids(
-                module,
-                &reachable_functions,
-                &reachable_globals,
-                &mut reachable_traits,
             );
             collect_reachable_fact_owner_modules(
                 module,
@@ -121,6 +166,8 @@ pub fn compute_executable_reachability(
         extend_reachable_functions_from_traits(
             program_signatures,
             extension_methods,
+            trait_impls,
+            &modules_by_id,
             &reachable_traits,
             &reachable_modules,
             &mut reachable_functions,
@@ -249,6 +296,80 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_facts
 }
 
+pub fn extend_executable_reachability_from_checked_module(
+    reachability: &mut ExecutableReachability,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    module: ReachableModuleInput<'_>,
+    checked_modules: &[ReachableModuleInput<'_>],
+) -> bool {
+    let before = (
+        reachability.functions.len(),
+        reachability.globals.len(),
+        reachability.modules.len(),
+        reachability.type_modules.len(),
+    );
+    let mut pending_modules = VecDeque::new();
+    extend_reachable_functions_from_bodies(
+        &module,
+        program_signatures,
+        &mut reachability.functions,
+        &mut reachability.globals,
+        &mut reachability.modules,
+        &mut pending_modules,
+    );
+    let mut reachable_traits = ReachableTraitRefs::default();
+    collect_reachable_body_trait_ids(
+        &module,
+        &reachability.functions,
+        &reachability.globals,
+        &mut reachable_traits,
+    );
+    let mut modules_by_id = checked_modules
+        .iter()
+        .map(|checked_module| (checked_module.module_id, *checked_module))
+        .collect::<HashMap<_, _>>();
+    modules_by_id.insert(module.module_id, module);
+    let mut current_reachable_modules = HashSet::new();
+    current_reachable_modules.insert(module.module_id);
+    extend_reachable_traits_from_generic_instances(
+        &modules_by_id,
+        &current_reachable_modules,
+        program_signatures,
+        extension_methods,
+        &reachability.functions,
+        &mut reachable_traits,
+    );
+    collect_reachable_fact_owner_modules(
+        &module,
+        program_signatures,
+        &reachability.functions,
+        &reachability.globals,
+        &mut reachability.modules,
+        &mut reachability.type_modules,
+        &mut pending_modules,
+        &mut reachable_traits,
+    );
+    extend_reachable_functions_from_traits(
+        program_signatures,
+        extension_methods,
+        trait_impls,
+        &modules_by_id,
+        &reachable_traits,
+        &reachability.modules,
+        &mut reachability.functions,
+        &mut pending_modules,
+    );
+    before
+        != (
+            reachability.functions.len(),
+            reachability.globals.len(),
+            reachability.modules.len(),
+            reachability.type_modules.len(),
+        )
+}
+
 #[derive(Clone, Copy)]
 pub struct ExecutableSignatureIndex<'a> {
     pub function: &'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
@@ -310,6 +431,134 @@ fn extend_reachable_functions_from_bodies(
     }
 }
 
+fn collect_reachable_traits_for_modules(
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    current_reachable_modules: &HashSet<ModuleId>,
+    reachable_functions: &HashSet<GlobalDefId>,
+    reachable_globals: &HashSet<GlobalDefId>,
+) -> ReachableTraitRefs {
+    let mut reachable_traits = ReachableTraitRefs::default();
+    for module in modules_by_id
+        .values()
+        .filter(|module| current_reachable_modules.contains(&module.module_id))
+    {
+        collect_reachable_body_trait_ids(
+            module,
+            reachable_functions,
+            reachable_globals,
+            &mut reachable_traits,
+        );
+    }
+    reachable_traits
+}
+
+fn extend_reachable_traits_from_generic_instances(
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    current_reachable_modules: &HashSet<ModuleId>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    reachable_functions: &HashSet<GlobalDefId>,
+    traits: &mut ReachableTraitRefs,
+) {
+    let needed_methods = traits
+        .methods
+        .iter()
+        .map(|method| (method.trait_id, method.method_name.clone()))
+        .collect::<HashSet<_>>();
+    if needed_methods.is_empty() {
+        return;
+    }
+    for module in modules_by_id
+        .values()
+        .filter(|module| current_reachable_modules.contains(&module.module_id))
+    {
+        for def_id in reachable_functions
+            .iter()
+            .filter(|def_id| def_id.module_id == module.module_id)
+        {
+            let Some(function_facts) = module.semantic_facts.function_facts.get(def_id) else {
+                continue;
+            };
+            for instantiation in &function_facts.generic_instantiations {
+                extend_reachable_traits_from_generic_instantiation(
+                    module,
+                    program_signatures,
+                    extension_methods,
+                    &needed_methods,
+                    traits,
+                    instantiation,
+                );
+            }
+        }
+    }
+}
+
+fn extend_reachable_traits_from_generic_instantiation(
+    use_module: &ReachableModuleInput<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    needed_methods: &HashSet<(TraitId, String)>,
+    traits: &mut ReachableTraitRefs,
+    instantiation: &nia_sema_ir::GenericInstantiation,
+) {
+    let Some(signature) = (program_signatures.function)(instantiation.def_id) else {
+        return;
+    };
+    let mut signature_interner = signature.interner.clone();
+    let substitutions = instantiation
+        .generics
+        .iter()
+        .cloned()
+        .zip(instantiation.args.iter().copied())
+        .filter_map(|(generic, arg)| {
+            nia_ty::try_import_type_into(&mut signature_interner, &use_module.body_ir.interner, arg)
+                .ok()
+                .map(|arg| (generic, arg))
+        })
+        .collect::<HashMap<_, _>>();
+    let extension_where_predicates = extension_methods
+        .all_methods()
+        .find(|method| method.def_id == instantiation.def_id)
+        .map(|method| method.where_predicates.as_slice())
+        .unwrap_or(&[]);
+    for predicate in signature
+        .signature
+        .where_predicates
+        .iter()
+        .chain(extension_where_predicates)
+    {
+        let mut substituted_interner = signature_interner.clone();
+        let Some(self_ty) = substitute_ty(&mut substituted_interner, predicate.ty, &substitutions)
+        else {
+            continue;
+        };
+        for bound in &predicate.bounds {
+            let Some(trait_ty) =
+                substitute_ty(&mut substituted_interner, bound.trait_ty, &substitutions)
+            else {
+                continue;
+            };
+            let Some((trait_id, trait_args)) = trait_id_and_args(&substituted_interner, trait_ty)
+            else {
+                continue;
+            };
+            for (_, method_name) in needed_methods
+                .iter()
+                .filter(|(needed_trait_id, _)| *needed_trait_id == trait_id)
+            {
+                traits.insert_method_with_interner(
+                    use_module.module_id,
+                    trait_id,
+                    method_name.clone(),
+                    self_ty,
+                    trait_args.clone(),
+                    Some(substituted_interner.clone()),
+                );
+            }
+        }
+    }
+}
+
 fn typed_body_refs(
     module: &ReachableModuleInput<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
@@ -356,49 +605,104 @@ struct TypedBodyRefs {
     traits: ReachableTraitRefs,
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct ReachableTraitRefs {
     traits: HashSet<TraitId>,
-    methods: HashSet<ReachableTraitMethod>,
-    vtable_traits: HashSet<TraitId>,
+    methods: Vec<ReachableTraitMethod>,
+    vtables: Vec<ReachableTraitVtable>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 struct ReachableTraitMethod {
+    module_id: ModuleId,
     trait_id: TraitId,
     method_name: String,
+    self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
+    interner: Option<TyInterner>,
+}
+
+#[derive(Debug, Clone)]
+struct ReachableTraitVtable {
+    module_id: ModuleId,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
 }
 
 impl ReachableTraitRefs {
     fn extend(&mut self, refs: Self) {
         self.traits.extend(refs.traits);
         self.methods.extend(refs.methods);
-        self.vtable_traits.extend(refs.vtable_traits);
+        self.vtables.extend(refs.vtables);
     }
 
     fn insert_trait(&mut self, trait_id: TraitId) {
         self.traits.insert(trait_id);
     }
 
-    fn insert_method(&mut self, trait_id: TraitId, method_name: impl Into<String>) {
+    fn insert_method(
+        &mut self,
+        module_id: ModuleId,
+        trait_id: TraitId,
+        method_name: impl Into<String>,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+    ) {
+        self.insert_method_with_interner(
+            module_id,
+            trait_id,
+            method_name,
+            self_ty,
+            trait_args,
+            None,
+        );
+    }
+
+    fn insert_method_with_interner(
+        &mut self,
+        module_id: ModuleId,
+        trait_id: TraitId,
+        method_name: impl Into<String>,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        interner: Option<TyInterner>,
+    ) {
         self.traits.insert(trait_id);
-        self.methods.insert(ReachableTraitMethod {
+        self.methods.push(ReachableTraitMethod {
+            module_id,
             trait_id,
             method_name: method_name.into(),
+            self_ty,
+            trait_args,
+            interner,
         });
     }
 
-    fn insert_vtable_trait(&mut self, trait_id: TraitId) {
+    fn insert_vtable(
+        &mut self,
+        module_id: ModuleId,
+        trait_id: TraitId,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+    ) {
         self.traits.insert(trait_id);
-        self.vtable_traits.insert(trait_id);
+        self.vtables.push(ReachableTraitVtable {
+            module_id,
+            trait_id,
+            self_ty,
+            trait_args,
+        });
     }
 
     fn needs_method(&self, trait_id: TraitId, method_name: &str) -> bool {
-        self.vtable_traits.contains(&trait_id)
-            || self.methods.contains(&ReachableTraitMethod {
-                trait_id,
-                method_name: method_name.to_string(),
-            })
+        self.methods
+            .iter()
+            .any(|method| method.trait_id == trait_id && method.method_name == method_name)
+            || self
+                .vtables
+                .iter()
+                .any(|vtable| vtable.trait_id == trait_id)
     }
 }
 
@@ -436,8 +740,11 @@ fn collect_typed_stmt_refs(
         }
         TypedStmtKind::ForIn(for_in) => {
             refs.traits.insert_method(
+                module.module_id,
                 TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
                 nia_ids::BuiltinTraitMethod::IteratorNext.name(),
+                for_in.iter.ty,
+                Vec::new(),
             );
             collect_typed_expr_refs(module, &for_in.iter, refs);
             collect_typed_body_refs(module, &for_in.body, refs);
@@ -515,10 +822,10 @@ fn collect_typed_expr_refs(
         TypedExprKind::TraitObjectCoercion {
             expr: value,
             target_ty,
-            ..
+            self_ty,
         } => {
             collect_typed_expr_refs(module, value, refs);
-            collect_trait_object_vtable_ref(module, *target_ty, refs);
+            collect_trait_object_vtable_ref(module, *target_ty, *self_ty, refs);
         }
         TypedExprKind::ArrayLiteral { elems } => match elems {
             TypedArrayElements::List(elems) => {
@@ -547,7 +854,7 @@ fn collect_typed_expr_refs(
             collect_typed_expr_refs(module, rhs, refs);
         }
         TypedExprKind::Call { callee, args } => {
-            collect_typed_callee_refs(module, callee, refs);
+            collect_typed_callee_refs(module, callee, args, refs);
             for arg in args {
                 collect_typed_expr_refs(module, arg, refs);
             }
@@ -620,6 +927,7 @@ fn collect_typed_expr_refs(
 fn collect_typed_callee_refs(
     module: &ReachableModuleInput<'_>,
     callee: &TypedCallee,
+    args: &[TypedExpr],
     refs: &mut TypedBodyRefs,
 ) {
     match callee {
@@ -636,33 +944,46 @@ fn collect_typed_callee_refs(
             trait_id,
             method_id,
             method_name,
+            self_ty,
+            trait_args,
             receiver,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.traits
-                .insert_method(TraitId::Source(*trait_id), method_name.clone());
+            refs.traits.insert_method(
+                module.module_id,
+                TraitId::Source(*trait_id),
+                method_name.clone(),
+                *self_ty,
+                trait_args.clone(),
+            );
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::TraitAssociatedFunction {
             trait_id,
             method_id,
             method_name,
+            self_ty,
+            trait_args,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.traits
-                .insert_method(TraitId::Source(*trait_id), method_name.clone());
+            refs.traits.insert_method(
+                module.module_id,
+                TraitId::Source(*trait_id),
+                method_name.clone(),
+                *self_ty,
+                trait_args.clone(),
+            );
         }
         TypedCallee::DynamicTraitMethod {
             trait_id,
             method_id,
-            method_name,
             receiver,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.traits.insert_method(*trait_id, method_name.clone());
+            refs.traits.insert_trait(*trait_id);
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::BuiltinMethod { receiver, .. } | TypedCallee::FunctionPointer(receiver) => {
@@ -670,16 +991,31 @@ fn collect_typed_callee_refs(
         }
         TypedCallee::BuiltinOperator(operator) => {
             if let Some(method) = operator.method() {
-                refs.traits
-                    .insert_method(TraitId::Builtin(operator.trait_id), method.name());
+                if let Some(receiver) = args.first() {
+                    refs.traits.insert_method(
+                        module.module_id,
+                        TraitId::Builtin(operator.trait_id),
+                        method.name(),
+                        receiver.ty,
+                        Vec::new(),
+                    );
+                } else {
+                    refs.traits
+                        .insert_trait(TraitId::Builtin(operator.trait_id));
+                }
             } else {
                 refs.traits
                     .insert_trait(TraitId::Builtin(operator.trait_id));
             }
         }
         TypedCallee::BuiltinPlaceMethod(method) => {
-            refs.traits
-                .insert_method(TraitId::Builtin(method.trait_id), method.method.name());
+            refs.traits.insert_method(
+                module.module_id,
+                TraitId::Builtin(method.trait_id),
+                method.method.name(),
+                method.self_ty,
+                method.trait_args.clone(),
+            );
             collect_typed_expr_refs(module, &method.receiver, refs);
         }
     }
@@ -688,14 +1024,25 @@ fn collect_typed_callee_refs(
 fn collect_trait_object_vtable_ref(
     module: &ReachableModuleInput<'_>,
     object_ty: InternedTyId,
+    self_ty: InternedTyId,
     refs: &mut TypedBodyRefs,
 ) {
     let Some(ty) = module.body_ir.interner.get(object_ty) else {
         return;
     };
     match ty {
-        TyKind::TraitObject { trait_id, .. } | TyKind::TraitObjectPointee { trait_id, .. } => {
-            refs.traits.insert_vtable_trait(*trait_id);
+        TyKind::TraitObject {
+            trait_id,
+            trait_args,
+            ..
+        }
+        | TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            ..
+        } => {
+            refs.traits
+                .insert_vtable(module.module_id, *trait_id, self_ty, trait_args.clone());
         }
         _ => {}
     }
@@ -839,6 +1186,8 @@ fn collect_static_init_refs(init: &StaticInit, refs: &mut TypedBodyRefs) {
 fn extend_reachable_functions_from_traits(
     program_signatures: ExecutableSignatureIndex<'_>,
     extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     reachable_traits: &ReachableTraitRefs,
     reachable_modules: &HashSet<ModuleId>,
     reachable_functions: &mut HashSet<GlobalDefId>,
@@ -877,6 +1226,15 @@ fn extend_reachable_functions_from_traits(
         if !reachable_traits.needs_method(trait_id, &method.name) {
             continue;
         }
+        let needs_body = reachable_extension_method_needs_body(
+            method,
+            trait_impls,
+            modules_by_id,
+            reachable_traits,
+        );
+        if !needs_body {
+            continue;
+        }
         add_reachable_function(
             method.def_id,
             program_signatures,
@@ -885,6 +1243,102 @@ fn extend_reachable_functions_from_traits(
             pending_modules,
         );
     }
+}
+
+fn reachable_extension_method_needs_body(
+    method: &nia_defs::ExtensionMethod,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    reachable_traits: &ReachableTraitRefs,
+) -> bool {
+    let Some(method_trait_id) = method.trait_id else {
+        return false;
+    };
+    if reachable_traits.vtables.iter().any(|vtable| {
+        reachable_extension_method_matches(
+            method,
+            method_trait_id,
+            vtable.self_ty,
+            &vtable.trait_args,
+            vtable.module_id,
+            None,
+            trait_impls,
+            modules_by_id,
+        )
+    }) {
+        return true;
+    }
+    reachable_traits.methods.iter().any(|reachable| {
+        reachable.trait_id == method_trait_id
+            && reachable.method_name == method.name
+            && reachable_extension_method_matches(
+                method,
+                method_trait_id,
+                reachable.self_ty,
+                &reachable.trait_args,
+                reachable.module_id,
+                reachable.interner.as_ref(),
+                trait_impls,
+                modules_by_id,
+            )
+    })
+}
+
+fn reachable_extension_method_matches(
+    method: &nia_defs::ExtensionMethod,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: &[InternedTyId],
+    use_module_id: ModuleId,
+    use_interner_override: Option<&TyInterner>,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+) -> bool {
+    if method.trait_args.len() != trait_args.len() {
+        return false;
+    }
+    let Some(impl_signature) = trait_impls.iter().find(|impl_signature| {
+        impl_signature.module_id == method.def_id.module_id
+            && impl_signature.impl_id == method.impl_id
+            && impl_signature.trait_id == trait_id
+    }) else {
+        return false;
+    };
+    if impl_signature.trait_args.len() != trait_args.len() {
+        return false;
+    }
+    let mut interner = if let Some(interner) = use_interner_override {
+        interner.clone()
+    } else if let Some(use_module) = modules_by_id.get(&use_module_id) {
+        use_module.body_ir.interner.clone()
+    } else {
+        return false;
+    };
+    let Ok(target_ty) = nia_ty::try_import_type_into(
+        &mut interner,
+        &impl_signature.interner,
+        impl_signature.target_ty,
+    ) else {
+        return false;
+    };
+    let Ok(imported_trait_args) = impl_signature
+        .trait_args
+        .iter()
+        .map(|arg| nia_ty::try_import_type_into(&mut interner, &impl_signature.interner, *arg))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return false;
+    };
+    let mut substitutions = HashMap::new();
+    if !match_type_pattern(&interner, target_ty, self_ty, &mut substitutions) {
+        return false;
+    }
+    imported_trait_args
+        .iter()
+        .zip(trait_args)
+        .all(|(pattern, actual)| {
+            match_type_pattern(&interner, *pattern, *actual, &mut substitutions)
+        })
 }
 
 fn add_reachable_function(
@@ -905,6 +1359,334 @@ fn add_reachable_function(
     if reachable_functions.insert(def_id) {
         add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
     }
+}
+
+fn match_type_pattern(
+    interner: &TyInterner,
+    pattern: InternedTyId,
+    actual: InternedTyId,
+    substitutions: &mut HashMap<String, InternedTyId>,
+) -> bool {
+    let Some(pattern_ty) = interner.get(pattern) else {
+        return false;
+    };
+    match pattern_ty {
+        TyKind::GenericParam(name) => {
+            if let Some(existing) = substitutions.get(name).copied() {
+                types_equivalent(interner, existing, actual)
+            } else {
+                substitutions.insert(name.clone(), actual);
+                true
+            }
+        }
+        TyKind::Primitive(pattern_primitive) => {
+            matches!(interner.get(actual), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
+        }
+        TyKind::Vector {
+            elem: pattern_elem,
+            lanes: pattern_lanes,
+        } => {
+            matches!(interner.get(actual), Some(TyKind::Vector { elem, lanes }) if elem == pattern_elem && lanes == pattern_lanes)
+        }
+        TyKind::Pointer { is_readonly, elem } => match interner.get(actual) {
+            Some(TyKind::Pointer {
+                is_readonly: actual_readonly,
+                elem: actual_elem,
+            }) if is_readonly == actual_readonly => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::VolatilePointer { is_readonly, elem } => match interner.get(actual) {
+            Some(TyKind::VolatilePointer {
+                is_readonly: actual_readonly,
+                elem: actual_elem,
+            }) if is_readonly == actual_readonly => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::Slice { is_readonly, elem } => match interner.get(actual) {
+            Some(TyKind::Slice {
+                is_readonly: actual_readonly,
+                elem: actual_elem,
+            }) if is_readonly == actual_readonly => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::SlicePointee { elem } => match interner.get(actual) {
+            Some(TyKind::SlicePointee { elem: actual_elem }) => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::Array { len, elem } => match interner.get(actual) {
+            Some(TyKind::Array {
+                len: actual_len,
+                elem: actual_elem,
+            }) if len == actual_len => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::Range { kind, bound } => match interner.get(actual) {
+            Some(TyKind::Range {
+                kind: actual_kind,
+                bound: actual_bound,
+            }) if kind == actual_kind => match (bound, actual_bound) {
+                (Some(bound), Some(actual_bound)) => {
+                    match_type_pattern(interner, *bound, *actual_bound, substitutions)
+                }
+                (None, None) => true,
+                _ => false,
+            },
+            _ => false,
+        },
+        TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        } => match interner.get(actual) {
+            Some(TyKind::FunctionPointer {
+                params: actual_params,
+                return_type: actual_return,
+                is_variadic: actual_variadic,
+            }) if is_variadic == actual_variadic && params.len() == actual_params.len() => {
+                params
+                    .iter()
+                    .zip(actual_params)
+                    .all(|(param, actual_param)| {
+                        match_type_pattern(interner, *param, *actual_param, substitutions)
+                    })
+                    && match_type_pattern(interner, *return_type, *actual_return, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::Optional { elem } => match interner.get(actual) {
+            Some(TyKind::Optional { elem: actual_elem }) => {
+                match_type_pattern(interner, *elem, *actual_elem, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::ErrorUnion { error, value } => match interner.get(actual) {
+            Some(TyKind::ErrorUnion {
+                error: actual_error,
+                value: actual_value,
+            }) => {
+                match_type_pattern(interner, *error, *actual_error, substitutions)
+                    && match_type_pattern(interner, *value, *actual_value, substitutions)
+            }
+            _ => false,
+        },
+        TyKind::Nominal { def_id, args } => match interner.get(actual) {
+            Some(TyKind::Nominal {
+                def_id: actual_def_id,
+                args: actual_args,
+            }) if def_id == actual_def_id && args.len() == actual_args.len() => {
+                args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                    match_type_pattern(interner, *arg, *actual_arg, substitutions)
+                })
+            }
+            _ => false,
+        },
+        TyKind::BuiltinTrait { trait_id, args } => match interner.get(actual) {
+            Some(TyKind::BuiltinTrait {
+                trait_id: actual_trait_id,
+                args: actual_args,
+            }) if trait_id == actual_trait_id && args.len() == actual_args.len() => {
+                args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                    match_type_pattern(interner, *arg, *actual_arg, substitutions)
+                })
+            }
+            _ => false,
+        },
+        TyKind::TraitObject { .. }
+        | TyKind::TraitObjectPointee { .. }
+        | TyKind::Projection { .. } => types_equivalent(interner, pattern, actual),
+        TyKind::Error | TyKind::ComptimeOnly => true,
+    }
+}
+
+fn types_equivalent(interner: &TyInterner, left: InternedTyId, right: InternedTyId) -> bool {
+    left == right || interner.get(left) == interner.get(right)
+}
+
+fn trait_id_and_args(
+    interner: &TyInterner,
+    ty: InternedTyId,
+) -> Option<(TraitId, Vec<InternedTyId>)> {
+    match interner.get(ty)? {
+        TyKind::Nominal { def_id, args } => Some((TraitId::Source(*def_id), args.clone())),
+        TyKind::BuiltinTrait { trait_id, args } => {
+            Some((TraitId::Builtin(*trait_id), args.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn substitute_ty(
+    interner: &mut TyInterner,
+    ty: InternedTyId,
+    substitutions: &HashMap<String, InternedTyId>,
+) -> Option<InternedTyId> {
+    let kind = interner.get(ty)?.clone();
+    match kind {
+        TyKind::GenericParam(name) => substitutions.get(&name).copied().or(Some(ty)),
+        TyKind::Pointer { is_readonly, elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::Pointer { is_readonly, elem }))
+        }
+        TyKind::VolatilePointer { is_readonly, elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::VolatilePointer { is_readonly, elem }))
+        }
+        TyKind::Slice { is_readonly, elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::Slice { is_readonly, elem }))
+        }
+        TyKind::SlicePointee { elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::SlicePointee { elem }))
+        }
+        TyKind::Array { len, elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::Array { len, elem }))
+        }
+        TyKind::Range { kind, bound } => {
+            let bound = match bound {
+                Some(bound) => Some(substitute_ty(interner, bound, substitutions)?),
+                None => None,
+            };
+            Some(interner.intern(TyKind::Range { kind, bound }))
+        }
+        TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        } => {
+            let params = params
+                .into_iter()
+                .map(|param| substitute_ty(interner, param, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let return_type = substitute_ty(interner, return_type, substitutions)?;
+            Some(interner.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }))
+        }
+        TyKind::Optional { elem } => {
+            let elem = substitute_ty(interner, elem, substitutions)?;
+            Some(interner.intern(TyKind::Optional { elem }))
+        }
+        TyKind::ErrorUnion { error, value } => {
+            let error = substitute_ty(interner, error, substitutions)?;
+            let value = substitute_ty(interner, value, substitutions)?;
+            Some(interner.intern(TyKind::ErrorUnion { error, value }))
+        }
+        TyKind::Nominal { def_id, args } => {
+            let args = args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            Some(interner.intern(TyKind::Nominal { def_id, args }))
+        }
+        TyKind::BuiltinTrait { trait_id, args } => {
+            let args = args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            Some(interner.intern(TyKind::BuiltinTrait { trait_id, args }))
+        }
+        TyKind::TraitObject {
+            is_readonly,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        } => {
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let associated_type_bindings = substitute_associated_type_bindings(
+                interner,
+                associated_type_bindings,
+                substitutions,
+            )?;
+            Some(interner.intern(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }))
+        }
+        TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        } => {
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let associated_type_bindings = substitute_associated_type_bindings(
+                interner,
+                associated_type_bindings,
+                substitutions,
+            )?;
+            Some(interner.intern(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }))
+        }
+        TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        } => {
+            let self_ty = substitute_ty(interner, self_ty, substitutions)?;
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            Some(interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }))
+        }
+        TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. } => {
+            Some(ty)
+        }
+    }
+}
+
+fn substitute_associated_type_bindings(
+    interner: &mut TyInterner,
+    bindings: Vec<AssociatedTypeBindingTy>,
+    substitutions: &HashMap<String, InternedTyId>,
+) -> Option<Vec<AssociatedTypeBindingTy>> {
+    bindings
+        .into_iter()
+        .map(|binding| {
+            let trait_args = binding
+                .trait_args
+                .into_iter()
+                .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let ty = substitute_ty(interner, binding.ty, substitutions)?;
+            Some(AssociatedTypeBindingTy {
+                trait_id: binding.trait_id,
+                trait_args,
+                name: binding.name,
+                ty,
+            })
+        })
+        .collect()
 }
 
 fn add_reachable_module(
@@ -1076,7 +1858,6 @@ fn collect_resolved_call_owner_modules(
         nia_sema_ir::ResolvedCall::TraitMethod {
             trait_id,
             method_id,
-            method_name,
             self_ty,
             trait_args,
             args,
@@ -1084,7 +1865,6 @@ fn collect_resolved_call_owner_modules(
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
-            traits.insert_method(TraitId::Source(*trait_id), method_name.clone());
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(args.iter().copied());
@@ -1092,7 +1872,6 @@ fn collect_resolved_call_owner_modules(
         nia_sema_ir::ResolvedCall::TraitAssociatedFunction {
             trait_id,
             method_id,
-            method_name,
             self_ty,
             trait_args,
             args,
@@ -1100,7 +1879,6 @@ fn collect_resolved_call_owner_modules(
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
-            traits.insert_method(TraitId::Source(*trait_id), method_name.clone());
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(args.iter().copied());
@@ -1109,7 +1887,6 @@ fn collect_resolved_call_owner_modules(
             object_ty,
             trait_id,
             method_id,
-            method_name,
             trait_args,
             params,
             return_type,
@@ -1117,18 +1894,14 @@ fn collect_resolved_call_owner_modules(
         } => {
             add_reachable_module(method_id.module_id, modules, pending_modules);
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
-            traits.insert_method(*trait_id, method_name.clone());
             type_ids.push(*object_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(params.iter().copied());
             type_ids.push(*return_type);
         }
         nia_sema_ir::ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
-            if let Some(method) = op.method() {
-                traits.insert_method(TraitId::Builtin(*trait_id), method.name());
-            } else {
-                traits.insert_trait(TraitId::Builtin(*trait_id));
-            }
+            let _ = op;
+            traits.insert_trait(TraitId::Builtin(*trait_id));
         }
         nia_sema_ir::ResolvedCall::BuiltinMethod { self_ty, .. } => {
             type_ids.push(*self_ty);
@@ -1140,7 +1913,8 @@ fn collect_resolved_call_owner_modules(
             trait_args,
             ..
         } => {
-            traits.insert_method(TraitId::Builtin(*trait_id), method.name());
+            let _ = method;
+            traits.insert_trait(TraitId::Builtin(*trait_id));
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
         }

@@ -5,7 +5,7 @@ use nia_comptime_ir::{
     ResolvedComptimeExpr, ResolvedComptimeModule, ResolvedComptimePattern,
     ResolvedComptimePatternKind,
 };
-use nia_defs::{DefCollection, DefId};
+use nia_defs::{DefCollection, DefId, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature};
@@ -217,6 +217,7 @@ pub struct ComptimeProgramContext<'a> {
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
 }
 
 impl fmt::Debug for ComptimeProgramContext<'_> {
@@ -254,6 +255,7 @@ impl<'a> ComptimeProgramContext<'a> {
             global_initializer: None,
             program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],
+            visible_extensions: None,
         }
     }
 }

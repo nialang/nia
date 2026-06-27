@@ -1,5 +1,6 @@
 using std;
 using std::debug;
+using std::fmt;
 using std::process;
 using process::{Init, ExitCode, exit};
 

@@ -232,6 +232,10 @@ impl<'a> BodyChecker<'a> {
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
+            impl_is_visible: Some(&|module_id, impl_id| {
+                module_id == self.defs.module_id
+                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+            }),
         };
         let proven = {
             let mut solver = context.solver_with_associated_type_assumptions(
