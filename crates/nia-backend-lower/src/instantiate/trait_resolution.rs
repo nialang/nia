@@ -53,13 +53,13 @@ impl<'a> ModuleLowerer<'a> {
                     && method.name == key.method_name
                     && method.trait_args.len() == key.trait_arg_count
             })
-            .map(|method| {
+            .and_then(|method| {
                 let args = method
                     .impl_generics
                     .iter()
-                    .filter_map(|generic| substitutions.get(generic).copied())
-                    .collect();
-                (method.def_id, args)
+                    .map(|generic| substitutions.get(generic).copied())
+                    .collect::<Option<Vec<_>>>()?;
+                Some((method.def_id, args))
             })
     }
 
@@ -74,9 +74,51 @@ impl<'a> ModuleLowerer<'a> {
         let args = self
             .candidate_impl_generics(candidate)
             .iter()
-            .filter_map(|generic| substitutions.get(generic).copied())
-            .collect::<Vec<_>>();
+            .map(|generic| substitutions.get(generic).copied())
+            .collect::<Option<Vec<_>>>()?;
         Some((candidate.method_def_id, args))
+    }
+
+    pub(super) fn global_trait_method_impl_candidate(
+        &mut self,
+        key: &ExtensionTraitMethodKey,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let mut matches = Vec::new();
+        for method in self.input.program_extension_methods.all_methods() {
+            if method.trait_id != Some(key.trait_id)
+                || method.name != key.method_name
+                || method.trait_args.len() != key.trait_arg_count
+            {
+                continue;
+            }
+            let Some(impl_signature) = self.input.trait_impls.iter().find(|impl_signature| {
+                impl_signature.module_id == method.def_id.module_id
+                    && impl_signature.impl_id == method.impl_id
+            }) else {
+                continue;
+            };
+            let candidate = ExtensionTraitMethodCandidate {
+                target_ty: impl_signature.target_ty,
+                method_def_id: method.def_id,
+                trait_args: impl_signature.trait_args.clone(),
+                where_predicates: impl_signature.where_predicates.clone(),
+                impl_generics: impl_signature.generics.clone(),
+                interner: impl_signature.interner.clone(),
+            };
+            if let Some(resolved) =
+                self.trait_impl_method_for_candidate(&candidate, trait_args, self_ty)
+            {
+                matches.push((candidate, resolved));
+            }
+        }
+        matches.sort_by_key(|(_, resolved)| resolved.clone());
+        matches.dedup_by(|(_, left), (_, right)| left == right);
+        match matches.as_slice() {
+            [(_, resolved)] => Some(resolved.clone()),
+            _ => None,
+        }
     }
 
     pub(super) fn selected_user_trait_method_impl(
@@ -92,6 +134,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
         let TraitSelection::User(user_impl) = solver.select_user_impl(TraitGoal {
@@ -114,8 +157,8 @@ impl<'a> ModuleLowerer<'a> {
             let args = method
                 .impl_generics
                 .iter()
-                .filter_map(|generic| user_impl.substitutions.get(generic).copied())
-                .collect();
+                .map(|generic| user_impl.substitutions.get(generic).copied())
+                .collect::<Option<Vec<_>>>()?;
             return Some((method.def_id, args));
         }
         for target in self.input.extensions.targets() {
@@ -132,8 +175,8 @@ impl<'a> ModuleLowerer<'a> {
                 let args = method
                     .impl_generics
                     .iter()
-                    .filter_map(|generic| user_impl.substitutions.get(generic).copied())
-                    .collect();
+                    .map(|generic| user_impl.substitutions.get(generic).copied())
+                    .collect::<Option<Vec<_>>>()?;
                 return Some((method.def_id, args));
             }
         }
@@ -183,6 +226,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(
             &mut self.type_context.interner,
@@ -305,7 +349,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn current_where_predicate_sources(
-        &self,
+        &mut self,
         current: GlobalDefId,
     ) -> Vec<(
         Vec<nia_item_signatures::WherePredicateSignature>,
@@ -313,6 +357,9 @@ impl<'a> ModuleLowerer<'a> {
     )> {
         let mut sources = Vec::new();
         if let Some(source) = self.current_extension_where_predicates(current) {
+            sources.push(source);
+        }
+        if let Some(source) = self.current_extension_owner_where_predicates(current) {
             sources.push(source);
         }
         if current.module_id == self.input.module_id
@@ -331,6 +378,84 @@ impl<'a> ModuleLowerer<'a> {
             ));
         }
         sources
+    }
+
+    fn current_extension_owner_where_predicates(
+        &mut self,
+        current: GlobalDefId,
+    ) -> Option<(
+        Vec<nia_item_signatures::WherePredicateSignature>,
+        nia_ty::TyInterner,
+    )> {
+        let source = self.extension_method_source(current)?;
+        let interner = self
+            .type_context
+            .input_interner_by_id(source.interner_id)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: missing backend extension method source interner {:?}",
+                    source.interner_id
+                )
+            })
+            .clone();
+        let target_ty = self.input.type_normalization.normalize(source.target_ty);
+        let Some(TyKind::Nominal { def_id, args }) = interner.get(target_ty).cloned() else {
+            return None;
+        };
+        let predicates = if def_id.module_id == self.input.module_id {
+            self.input
+                .signatures
+                .structs
+                .get(&def_id.def_id)
+                .map(|signature| {
+                    (
+                        signature.generics.clone(),
+                        signature.where_predicates.clone(),
+                    )
+                })
+                .or_else(|| {
+                    self.input
+                        .signatures
+                        .unions
+                        .get(&def_id.def_id)
+                        .map(|signature| {
+                            (
+                                signature.generics.clone(),
+                                signature.where_predicates.clone(),
+                            )
+                        })
+                })?
+        } else {
+            self.input
+                .program_structs
+                .get(&def_id)
+                .map(|signature| {
+                    (
+                        signature.signature.generics.clone(),
+                        signature.signature.where_predicates.clone(),
+                    )
+                })
+                .or_else(|| {
+                    self.input.program_unions.get(&def_id).map(|signature| {
+                        (
+                            signature.signature.generics.clone(),
+                            signature.signature.where_predicates.clone(),
+                        )
+                    })
+                })?
+        };
+        let substitutions = predicates
+            .0
+            .iter()
+            .cloned()
+            .zip(args)
+            .collect::<std::collections::HashMap<_, _>>();
+        let predicates = predicates
+            .1
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .collect();
+        Some((predicates, self.type_context.interner.clone()))
     }
 
     fn current_extension_where_predicates(
@@ -559,6 +684,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
         matches!(
@@ -595,6 +721,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
         let resolution = solver.resolve(TraitGoal {

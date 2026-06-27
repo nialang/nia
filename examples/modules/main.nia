@@ -4,6 +4,7 @@ pub module math;
 pub module palette;
 
 using std::debug;
+using std::fmt;
 using std::process;
 
 using entry::config;

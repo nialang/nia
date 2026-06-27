@@ -296,6 +296,7 @@ fn build_command_compiles_and_runs_build_script() {
         r#"
 using std::build;
 using std::fs;
+using std::fmt;
 using std::io;
 
 pub fn build(b: &mut build::Build) build::Error!void {

@@ -256,6 +256,7 @@ fn pipeline_with_options(
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
+        seed_interner: None,
         target: &target,
         comptime,
         comptime_module: &comptime_module.module,

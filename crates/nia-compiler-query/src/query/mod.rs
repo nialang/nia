@@ -2941,6 +2941,86 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_checked_modules_do_not_body_check_unmatched_builtin_trait_witnesses() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+struct Unused {}
+
+extend Unused : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        ?missing_symbol
+    }
+}
+
+fn main() i32 {
+    var total = 0;
+    var iter = Counter { current: 0, end: 3 };
+    for value in iter {
+        total += value;
+    }
+    total
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let unused_next = module
+            .defs
+            .defs
+            .iter()
+            .filter_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Method && def.name == "next").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .filter(|def_id| !module.body_ir.function_bodies.contains_key(def_id))
+            .next()
+            .expect("unmatched Iterator witness method");
+
+        assert!(
+            !module.body_ir.function_bodies.contains_key(&unused_next),
+            "executable reachability should not include builtin trait witnesses for unmatched receiver types"
+        );
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "unmatched builtin trait witness diagnostics should not block executable checking: {:?}",
+            module.body_diagnostics
+        );
+    }
+
+    #[test]
     fn executable_checked_modules_do_not_body_check_unused_trait_witness_methods() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -2994,6 +3074,97 @@ fn main() i32 {
         assert!(
             !module.body_ir.function_bodies.contains_key(&unused),
             "executable body checking should not include unused trait witness bodies"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_trait_witnesses_required_by_generic_where_predicates() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+extend[T, Source, Target] Source!T
+where Source: IntoError[Target]
+{
+    fn cast_error(self) Target!T {
+        if let !ok = self {
+            !ok
+        } else error! {
+            error.into_error()!
+        }
+    }
+}
+
+struct Source {
+    value: i32,
+}
+
+struct Target {
+    value: i32,
+}
+
+extend Source : IntoError[Target] {
+    fn into_error(self) Target {
+        Target { value: self.value }
+    }
+}
+
+struct Unused {}
+
+extend Unused : IntoError[Target] {
+    fn into_error(self) Target {
+        missing_symbol
+    }
+}
+
+fn main() i32 {
+    let value: Source!i32 = Source { value: 1 }!;
+    if let !ok = value.cast_error() {
+        ok
+    } else error! {
+        error.value
+    }
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let into_error_methods = module
+            .defs
+            .defs
+            .iter()
+            .filter_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Method && def.name == "into_error").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let reachable_into_error_count = into_error_methods
+            .iter()
+            .filter(|def_id| module.body_ir.function_bodies.contains_key(def_id))
+            .count();
+
+        assert_eq!(
+            reachable_into_error_count, 1,
+            "generic where-predicate closure should include only the matching IntoError witness"
+        );
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "unmatched IntoError witness diagnostics should not block executable checking: {:?}",
+            module.body_diagnostics
         );
     }
 

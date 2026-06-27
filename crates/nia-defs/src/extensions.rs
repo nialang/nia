@@ -198,6 +198,10 @@ impl VisibleExtensionMethods {
         self.targets[target_index].methods.push(method);
     }
 
+    pub fn insert_trait_witness_impl(&mut self, module_id: ModuleId, impl_id: TraitImplId) {
+        self.trait_witness_impls.insert((module_id, impl_id));
+    }
+
     pub fn insert_associated_value(
         &mut self,
         impl_id: TraitImplId,
@@ -266,6 +270,10 @@ impl VisibleExtensionMethods {
 
     pub fn has_trait_witness_impl(&self, module_id: ModuleId, impl_id: TraitImplId) -> bool {
         self.trait_witness_impls.contains(&(module_id, impl_id))
+    }
+
+    pub fn trait_witness_impls(&self) -> impl Iterator<Item = (ModuleId, TraitImplId)> + '_ {
+        self.trait_witness_impls.iter().copied()
     }
 
     pub fn associated_value(

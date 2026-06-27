@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId, TraitId,
+    TraitImplId,
 };
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
@@ -70,6 +71,7 @@ where
     pub associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     pub layouts: Option<&'a Layouts>,
     pub is_enum: F,
+    pub impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
 }
 
 pub struct TraitSolverContext<'a> {
@@ -79,6 +81,11 @@ pub struct TraitSolverContext<'a> {
     pub local_module_id: ModuleId,
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
     pub program_enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+    pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
+}
+
+fn trait_impl_visible_by_default(_: ModuleId, _: TraitImplId) -> bool {
+    true
 }
 
 impl<'a> TraitSolverContext<'a> {
@@ -96,6 +103,9 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions: &[],
             layouts: self.layouts,
             is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+            impl_is_visible: self
+                .impl_is_visible
+                .unwrap_or(&trait_impl_visible_by_default),
         }
     }
 
@@ -114,6 +124,9 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions,
             layouts: self.layouts,
             is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+            impl_is_visible: self
+                .impl_is_visible
+                .unwrap_or(&trait_impl_visible_by_default),
         }
     }
 
@@ -1062,6 +1075,9 @@ where
     fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
         let mut matches = Vec::new();
         for (impl_index, impl_signature) in self.trait_impls.iter().enumerate() {
+            if !(self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id) {
+                continue;
+            }
             if impl_signature.trait_id != goal.trait_id {
                 continue;
             }
@@ -1641,6 +1657,9 @@ where
 
     fn layout_of(&self, ty: InternedTyId) -> bool {
         let ty = self.normalize(ty);
+        if self.intrinsic_sized_shape(ty) {
+            return true;
+        }
         let Some(layouts) = self.layouts else {
             return false;
         };
@@ -1653,6 +1672,38 @@ where
         match self.kind(ty) {
             Some(TyKind::Nominal { def_id, args }) => {
                 layouts.nominal_type_layout(*def_id, args).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    fn intrinsic_sized_shape(&self, ty: InternedTyId) -> bool {
+        match self.kind(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
+            Some(TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::FunctionPointer { .. }) => {
+                true
+            }
+            Some(
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::Slice { .. }
+                | TyKind::Range { bound: None, .. },
+            ) => true,
+            Some(TyKind::SlicePointee { .. } | TyKind::GenericParam(_)) => false,
+            Some(TyKind::Array {
+                len: ArrayLenTy::ConstValue(_),
+                elem,
+            }) => self.intrinsic_sized_shape(*elem) || self.layout_of(*elem),
+            Some(TyKind::Array { .. }) => false,
+            Some(TyKind::Range {
+                bound: Some(bound), ..
+            })
+            | Some(TyKind::Optional { elem: bound }) => {
+                self.intrinsic_sized_shape(*bound) || self.layout_of(*bound)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                (self.intrinsic_sized_shape(*error) || self.layout_of(*error))
+                    && (self.intrinsic_sized_shape(*value) || self.layout_of(*value))
             }
             _ => false,
         }

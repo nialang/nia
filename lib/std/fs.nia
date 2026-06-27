@@ -4,6 +4,11 @@ pub(pkg) module options;
 pub(pkg) module path;
 pub(pkg) module types;
 
+using pkg::fs::file;
+using pkg::fs::options;
+using pkg::fs::path;
+using pkg::fs::types;
+
 pub using file::getcwd;
 pub using types::{
     CreateDirOptions,

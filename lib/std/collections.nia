@@ -1,6 +1,14 @@
 pub(pkg) module array_list;
 pub(pkg) module hash_map;
 
+using pkg::collections::array_list;
+using pkg::collections::array_list::format as array_list_format;
+using pkg::collections::hash_map;
+using pkg::collections::hash_map::context;
+using pkg::collections::hash_map::format as hash_map_format;
+using pkg::collections::hash_map::iterators;
+using pkg::collections::hash_map::map;
+
 pub using array_list::ArrayList;
 pub using hash_map::{
     DefaultHashMapContext,

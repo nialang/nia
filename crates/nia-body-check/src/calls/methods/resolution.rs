@@ -18,28 +18,32 @@ impl<'a> BodyChecker<'a> {
     fn all_callable_extension_methods_named(
         &mut self,
         name: &str,
-    ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
+    ) -> crate::CallableExtensionMethods {
+        if let Some(methods) = self.callable_extension_methods_by_name.get(name) {
+            return methods.clone();
+        }
         let mut methods = self
             .extensions
             .all_methods_named(name)
             .into_iter()
             .filter(|(_, method)| !method.is_trait_witness)
+            .map(|(target_ty, method)| crate::CallableExtensionMethod { target_ty, method })
             .collect::<Vec<_>>();
         for method in self.program_extension_methods.all_methods() {
             if method.trait_id.is_some()
                 || method.name != name
                 || methods
                     .iter()
-                    .any(|(_, existing)| existing.def_id == method.def_id)
+                    .any(|existing| existing.method.def_id == method.def_id)
             {
                 continue;
             }
             let Some(lookup) = self.extension_methods_by_id.get(&method.def_id) else {
                 continue;
             };
-            methods.push((
-                lookup.target_ty,
-                VisibleExtensionMethod {
+            methods.push(crate::CallableExtensionMethod {
+                target_ty: lookup.target_ty,
+                method: VisibleExtensionMethod {
                     name: method.name.clone(),
                     def_id: method.def_id,
                     impl_id: method.impl_id,
@@ -50,11 +54,28 @@ impl<'a> BodyChecker<'a> {
                     is_callable: true,
                     is_trait_witness: false,
                 },
-            ));
+            });
         }
         let mut seen = std::collections::HashSet::new();
-        methods.retain(|(_, method)| seen.insert(method.def_id));
-        methods
+        methods.retain(|method| seen.insert(method.method.def_id));
+        let mut indexed = crate::CallableExtensionMethods {
+            methods,
+            ..crate::CallableExtensionMethods::default()
+        };
+        for (index, method) in indexed.methods.iter().enumerate() {
+            if let Some(base) = self.receiver_base_type(method.target_ty) {
+                indexed
+                    .methods_by_base
+                    .entry(base.def_id)
+                    .or_default()
+                    .push(index);
+            } else {
+                indexed.unbased_methods.push(index);
+            }
+        }
+        self.callable_extension_methods_by_name
+            .insert(name.to_string(), indexed.clone());
+        indexed
     }
 
     pub(in crate::calls) fn method_candidates_for_target(
@@ -62,18 +83,24 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         name: &str,
     ) -> Vec<MethodCandidate> {
-        self.all_callable_extension_methods_named(name)
-            .into_iter()
-            .filter_map(|(candidate_ty, method)| {
-                let mut target_substitutions = HashMap::new();
-                self.match_type_pattern(candidate_ty, target_ty, &mut target_substitutions)
-                    .then_some(MethodCandidate {
-                        target_ty: candidate_ty,
-                        method,
-                        target_substitutions,
-                    })
-            })
-            .collect()
+        let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
+            this.all_callable_extension_methods_named(name)
+        });
+        let mut candidates = Vec::new();
+        for method in methods.methods {
+            let candidate_ty = method.target_ty;
+            let mut target_substitutions = HashMap::new();
+            if self.profile_stage("body_check.profile.method.match_target", |this| {
+                this.match_type_pattern(candidate_ty, target_ty, &mut target_substitutions)
+            }) {
+                candidates.push(MethodCandidate {
+                    target_ty: candidate_ty,
+                    method: method.method,
+                    target_substitutions,
+                });
+            }
+        }
+        candidates
     }
 
     pub(in crate::calls::methods) fn method_candidates_for_receiver(
@@ -81,28 +108,46 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &str,
     ) -> Vec<MethodCandidate> {
+        let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
+            this.all_callable_extension_methods_named(name)
+        });
         let mut receiver_ty = self.normalize_aliases_in_type(receiver_ty);
         loop {
-            let candidates = self
-                .all_callable_extension_methods_named(name)
-                .into_iter()
-                .filter_map(|(target_ty, method)| {
-                    let target_ty = self.normalize_aliases_in_type(target_ty);
-                    let mut target_substitutions = HashMap::new();
-                    (self.match_extension_receiver_target(
+            let receiver_base = self.receiver_base_type(receiver_ty);
+            let candidate_indexes = self.callable_method_indexes_for_receiver_base(
+                &methods,
+                receiver_base.as_ref().map(|base| base.def_id),
+            );
+            let mut candidates = Vec::new();
+            for index in candidate_indexes {
+                let method = &methods.methods[index];
+                let target_ty = self.normalize_aliases_in_type(method.target_ty);
+                if self.extension_receiver_base_mismatch(target_ty, receiver_base.as_ref()) {
+                    continue;
+                }
+                let mut target_substitutions = HashMap::new();
+                let matches_receiver =
+                    self.profile_stage("body_check.profile.method.match_receiver", |this| {
+                        this.match_extension_receiver_target(
+                            target_ty,
+                            method.method.def_id,
+                            receiver_ty,
+                            &mut target_substitutions,
+                        )
+                    });
+                if matches_receiver
+                    && self.extension_method_where_predicates_can_hold(
+                        &method.method,
+                        &target_substitutions,
+                    )
+                {
+                    candidates.push(MethodCandidate {
                         target_ty,
-                        method.def_id,
-                        receiver_ty,
-                        &mut target_substitutions,
-                    ) && self
-                        .extension_method_where_predicates_can_hold(&method, &target_substitutions))
-                    .then_some(MethodCandidate {
-                        target_ty,
-                        method,
+                        method: method.method.clone(),
                         target_substitutions,
-                    })
-                })
-                .collect::<Vec<_>>();
+                    });
+                }
+            }
             if !candidates.is_empty() {
                 return candidates;
             }
@@ -116,6 +161,34 @@ impl<'a> BodyChecker<'a> {
                 _ => return Vec::new(),
             }
         }
+    }
+
+    fn callable_method_indexes_for_receiver_base(
+        &self,
+        methods: &crate::CallableExtensionMethods,
+        receiver_base: Option<GlobalDefId>,
+    ) -> Vec<usize> {
+        let base_methods = receiver_base
+            .and_then(|base| methods.methods_by_base.get(&base))
+            .into_iter()
+            .flat_map(|methods| methods.iter().copied());
+        base_methods
+            .chain(methods.unbased_methods.iter().copied())
+            .collect()
+    }
+
+    fn extension_receiver_base_mismatch(
+        &self,
+        target_ty: InternedTyId,
+        receiver_base: Option<&crate::ReceiverBase>,
+    ) -> bool {
+        let Some(receiver_base) = receiver_base else {
+            return false;
+        };
+        let Some(target_base) = self.receiver_base_type(target_ty) else {
+            return false;
+        };
+        target_base.def_id != receiver_base.def_id
     }
 
     fn receiver_is_trait_object(&mut self, receiver_ty: InternedTyId) -> bool {
@@ -697,6 +770,9 @@ impl<'a> BodyChecker<'a> {
         call: &MethodCall<'_>,
         candidates: &[MethodCandidate],
     ) -> Vec<MethodCandidate> {
+        if call.type_args.is_some() || call.expected.is_none() {
+            return candidates.to_vec();
+        }
         candidates
             .iter()
             .filter_map(|candidate| {
@@ -704,9 +780,7 @@ impl<'a> BodyChecker<'a> {
                     .resolved_function_signature(candidate.method.def_id)
                     .map(|resolved| resolved.signature)?;
                 let mut substitutions = candidate.target_substitutions.clone();
-                if call.type_args.is_none()
-                    && let Some(expected) = call.expected
-                {
+                if let Some(expected) = call.expected {
                     // Context can refine unconstrained method generics, but a
                     // nested expression may provide an outer expected type.
                     // Use it only as an inference hint during candidate search.
@@ -1438,6 +1512,52 @@ impl<'a> BodyChecker<'a> {
         for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
             self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
         }
+    }
+
+    pub(in crate::calls::methods) fn infer_method_generics_from_where_predicates(
+        &mut self,
+        signature: &FunctionSignature,
+        extension_where_predicates: &[nia_defs::WherePredicateSignature],
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for predicate in signature
+                .where_predicates
+                .iter()
+                .chain(extension_where_predicates)
+            {
+                let candidates = self.infer_where_predicate_candidates(predicate, substitutions);
+                let Some(candidate) = self.single_where_candidate(&candidates) else {
+                    continue;
+                };
+                for (generic, ty) in candidate {
+                    if !substitutions.contains_key(generic) {
+                        substitutions.insert(generic.clone(), *ty);
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(in crate::calls) fn single_where_candidate<'b>(
+        &mut self,
+        candidates: &'b [HashMap<String, InternedTyId>],
+    ) -> Option<&'b HashMap<String, InternedTyId>> {
+        let first = candidates.first()?;
+        if candidates.iter().skip(1).any(|candidate| {
+            candidate.len() != first.len()
+                || candidate.iter().any(|(name, ty)| {
+                    first
+                        .get(name)
+                        .is_none_or(|first_ty| !self.types_match(*first_ty, *ty))
+                })
+        }) {
+            return None;
+        }
+        Some(first)
     }
 
     pub(in crate::calls::methods) fn method_generics_are_complete(

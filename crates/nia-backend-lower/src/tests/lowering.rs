@@ -157,6 +157,7 @@ fn main() i32 {
         signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
+        seed_interner: None,
         target: &target,
         comptime: body_comptime,
         comptime_module: &comptime_module.module,

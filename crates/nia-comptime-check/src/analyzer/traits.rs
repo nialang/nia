@@ -93,6 +93,19 @@ impl Analyzer<'_> {
             normalized,
             diagnostics: Vec::new(),
         };
+        let visible_extensions = self
+            .input
+            .program
+            .visible_extensions
+            .and_then(|visible_extensions| visible_extensions(module_id));
+        let impl_is_visible = |impl_module_id, impl_id| {
+            impl_module_id == module_id
+                || visible_extensions
+                    .as_ref()
+                    .is_none_or(|visible_extensions| {
+                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
+                    })
+        };
         let context = TraitSolverContext {
             normalization: &normalization,
             trait_impls: self.input.program.trait_impls,
@@ -100,6 +113,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_enums: Some(&program_enums),
+            impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(interner, &assumptions);
         solver.proves(TraitGoal {
@@ -130,6 +144,19 @@ impl Analyzer<'_> {
             normalized,
             diagnostics: Vec::new(),
         };
+        let visible_extensions = self
+            .input
+            .program
+            .visible_extensions
+            .and_then(|visible_extensions| visible_extensions(module_id));
+        let impl_is_visible = |impl_module_id, impl_id| {
+            impl_module_id == module_id
+                || visible_extensions
+                    .as_ref()
+                    .is_none_or(|visible_extensions| {
+                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
+                    })
+        };
         let context = TraitSolverContext {
             normalization: &normalization,
             trait_impls: self.input.program.trait_impls,
@@ -137,6 +164,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_enums: Some(&program_enums),
+            impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(interner, &assumptions);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, name)

@@ -294,6 +294,10 @@ impl<'a> BodyChecker<'a> {
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
+            impl_is_visible: Some(&|module_id, impl_id| {
+                module_id == self.defs.module_id
+                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+            }),
         };
         let mut solver = context.solver_with_associated_type_assumptions(
             &mut self.interner,
@@ -883,6 +887,7 @@ impl<'a> BodyChecker<'a> {
             program_comptime_module: self.program_comptime_module,
             source_path: self.source_path,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
+            callable_extension_methods_by_name: HashMap::new(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_array_to_slice_coercions: HashMap::new(),
@@ -915,7 +920,10 @@ impl<'a> BodyChecker<'a> {
             current_param_locals: self.current_param_locals.clone(),
             comptime_context_depth: self.comptime_context_depth,
             comptime_call_locals: Vec::new(),
-            body_filter: self.body_filter,
+            body_filter: self.body_filter.clone(),
+            checked_functions: self.checked_functions.clone(),
+            pending_functions: self.pending_functions.clone(),
+            profile: crate::BodyCheckProfile::default(),
         }
     }
 

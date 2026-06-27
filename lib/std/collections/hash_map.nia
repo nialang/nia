@@ -6,6 +6,11 @@ pub(pkg) module map;
 pub(pkg) module raw;
 pub(pkg) module types;
 
+using pkg::collections::hash_map::context;
+using pkg::collections::hash_map::format;
+using pkg::collections::hash_map::iterators;
+using pkg::collections::hash_map::map;
+
 pub using context::DefaultHashMapContext;
 pub using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef, HashMapGetOrPutResult};
 pub using iterators::{

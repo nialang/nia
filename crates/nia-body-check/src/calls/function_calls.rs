@@ -543,24 +543,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn single_where_candidate<'b>(
-        &mut self,
-        candidates: &'b [HashMap<String, InternedTyId>],
-    ) -> Option<&'b HashMap<String, InternedTyId>> {
-        let first = candidates.first()?;
-        if candidates.iter().skip(1).any(|candidate| {
-            candidate.len() != first.len()
-                || candidate.iter().any(|(name, ty)| {
-                    first
-                        .get(name)
-                        .is_none_or(|first_ty| !self.types_match(*first_ty, *ty))
-                })
-        }) {
-            return None;
-        }
-        Some(first)
-    }
-
     fn where_candidate_matches_call_args(
         &mut self,
         signature: &FunctionSignature,
@@ -610,26 +592,7 @@ impl<'a> BodyChecker<'a> {
         generics: &[String],
         substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<Vec<InternedTyId>> {
-        let mut complete = true;
-        for generic in generics {
-            if !substitutions.contains_key(generic) {
-                complete = false;
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("cannot infer generic parameter `{generic}`"),
-                ));
-            }
-        }
-        if !complete {
-            return None;
-        }
-        Some(
-            generics
-                .iter()
-                .filter_map(|generic| substitutions.get(generic).copied())
-                .collect::<Vec<_>>(),
-        )
+        self.complete_instance_args_for_generics(span, generics, substitutions)
     }
 
     fn check_instantiated_generic_function_call_args(

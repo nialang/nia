@@ -50,10 +50,14 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> bool {
-        matches!(
-            self.current_context_resolve_trait_obligation(self_ty, trait_id, trait_args),
-            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
-        )
+        self.profile_stage("body_check.profile.trait_obligation.proves", |this| {
+            matches!(
+                this.current_context_resolve_trait_obligation(self_ty, trait_id, trait_args),
+                TraitResolution::Intrinsic(_)
+                    | TraitResolution::User(_)
+                    | TraitResolution::Assumed(_)
+            )
+        })
     }
 
     pub(crate) fn current_context_resolve_trait_obligation(
@@ -350,6 +354,9 @@ impl<'a> BodyChecker<'a> {
     ) {
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
+            if !self.trait_impl_signature_is_visible(&impl_signature) {
+                continue;
+            }
             let impl_target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let mut impl_substitutions = HashMap::new();
@@ -1024,6 +1031,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         impl_signature: &ProgramTraitImplSignature,
     ) -> bool {
+        if impl_signature.module_id == self.defs.module_id {
+            return true;
+        }
         self.extensions
             .has_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id)
     }
@@ -1033,20 +1043,22 @@ impl<'a> BodyChecker<'a> {
         predicates: &[WherePredicateSignature],
         substitutions: &HashMap<String, InternedTyId>,
     ) -> bool {
-        predicates.iter().all(|predicate| {
-            let predicate = self.substitute_where_predicate(predicate, substitutions);
-            if self.type_contains_generic_param(predicate.ty) {
-                return true;
-            }
-            predicate.bounds.iter().all(|bound| {
-                let bound_ty = self.substitute_generics(bound.trait_ty, substitutions);
-                if self.type_contains_generic_param(bound_ty) {
+        self.profile_stage("body_check.profile.where_predicates.can_hold", |this| {
+            predicates.iter().all(|predicate| {
+                let predicate = this.substitute_where_predicate(predicate, substitutions);
+                if this.type_contains_generic_param(predicate.ty) {
                     return true;
                 }
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound_ty) else {
-                    return false;
-                };
-                self.current_context_proves_trait_obligation(predicate.ty, trait_id, trait_args)
+                predicate.bounds.iter().all(|bound| {
+                    let bound_ty = this.substitute_generics(bound.trait_ty, substitutions);
+                    if this.type_contains_generic_param(bound_ty) {
+                        return true;
+                    }
+                    let Some((trait_id, trait_args)) = this.trait_id_and_args(bound_ty) else {
+                        return false;
+                    };
+                    this.current_context_proves_trait_obligation(predicate.ty, trait_id, trait_args)
+                })
             })
         })
     }
@@ -1259,6 +1271,10 @@ impl<'a> BodyChecker<'a> {
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
+            impl_is_visible: Some(&|module_id, impl_id| {
+                module_id == self.defs.module_id
+                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+            }),
         };
         let mut solver = context.solver_with_associated_type_assumptions(
             &mut self.interner,

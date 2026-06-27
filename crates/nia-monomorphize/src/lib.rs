@@ -949,6 +949,7 @@ impl MonoCollector<'_> {
             local_module_id: module_id,
             local_enums,
             program_enums: Some(self.program_enums),
+            impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(interner, &[], &[]);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, name)

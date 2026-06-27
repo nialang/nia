@@ -7,6 +7,13 @@ pub(pkg) module init;
 pub(pkg) module term;
 pub(pkg) module types;
 
+using pkg::process::args;
+using pkg::process::command;
+using pkg::process::env;
+using pkg::process::exit;
+using pkg::process::init;
+using pkg::process::term;
+
 pub using command::{run, spawn, spawn_raw, spawn_with_options};
 pub using exit::exit;
 pub using types::{

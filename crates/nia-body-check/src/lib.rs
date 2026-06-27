@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::cell::RefCell;
 use std::fmt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -28,7 +28,10 @@ use nia_comptime_check::{
     TypedComptimeValue,
 };
 use nia_comptime_ir::ResolvedComptimeModule;
-use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
+use nia_defs::{
+    DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethod,
+    VisibleExtensionMethods,
+};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility};
 use nia_item_signatures::{
@@ -38,7 +41,7 @@ use nia_item_signatures::{
     ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
     TraitImplSignature, TraitSignature, TypeAliasSignature, UnionSignature,
 };
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
@@ -162,23 +165,94 @@ pub enum BodyCheckFilter<'a> {
     ReachableItems {
         functions: &'a HashSet<GlobalDefId>,
         globals: &'a HashSet<GlobalDefId>,
+        already_checked_functions: Option<&'a HashSet<GlobalDefId>>,
     },
 }
 
-impl BodyCheckFilter<'_> {
-    fn includes_function(self, def_id: GlobalDefId) -> bool {
-        match self {
-            Self::All => true,
-            Self::ReachableFunctions(functions) => functions.contains(&def_id),
-            Self::ReachableItems { functions, .. } => functions.contains(&def_id),
+#[derive(Debug, Clone)]
+enum ActiveBodyCheckFilter {
+    All,
+    ReachableItems {
+        functions: HashSet<GlobalDefId>,
+        globals: HashSet<GlobalDefId>,
+        already_checked_functions: HashSet<GlobalDefId>,
+    },
+}
+
+impl ActiveBodyCheckFilter {
+    fn from_filter(filter: BodyCheckFilter<'_>) -> Self {
+        match filter {
+            BodyCheckFilter::All => Self::All,
+            BodyCheckFilter::ReachableFunctions(functions) => Self::ReachableItems {
+                functions: functions.iter().copied().collect(),
+                globals: HashSet::new(),
+                already_checked_functions: HashSet::new(),
+            },
+            BodyCheckFilter::ReachableItems {
+                functions,
+                globals,
+                already_checked_functions,
+            } => Self::ReachableItems {
+                functions: functions.iter().copied().collect(),
+                globals: globals.iter().copied().collect(),
+                already_checked_functions: already_checked_functions
+                    .into_iter()
+                    .flat_map(|functions| functions.iter().copied())
+                    .collect(),
+            },
         }
     }
 
-    fn includes_global(self, def_id: GlobalDefId) -> bool {
+    fn includes_function(&self, def_id: GlobalDefId) -> bool {
         match self {
             Self::All => true,
-            Self::ReachableFunctions(_) => true,
+            Self::ReachableItems {
+                functions,
+                already_checked_functions,
+                ..
+            } => functions.contains(&def_id) && !already_checked_functions.contains(&def_id),
+        }
+    }
+
+    fn includes_global(&self, def_id: GlobalDefId) -> bool {
+        match self {
+            Self::All => true,
             Self::ReachableItems { globals, .. } => globals.contains(&def_id),
+        }
+    }
+
+    fn add_function(&mut self, def_id: GlobalDefId) -> bool {
+        match self {
+            Self::All => false,
+            Self::ReachableItems {
+                functions,
+                already_checked_functions,
+                ..
+            } => {
+                if already_checked_functions.contains(&def_id) {
+                    return false;
+                }
+                functions.insert(def_id)
+            }
+        }
+    }
+
+    fn initial_functions(
+        &self,
+        available: &HashMap<GlobalDefId, FunctionItemRef<'_>>,
+    ) -> Vec<GlobalDefId> {
+        match self {
+            Self::All => available.keys().copied().collect(),
+            Self::ReachableItems {
+                functions,
+                already_checked_functions,
+                ..
+            } => functions
+                .iter()
+                .copied()
+                .filter(|def_id| !already_checked_functions.contains(def_id))
+                .filter(|def_id| available.contains_key(def_id))
+                .collect(),
         }
     }
 }
@@ -203,6 +277,7 @@ pub struct BodyProgramContext<'a> {
     pub extension_type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
+    pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -213,6 +288,7 @@ impl<'a> BodyProgramContext<'a> {
             extension_type_normalizations: None,
             signatures: None,
             layouts: None,
+            visible_extensions: None,
         }
     }
 }
@@ -246,7 +322,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
@@ -260,6 +336,7 @@ pub struct BodyCheckInput<'a> {
     pub signatures: BodyLocalSignatures<'a>,
     pub comptime_signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
+    pub seed_interner: Option<TyInterner>,
     pub target: &'a TargetConfig,
     pub comptime: BodyComptime<'a>,
     pub comptime_module: &'a ResolvedComptimeModule,
@@ -435,6 +512,7 @@ pub fn check_module_bodies(
         signatures: BodyLocalSignatures::from_item_signatures(signatures),
         comptime_signatures: signatures,
         normalization: &empty_normalization,
+        seed_interner: None,
         target: &target,
         comptime: empty_comptime,
         comptime_module: &empty_comptime_module,
@@ -499,6 +577,7 @@ pub fn check_module_bodies_with_program_signatures(
         signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
         comptime_signatures: input.signatures,
         normalization: input.normalization,
+        seed_interner: None,
         target: input.target,
         comptime: input.comptime,
         comptime_module: input.comptime_module,
@@ -581,7 +660,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
 ) -> BodyCheck {
     let timing = timings.enabled();
     let module_id = input.defs.module_id;
-    let mut interner = input.normalization.interner.clone();
+    let mut interner = input
+        .seed_interner
+        .clone()
+        .unwrap_or_else(|| input.normalization.interner.clone());
     let extension_methods_by_id = BodyChecker::extension_method_lookup(
         module_id,
         input.signatures,
@@ -640,6 +722,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,
         extension_methods_by_id,
+        callable_extension_methods_by_name: HashMap::new(),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
@@ -670,7 +753,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         current_param_locals: Vec::new(),
         comptime_context_depth: 0,
         comptime_call_locals: Vec::new(),
-        body_filter: input.filter,
+        body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
+        checked_functions: HashSet::new(),
+        pending_functions: VecDeque::new(),
+        profile: BodyCheckProfile::default(),
     });
     time_body_stage(timing, "body_check.seed_global_types", module_id, || {
         checker.seed_global_types();
@@ -678,6 +764,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
     time_body_stage(timing, "body_check.check_module", module_id, || {
         checker.check_module(input.active_item_tree, timing, module_id);
     });
+    checker.print_profile();
     time_body_stage(timing, "body_check.finish", module_id, || BodyCheck {
         ir: BodyIr {
             interner: checker.interner,
@@ -777,6 +864,7 @@ struct BodyChecker<'a> {
     program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
     source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
+    callable_extension_methods_by_name: HashMap<String, CallableExtensionMethods>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
@@ -807,7 +895,21 @@ struct BodyChecker<'a> {
     current_param_locals: Vec<LocalId>,
     comptime_context_depth: usize,
     comptime_call_locals: Vec<ComptimeCallFrame>,
-    body_filter: BodyCheckFilter<'a>,
+    body_filter: ActiveBodyCheckFilter,
+    checked_functions: HashSet<GlobalDefId>,
+    pending_functions: VecDeque<GlobalDefId>,
+    profile: BodyCheckProfile,
+}
+
+#[derive(Default)]
+struct BodyCheckProfile {
+    stages: HashMap<&'static str, BodyCheckProfileStage>,
+}
+
+#[derive(Default)]
+struct BodyCheckProfileStage {
+    total: Duration,
+    count: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -853,12 +955,31 @@ struct ComptimeCallFrame {
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
+struct FunctionItemRef<'a> {
+    item_span: Span,
+    kind: DefKind,
+    function: &'a FunctionItem,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ReceiverBase {
     def_id: GlobalDefId,
     args: Vec<InternedTyId>,
     from_pointer: bool,
     has_readonly_pointer: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CallableExtensionMethod {
+    target_ty: InternedTyId,
+    method: VisibleExtensionMethod,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CallableExtensionMethods {
+    methods: Vec<CallableExtensionMethod>,
+    unbased_methods: Vec<usize>,
+    methods_by_base: HashMap<GlobalDefId, Vec<usize>>,
 }
 
 fn import_visible_extensions_into_working_interner(
@@ -886,6 +1007,9 @@ fn import_visible_extensions_into_working_interner(
         for value in &extension_target.associated_values {
             imported.insert_associated_value(extension_target.impl_id, target_ty, value.clone());
         }
+    }
+    for (module_id, impl_id) in extensions.trait_witness_impls() {
+        imported.insert_trait_witness_impl(module_id, impl_id);
     }
     imported
 }
@@ -1042,9 +1166,34 @@ impl<'a> BodyChecker<'a> {
         key: &VersionedNodeKey,
         call: ResolvedCall,
     ) {
+        self.enqueue_same_module_resolved_call(&call);
         self.node_resolved_calls.insert(key.clone(), call.clone());
         if let Some(facts) = self.current_function_facts() {
             facts.node_resolved_calls.insert(key.clone(), call);
+        }
+    }
+
+    fn enqueue_same_module_resolved_call(&mut self, call: &ResolvedCall) {
+        let def_id = match call {
+            ResolvedCall::Function(def_id)
+            | ResolvedCall::FunctionInstance { def_id, .. }
+            | ResolvedCall::Method { def_id, .. } => *def_id,
+            ResolvedCall::TraitMethod { method_id, .. }
+            | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
+            ResolvedCall::DynamicTraitMethod { .. }
+            | ResolvedCall::BuiltinTraitMethod { .. }
+            | ResolvedCall::BuiltinMethod { .. }
+            | ResolvedCall::BuiltinPlaceMethod { .. }
+            | ResolvedCall::FunctionPointer => return,
+        };
+        if Some(def_id.module_id) != self.current_def_id.map(|current| current.module_id) {
+            return;
+        }
+        if self.checked_functions.contains(&def_id) {
+            return;
+        }
+        if self.body_filter.add_function(def_id) {
+            self.pending_functions.push_back(def_id);
         }
     }
 
@@ -1302,6 +1451,38 @@ struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn profile_stage<T>(
+        &mut self,
+        name: &'static str,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        if !self.timing {
+            return f(self);
+        }
+        let start = Instant::now();
+        let result = f(self);
+        let stage = self.profile.stages.entry(name).or_default();
+        stage.total += start.elapsed();
+        stage.count += 1;
+        result
+    }
+
+    fn print_profile(&self) {
+        if !self.timing || self.profile.stages.is_empty() {
+            return;
+        }
+        let mut stages = self.profile.stages.iter().collect::<Vec<_>>();
+        stages.sort_by(|(_, left), (_, right)| right.total.cmp(&left.total));
+        for (name, stage) in stages {
+            eprintln!(
+                "query timing {name}[{:?} count={}]: {:.3}s",
+                self.timing_module_id,
+                stage.count,
+                stage.total.as_secs_f64()
+            );
+        }
+    }
+
     fn check_module(
         &mut self,
         active_item_tree: &ActiveModuleItemTree,
@@ -1320,66 +1501,143 @@ impl<'a> BodyChecker<'a> {
             }
         });
         time_body_stage(timing, "body_check.functions", module_id, || {
-            for item in &active_item_tree.items {
-                if let ItemTreeNodeKind::Function(function) = &item.kind {
-                    time_body_stage_if_slow(
-                        timing,
-                        "body_check.function",
-                        module_id,
-                        &function.name,
-                        0.050,
-                        || {
-                            self.check_function_item(item.span, function);
-                        },
-                    );
-                }
-            }
-        });
-        time_body_stage(timing, "body_check.trait_defaults", module_id, || {
-            for item in &active_item_tree.items {
-                if let ItemTreeNodeKind::Trait(item_trait) = &item.kind {
-                    for method in &item_trait.methods {
-                        time_body_stage_if_slow(
-                            timing,
-                            "body_check.trait_method",
-                            module_id,
-                            &method.function.name,
-                            0.050,
-                            || {
-                                self.check_trait_function_def(
-                                    method.function.span,
-                                    &method.function,
-                                );
-                            },
-                        );
-                    }
-                }
-            }
+            let function_items = self.function_items_by_id(active_item_tree);
+            self.check_reachable_functions(&function_items, timing, module_id);
         });
         time_body_stage(timing, "body_check.extends", module_id, || {
             for item in &active_item_tree.items {
                 if let ItemTreeNodeKind::Extend(extend) = &item.kind {
                     for associated_value in &extend.associated_values {
-                        self.check_comptime_binding(
+                        self.check_reachable_comptime_binding(
                             associated_value.span,
                             &associated_value.binding,
-                        );
-                    }
-                    for method in &extend.methods {
-                        time_body_stage_if_slow(
-                            timing,
-                            "body_check.extend_method",
-                            module_id,
-                            &method.function.name,
-                            0.010,
-                            || {
-                                self.check_function_def(method.function.span, &method.function);
-                            },
                         );
                     }
                 }
             }
         });
+    }
+
+    fn function_items_by_id<'ast>(
+        &mut self,
+        active_item_tree: &'ast ActiveModuleItemTree,
+    ) -> HashMap<GlobalDefId, FunctionItemRef<'ast>> {
+        let mut items = HashMap::new();
+        for item in &active_item_tree.items {
+            self.collect_function_items_by_id(item, &mut items);
+        }
+        items
+    }
+
+    fn collect_function_items_by_id<'ast>(
+        &mut self,
+        item: &'ast ItemTreeNode,
+        items: &mut HashMap<GlobalDefId, FunctionItemRef<'ast>>,
+    ) {
+        match &item.kind {
+            ItemTreeNodeKind::Function(function) => {
+                self.insert_function_item(item.span, DefKind::Function, function, items);
+            }
+            ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    self.insert_function_item(
+                        method.function.span,
+                        DefKind::TraitMethod,
+                        &method.function,
+                        items,
+                    );
+                }
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                for method in &extend.methods {
+                    self.insert_function_item(
+                        method.function.span,
+                        DefKind::Method,
+                        &method.function,
+                        items,
+                    );
+                }
+            }
+            ItemTreeNodeKind::Module(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::Struct(_)
+            | ItemTreeNodeKind::Union(_)
+            | ItemTreeNodeKind::Enum(_)
+            | ItemTreeNodeKind::Binding(_)
+            | ItemTreeNodeKind::TypeAlias(_) => {}
+        }
+    }
+
+    fn insert_function_item<'ast>(
+        &mut self,
+        item_span: Span,
+        kind: DefKind,
+        function: &'ast FunctionItem,
+        items: &mut HashMap<GlobalDefId, FunctionItemRef<'ast>>,
+    ) {
+        let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, kind) else {
+            return;
+        };
+        let global_def_id = self.global_def_id(def_id);
+        items.insert(
+            global_def_id,
+            FunctionItemRef {
+                item_span,
+                kind,
+                function,
+            },
+        );
+    }
+
+    fn check_reachable_functions<'ast>(
+        &mut self,
+        function_items: &HashMap<GlobalDefId, FunctionItemRef<'ast>>,
+        timing: bool,
+        module_id: ModuleId,
+    ) {
+        let initial = self.body_filter.initial_functions(function_items);
+        for def_id in initial {
+            self.check_reachable_function_by_id(def_id, function_items, timing, module_id);
+        }
+        while let Some(def_id) = self.pending_functions.pop_front() {
+            self.check_reachable_function_by_id(def_id, function_items, timing, module_id);
+        }
+    }
+
+    fn check_reachable_function_by_id<'ast>(
+        &mut self,
+        def_id: GlobalDefId,
+        function_items: &HashMap<GlobalDefId, FunctionItemRef<'ast>>,
+        timing: bool,
+        module_id: ModuleId,
+    ) {
+        if !self.body_filter.includes_function(def_id) || !self.checked_functions.insert(def_id) {
+            return;
+        }
+        let Some(item) = function_items.get(&def_id) else {
+            return;
+        };
+        let stage = match item.kind {
+            DefKind::Function => "body_check.function",
+            DefKind::TraitMethod => "body_check.trait_method",
+            DefKind::Method => "body_check.extend_method",
+            _ => "body_check.function",
+        };
+        let threshold = if item.kind == DefKind::Method {
+            0.010
+        } else {
+            0.050
+        };
+        time_body_stage_if_slow(
+            timing,
+            stage,
+            module_id,
+            &item.function.name,
+            threshold,
+            || {
+                self.check_function_with_kind(item.item_span, item.kind, item.function);
+            },
+        );
     }
 
     fn seed_global_types(&mut self) {
@@ -1435,6 +1693,21 @@ impl<'a> BodyChecker<'a> {
             }
         };
         self.comptime_types.insert(def_id, comptime_ty);
+    }
+
+    fn check_reachable_comptime_binding(
+        &mut self,
+        item_span: Span,
+        binding: &nia_ast::BindingItem,
+    ) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+        else {
+            return;
+        };
+        if !self.body_filter.includes_global(self.global_def_id(def_id)) {
+            return;
+        }
+        self.check_comptime_binding(item_span, binding);
     }
 
     fn comptime_initializer_runtime_type(
@@ -1525,6 +1798,20 @@ impl<'a> BodyChecker<'a> {
         self.check_function(def_id, function);
     }
 
+    fn check_function_with_kind(
+        &mut self,
+        item_span: Span,
+        kind: DefKind,
+        function: &FunctionItem,
+    ) {
+        match kind {
+            DefKind::Function => self.check_function_item(item_span, function),
+            DefKind::Method => self.check_function_def(item_span, function),
+            DefKind::TraitMethod => self.check_trait_function_def(item_span, function),
+            _ => {}
+        }
+    }
+
     fn check_function_def(&mut self, _span: Span, function: &FunctionItem) {
         let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, DefKind::Method)
         else {
@@ -1562,16 +1849,19 @@ impl<'a> BodyChecker<'a> {
         {
             return;
         }
-        let signature = if let Some(program_signature) = self
-            .function_signature_scope
-            .program_signature(&global_def_id)
-        {
-            self.import_program_function_signature(&program_signature)
-        } else {
-            let Some(raw_signature) = self.signatures.functions.get(&def_id).cloned() else {
-                return;
-            };
-            self.import_local_function_signature(&raw_signature)
+        let signature = self.profile_stage("body_check.profile.function.signature", |this| {
+            if let Some(program_signature) = this
+                .function_signature_scope
+                .program_signature(&global_def_id)
+            {
+                Some(this.import_program_function_signature(&program_signature))
+            } else {
+                let raw_signature = this.signatures.functions.get(&def_id).cloned()?;
+                Some(this.import_local_function_signature(&raw_signature))
+            }
+        });
+        let Some(signature) = signature else {
+            return;
         };
         time_body_stage_if_slow(
             self.timing,
@@ -1580,7 +1870,12 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.check_function_signature_projection_obligations(def_id, &signature);
+                self.profile_stage(
+                    "body_check.profile.function.projection_obligations",
+                    |this| {
+                        this.check_function_signature_projection_obligations(def_id, &signature);
+                    },
+                );
             },
         );
         let previous_return = self.current_return;
@@ -1597,7 +1892,9 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.check_object_safe_types_in_signature(&signature);
+                self.profile_stage("body_check.profile.function.object_safe", |this| {
+                    this.check_object_safe_types_in_signature(&signature);
+                });
             },
         );
         time_body_stage_if_slow(
@@ -1607,7 +1904,9 @@ impl<'a> BodyChecker<'a> {
             &function.name,
             0.020,
             || {
-                self.seed_param_types(&signature, function, self_ty);
+                self.profile_stage("body_check.profile.function.seed_params", |this| {
+                    this.seed_param_types(&signature, function, self_ty);
+                });
             },
         );
         if signature.is_comptime {
@@ -1627,24 +1926,26 @@ impl<'a> BodyChecker<'a> {
                 &function.name,
                 0.020,
                 || {
-                    let body_ty = self.check_block_with_expected(body, expected_tail);
-                    if let Some(tail) = body.tail.as_deref() {
-                        if !self.is_void(signature.return_type) {
-                            self.expect_expr_type(
-                                tail,
+                    self.profile_stage("body_check.profile.function.check_block", |this| {
+                        let body_ty = this.check_block_with_expected(body, expected_tail);
+                        if let Some(tail) = body.tail.as_deref() {
+                            if !this.is_void(signature.return_type) {
+                                this.expect_expr_type(
+                                    tail,
+                                    signature.return_type,
+                                    body_ty,
+                                    "function body",
+                                );
+                            }
+                        } else if this.is_void(signature.return_type) {
+                            this.expect_type(
+                                body.span,
                                 signature.return_type,
                                 body_ty,
                                 "function body",
                             );
                         }
-                    } else if self.is_void(signature.return_type) {
-                        self.expect_type(
-                            body.span,
-                            signature.return_type,
-                            body_ty,
-                            "function body",
-                        );
-                    }
+                    });
                 },
             );
             let body = time_body_stage_if_slow(
@@ -1653,7 +1954,11 @@ impl<'a> BodyChecker<'a> {
                 self.timing_module_id,
                 &function.name,
                 0.020,
-                || self.lower_body(body),
+                || {
+                    self.profile_stage("body_check.profile.function.lower_body", |this| {
+                        this.lower_body(body)
+                    })
+                },
             );
             self.function_bodies
                 .insert(self.global_def_id(def_id), body);

@@ -205,7 +205,19 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
-                FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
+                FunctionExprKind::Function(def_id) => {
+                    if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
+                        && !args.is_empty()
+                    {
+                        FunctionExprKind::FunctionInstance {
+                            def_id,
+                            arg_module_id: self.current_arg_module_id(),
+                            args,
+                        }
+                    } else {
+                        FunctionExprKind::Function(def_id)
+                    }
+                }
                 FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id: _,
@@ -423,17 +435,17 @@ impl<'a> ModuleLowerer<'a> {
                         receiver,
                     } = callee
                     {
-                        match self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.clone())
-                        {
+                        let resolution =
+                            self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.clone());
+                        match resolution {
                             TraitResolution::User(_) => {
-                                if let Some((def_id, target_args)) = self
-                                    .resolve_builtin_place_method_impl(
-                                        trait_id,
-                                        &trait_args,
-                                        method,
-                                        self_ty,
-                                    )
-                                {
+                                let resolved = self.resolve_builtin_place_method_impl(
+                                    trait_id,
+                                    &trait_args,
+                                    method,
+                                    self_ty,
+                                );
+                                if let Some((def_id, target_args)) = resolved {
                                     return FunctionExpr {
                                         span,
                                         ty,
@@ -486,12 +498,19 @@ impl<'a> ModuleLowerer<'a> {
                             }
                             TraitResolution::Unsatisfied | TraitResolution::Ambiguous => {}
                         }
-                        self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error_at(
-                                nia_diagnostic::codes::LLVM_CODEGEN,
-                                receiver.span,
-                                "no visible implementation found for builtin place method call",
-                            ));
+                        if self.builtin_trait_method_call_requires_concrete_impl(
+                            self_ty,
+                            trait_id,
+                            &trait_args,
+                            &[],
+                        ) {
+                            self.diagnostics
+                                .push(nia_diagnostic::Diagnostic::user_error_at(
+                                    nia_diagnostic::codes::LLVM_CODEGEN,
+                                    receiver.span,
+                                    "no visible implementation found for builtin place method call",
+                                ));
+                        }
                         return FunctionExpr {
                             span,
                             ty,
@@ -596,7 +615,19 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
     ) -> FunctionCallee {
         match callee {
-            FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
+            FunctionCallee::Function(def_id) => {
+                if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
+                    && !args.is_empty()
+                {
+                    FunctionCallee::FunctionInstance {
+                        def_id,
+                        arg_module_id: self.current_arg_module_id(),
+                        args,
+                    }
+                } else {
+                    FunctionCallee::Function(def_id)
+                }
+            }
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id: _,
@@ -623,10 +654,16 @@ impl<'a> ModuleLowerer<'a> {
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
+                let args = if args.is_empty() {
+                    self.effective_instance_args_for_def(def_id, substitutions)
+                        .unwrap_or_default()
+                } else {
+                    self.canonicalize_instance_args(&args)
+                };
                 FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
-                    args: self.canonicalize_instance_args(&args),
+                    args,
                     receiver_kind,
                     receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
                 }
@@ -737,10 +774,14 @@ impl<'a> ModuleLowerer<'a> {
                 ) {
                     let mut instance_args = target_args;
                     instance_args.extend(args);
-                    FunctionCallee::FunctionInstance {
-                        def_id,
-                        arg_module_id: self.current_arg_module_id(),
-                        args: instance_args,
+                    if instance_args.is_empty() {
+                        FunctionCallee::Function(def_id)
+                    } else {
+                        FunctionCallee::FunctionInstance {
+                            def_id,
+                            arg_module_id: self.current_arg_module_id(),
+                            args: instance_args,
+                        }
                     }
                 } else if self.trait_method_has_default(method_id)
                     && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
@@ -912,6 +953,21 @@ impl<'a> ModuleLowerer<'a> {
             return Some(candidate);
         }
         if let Some(candidate) = self.selected_user_trait_method_impl(&key, trait_args, self_ty) {
+            return Some(candidate);
+        }
+        if let Some(pointee) = self.pointer_elem_ty(self_ty)
+            && let Some(candidate) = self.selected_user_trait_method_impl(&key, trait_args, pointee)
+        {
+            return Some(candidate);
+        }
+        if let Some(candidate) = self.global_trait_method_impl_candidate(&key, trait_args, self_ty)
+        {
+            return Some(candidate);
+        }
+        if let Some(pointee) = self.pointer_elem_ty(self_ty)
+            && let Some(candidate) =
+                self.global_trait_method_impl_candidate(&key, trait_args, pointee)
+        {
             return Some(candidate);
         }
         let candidates = self.program_extension_trait_method_candidates(&key);

@@ -2,4 +2,7 @@ pub(pkg) module format;
 pub(pkg) module list;
 pub(pkg) module raw;
 
+using pkg::collections::array_list::format;
+using pkg::collections::array_list::list;
+
 pub using list::ArrayList;

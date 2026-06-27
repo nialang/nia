@@ -2,5 +2,8 @@ pub(pkg) module impls;
 pub(pkg) module traits;
 pub(pkg) module wyhash;
 
+using pkg::hash::impls;
+using pkg::hash::wyhash;
+
 pub using traits::{Hash, Hasher};
 pub using wyhash::{Wyhash, wyhash};
