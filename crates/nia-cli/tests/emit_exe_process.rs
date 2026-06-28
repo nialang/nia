@@ -17,8 +17,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/true\0";
-    var argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    var child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
+    let mut child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
         value
     } else error! {
         return process::exit(1)!;
@@ -74,8 +74,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/false\0";
-    var argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    var child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
+    let mut child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
         value
     } else error! {
         return process::exit(1)!;
@@ -137,8 +137,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     let term = if let !value = command.run() {
         value
     } else error! {
@@ -190,8 +190,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(1)!;
     };
     let message = b"ignored-output\0";
-    var argv: [3]&u8 = [path.raw_ptr(), &message.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [3]&u8 = [path.raw_ptr(), &message.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     let term = if let !value = command.run() {
         value
@@ -201,8 +201,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not term.exited_success() {
         return process::exit(3)!;
     }
-    var buffer: [64]u8 = [0; 64];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    let mut buffer: [64]u8 = [0; 64];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     stdout.write_all(b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
@@ -250,8 +250,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let flag = b"-c\0";
     let script = b"echo ignored-error >&2\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stderr(process::StdIo::Ignore).exit().?;
     let term = if let !value = command.run() {
         value
@@ -261,8 +261,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not term.exited_success() {
         return process::exit(3)!;
     }
-    var buffer: [64]u8 = [0; 64];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    let mut buffer: [64]u8 = [0; 64];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     stdout.write_all(b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
@@ -311,8 +311,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let flag = b"-c\0";
     let script = b"cat >/dev/null; echo ignored-output; echo ignored-error >&2\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Ignore).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
@@ -324,8 +324,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not term.exited_success() {
         return process::exit(3)!;
     }
-    var buffer: [64]u8 = [0; 64];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    let mut buffer: [64]u8 = [0; 64];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     stdout.write_all(b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
@@ -371,8 +371,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     let child = if let !value = command.spawn() {
         value
     } else error! {
@@ -424,10 +424,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var bad_argv: [2]&u8 = [bad_path.raw_ptr(), 0usize as &u8];
-    var index = 0usize;
+    let mut bad_argv: [2]&u8 = [bad_path.raw_ptr(), 0usize as &u8];
+    let mut index = 0usize;
     while index < 128usize {
-        var bad = process::Command::init(bad_path, &bad_argv[0], init.raw_envp());
+        let mut bad = process::Command::init(bad_path, &bad_argv[0], init.raw_envp());
         bad.set_stdin(process::StdIo::Pipe).exit().?;
         bad.set_stdout(process::StdIo::Pipe).exit().?;
         bad.set_stderr(process::StdIo::Pipe).exit().?;
@@ -451,8 +451,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(4)!;
     };
-    var good_argv: [2]&u8 = [good_path.raw_ptr(), 0usize as &u8];
-    var good = process::Command::init(good_path, &good_argv[0], init.raw_envp());
+    let mut good_argv: [2]&u8 = [good_path.raw_ptr(), 0usize as &u8];
+    let mut good = process::Command::init(good_path, &good_argv[0], init.raw_envp());
     good.set_stdin(process::StdIo::Ignore).exit().?;
     good.set_stdout(process::StdIo::Ignore).exit().?;
     good.set_stderr(process::StdIo::Ignore).exit().?;
@@ -509,10 +509,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let flag = b"-c\0";
     let script = b"printf pipe-output\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -522,9 +522,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(3)!;
     };
-    var read_buffer: [16]u8 = [0; 16];
-    var reader = io::FileReader::init(init.io(), handle, &mut read_buffer[..]);
-    var output: [11]u8 = [0; 11];
+    let mut read_buffer: [16]u8 = [0; 16];
+    let mut reader = io::FileReader::init(init.io(), handle, &mut read_buffer[..]);
+    let mut output: [11]u8 = [0; 11];
     reader.read_exact(&mut output[..]).exit().?;
     handle.close().exit().?;
     let term = if let !value = child.wait() {
@@ -548,7 +548,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         b'u',
         b't',
     ];
-    var index = 0usize;
+    let mut index = 0usize;
     while index < output.len() {
         if output[index] != expected[index] {
             return process::exit(6)!;
@@ -597,10 +597,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -618,7 +618,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not term.exited_success() {
         return process::exit(5)!;
     }
-    var byte: [1]u8 = [0];
+    let mut byte: [1]u8 = [0];
     let amount = if let !value = handle.read_some(&mut byte[..]) {
         value
     } else error! {
@@ -671,11 +671,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -686,8 +686,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(3)!;
     };
-    var write_buffer: [16]u8 = [0; 16];
-    var writer = io::FileWriter::init(init.io(), stdin_handle, &mut write_buffer[..]);
+    let mut write_buffer: [16]u8 = [0; 16];
+    let mut writer = io::FileWriter::init(init.io(), stdin_handle, &mut write_buffer[..]);
     writer.write_all(b"roundtrip").exit().?;
     writer.flush().exit().?;
     stdin_handle.close().exit().?;
@@ -697,9 +697,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(4)!;
     };
-    var read_buffer: [16]u8 = [0; 16];
-    var reader = io::FileReader::init(init.io(), stdout_handle, &mut read_buffer[..]);
-    var output: [9]u8 = [0; 9];
+    let mut read_buffer: [16]u8 = [0; 16];
+    let mut reader = io::FileReader::init(init.io(), stdout_handle, &mut read_buffer[..]);
+    let mut output: [9]u8 = [0; 9];
     reader.read_exact(&mut output[..]).exit().?;
     stdout_handle.close().exit().?;
 
@@ -713,7 +713,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let expected: [9]u8 = [b'r', b'o', b'u', b'n', b'd', b't', b'r', b'i', b'p'];
-    var index = 0usize;
+    let mut index = 0usize;
     while index < output.len() {
         if output[index] != expected[index] {
             return process::exit(7)!;
@@ -762,11 +762,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -821,9 +821,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
-    var child = if let !value = command.spawn() {
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -883,14 +883,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
-    var child = if let !value = command.spawn() {
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
     };
-    var spins = 0usize;
+    let mut spins = 0usize;
     while spins < 100000usize {
         let maybe = if let !value = child.try_wait() {
             value
@@ -958,11 +958,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(1)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -1029,11 +1029,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -1107,11 +1107,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    var child = if let !value = command.spawn() {
+    let mut child = if let !value = command.spawn() {
         value
     } else error! {
         return process::exit(2)!;
@@ -1200,8 +1200,8 @@ pub fn main(init: process::Init) process::ExitCode!void {{
     }};
     let flag = b"-c\0";
     let script = b"test \"$(basename \"$PWD\")\" = child-cwd\0";
-    var argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_cwd(cwd);
     let term = if let !value = command.run() {{
         value
@@ -1260,8 +1260,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else null {
         return process::exit(2)!;
     };
-    var argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
-    var command = process::Command::init(path, &argv[0], init.raw_envp());
+    let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
+    let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_cwd(cwd);
     let child = if let !value = command.spawn() {
         value
@@ -1313,7 +1313,7 @@ fn should_skip(arg: std::process::Arg) bool {
 
 pub fn main(init: Init) ExitCode!void {
     let args = init.args();
-    var paths = args.skip_program();
+    let mut paths = args.skip_program();
     while true {
         let path = if let ?value = paths.next() {
             value
@@ -1412,7 +1412,7 @@ using std::mem;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var page_allocator = mem::PageAllocator::init();
+    let mut page_allocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut page_allocator;
 
     let value = if let ?value = std::CStringView::from_bytes(b"nia\0") {
@@ -1435,13 +1435,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::exit(5)!;
     }
-    var text = std::StringBuf::from_slice(page, "nia").exit().?;
+    let mut text = std::StringBuf::from_slice(page, "nia").exit().?;
     defer text.deinit(page).exit().?;
     text.append(page, " std").exit().?;
     if text.view().len() != 7usize {
         return process::exit(6)!;
     }
-    var path = std::PathBuf::from_path(page, std::PathView::init("root")).exit().?;
+    let mut path = std::PathBuf::from_path(page, std::PathView::init("root")).exit().?;
     defer path.deinit(page).exit().?;
     path.join_component(page, "child").exit().?;
     if path.view().text().len() != 10usize {
@@ -1532,7 +1532,7 @@ fn read(source: & Source) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var values: [3]i32 = [1, 2, 3];
+    let mut values: [3]i32 = [1, 2, 3];
     (read(&values[..]) as process::ExitCode)!
 }
 "#,
@@ -1587,8 +1587,8 @@ using std::io;
 using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!void {
-    var buffer = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut buffer = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
     let text = b"left";
     stdout.print("{}\n", &[&text.*[..]]).exit()
@@ -1603,8 +1603,8 @@ using std::io;
 using std::process;
 
 pub fn write(init: process::Init) process::ExitCode!void {
-    var buffer = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer);
+    let mut buffer = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
     let text = b"right";
     stdout.print("{}\n", &[&text.*[..]]).exit()
@@ -1660,7 +1660,7 @@ fn read(source: & Source) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var values: [3]i32 = [1, 2, 3];
+    let mut values: [3]i32 = [1, 2, 3];
     (read(&values[..]) as process::ExitCode)!
 }
 "#,
@@ -1891,7 +1891,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var writer = io::DiscardingWriter::init();
+    let mut writer = io::DiscardingWriter::init();
     if let !ok = writer.write_all(b"nia") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if writer.len() != 3 {
         return (2 as process::ExitCode)!;
@@ -2061,26 +2061,26 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var args = init.args();
+    let mut args = init.args();
     if args.len() != 3 {
         return (1 as process::ExitCode)!;
     }
     if let ?program = args.program() { if program.is_empty() {
             return (9 as process::ExitCode)!;
         } } else null { return (10 as process::ExitCode)!; }
-    var iter = args.skip_program();
+    let mut iter = args.skip_program();
     if iter.remaining() != 2usize {
         return (11 as process::ExitCode)!;
     }
-    var first_arg = if let ?value = iter.next() { value } else null { return (2 as process::ExitCode)!; };
+    let mut first_arg = if let ?value = iter.next() { value } else null { return (2 as process::ExitCode)!; };
     if iter.remaining() != 1usize {
         return (12 as process::ExitCode)!;
     }
-    var second_arg = if let ?value = iter.next() { value } else null { return (3 as process::ExitCode)!; };
+    let mut second_arg = if let ?value = iter.next() { value } else null { return (3 as process::ExitCode)!; };
     if iter.remaining() != 0usize {
         return (13 as process::ExitCode)!;
     }
-    var for_count = 0usize;
+    let mut for_count = 0usize;
     for arg in args.skip_program() {
         if for_count == 0usize {
             if arg.len() != 3usize {
@@ -2102,8 +2102,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if for_count != 2usize {
         return (22 as process::ExitCode)!;
     }
-    var first = first_arg.bytes();
-    var second = second_arg.bytes();
+    let mut first = first_arg.bytes();
+    let mut second = second_arg.bytes();
     if first.len() != 3 {
         return (4 as process::ExitCode)!;
     }
@@ -2119,8 +2119,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if let !value = fmt::parse_radix[u16](second_arg, 16u32) { if value != 0x1234u16 {
             return (16 as process::ExitCode)!;
         } } else error! { return (17 as process::ExitCode)!; }
-    var storage: [16]u8 = [0; 16];
-    var writer = io::FixedBufferWriter::init(&mut storage[..]);
+    let mut storage: [16]u8 = [0; 16];
+    let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print("{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
@@ -2170,7 +2170,7 @@ fn starts_with_needle(bytes: &[u8]) bool {
     if bytes.len() < needle.len() {
         return false;
     }
-    var index = 0usize;
+    let mut index = 0usize;
     while index < needle.len() {
         if bytes[index] != needle[index] {
             return false;
@@ -2285,11 +2285,11 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var left = 20;
-    var right = 22;
+    let mut left = 20;
+    let mut right = 22;
 
     let &x = &left;
-    var &mut y: i32 = &mut right;
+    let mut &mut y: i32 = &mut right;
     y += 1;
 
     if x + y != 43 {
@@ -2332,7 +2332,7 @@ fn emit_exe_if_pattern_matches_nested_error_optional_once() {
         r#"
 using std::process;
 
-var calls: i32 = 0;
+let mut calls: i32 = 0;
 
 fn next(flag: bool) ?(i32!i32) {
     calls += 1;
@@ -2357,7 +2357,7 @@ fn classify(value: ?(i32!i32)) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var total = 0;
+    let mut total = 0;
     if let ?!value = next(true) {
         total = value;
     } else ?err! {
@@ -2431,7 +2431,7 @@ extend Counter {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var counter = Counter::init();
+    let mut counter = Counter::init();
     counter.add(7);
     if counter.get() != 7 {
         return (1 as process::ExitCode)!;

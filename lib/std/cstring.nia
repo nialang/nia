@@ -24,7 +24,7 @@ extend CStringView {
     }
 
     pub fn len(&self) usize {
-        var len = 0usize;
+        let mut len = 0usize;
         while self.ptr[len] != 0u8 {
             len += 1usize;
         }
@@ -52,7 +52,7 @@ extend CStringView : fmt::Format {
         let content_width = formatter.precision_width(self.len(), spec);
         formatter.write_padding_before(content_width, spec).?;
         let bytes = self.bytes();
-        var index = 0usize;
+        let mut index = 0usize;
         while index < bytes.len() and index < content_width {
             formatter.write_byte(bytes[index]).?;
             index += 1usize;

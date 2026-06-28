@@ -22,7 +22,7 @@ extend PathView {
         out: &mut collections::ArrayList[char],
     ) Error!PathView {
         out.clear_retaining_capacity();
-        var index = 0usize;
+        let mut index = 0usize;
         while index < bytes.len() {
             let decoded = if let ?value = unicode::utf8_decode_first(&bytes[index..]) {
                 value
@@ -44,7 +44,7 @@ extend PathView {
     }
 
     pub fn to_path_buf(&self, allocator: &mut mem::Allocator) Error!PathBuf {
-        var text = string::StringBuf::from_slice(allocator, self.text()).as_fs_error().?;
+        let mut text = string::StringBuf::from_slice(allocator, self.text()).as_fs_error().?;
         !PathBuf::from_string_buf(text)
     }
 
@@ -53,8 +53,8 @@ extend PathView {
     }
 
     pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
-        var out = 0usize;
-        var index = 0usize;
+        let mut out = 0usize;
+        let mut index = 0usize;
         let text = self.text();
         while index < text.len() {
             let ch = text[index];
@@ -66,7 +66,7 @@ extend PathView {
                 return PathError::TooLong!;
             }
             let bytes = encoded.bytes();
-            var byte_index = 0usize;
+            let mut byte_index = 0usize;
             while byte_index < bytes.len() {
                 storage[out] = bytes[byte_index];
                 out += 1usize;
@@ -89,7 +89,7 @@ extend PathBuf {
     }
 
     pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) Error!PathBuf {
-        var text = string::StringBuf::init_capacity(allocator, capacity).as_fs_error().?;
+        let mut text = string::StringBuf::init_capacity(allocator, capacity).as_fs_error().?;
         !PathBuf { text: text }
     }
 

@@ -19,15 +19,15 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var storage: [256]u8 = [_]u8[0; 256];
-    var allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
+    let mut storage: [256]u8 = [_]u8[0; 256];
+    let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
 
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     list.push(&mut allocator, 10).exit().?;
     list.push(&mut allocator, 20).exit().?;
     list.push(&mut allocator, 30).exit().?;
 
-    var total = 0;
+    let mut total = 0;
     for &value in list.iter() {
         total += value;
     }
@@ -44,8 +44,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    var tiny: [8]u8 = [_]u8[0; 8];
-    var failing = mem::FixedBufferAllocator::init(&mut tiny[..]);
+    let mut tiny: [8]u8 = [_]u8[0; 8];
+    let mut failing = mem::FixedBufferAllocator::init(&mut tiny[..]);
     if let !block = failing.alloc_bytes(16, 1) { _ = block;
             return (4 as process::ExitCode)!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
                 return (5 as process::ExitCode)!;
@@ -88,16 +88,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var arena = mem::ArenaAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut arena = mem::ArenaAllocator::init(&mut page);
     defer arena.deinit().exit().?;
 
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     list.push(&mut arena, 10).exit().?;
     list.push(&mut arena, 20).exit().?;
     list.push(&mut arena, 30).exit().?;
 
-    var total = 0;
+    let mut total = 0;
     for &value in list.iter() {
         total += value;
     }
@@ -115,7 +115,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    var bytes = arena.alloc_slice[u8](64).exit().?;
+    let mut bytes = arena.alloc_slice[u8](64).exit().?;
     bytes[0] = 7u8;
     bytes[63] = 9u8;
     if bytes[0] != 7u8 or bytes[63] != 9u8 {
@@ -163,12 +163,12 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var arena = mem::ArenaAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut arena = mem::ArenaAllocator::init(&mut page);
     defer arena.deinit().exit().?;
 
-    var first = arena.alloc_bytes(16, 8).exit().?;
-    var second = arena.alloc_bytes(16, 8).exit().?;
+    let mut first = arena.alloc_bytes(16, 8).exit().?;
+    let mut second = arena.alloc_bytes(16, 8).exit().?;
     if arena.resize(first, mem::Layout::init(32, 8).exit().?) {
         return (1 as process::ExitCode)!;
     }
@@ -230,19 +230,19 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
 
     let layout = mem::Layout::init(24, 8).exit().?;
-    var first = allocator.alloc(layout).exit().?;
-    var second = allocator.alloc(layout).exit().?;
+    let mut first = allocator.alloc(layout).exit().?;
+    let mut second = allocator.alloc(layout).exit().?;
     if first.ptr() as usize == second.ptr() as usize {
         return (1 as process::ExitCode)!;
     }
 
     let first_addr = first.ptr() as usize;
     allocator.free(first).exit().?;
-    var reused = allocator.alloc(layout).exit().?;
+    let mut reused = allocator.alloc(layout).exit().?;
     if reused.ptr() as usize != first_addr {
         return (2 as process::ExitCode)!;
     }
@@ -253,12 +253,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     list.push(&mut allocator, 10).exit().?;
     list.push(&mut allocator, 20).exit().?;
     list.push(&mut allocator, 30).exit().?;
 
-    var total = 0;
+    let mut total = 0;
     for &value in list.iter() {
         total += value;
     }
@@ -308,15 +308,15 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
 
     let layout = mem::Layout::init(3000, 4096).exit().?;
-    var block = allocator.alloc(layout).exit().?;
+    let mut block = allocator.alloc(layout).exit().?;
     if block.ptr() as usize % 4096usize != 0usize {
         return (1 as process::ExitCode)!;
     }
-    var bytes = block.bytes();
+    let mut bytes = block.bytes();
     bytes[0] = 11u8;
     bytes[2999] = 22u8;
 
@@ -384,8 +384,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
 
     let small_layout = mem::Layout::init(32, 8).exit().?;
     let small = allocator.alloc(small_layout).exit().?;
@@ -398,7 +398,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    var resized = allocator.alloc(small_layout).exit().?;
+    let mut resized = allocator.alloc(small_layout).exit().?;
     let resized_layout = mem::Layout::init(40, 8).exit().?;
     if not allocator.resize(resized, resized_layout) {
         return (7 as process::ExitCode)!;
@@ -433,7 +433,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (6 as process::ExitCode)!;
     }
     allocator.deinit().ok().exit().?;
-    var leaking = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut leaking = mem::GeneralPurposeAllocator::init(&mut page);
     _ = leaking.alloc(small_layout).exit().?;
     if leaking.deinit().exit().? != mem::DeinitStatus::Leak {
         return (13 as process::ExitCode)!;
@@ -475,16 +475,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
-    var block: mem::Block;
+    let mut allocator = mem::PageAllocator::init();
+    let mut block: mem::Block;
     if let !value = allocator.alloc_bytes(4, 1) { block = value; } else error! { return (1 as process::ExitCode)!; }
-    var bytes = block.bytes();
+    let mut bytes = block.bytes();
     bytes[0] = 10u8;
     bytes[1] = 20u8;
     bytes[2] = 30u8;
     bytes[3] = 40u8;
 
-    var grow_layout: mem::Layout;
+    let mut grow_layout: mem::Layout;
     if let !value = mem::Layout::init(8, 1) { grow_layout = value; } else error! { return (2 as process::ExitCode)!; }
     if let !value = allocator.realloc(block, grow_layout) { block = value; } else error! { return (3 as process::ExitCode)!; }
     if block.size() != 8 {
@@ -497,7 +497,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     bytes[4] = 50u8;
     bytes[5] = 60u8;
 
-    var shrink_layout: mem::Layout;
+    let mut shrink_layout: mem::Layout;
     if let !value = mem::Layout::init(2, 1) { shrink_layout = value; } else error! { return (6 as process::ExitCode)!; }
     if let !value = allocator.realloc(block, shrink_layout) { block = value; } else error! { return (7 as process::ExitCode)!; }
     if block.size() != 2 {
@@ -587,12 +587,12 @@ extend CountingAllocator : mem::Allocator {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var storage: [64]u8 = [_]u8[0; 64];
-    var allocator = CountingAllocator::init(&mut storage);
+    let mut storage: [64]u8 = [_]u8[0; 64];
+    let mut allocator = CountingAllocator::init(&mut storage);
     let old_layout = mem::Layout::init(4, 1).exit().?;
     let new_layout = mem::Layout::init(8, 1).exit().?;
-    var block = allocator.alloc(old_layout).exit().?;
-    var bytes = block.bytes();
+    let mut block = allocator.alloc(old_layout).exit().?;
+    let mut bytes = block.bytes();
     bytes[0] = 10u8;
     bytes[1] = 20u8;
 
@@ -641,16 +641,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
-    var layout: mem::Layout;
+    let mut allocator = mem::PageAllocator::init();
+    let mut layout: mem::Layout;
     if let !value = mem::Layout::init(16, 8) { layout = value; } else error! { return (1 as process::ExitCode)!; }
-    var block: mem::Block;
+    let mut block: mem::Block;
     if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
     if not allocator.resize(block, layout) {
         return (3 as process::ExitCode)!;
     }
 
-    var larger: mem::Layout;
+    let mut larger: mem::Layout;
     if let !value = mem::Layout::init(32, 8) { larger = value; } else error! { return (4 as process::ExitCode)!; }
     if not allocator.resize(block, larger) {
         return (5 as process::ExitCode)!;
@@ -664,7 +664,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             }
             block = same; } else null { return (9 as process::ExitCode)!; }
 
-    var next_page: mem::Layout;
+    let mut next_page: mem::Layout;
     if let !value = mem::Layout::init(8192, 8) { next_page = value; } else error! { return (10 as process::ExitCode)!; }
     if allocator.resize(block, next_page) {
         return (11 as process::ExitCode)!;
@@ -673,10 +673,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (12 as process::ExitCode)!; } else null { }
     if let !ok = allocator.free(block) { _ = ok; } else error! { return (13 as process::ExitCode)!; }
 
-    var empty_a: mem::Layout;
+    let mut empty_a: mem::Layout;
     if let !value = mem::Layout::init(0, 8) { empty_a = value; } else error! { return (14 as process::ExitCode)!; }
     if let !value = allocator.alloc(empty_a) { block = value; } else error! { return (15 as process::ExitCode)!; }
-    var empty_b: mem::Layout;
+    let mut empty_b: mem::Layout;
     if let !value = mem::Layout::init(0, 16) { empty_b = value; } else error! { return (16 as process::ExitCode)!; }
     if allocator.resize(block, empty_b) {
         return (17 as process::ExitCode)!;
@@ -721,22 +721,22 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
-    var empty_layout: mem::Layout;
+    let mut allocator = mem::PageAllocator::init();
+    let mut empty_layout: mem::Layout;
     if let !value = mem::Layout::init(0, 8) { empty_layout = value; } else error! { return (1 as process::ExitCode)!; }
-    var block: mem::Block;
+    let mut block: mem::Block;
     if let !value = allocator.alloc(empty_layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
     if block.size() != 0 {
         return (3 as process::ExitCode)!;
     }
 
-    var full_layout: mem::Layout;
+    let mut full_layout: mem::Layout;
     if let !value = mem::Layout::init(16, 8) { full_layout = value; } else error! { return (4 as process::ExitCode)!; }
     if let !value = allocator.realloc(block, full_layout) { block = value; } else error! { return (5 as process::ExitCode)!; }
     if block.size() != 16 or block.align() != 8 {
         return (6 as process::ExitCode)!;
     }
-    var bytes = block.bytes();
+    let mut bytes = block.bytes();
     bytes[0] = 77u8;
     bytes[15] = 99u8;
     if bytes[0] != 77u8 or bytes[15] != 99u8 {

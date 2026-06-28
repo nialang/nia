@@ -95,7 +95,7 @@ where U: AsciiParseUnit
     if input.len() != text.len() {
         return false;
     }
-    var index = 0usize;
+    let mut index = 0usize;
     while index < input.len() {
         if not ascii_is[U](input[index], text[index]) {
             return false;
@@ -115,8 +115,8 @@ where U: AsciiParseUnit
         return ParseError::Empty!;
     }
 
-    var index = 0usize;
-    var negative = false;
+    let mut index = 0usize;
+    let mut negative = false;
     let first = input[0];
     if ascii_is[U](first, '-') or ascii_is[U](first, '+') {
         if not allow_sign {
@@ -129,7 +129,7 @@ where U: AsciiParseUnit
         }
     }
 
-    var value = 0u128;
+    let mut value = 0u128;
     let radix_wide = radix as u128;
     while index < input.len() {
         let digit = if let ?value = ascii_digit_value[U](input[index]) {
@@ -158,8 +158,8 @@ where U: AsciiParseUnit
         return ParseError::Empty!;
     }
 
-    var index = 0usize;
-    var negative = false;
+    let mut index = 0usize;
+    let mut negative = false;
     let first = input[0];
     if ascii_is[U](first, '-') or ascii_is[U](first, '+') {
         if not allow_sign {
@@ -172,7 +172,7 @@ where U: AsciiParseUnit
         }
     }
 
-    var radix = 10u32;
+    let mut radix = 10u32;
     if index + 1usize < input.len() and ascii_is[U](input[index], '0') {
         let marker = input[index + 1usize];
         if ascii_is_hex_prefix[U](marker) {
@@ -190,7 +190,7 @@ where U: AsciiParseUnit
         }
     }
 
-    var value = 0u128;
+    let mut value = 0u128;
     let radix_wide = radix as u128;
     while index < input.len() {
         let digit = if let ?value = ascii_digit_value[U](input[index]) {

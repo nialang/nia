@@ -821,19 +821,8 @@ fn resolve_comptime_binding(
 fn resolve_comptime_for_in(
     for_in: EarlyComptimeForIn,
 ) -> Result<ResolvedComptimeForIn, ComptimeLowerError> {
-    if for_in.binding.name.is_some() && for_in.binding.local_id.is_none() {
-        return Err(unresolved_error(
-            for_in.binding.span,
-            "comptime for binding",
-        ));
-    }
     Ok(ResolvedComptimeForIn::new(
-        ResolvedComptimeForBinding::new(
-            for_in.binding.span,
-            for_in.binding.name,
-            for_in.binding.local_id,
-            for_in.binding.pattern_kind,
-        ),
+        resolve_comptime_pattern(for_in.pattern)?,
         resolve_expr(for_in.iter)?,
         resolve_comptime_block(for_in.body)?,
     ))
@@ -1060,6 +1049,13 @@ fn resolve_comptime_pattern(
             local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
         )),
+        EarlyComptimePattern::Pointer { pattern, span } => Ok(ResolvedComptimePattern::pointer(
+            resolve_comptime_pattern(*pattern)?,
+            span,
+        )),
+        EarlyComptimePattern::MutPointer { pattern, span } => Ok(
+            ResolvedComptimePattern::mut_pointer(resolve_comptime_pattern(*pattern)?, span),
+        ),
         EarlyComptimePattern::OptionalSome { pattern, span } => Ok(
             ResolvedComptimePattern::optional_some(resolve_comptime_pattern(*pattern)?, span),
         ),
@@ -1280,17 +1276,23 @@ fn lower_stmt_with_context(
                     message: "comptime function binding requires an initializer".to_string(),
                 });
             };
+            let (name, node_key) =
+                single_pattern_binding(&binding.pattern).ok_or_else(|| ComptimeLowerError {
+                    span: binding.pattern.span,
+                    message: "comptime function binding requires a single binding pattern"
+                        .to_string(),
+                })?;
             EarlyComptimeStmtKind::Binding(EarlyComptimeBinding {
                 span: stmt.span,
-                name: binding.name.clone(),
-                local_id: lower_local_id(context, &stmt.node_key, stmt.span)?,
+                name: name.to_string(),
+                local_id: lower_local_id(context, node_key, binding.pattern.span)?,
                 explicit_type: binding
                     .ty
                     .as_ref()
                     .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
                     .transpose()?
                     .flatten(),
-                is_mutable: !binding.is_let,
+                is_mutable: binding.is_mutable,
                 value: lower_expr_internal(value, context)?,
             })
         }
@@ -1304,16 +1306,7 @@ fn lower_stmt_with_context(
         nia_ast::StmtKind::Break => EarlyComptimeStmtKind::Break,
         nia_ast::StmtKind::Continue => EarlyComptimeStmtKind::Continue,
         nia_ast::StmtKind::ForIn(for_in) => EarlyComptimeStmtKind::ForIn(EarlyComptimeForIn {
-            binding: EarlyComptimeForBinding {
-                span: for_in.pattern.span,
-                name: for_in.pattern.name.clone(),
-                local_id: if for_in.pattern.name.is_some() {
-                    lower_local_id(context, &for_in.pattern.node_key, for_in.pattern.span)?
-                } else {
-                    None
-                },
-                pattern_kind: for_in.pattern.kind,
-            },
+            pattern: lower_pattern_with_context(&for_in.pattern, context)?,
             iter: lower_expr_internal(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,
         }),
@@ -1477,9 +1470,17 @@ fn lower_pattern_with_context(
 ) -> Result<EarlyComptimePattern, ComptimeLowerError> {
     match &pattern.kind {
         nia_ast::PatternKind::Wildcard => Ok(EarlyComptimePattern::Wildcard { span: pattern.span }),
-        nia_ast::PatternKind::Bind { name, node_key } => Ok(EarlyComptimePattern::Bind {
+        nia_ast::PatternKind::Bind { name, node_key, .. } => Ok(EarlyComptimePattern::Bind {
             name: name.clone(),
             local_id: lower_local_id(context, node_key, pattern.span)?,
+            span: pattern.span,
+        }),
+        nia_ast::PatternKind::Pointer(inner) => Ok(EarlyComptimePattern::Pointer {
+            pattern: Box::new(lower_pattern_with_context(inner, context)?),
+            span: pattern.span,
+        }),
+        nia_ast::PatternKind::MutPointer(inner) => Ok(EarlyComptimePattern::MutPointer {
+            pattern: Box::new(lower_pattern_with_context(inner, context)?),
             span: pattern.span,
         }),
         nia_ast::PatternKind::OptionalSome(inner) => Ok(EarlyComptimePattern::OptionalSome {
@@ -1510,6 +1511,18 @@ fn lower_pattern_with_context(
             inclusive: *inclusive,
             span: pattern.span,
         }),
+    }
+}
+
+fn single_pattern_binding(
+    pattern: &nia_ast::Pattern,
+) -> Option<(&str, &nia_node_id::VersionedNodeKey)> {
+    match &pattern.kind {
+        nia_ast::PatternKind::Bind { name, node_key, .. } => Some((name, node_key)),
+        nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+            single_pattern_binding(inner)
+        }
+        _ => None,
     }
 }
 

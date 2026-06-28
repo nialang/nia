@@ -1027,7 +1027,7 @@ struct Box[T] {
 type Byte = u8;
 
 fn make(value: i32) Box[i32] {
-    var tmp: Byte = 1;
+    let mut tmp: Byte = 1;
     { value: value }
 }
 "#,
@@ -1130,7 +1130,7 @@ extend Buffer : Reader {
         let (module, errors) = parse_module(
             r#"
 fn main() Missing {
-    var value = MissingValue;
+    let mut value = MissingValue;
     0
 }
 "#,

@@ -762,7 +762,7 @@ impl<'a> ModuleLowerer<'a> {
         out
     }
 
-    pub(super) fn program_extension_trait_method_candidates(
+    pub(crate) fn program_extension_trait_method_candidates(
         &self,
         key: &ExtensionTraitMethodKey,
     ) -> Vec<ExtensionTraitMethodCandidate> {

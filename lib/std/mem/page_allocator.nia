@@ -34,13 +34,13 @@ extend PageAllocator : Allocator {
             return block.is_empty() and new_layout.is_empty();
         }
 
-        var old_size: usize;
+        let mut old_size: usize;
         if let !size = os::page_aligned_len(block.size()) {
             old_size = size;
         } else err! {
             return false;
         }
-        var new_size: usize;
+        let mut new_size: usize;
         if let !size = os::page_aligned_len(new_layout.size()) {
             new_size = size;
         } else err! {

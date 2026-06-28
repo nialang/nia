@@ -63,7 +63,7 @@ using entry::math;
 using math::{add, sub as minus, Operator::*};
 
 fn main(flag: bool) math::Operator {
-    var n = add(40, minus(4, 2));
+    let mut n = add(40, minus(4, 2));
     if flag { Add } else { Sub }
 }
 "#,
@@ -307,7 +307,7 @@ module math;
 using entry::facade;
 
 fn main(flag: bool) facade::Operator {
-    var n = facade::add(40, facade::minus(4, 2));
+    let mut n = facade::add(40, facade::minus(4, 2));
     if flag { facade::Add } else { facade::Sub }
 }
 "#,
@@ -344,7 +344,7 @@ module palette;
 using entry::facade;
 
 fn main(flag: bool) facade::palette::Color {
-    var n = facade::add(40, 2);
+    let mut n = facade::add(40, 2);
     if flag { facade::Red } else { facade::DDD }
 }
 "#,
@@ -388,7 +388,7 @@ using entry::rootmod;
 using rootmod::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 
 fn main(flag: bool) rootmod::a::h::Color {
-    var n = foo(40, 2) + goo(1) + g(2);
+    let mut n = foo(40, 2) + goo(1) + g(2);
     if flag { Red } else { Blue }
 }
 "#,
@@ -552,7 +552,7 @@ using entry::palette;
 using palette::Color::{Red, Black as Dark};
 
 fn main() palette::Color {
-    var c: palette::Color = Red;
+    let mut c: palette::Color = Red;
     Dark
 }
 "#,
@@ -636,7 +636,7 @@ module palette;
 using entry::palette;
 
 fn main() palette::Color {
-    var c: palette::Color = palette::Color::Red;
+    let mut c: palette::Color = palette::Color::Red;
     palette::Color::Black
 }
 "#,
@@ -703,7 +703,7 @@ using entry::defs;
 using defs::{Box, Mode};
 
 fn main() i32 {
-    var box = Box::make(Mode::A);
+    let mut box = Box::make(Mode::A);
     box.mode as u8 as i32
 }
 "#,
@@ -807,7 +807,7 @@ module bits;
 using entry::bits;
 
 fn main() i32 {
-    var value: bits::Bits = { i: 7 };
+    let mut value: bits::Bits = { i: 7 };
     value.i
 }
 "#,

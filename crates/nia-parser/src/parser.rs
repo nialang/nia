@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
-    BindingItem, BindingPatternKind, BindingStmt, Block, BracketArg, ConditionBinaryOp,
-    ConditionExpr, ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind,
-    ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, ForPattern, FunctionItem,
-    IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern,
-    PatternBindingMode, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem,
-    SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType,
-    TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp,
-    UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
-    WhereClause, WherePredicate, WhileStmt,
+    BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
+    ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind, ExprStub,
+    ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, IfPatternArm,
+    IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern, PatternKind,
+    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
+    SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
+    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
+    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
+    WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeOriginTable, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
@@ -453,7 +453,6 @@ impl Parser {
                     | TokenKind::Type
                     | TokenKind::Fn
                     | TokenKind::Let
-                    | TokenKind::Var
                     | TokenKind::Pub
             ) {
                 return;

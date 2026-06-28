@@ -7,8 +7,8 @@ fn comptime_dependency_cycles_are_diagnosed() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let a: i32 = b;
-comptime let b: i32 = a;
+comptime a: i32 = b;
+comptime b: i32 = a;
 
 fn main() i32 { 0 }
 "#,
@@ -32,9 +32,9 @@ fn comptime_rejects_runtime_local_dependency() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    var runtime = 4;
-    comptime let n: usize = runtime;
-    var values: [n]i32 = [1, 2, 3, 4];
+    let mut runtime = 4;
+    comptime n: usize = runtime;
+    let mut values: [n]i32 = [1, 2, 3, 4];
     values[0]
 }
 "#,
@@ -57,7 +57,7 @@ fn comptime_error_builtin_reports_message() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let n: usize = @error("unsupported target");
+comptime n: usize = @error("unsupported target");
 
 fn main() i32 { 0 }
 "#,
@@ -87,7 +87,7 @@ comptime fn selected() usize {
     @error("unreachable comptime branch")
 }
 
-comptime let n: usize = selected();
+comptime n: usize = selected();
 
 fn main() usize { n }
 "#,
@@ -103,7 +103,7 @@ fn comptime_error_builtin_requires_string_message() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let n: usize = @error(10usize);
+comptime n: usize = @error(10usize);
 
 fn main() i32 { 0 }
 "#,

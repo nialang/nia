@@ -76,8 +76,8 @@ where T: Ranked {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 1 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 1 };
     same_ord[Point](& a, & b)
 }
 "#,
@@ -135,7 +135,7 @@ where S: SizedSource[i32] {
 }
 
 fn main() i32 {
-    var source: I32Source = { value: 7 };
+    let mut source: I32Source = { value: 7 };
     read_sized[I32Source](& source, 9)
 }
 "#,
@@ -171,8 +171,8 @@ where T: Same {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 1 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 1 };
     same[Point](& a, & b)
 }
 "#,
@@ -212,8 +212,8 @@ where T: Same {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 2 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 2 };
     different[Point](& a, & b)
 }
 "#,

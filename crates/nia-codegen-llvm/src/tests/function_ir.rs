@@ -215,13 +215,13 @@ fn take_byte(x: u8) u8 { x }
 fn take32(x: f32) f32 { x }
 
 fn main() i32 {
-    var default_int = 10;
-    var default_float = 1.5;
-    var typed_byte: u8 = 11;
-    var typed_float: f32 = 3.5;
-    var byte: u8 = 10;
-    var signed: i8 = -1;
-    var float32: f32 = 2.5;
+    let mut default_int = 10;
+    let mut default_float = 1.5;
+    let mut typed_byte: u8 = 11;
+    let mut typed_float: f32 = 3.5;
+    let mut byte: u8 = 10;
+    let mut signed: i8 = -1;
+    let mut float32: f32 = 2.5;
     _ = take_byte(3);
     _ = take32(typed_float);
     default_int + byte as i32 + signed as i32 + typed_byte as i32 + default_float as i32 + float32 as i32
@@ -260,7 +260,7 @@ fn print_i32(value: &i32) {}
 let vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
-    var x = 1;
+    let mut x = 1;
     vtable.print(&x);
     0
 }

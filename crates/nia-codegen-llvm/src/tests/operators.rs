@@ -21,11 +21,11 @@ extend Number : Add[Number] {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
-    var three = one + two;
-    var seven = three.add({ value: 4 });
-    var nine = [Number]::add(seven, { value: 2 });
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
+    let mut three = one + two;
+    let mut seven = three.add({ value: 4 });
+    let mut nine = [Number]::add(seven, { value: 2 });
     nine.value
 }
 "#,
@@ -67,9 +67,9 @@ fn combine[T](lhs: Box[T], rhs: Box[T]) Box[T] where Box[T]: Add[Box[T], Output 
 }
 
 fn main() i32 {
-    var one: Box[i32] = { value: 1 };
-    var two: Box[i32] = { value: 2 };
-    var three = combine[i32](one, two);
+    let mut one: Box[i32] = { value: 1 };
+    let mut two: Box[i32] = { value: 2 };
+    let mut three = combine[i32](one, two);
     three.value
 }
 "#,
@@ -127,8 +127,8 @@ extend Number : Ord[Number] {
 }
 
 fn main() bool {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
     one != two and one < two
 }
 "#,
@@ -175,9 +175,9 @@ extend Number : BitNot {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var neg = -one;
-    var bits = ~neg;
+    let mut one: Number = { value: 1 };
+    let mut neg = -one;
+    let mut bits = ~neg;
     bits.value
 }
 "#,

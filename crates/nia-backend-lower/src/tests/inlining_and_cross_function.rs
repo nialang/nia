@@ -411,7 +411,7 @@ fn first(left: i32, right: i32) i32 {
 }
 
 fn effect() i32 {
-    var value = 1;
+    let mut value = 1;
     value
 }
 
@@ -777,7 +777,7 @@ fn main() i32 {
 fn o3_inlines_pure_leaf_function_calls_through_bindings() {
     let source = r#"
 fn values() [5]i32 {
-    var items = [1, 2, 3, 4, 5];
+    let mut items = [1, 2, 3, 4, 5];
     items
 }
 
@@ -1023,7 +1023,7 @@ extend[T] Box[T] : Source {
 }
 
 fn main() i32 {
-    var value: Box[i32] = { value: 0 };
+    let mut value: Box[i32] = { value: 0 };
     _ = value;
     0
 }
@@ -1327,7 +1327,7 @@ fn identity(value: i32) i32 {
 }
 
 fn effect() i32 {
-    var value = 1;
+    let mut value = 1;
     value
 }
 

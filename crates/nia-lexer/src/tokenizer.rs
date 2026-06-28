@@ -231,7 +231,7 @@ impl<'a> Tokenizer<'a> {
             "type" => TokenKind::Type,
             "union" => TokenKind::Union,
             "using" => TokenKind::Using,
-            "var" => TokenKind::Var,
+            "let mut" => TokenKind::Var,
             "void" => TokenKind::Void,
             "where" => TokenKind::Where,
             "while" => TokenKind::While,
@@ -715,7 +715,7 @@ mod tests {
     #[test]
     fn tokenizes_core_syntax() {
         assert_eq!(
-            kinds("pub fn main() i32 { var x = ~1; x += 2; x <<= 1; y >> 2; math::add(); }"),
+            kinds("pub fn main() i32 { let mut x = ~1; x += 2; x <<= 1; y >> 2; math::add(); }"),
             vec![
                 TokenKind::Pub,
                 TokenKind::Fn,

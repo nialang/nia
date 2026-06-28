@@ -22,8 +22,8 @@ using std::mem;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var page = mem::PageAllocator::init();
-    var path = fs::PathBuf::from_path(&mut page, fs::PathView::init("subdir")).exit().?;
+    let mut page = mem::PageAllocator::init();
+    let mut path = fs::PathBuf::from_path(&mut page, fs::PathView::init("subdir")).exit().?;
     defer path.deinit(&mut page).exit().?;
 
     path.join_component(&mut page, "/inside.txt").exit().?;
@@ -32,12 +32,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::exit(1)!;
     }
 
-    var cwd = fs::Dir::cwd().exit().?;
+    let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
     cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()).exit().?;
-    var file = cwd.create_file(path.view(), fs::CreateOptions::read_write()).exit().?;
-    var buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
+    let mut file = cwd.create_file(path.view(), fs::CreateOptions::read_write()).exit().?;
+    let mut buffer: [16]u8 = [0; 16];
+    let mut writer = file.writer(init.io(), &mut buffer[..]).exit().?;
     writer.write_all(b"joined").exit().?;
     writer.flush().exit().?;
     file.close().exit().?;
@@ -84,7 +84,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var buffer: [4096]u8 = [0; 4096];
+    let mut buffer: [4096]u8 = [0; 4096];
     let cwd = if let !value = fs::getcwd(&mut buffer[..]) {
         value
     } else error! {
@@ -139,8 +139,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::PathView::init("data.txt");
-    var cwd: fs::Dir;
+    let mut path = fs::PathView::init("data.txt");
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -151,14 +151,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         } else error! {}
     };
-    var file: fs::File;
+    let mut file: fs::File;
     if let !value = cwd.create_file(path, fs::CreateOptions::read_write()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
     }
-    var write_buffer: [64]u8 = [0; 64];
-    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
+    let mut write_buffer: [64]u8 = [0; 64];
+    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"nia fs") {
         _ = ok;
     } else error! {
@@ -175,15 +175,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    var opened: fs::File;
+    let mut opened: fs::File;
     if let !value = cwd.open_file(path, fs::OpenOptions::read_only()) {
         opened = value;
     } else error! {
         return (5 as process::ExitCode)!;
     }
-    var read_buffer: [64]u8 = [0; 64];
-    var reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
-    var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
+    let mut read_buffer: [64]u8 = [0; 64];
+    let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
+    let mut bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
     if let !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
     } else error! {
@@ -194,8 +194,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (7 as process::ExitCode)!;
     }
-    var expected: &[u8] = b"nia fs";
-    var index = 0usize;
+    let mut expected: &[u8] = b"nia fs";
+    let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
             return (8 as process::ExitCode)!;
@@ -246,15 +246,15 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::PathView::init("data.txt");
-    var file: fs::File;
+    let mut path = fs::PathView::init("data.txt");
+    let mut file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
     }
-    var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
+    let mut write_buffer: [16]u8 = [0; 16];
+    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"open close") {
         _ = ok;
     } else error! {
@@ -271,15 +271,15 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    var opened: fs::File;
+    let mut opened: fs::File;
     if let !value = fs::File::open(path, fs::OpenOptions::read_only()) {
         opened = value;
     } else error! {
         return (5 as process::ExitCode)!;
     }
-    var read_buffer: [16]u8 = [0; 16];
-    var reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
-    var bytes: [10]u8 = [0; 10];
+    let mut read_buffer: [16]u8 = [0; 16];
+    let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
+    let mut bytes: [10]u8 = [0; 10];
     if let !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
     } else error! {
@@ -290,8 +290,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (7 as process::ExitCode)!;
     }
-    var expected: &[u8] = b"open close";
-    var index = 0usize;
+    let mut expected: &[u8] = b"open close";
+    let mut index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
             return (8 as process::ExitCode)!;
@@ -340,7 +340,7 @@ using std::fs;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = if let !value = fs::File::create(fs::PathView::init("data.txt"), fs::CreateOptions::init()) {
+    let mut file = if let !value = fs::File::create(fs::PathView::init("data.txt"), fs::CreateOptions::init()) {
         value
     } else error! {
         return (1 as process::ExitCode)!;
@@ -366,7 +366,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (6 as process::ExitCode)!;
         }
     }
-    var buffer: [8]u8 = [0; 8];
+    let mut buffer: [8]u8 = [0; 8];
     if let !writer = file.writer(init.io(), &mut buffer[..]) {
         _ = writer;
         return (7 as process::ExitCode)!;
@@ -413,7 +413,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd = if let !value = fs::Dir::cwd() {
+    let mut cwd = if let !value = fs::Dir::cwd() {
         value
     } else error! {
         return (1 as process::ExitCode)!;
@@ -486,16 +486,16 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::PathView::init("data.txt");
-    var file: fs::File;
+    let mut path = fs::PathView::init("data.txt");
+    let mut file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
     }
 
-    var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
+    let mut write_buffer: [16]u8 = [0; 16];
+    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"abcdef") {
         _ = ok;
     } else error! {
@@ -626,16 +626,16 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::PathView::init("data.txt");
-    var file: fs::File;
+    let mut path = fs::PathView::init("data.txt");
+    let mut file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
     }
 
-    var write_buffer: [16]u8 = [0; 16];
-    var writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
+    let mut write_buffer: [16]u8 = [0; 16];
+    let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
     if let !ok = writer.write_all(b"metadata") {
         _ = ok;
     } else error! {
@@ -666,7 +666,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (8 as process::ExitCode)!;
     }
 
-    var cwd: fs::Dir;
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -741,8 +741,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var path = fs::PathView::init("data.txt");
-    var file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
+    let mut path = fs::PathView::init("data.txt");
+    let mut file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
     defer file.close().exit().?;
     file.set_permissions(0o755).exit().?;
     !{}
@@ -795,8 +795,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::PathView::init("nia-λ.txt");
-    var cwd: fs::Dir;
+    let mut path = fs::PathView::init("nia-λ.txt");
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -807,14 +807,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         } else error! {}
     };
-    var file: fs::File;
+    let mut file: fs::File;
     if let !value = cwd.create_file(path, fs::CreateOptions::init()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
     }
-    var buffer: [64]u8 = [0; 64];
-    var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
+    let mut buffer: [64]u8 = [0; 64];
+    let mut writer = file.writer(init.io(), &mut buffer[..]).exit().?;
     if let !ok = writer.write_all(b"ok") {
         _ = ok;
     } else error! {
@@ -870,8 +870,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var path = fs::PathView::init("bad\0path");
-    var cwd: fs::Dir;
+    let mut path = fs::PathView::init("bad\0path");
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -931,7 +931,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd: fs::Dir;
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -942,7 +942,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         } else error! {}
     };
-    var file: fs::File;
+    let mut file: fs::File;
     if let !value = cwd.create_file(fs::PathView::init("delete-me.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
@@ -1012,7 +1012,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd: fs::Dir;
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -1030,7 +1030,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
 
-    var file: fs::File;
+    let mut file: fs::File;
     if let !value = cwd.create_file(fs::PathView::init("old-name.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
@@ -1130,7 +1130,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd: fs::Dir;
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -1147,14 +1147,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
 
-    var subdir: fs::Dir;
+    let mut subdir: fs::Dir;
     if let !value = cwd.open_dir(fs::PathView::init("subdir"), fs::OpenDirOptions::init()) {
         subdir = value;
     } else error! {
         return (2 as process::ExitCode)!;
     }
 
-    var file: fs::File;
+    let mut file: fs::File;
     if let !value = subdir.create_file(fs::PathView::init("inside.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
@@ -1244,7 +1244,7 @@ fn bytes_equal(left: &[u8], right: &[u8]) bool {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd: fs::Dir;
+    let mut cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
     } else error! {
@@ -1257,7 +1257,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (2 as process::ExitCode)!;
     }
 
-    var first: fs::File;
+    let mut first: fs::File;
     if let !value = cwd.create_file(fs::PathView::init("entries/alpha.txt"), fs::CreateOptions::init()) {
         first = value;
     } else error! {
@@ -1269,7 +1269,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    var second: fs::File;
+    let mut second: fs::File;
     if let !value = cwd.create_file(fs::PathView::init("entries/beta.txt"), fs::CreateOptions::init()) {
         second = value;
     } else error! {
@@ -1281,24 +1281,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (6 as process::ExitCode)!;
     }
 
-    var dir: fs::Dir;
+    let mut dir: fs::Dir;
     if let !value = cwd.open_dir(fs::PathView::init("entries"), fs::OpenDirOptions::init()) {
         dir = value;
     } else error! {
         return (7 as process::ExitCode)!;
     }
 
-    var buffer: [1024]u8 = [0; 1024];
-    var iter: fs::DirIterator;
+    let mut buffer: [1024]u8 = [0; 1024];
+    let mut iter: fs::DirIterator;
     if let !value = dir.entries(&mut buffer[..]) {
         iter = value;
     } else error! {
         return (8 as process::ExitCode)!;
     }
 
-    var saw_alpha = false;
-    var saw_beta = false;
-    var count = 0usize;
+    let mut saw_alpha = false;
+    let mut saw_beta = false;
+    let mut count = 0usize;
     for result in iter {
         let value = if let !entry = result {
             entry

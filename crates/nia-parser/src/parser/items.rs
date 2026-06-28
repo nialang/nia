@@ -27,10 +27,10 @@ impl Parser {
                 ItemKind::Union(self.parse_union(true)?)
             } else if self.at(TokenKind::Fn) {
                 ItemKind::Function(self.parse_function(true, false)?)
-            } else if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
+            } else if self.at(TokenKind::Let) {
                 ItemKind::Binding(self.parse_binding(true)?)
             } else {
-                self.error_here("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`");
+                self.error_here("expected `struct`, `union`, `fn`, or `let` after `extern`");
                 return None;
             }
         } else if self.at(TokenKind::Struct) {
@@ -47,8 +47,7 @@ impl Parser {
             ItemKind::TypeAlias(self.parse_type_alias()?)
         } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
             ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
-        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) || self.at(TokenKind::Var)
-        {
+        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) {
             ItemKind::Binding(self.parse_binding(false)?)
         } else {
             self.error_here("expected item");
@@ -460,10 +459,8 @@ impl Parser {
                     let span = Span::new(start, self.previous_end());
                     associated_values.push(nia_ast::ExtendAssociatedValue { vis, binding, span });
                 }
-            } else if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
-                self.error_here(
-                    "extend value members must be declared as `comptime let` or `comptime var`",
-                );
+            } else if self.at(TokenKind::Let) {
+                self.error_here("extend value members must be declared as `comptime` values");
                 self.recover_to_member_boundary();
             } else {
                 self.error_here("expected associated type, associated comptime value, or method in extend block");
@@ -710,12 +707,14 @@ impl Parser {
         } else {
             false
         };
-        let is_let = if self.eat(TokenKind::Let).is_some() {
-            true
-        } else if self.eat(TokenKind::Var).is_some() {
+        let is_let = if is_comptime && self.eat(TokenKind::Mut).is_some() {
             false
+        } else if is_comptime && self.at(TokenKind::Ident) {
+            true
+        } else if self.eat(TokenKind::Let).is_some() {
+            self.eat(TokenKind::Mut).is_none()
         } else {
-            self.error_here("expected `let`, `var`, or `comptime let`");
+            self.error_here("expected `let` binding");
             return None;
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;

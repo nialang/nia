@@ -11,8 +11,8 @@ struct Pair {
 }
 
 fn main() usize {
-    var size = @size[Pair]();
-    var align = @align[Pair]();
+    let mut size = @size[Pair]();
+    let mut align = @align[Pair]();
     size + align
 }
 "#,
@@ -49,8 +49,8 @@ union Bits {
 }
 
 fn main() usize {
-    var b = @offset[Pair]("b");
-    var f = @offset[Bits]("f");
+    let mut b = @offset[Pair]("b");
+    let mut f = @offset[Bits]("f");
     b + f
 }
 "#,
@@ -152,8 +152,8 @@ fn take_size(xs: [@size[Pair]()]u8) u8 {
 }
 
 fn main() u8 {
-    var exact: [@size[Pair]()]u8 = [b'\0'; 8];
-    var aligned: [@align[Pair]()]u8 = [b'\0'; 4];
+    let mut exact: [@size[Pair]()]u8 = [b'\0'; 8];
+    let mut aligned: [@align[Pair]()]u8 = [b'\0'; 4];
     _ = take_size(exact);
     aligned[0]
 }
@@ -171,17 +171,17 @@ fn main() u8 {
 fn materializes_runtime_uses_of_comptime_string_values() {
     let checked = pipeline(
         r#"
-comptime let default_value = b"default\0";
-comptime let text_value = "nia";
+comptime default_value = b"default\0";
+comptime text_value = "nia";
 
 fn take_bytes(xs: &[u8]) usize {
     xs.len()
 }
 
 fn main() usize {
-    var selected: &u8 = &default_value.*[0];
-    var bytes: &[u8] = default_value;
-    var chars: &[char] = text_value;
+    let mut selected: &u8 = &default_value.*[0];
+    let mut bytes: &[u8] = default_value;
+    let mut chars: &[char] = text_value;
     (selected as usize) + take_bytes(default_value) + bytes.len() + chars.len()
 }
 "#,
@@ -278,7 +278,7 @@ fn typed_expr_contains_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
 fn materializes_comptime_byte_string_call_arguments() {
     let checked = pipeline(
         r#"
-comptime let default_value = b"default\0";
+comptime default_value = b"default\0";
 
 fn take_bytes(xs: &[u8]) usize {
     xs.len()
@@ -306,11 +306,11 @@ fn write(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    var xs: [4]i32 = [1, 2, 3, 4];
-    var s = & xs[..];
-    var t = & xs[1..=2];
-    var p = & xs[0];
-    var single = & p[..];
+    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut s = & xs[..];
+    let mut t = & xs[1..=2];
+    let mut p = & xs[0];
+    let mut single = & p[..];
     _ = s.get_ptr_read();
     xs.len() as i32 + s.len() as i32 + t.len() as i32 + single.len() as i32 + read(s)
 }
@@ -324,7 +324,7 @@ fn checks_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
 fn main() void {
-    var dst: [4]u8 = [0, 0, 0, 0];
+    let mut dst: [4]u8 = [0, 0, 0, 0];
     let src: [4]u8 = [1, 2, 3, 4];
     @memcpy(&mut dst[..], &src[..]);
     @memmove(&mut dst[1..], &dst[0..3]);
@@ -364,7 +364,7 @@ fn readonly(xs: & [u8]) void {
 }
 
 fn memset_non_byte() void {
-    var xs: [2]i32 = [1, 2];
+    let mut xs: [2]i32 = [1, 2];
     @memset(&mut xs[..], 0);
 }
 "#,
@@ -392,7 +392,7 @@ fn rejects_bare_range_index_and_readonly_slice_assignment() {
     let checked = pipeline(
         r#"
 fn main(xs: & [i32]) i32 {
-    var y = xs[..];
+    let mut y = xs[..];
     xs[0] = 1;
     0
 }
@@ -422,8 +422,8 @@ fn checks_array_literal_element_types() {
     let checked = pipeline(
         r#"
 fn main(flag: bool) i32 {
-    var xs: [2]i32 = [1, flag];
-    var ys: [3]i32 = [flag; 3];
+    let mut xs: [2]i32 = [1, flag];
+    let mut ys: [3]i32 = [flag; 3];
     0
 }
 "#,
@@ -447,10 +447,10 @@ fn take_pair(xs: [2]i32) i32 {
 }
 
 fn main() i32 {
-    var inferred: [2]i32 = [1, 2];
-    var repeated: [3]i32 = [1; 3];
-    var too_many: [2]i32 = [1, 2, 3];
-    var bad_repeat: [2]i32 = [1; 3];
+    let mut inferred: [2]i32 = [1, 2];
+    let mut repeated: [3]i32 = [1; 3];
+    let mut too_many: [2]i32 = [1, 2, 3];
+    let mut bad_repeat: [2]i32 = [1; 3];
     take_pair([1, 2])
 }
 "#,
@@ -481,7 +481,7 @@ fn main() i32 {
 fn infers_unannotated_array_literal_bindings() {
     let checked = pipeline(
         r#"
-var global_xs = [1, 2, 3];
+let mut global_xs = [1, 2, 3];
 
 fn take_triplet(xs: [3]i32) i32 {
     xs[2]
@@ -500,15 +500,15 @@ fn take_box_matrix(xs: [2][2]Box[i32]) i32 {
 }
 
 fn main() i32 {
-    var xs = [1, 2, 3];
-    var repeated = [1; 3];
-    var anchored = [1, xs[0], 3];
-    var matrix = [[1, 2], [3, 4]];
-    var typed_matrix = [2][2]Box[i32][
+    let mut xs = [1, 2, 3];
+    let mut repeated = [1; 3];
+    let mut anchored = [1, xs[0], 3];
+    let mut matrix = [[1, 2], [3, 4]];
+    let mut typed_matrix = [2][2]Box[i32][
         [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
         [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
     ];
-    var bad = [xs[0], true];
+    let mut bad = [xs[0], true];
     _ = take_triplet(global_xs);
     _ = take_triplet(xs);
     _ = take_triplet(repeated);
@@ -555,7 +555,7 @@ fn touch(xs: &mut ([2][2]i32)) void {
 }
 
 fn main() void {
-    var matrix: [2][2]i32 = [[1, 2], [3, 4]];
+    let mut matrix: [2][2]i32 = [[1, 2], [3, 4]];
     touch(&mut matrix);
 }
 "#,
@@ -608,8 +608,8 @@ where T: Sized
 }
 
 fn main() void {
-    var values: [3]i32 = [1, 2, 3];
-    var slice = &mut values[..];
+    let mut values: [3]i32 = [1, 2, 3];
+    let mut slice = &mut values[..];
     for value in slice.iter_mut() {
         value.* = value.* + 1;
     }
@@ -624,7 +624,7 @@ fn reports_invalid_array_repeat_count() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    var bad: [2]i32 = [1; 1 / 0];
+    let mut bad: [2]i32 = [1; 1 / 0];
     0
 }
 "#,
@@ -641,10 +641,10 @@ fn main() i32 {
 fn checks_large_array_repeat_count_from_comptime_binding() {
     let checked = pipeline(
         r#"
-comptime let N: usize = 1048576;
+comptime N: usize = 1048576;
 
 fn main() i32 {
-    var buffer: [N]u8 = [0u8; N];
+    let mut buffer: [N]u8 = [0u8; N];
     0
 }
 "#,
@@ -666,28 +666,28 @@ fn checks_text_and_byte_string_literal_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    var text: [3]char = "中a\n".*;
-    var adjacent_text: [9]char = ("中" "" "a\n" "" "b" "c" "" "done").*;
-    var inferred_text: [_]char = "hi".*;
-    var multiline: [11]char = (
+    let mut text: [3]char = "中a\n".*;
+    let mut adjacent_text: [9]char = ("中" "" "a\n" "" "b" "c" "" "done").*;
+    let mut inferred_text: [_]char = "hi".*;
+    let mut multiline: [11]char = (
         \\hello
         \\world
     ).*;
-    var byte_multiline: [11]u8 = (
+    let mut byte_multiline: [11]u8 = (
         b\\hello
         \\world
     ).*;
-    var bytes: [4]u8 = b"nia\0".*;
-    var adjacent_bytes: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
-    var nul_terminated: [4]u8 = b"nia\0".*;
-    var adjacent_nul_terminated: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
-    var wrong_text_len: [2]char = "中a\n".*;
-    var bad_bytes: [3]u8 = "nia";
-    var byte: u8 = b'a';
-    var ch: char = 'a';
-    var code: u32 = ch as u32;
-    var bad_char: char = code as char;
-    var bad_byte: u8 = 'a';
+    let mut bytes: [4]u8 = b"nia\0".*;
+    let mut adjacent_bytes: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
+    let mut nul_terminated: [4]u8 = b"nia\0".*;
+    let mut adjacent_nul_terminated: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
+    let mut wrong_text_len: [2]char = "中a\n".*;
+    let mut bad_bytes: [3]u8 = "nia";
+    let mut byte: u8 = b'a';
+    let mut ch: char = 'a';
+    let mut code: u32 = ch as u32;
+    let mut bad_char: char = code as char;
+    let mut bad_byte: u8 = 'a';
     0
 }
 "#,
@@ -725,9 +725,9 @@ extern fn puts(ptr: &u8) i32;
 let hello = b"hello\0";
 
 fn main(flag: bool) i32 {
-    var xs: [2]u8 = [1, 2];
-    var p: &u8 = &xs[0];
-    var c: &u8 = &(hello.*[0]);
+    let mut xs: [2]u8 = [1, 2];
+    let mut p: &u8 = &xs[0];
+    let mut c: &u8 = &(hello.*[0]);
     _ = puts(&(hello.*[0]));
     _ = xs[flag];
     0
@@ -772,26 +772,26 @@ fn bytes(xs: & [u8]) i32 {
 }
 
 fn main() i32 {
-    var ro: & [char] = "abc";
-    var rb: & [u8] = b"abc";
-    var rc: & [u8] = b"hi\0";
-    var cast_text: & [char] = "abc" as &[char];
-    var cast_bytes: & [u8] = b"abc" as &[u8];
-    var cast_cbytes: & [u8] = b"hi\0" as &[u8];
-    var arr: [2]i32 = [6, 7];
-    var from_place: & [i32] = &arr;
-    var cast_from_place: & [i32] = &arr as &[i32];
-    var from_string: & [u8] = b"hi\0";
-    var literal_ptr: &u8 = b"hi\0".get_ptr_read();
+    let mut ro: & [char] = "abc";
+    let mut rb: & [u8] = b"abc";
+    let mut rc: & [u8] = b"hi\0";
+    let mut cast_text: & [char] = "abc" as &[char];
+    let mut cast_bytes: & [u8] = b"abc" as &[u8];
+    let mut cast_cbytes: & [u8] = b"hi\0" as &[u8];
+    let mut arr: [2]i32 = [6, 7];
+    let mut from_place: & [i32] = &arr;
+    let mut cast_from_place: & [i32] = &arr as &[i32];
+    let mut from_string: & [u8] = b"hi\0";
+    let mut literal_ptr: &u8 = b"hi\0".get_ptr_read();
     _ = take(&[1, 2, 3]);
     _ = mutate(&mut [4, 5]);
     _ = bytes(b"hi\0");
     _ = literal_ptr;
 
-    var int_ptr: &i32 = &10;
-    var sum_ptr: &i32 = &(1 + 2);
-    var call_ptr: &i32 = &make();
-    var temp_slice: & [i32] = & [1, 2, 3][..];
+    let mut int_ptr: &i32 = &10;
+    let mut sum_ptr: &i32 = &(1 + 2);
+    let mut call_ptr: &i32 = &make();
+    let mut temp_slice: & [i32] = & [1, 2, 3][..];
     0
 }
 
@@ -848,11 +848,11 @@ fn take(xs: &[i32]) i32 {
 }
 
 fn main() i32 {
-    var arr: [2]i32 = [1, 2];
-    var from_place: &[i32] = arr;
-    var from_literal: &[i32] = [3, 4];
-    var cast_place = arr as &[i32];
-    var cast_literal = [2]i32[7, 8] as &[i32];
+    let mut arr: [2]i32 = [1, 2];
+    let mut from_place: &[i32] = arr;
+    let mut from_literal: &[i32] = [3, 4];
+    let mut cast_place = arr as &[i32];
+    let mut cast_literal = [2]i32[7, 8] as &[i32];
     take(arr) + take([5, 6])
 }
 "#,
@@ -901,8 +901,8 @@ fn generic_slice[T](xs: &[T]) T {
 }
 
 fn main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
-    var ro_ptr: &i32 = mut_ptr;
-    var ro_slice: &[i32] = mut_slice;
+    let mut ro_ptr: &i32 = mut_ptr;
+    let mut ro_slice: &[i32] = mut_slice;
     read_ptr(mut_ptr)
         + read_slice(mut_slice)
         + generic_ptr(mut_ptr)
@@ -955,9 +955,9 @@ fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
 fn main() void {
-    var bytes: [4]u8 = [1, 2, 3, 0];
-    var byte_ptr: &u8 = b"hello";
-    var array_ptr: &u8 = bytes;
+    let mut bytes: [4]u8 = [1, 2, 3, 0];
+    let mut byte_ptr: &u8 = b"hello";
+    let mut array_ptr: &u8 = bytes;
     _ = byte_ptr;
     _ = array_ptr;
 }

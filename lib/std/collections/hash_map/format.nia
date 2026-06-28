@@ -11,7 +11,7 @@ where K: Sized + fmt::Format, V: Sized + fmt::Format, C: HashMapContext[K]
 {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         formatter.write_byte(b'{').?;
-        var first = true;
+        let mut first = true;
         for entry in self.iter() {
             if first {
                 first = false;

@@ -32,8 +32,8 @@ fn checked_pair(values: &[i32]) i32!i32 {
 pub fn main(init: Init) ExitCode!void {
     _ = init;
 
-    var values: [3]i32 = [10, 20, 32];
-    var pair_sum = 0;
+    let mut values: [3]i32 = [10, 20, 32];
+    let mut pair_sum = 0;
     // if let destructures success and error-union cases explicitly.
     if let !sum = checked_pair(&values) {
         pair_sum = sum;

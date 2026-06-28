@@ -10,7 +10,7 @@ fn records_body_facts_by_source_versioned_node_keys() {
     let syntax = nia_syntax::parse_source(
         r#"
 fn main() i32 {
-    var x = 1;
+    let mut x = 1;
     x
 }
 "#,
@@ -152,15 +152,15 @@ fn text(xs: & [char]) usize { xs.len() }
 fn cstr(value: & u8) usize { 1 }
 
 fn main() i32 {
-    var x = 1;
-    var y = id(x);
-    var n = @size[Pair]();
-    var s = take(&[1, 2, 3]);
-    var literal_slice: &[i32] = &[4, 5, 6];
-    var t = text("ok");
+    let mut x = 1;
+    let mut y = id(x);
+    let mut n = @size[Pair]();
+    let mut s = take(&[1, 2, 3]);
+    let mut literal_slice: &[i32] = &[4, 5, 6];
+    let mut t = text("ok");
     let ok = b"ok\0";
-    var p = cstr(&(ok.*[0]));
-    var q = call_ptr(& id, y);
+    let mut p = cstr(&(ok.*[0]));
+    let mut q = call_ptr(& id, y);
     q + n as i32 + s as i32 + literal_slice.len() as i32 + t as i32 + p as i32
 }
 "#,

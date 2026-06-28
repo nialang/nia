@@ -177,15 +177,15 @@ erased. It does not mean that a `void` object can be read or written.
 Dereferencing `&void` is invalid:
 
 ```nia
-var p: &void = &value as &void;
+let mut p: &void = &value as &void;
 p.* // invalid
 ```
 
 Pointer erasure to `&void` is explicit:
 
 ```nia
-var p: &void = &value as &void;
-var q: &mut void = &mut value as &mut void;
+let mut p: &void = &value as &void;
+let mut q: &mut void = &mut value as &mut void;
 ```
 
 Nia does not perform implicit `&T -> &void` coercions.
@@ -530,7 +530,7 @@ C-layout types.
 
 ## 16. Static Data ABI
 
-Top-level `let` and `var` storage uses the ABI representation of its type.
+Top-level `let` and `let mut` storage uses the ABI representation of its type.
 
 Static aggregate initializers must be emitted in physical layout order, not
 source field order.

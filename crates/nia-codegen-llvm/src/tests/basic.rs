@@ -37,8 +37,8 @@ extern struct Point {
 extern fn use_point(p: Point) i32;
 
 fn main() i32 {
-    var x = 40;
-    var y = 2;
+    let mut x = 40;
+    let mut y = 2;
     x + y
 }
 "#,

@@ -31,10 +31,10 @@ extend Error!DeinitStatus {
     }
 }
 
-comptime let max_small_size: usize = 2048usize;
-comptime let min_slot_size: usize = 16usize;
-comptime let small_magic: usize = 0x6e69615f67707331usize;
-comptime let large_magic: usize = 0x6e69615f67706131usize;
+comptime max_small_size: usize = 2048usize;
+comptime min_slot_size: usize = 16usize;
+comptime small_magic: usize = 0x6e69615f67707331usize;
+comptime large_magic: usize = 0x6e69615f67706131usize;
 
 struct SmallSlot {
     magic: usize,
@@ -92,8 +92,8 @@ extend GeneralPurposeAllocator {
     }
 
     pub fn query_capacity(&self) usize {
-        var total = 0usize;
-        var page = self.small_pages;
+        let mut total = 0usize;
+        let mut page = self.small_pages;
         while true {
             if let ?item = page {
                 total = saturating_add(total, item.block.size());
@@ -103,7 +103,7 @@ extend GeneralPurposeAllocator {
             }
         }
 
-        var large = self.large_allocations;
+        let mut large = self.large_allocations;
         while true {
             if let ?item = large {
                 total = saturating_add(total, item.backing.size());
@@ -116,8 +116,8 @@ extend GeneralPurposeAllocator {
     }
 
     pub fn query_used(&self) usize {
-        var total = 0usize;
-        var page = self.small_pages;
+        let mut total = 0usize;
+        let mut page = self.small_pages;
         while true {
             if let ?item = page {
                 total = saturating_add(total, item.used_bytes);
@@ -127,7 +127,7 @@ extend GeneralPurposeAllocator {
             }
         }
 
-        var large = self.large_allocations;
+        let mut large = self.large_allocations;
         while true {
             if let ?item = large {
                 total = saturating_add(total, item.user_layout.size());
@@ -161,14 +161,14 @@ extend GeneralPurposeAllocator : Allocator {
             return new_layout.is_empty();
         }
         let small_page = self.find_small_page(block);
-        if var ?page = small_page {
+        if let mut ?page = small_page {
             if new_layout.is_empty() {
                 return false;
             }
             if block.align() != new_layout.align() {
                 return false;
             }
-            var slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
+            let mut slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
                 value
             } else null {
                 return false;
@@ -205,7 +205,7 @@ extend GeneralPurposeAllocator : Allocator {
         } else null {
             _ = small_page;
         }
-        if var ?header = self.find_large_header(block.ptr()) {
+        if let mut ?header = self.find_large_header(block.ptr()) {
             if header.user_layout.size() != block.size() or header.user_layout.align() != block.align() {
                 return false;
             }
@@ -246,12 +246,12 @@ extend GeneralPurposeAllocator : Allocator {
 
 extend GeneralPurposeAllocator {
     fn alloc_small(&mut self, layout: Layout, slot_size: usize) Error!Block {
-        var page = if let ?item = self.find_page_with_free_slot(slot_size) {
+        let mut page = if let ?item = self.find_page_with_free_slot(slot_size) {
             item
         } else null {
             self.allocate_small_page(slot_size).?
         };
-        var slot = if let ?item = page.free_list {
+        let mut slot = if let ?item = page.free_list {
             item
         } else null {
             return Error::OutOfMemory!;
@@ -275,7 +275,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn free_small(&mut self, page: &mut SmallPage, block: Block) Error!void {
-        var slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
+        let mut slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
             value
         } else null {
             return Error::Invalid!;
@@ -303,7 +303,7 @@ extend GeneralPurposeAllocator {
         let page_size = os::page_size();
         let block_layout = Layout::init(page_size, page_size).?;
         let block = self.child.alloc(block_layout).?;
-        var page = block.ptr() as &mut SmallPage;
+        let mut page = block.ptr() as &mut SmallPage;
         page.* = {
             block: block,
             slot_size: slot_size,
@@ -340,10 +340,10 @@ extend GeneralPurposeAllocator {
             return Error::OutOfMemory!;
         }
 
-        var index = 0usize;
+        let mut index = 0usize;
         while index < slot_count {
             let addr = payload_base + index * slot_size;
-            var slot = addr as &mut SmallSlot;
+            let mut slot = addr as &mut SmallSlot;
             slot.* = {
                 magic: small_magic,
                 size: 0usize,
@@ -361,13 +361,13 @@ extend GeneralPurposeAllocator {
     }
 
     fn release_empty_small_page(&mut self, page: &mut SmallPage) Error!void {
-        var current = self.small_pages;
-        var previous: ?&mut SmallPage = null;
+        let mut current = self.small_pages;
+        let mut previous: ?&mut SmallPage = null;
         while true {
-            if var ?item = current {
+            if let mut ?item = current {
                 let next = item.next;
                 if item as usize == page as usize {
-                    if var ?prev = previous {
+                    if let mut ?prev = previous {
                         prev.next = next;
                     } else null {
                         self.small_pages = next;
@@ -415,7 +415,7 @@ extend GeneralPurposeAllocator {
         };
         let header_addr = user_addr - header_size;
         let user_capacity = backing.size() - (user_addr - base);
-        var header = header_addr as &mut LargeHeader;
+        let mut header = header_addr as &mut LargeHeader;
         header.* = {
             magic: large_magic,
             backing: backing,
@@ -428,10 +428,10 @@ extend GeneralPurposeAllocator {
     }
 
     fn free_large(&mut self, block: Block) Error!void {
-        var current = self.large_allocations;
-        var previous: ?&mut LargeHeader = null;
+        let mut current = self.large_allocations;
+        let mut previous: ?&mut LargeHeader = null;
         while true {
-            if var ?header = current {
+            if let mut ?header = current {
                 let next = header.next;
                 if large_header_user_ptr(header) as usize == block.ptr() as usize {
                     if header.magic != large_magic {
@@ -440,7 +440,7 @@ extend GeneralPurposeAllocator {
                     if header.user_layout.size() != block.size() or header.user_layout.align() != block.align() {
                         return Error::Invalid!;
                     }
-                    if var ?prev = previous {
+                    if let mut ?prev = previous {
                         prev.next = next;
                     } else null {
                         self.large_allocations = next;
@@ -463,7 +463,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn find_page_with_free_slot(&mut self, slot_size: usize) ?&mut SmallPage {
-        var current = self.small_pages;
+        let mut current = self.small_pages;
         while true {
             if let ?page = current {
                 if page.slot_size == slot_size {
@@ -482,7 +482,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn find_small_page(&mut self, block: Block) ?&mut SmallPage {
-        var current = self.small_pages;
+        let mut current = self.small_pages;
         while true {
             if let ?page = current {
                 if small_page_contains_ptr(page, block.ptr()) {
@@ -497,7 +497,7 @@ extend GeneralPurposeAllocator {
     }
 
     fn find_large_header(&mut self, ptr: &mut u8) ?&mut LargeHeader {
-        var current = self.large_allocations;
+        let mut current = self.large_allocations;
         while true {
             if let ?header = current {
                 if large_header_user_ptr(header) as usize == ptr as usize {
@@ -512,12 +512,12 @@ extend GeneralPurposeAllocator {
     }
 
     fn free_detached_lists(&mut self, small: ?&mut SmallPage, large: ?&mut LargeHeader) Error!void {
-        var failed = false;
-        var first_error = Error::Invalid;
+        let mut failed = false;
+        let mut first_error = Error::Invalid;
 
-        var page = small;
+        let mut page = small;
         while true {
-            if var ?item = page {
+            if let mut ?item = page {
                 let next = item.next;
                 item.next = null;
                 if let !ok = self.child.free(item.block) {
@@ -536,9 +536,9 @@ extend GeneralPurposeAllocator {
             }
         }
 
-        var header = large;
+        let mut header = large;
         while true {
-            if var ?item = header {
+            if let mut ?item = header {
                 let next = item.next;
                 item.next = null;
                 if let !ok = self.child.free(item.backing) {
@@ -567,7 +567,7 @@ fn small_slot_size(layout: Layout) ?usize {
     if layout.size() > max_small_size or layout.align() > max_small_size {
         return null;
     }
-    var slot_size = min_slot_size;
+    let mut slot_size = min_slot_size;
     let with_header = if let ?value = @size[SmallSlot]().checked_add(layout.align()) {
         value
     } else null {

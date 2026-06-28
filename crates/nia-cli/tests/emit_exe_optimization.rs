@@ -79,10 +79,10 @@ fn plus_two(value: i32) i32 {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var x = answer();
-    var y = x;
+    let mut x = answer();
+    let mut y = x;
     y = identity[i32](y);
-    var unused = plus_two(99);
+    let mut unused = plus_two(99);
     (pick(true, plus_two(y), unused) as process::ExitCode)!
 }
 "#,

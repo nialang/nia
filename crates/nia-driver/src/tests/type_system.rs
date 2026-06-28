@@ -388,8 +388,8 @@ extend Counter : Iterator {
 }
 
 fn main() i32 {
-    var total = 0;
-    var iter = Counter { current: 0, end: 3 };
+    let mut total = 0;
+    let mut iter = Counter { current: 0, end: 3 };
     for _ in iter {
         total += 1;
     }
@@ -419,7 +419,7 @@ extend Counter : Iterator {
 }
 
 fn main() void {
-    var iter = Counter {};
+    let mut iter = Counter {};
     for &value in iter {}
 }
 "#,
@@ -430,7 +430,7 @@ fn main() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("binding pattern requires value to be a read-only pointer")),
+            .contains("for pattern requires value to be a read-only pointer")),
         "{:?}",
         program.diagnostics
     );
@@ -844,7 +844,7 @@ fn checks_qualified_explicit_generic_function_calls() {
 module math;
 using entry::math;
 fn main(flag: bool) i32 {
-    var x: i32 = math::id[i32](1);
+    let mut x: i32 = math::id[i32](1);
     _ = math::id[i32](flag);
     x
 }
@@ -887,7 +887,7 @@ fn checks_qualified_inferred_generic_function_calls() {
 module math;
 using entry::math;
 fn main(flag: bool) i32 {
-    var x: i32 = math::id(1);
+    let mut x: i32 = math::id(1);
     _ = math::choose(1, flag);
     x
 }
@@ -936,8 +936,8 @@ fn id[T](value: T) T {
 }
 
 fn main() i32 {
-    var a: i32 = id(1);
-    var b: i32 = id(2);
+    let mut a: i32 = id(1);
+    let mut b: i32 = id(2);
     a + b
 }
 "#,
@@ -1216,7 +1216,7 @@ fn grow[T](value: &T) i32 {
 }
 
 fn main() i32 {
-    var value = 1;
+    let mut value = 1;
     grow[i32](&value)
 }
 "#,
@@ -1336,7 +1336,7 @@ module geom;
 using entry::geom;
 
 fn main() i32 {
-    var p: geom::Point = { x: 40, y: 2 };
+    let mut p: geom::Point = { x: 40, y: 2 };
     p.x + p.y
 }
 "#,

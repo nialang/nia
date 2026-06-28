@@ -32,9 +32,9 @@ fn checks_unary_operator_builtin_traits() {
     let checked = pipeline(
         r#"
 fn main(flag: bool, bits: u32, x: i32) bool {
-    var neg = -x;
-    var flipped = ~bits;
-    var logical = not flag;
+    let mut neg = -x;
+    let mut flipped = ~bits;
+    let mut logical = not flag;
     neg < 0 and flipped != bits and logical
 }
 "#,
@@ -46,7 +46,7 @@ fn main(flag: bool, bits: u32, x: i32) bool {
 fn lowers_comptime_value_binary_operator_suffix_literal_types() {
     let checked = pipeline(
         r#"
-comptime let group_width: usize = 8usize;
+comptime group_width: usize = 8usize;
 
 fn main() usize {
     group_width - 1usize
@@ -98,8 +98,8 @@ fn rejects_unary_operators_without_builtin_trait_impls() {
     let checked = pipeline(
         r#"
 fn main(flag: bool, x: i32) bool {
-    var bad_bits = ~flag;
-    var bad_not = not x;
+    let mut bad_bits = ~flag;
+    let mut bad_not = not x;
     bad_bits or bad_not
 }
 "#,
@@ -125,13 +125,13 @@ fn char_supports_builtin_equality_and_ordering() {
     let checked = pipeline(
         r#"
 fn main(a: char, b: char, n: u32) bool {
-    var eq = a == b;
-    var ne = a != b;
-    var lt = a < b;
-    var le = a <= b;
-    var gt = a > b;
-    var ge = a >= b;
-    var bad = a == n;
+    let mut eq = a == b;
+    let mut ne = a != b;
+    let mut lt = a < b;
+    let mut le = a <= b;
+    let mut gt = a > b;
+    let mut ge = a >= b;
+    let mut bad = a == n;
     eq or ne or lt or le or gt or ge or bad
 }
 "#,
@@ -305,11 +305,11 @@ fn checks_shift_operators() {
     let checked = pipeline(
         r#"
 fn main(flag: bool, wide: u128, count: u32) i32 {
-    var x = 1 << 3;
-    var y = x >> 1;
-    var high = wide >> count;
-    var z = x << flag;
-    var bad = flag << 1;
+    let mut x = 1 << 3;
+    let mut y = x >> 1;
+    let mut high = wide >> count;
+    let mut z = x << flag;
+    let mut bad = flag << 1;
     _ = high;
     y + z + bad
 }
@@ -335,10 +335,10 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
 fn checks_global_initializers_and_inferred_global_types() {
     let checked = pipeline(
         r#"
-var counter = 1;
-var flag = true;
+let mut counter = 1;
+let mut flag = true;
 let limit = 10;
-var bad: bool = 1;
+let mut bad: bool = 1;
 
 fn main() i32 {
     counter = counter + 1;

@@ -959,7 +959,7 @@ mod tests {
             .note("parser was recovering after a missing token")
             .help("insert `;` before this statement")
             .finish();
-        let rendered = render_diagnostic("main.nia", "var x = 1;\nprint(x);\n", &diagnostic);
+        let rendered = render_diagnostic("main.nia", "let mut x = 1;\nprint(x);\n", &diagnostic);
         assert!(rendered.contains("error[E0101]: expected `;` after binding"));
         assert!(rendered.contains("--> main.nia:2:1"));
         assert!(rendered.contains("2 | print(x);"));

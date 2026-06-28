@@ -19,7 +19,7 @@ extend[T] Box[T] {
 }
 
 fn main() i32 {
-    var b = Box[i32]::make(42);
+    let mut b = Box[i32]::make(42);
     b.value
 }
 "#,
@@ -131,7 +131,7 @@ using entry::share;
 extern fn read_readonly() &u8;
 
 fn main(mut_ptr: &mut u8) i32 {
-    var readonly_ptr = read_readonly();
+    let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
@@ -202,8 +202,8 @@ extend Box[i32] {
 }
 
 fn main() i32 {
-    var a = Box[i32]::make(41);
-    var b = Box[bool]::make(true);
+    let mut a = Box[i32]::make(41);
+    let mut b = Box[bool]::make(true);
     if b.value { a.value } else { 0 }
 }
 "#,
@@ -250,7 +250,7 @@ fn apply(p: & Point, f: &fn(& Point) i32) i32 {
 }
 
 fn main() i32 {
-    var p: Point = { x: 42 };
+    let mut p: Point = { x: 42 };
     apply(& p, & Point::get)
 }
 "#,
@@ -289,7 +289,7 @@ fn apply(box: & Box[i32], f: &fn(& Box[i32]) i32) i32 {
 }
 
 fn main() i32 {
-    var box: Box[i32] = { value: 42 };
+    let mut box: Box[i32] = { value: 42 };
     apply(& box, & Box[i32]::get)
 }
 "#,
@@ -404,8 +404,8 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var is_null: &fn(&u8) bool = & [&u8]::is_null;
-    var zero: &fn() usize = & [&u8]::zero;
+    let is_null: &fn(&u8) bool = & [&u8]::is_null;
+    let zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
@@ -442,7 +442,7 @@ extend &&&&&& &&i32 {
 }
 
 fn main(ptr: &&&&&& &&i32) bool {
-    var is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+    let is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
     is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,

@@ -13,10 +13,10 @@ comptime fn width() usize {
     i
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -40,12 +40,12 @@ fn comptime_function_rejects_assignment_value_type_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var i: usize = 2;
+    let mut i: usize = 2;
     i = true;
     i
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -67,12 +67,12 @@ fn comptime_function_rejects_int_assignment_to_bool() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var value: bool = true;
+    let mut value: bool = true;
     value = 1usize;
     1usize
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -94,12 +94,12 @@ fn comptime_function_rejects_array_assignment_shape_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var values: [2]usize = [1usize, 2usize];
+    let mut values: [2]usize = [1usize, 2usize];
     values = true;
     values.len()
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -121,12 +121,12 @@ fn comptime_function_rejects_array_assignment_length_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var values: [2]usize = [1usize, 2usize];
+    let mut values: [2]usize = [1usize, 2usize];
     values = [1usize; 3usize];
     values.len()
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -148,12 +148,12 @@ fn comptime_function_rejects_optional_assignment_shape_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var value: ?usize = ?1usize;
+    let mut value: ?usize = ?1usize;
     value = true;
     1usize
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -175,12 +175,12 @@ fn comptime_function_rejects_error_union_assignment_shape_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var value: usize!usize = !1usize;
+    let mut value: usize!usize = !1usize;
     value = true;
     1usize
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -202,12 +202,12 @@ fn comptime_function_rejects_struct_assignment_missing_field() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var config = {width: 4usize, enabled: true};
+    let mut config = {width: 4usize, enabled: true};
     config = {width: 8usize};
     config.width
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -236,12 +236,12 @@ struct Point {
 }
 
 comptime fn width() usize {
-    var p: Point = Point{x: 1usize, y: 2usize};
+    let mut p: Point = Point{x: 1usize, y: 2usize};
     p = Point{x: 3usize};
     p.x
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -265,12 +265,12 @@ fn comptime_function_rejects_struct_assignment_extra_field() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var config = {width: 4usize};
+    let mut config = {width: 4usize};
     config = {width: 8usize, enabled: true};
     config.width
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -299,12 +299,12 @@ struct Point {
 }
 
 comptime fn width() usize {
-    var p: Point = Point{x: 1usize, y: 2usize};
+    let mut p: Point = Point{x: 1usize, y: 2usize};
     p = Point{x: 3usize, y: 4usize, z: 5usize};
     p.x
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -333,16 +333,16 @@ struct Point {
 }
 
 comptime fn width() usize {
-    var p: Point = Point{x: 2, y: 3};
+    let mut p: Point = Point{x: 2, y: 3};
     p.x += 4;
     p.y = p.x + p.y;
     p.y
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -359,8 +359,8 @@ fn comptime_function_mutates_array_indexes() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var values: [4]usize = [1, 2, 3, 4];
-    var i: usize = 0;
+    let mut values: [4]usize = [1, 2, 3, 4];
+    let mut i: usize = 0;
     while i < 4 {
         let value = i;
         values[i] += value;
@@ -369,10 +369,10 @@ comptime fn width() usize {
     values[0] + values[1] + values[2] + values[3]
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -389,17 +389,17 @@ fn comptime_for_in_rejects_range_iter_method() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var total: usize = 0;
+    let mut total: usize = 0;
     for value in (0usize..4usize).iter() {
         total += value;
     }
     total
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -431,7 +431,7 @@ struct Config {
 }
 
 comptime fn width() usize {
-    var config: Config = Config{
+    let mut config: Config = Config{
         pairs: [
             Pair{values: [1, 2]},
             Pair{values: [3, 4]},
@@ -442,10 +442,10 @@ comptime fn width() usize {
     config.pairs[0].values[1]
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -471,10 +471,10 @@ comptime fn width() usize {
     p.x
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -502,12 +502,12 @@ struct Point {
 }
 
 comptime fn width() usize {
-    var p: Point = Point{x: 1};
+    let mut p: Point = Point{x: 1};
     p.x = true;
     p.x
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -537,10 +537,10 @@ comptime fn width(bits: usize) usize {
     return 8;
 }
 
-comptime let n: usize = width(32);
+comptime n: usize = width(32);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -557,17 +557,17 @@ fn comptime_function_for_in_arrays_require_iterator() {
         &root.join("main.nia"),
         r#"
 comptime fn width(values: [4]usize) usize {
-    var total: usize = 0;
+    let mut total: usize = 0;
     for value in values {
         total += value;
     }
     total
 }
 
-comptime let n: usize = width([1, 2, 3, 4]);
+comptime n: usize = width([1, 2, 3, 4]);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -591,7 +591,7 @@ fn comptime_function_for_in_ranges_require_iterator() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var total: usize = 0;
+    let mut total: usize = 0;
     for value in 0usize..=5usize {
         if value == 2usize {
             continue;
@@ -604,10 +604,10 @@ comptime fn width() usize {
     total
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -631,17 +631,17 @@ fn comptime_function_rejects_for_in_ranges_without_iterator() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var total: usize = 0;
+    let mut total: usize = 0;
     for value in ..5usize {
         total += value;
     }
     total
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -678,18 +678,18 @@ extend Counter : Iterator {
 }
 
 comptime fn width() usize {
-    var total: usize = 0;
-    var iter = Counter{current: 0, end: 4};
+    let mut total: usize = 0;
+    let mut iter = Counter{current: 0, end: 4};
     for value in iter {
         total += value;
     }
     total
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -716,10 +716,10 @@ comptime fn width() usize {
     break;
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -749,10 +749,10 @@ comptime fn width() usize {
     return 1;
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,

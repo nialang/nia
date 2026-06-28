@@ -38,7 +38,7 @@ extend StringBuf {
     }
 
     pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!StringBuf {
-        var text = collections::ArrayList[char]::init_capacity(allocator, capacity).?;
+        let mut text = collections::ArrayList[char]::init_capacity(allocator, capacity).?;
         !StringBuf { text: text }
     }
 
@@ -47,7 +47,7 @@ extend StringBuf {
     }
 
     pub fn from_slice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!StringBuf {
-        var out = StringBuf::init_capacity(allocator, text.len()).?;
+        let mut out = StringBuf::init_capacity(allocator, text.len()).?;
         out.append(allocator, text).?;
         !out
     }

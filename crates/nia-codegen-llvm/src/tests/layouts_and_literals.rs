@@ -17,7 +17,7 @@ struct Mixed {
 let mixed: Mixed = { a: 1, b: 2, c: 3 };
 
 fn main() i32 {
-    var local: Mixed = { a: 4, b: 5, c: 6 };
+    let mut local: Mixed = { a: 4, b: 5, c: 6 };
     mixed.a as i32 + mixed.c as i32 + local.a as i32 + local.c as i32 + local.b as i32
 }
 "#,
@@ -71,8 +71,8 @@ fn sum(pair: Pair) i32 {
 }
 
 fn main() i32 {
-    var pair: Pair = { a: 10, b: 20 };
-    var copied = id(pair);
+    let mut pair: Pair = { a: 10, b: 20 };
+    let mut copied = id(pair);
     sum(copied)
 }
 "#,
@@ -170,9 +170,9 @@ fn sum_array(values: [2]i32) i32 {
 }
 
 fn main() i32 {
-    var pair: Pair = { a: 10, b: 20 };
+    let mut pair: Pair = { a: 10, b: 20 };
     pair = { a: 30, b: 40 };
-    var values: [2]i32 = [50, 60];
+    let mut values: [2]i32 = [50, 60];
     values = [70, 80];
     sum_pair(pair) + sum_array(values)
 }
@@ -221,9 +221,9 @@ fn sum_array(values: [2]i32) i32 {
 }
 
 fn main() i32 {
-    var pair: Pair = make_pair(10, 20);
+    let mut pair: Pair = make_pair(10, 20);
     pair = make_pair(30, 40);
-    var values: [2]i32 = make_array(50, 60);
+    let mut values: [2]i32 = make_array(50, 60);
     values = make_array(70, 80);
     sum_pair(pair) + sum_array(values)
 }
@@ -464,13 +464,13 @@ enum Color: u8 {
 }
 
 fn main(ptr: & i32) i32 {
-    var x = -1;
-    var y = not false;
-    var n = 1;
-    var z: f64 = n as f64;
-    var w: i32 = z as i32;
-    var addr = ptr as usize;
-    var again = addr as &i32;
+    let mut x = -1;
+    let mut y = not false;
+    let mut n = 1;
+    let mut z: f64 = n as f64;
+    let mut w: i32 = z as i32;
+    let mut addr = ptr as usize;
+    let mut again = addr as &i32;
     x + w + again.* + Color::Blue as i32
 }
 "#,
@@ -499,11 +499,11 @@ fn emits_local_string_char_and_byte_char_literals() {
         &main,
         r#"
 fn main() i32 {
-    var text = "A\0";
-    var bytes = b"A\0";
-    var nul_bytes = b"A\0";
-    var ch = 'A';
-    var byte = b'A';
+    let mut text = "A\0";
+    let mut bytes = b"A\0";
+    let mut nul_bytes = b"A\0";
+    let mut ch = 'A';
+    let mut byte = b'A';
     _ = bytes;
     _ = nul_bytes;
     text.*[0] as u32 as i32 + ch as u32 as i32 + byte as i32
@@ -619,8 +619,8 @@ let fmt: [104]u8 = (
 ).*;
 
 fn main() i32 {
-    var text = "中" "" "a" "" "b" "" "c" "";
-    var bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let mut text = "中" "" "a" "" "b" "" "c" "";
+    let mut bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
     let inline_fmt = (
         b""
         b"  #  Type      Offset             VirtAddr           FileSiz"

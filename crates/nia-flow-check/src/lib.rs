@@ -536,7 +536,9 @@ impl FlowChecker<'_> {
     fn check_pattern_flow(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
-            PatternKind::OptionalSome(pattern)
+            PatternKind::Pointer(pattern)
+            | PatternKind::MutPointer(pattern)
+            | PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => self.check_pattern_flow(pattern),
             PatternKind::Expr(expr) => {
@@ -667,7 +669,7 @@ fn a(flag: bool) i32 {
 
 fn b() i32 {
     return 1;
-    var x = 2;
+    let mut x = 2;
 }
 "#,
         );
@@ -951,7 +953,7 @@ fn main(kind: i32) {
             return;
         },
     }
-    var unreachable = 1;
+    let mut unreachable = 1;
 }
 "#,
         );

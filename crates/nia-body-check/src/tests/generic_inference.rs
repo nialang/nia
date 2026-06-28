@@ -15,9 +15,9 @@ fn deref_id[T](value: &T) T { value.* }
 fn choose[T](left: T, right: T) T { left }
 
 fn main(box: Box[i32], ptr: & i32, flag: bool) i32 {
-    var a: i32 = id(1);
-    var b: i32 = unbox(box);
-    var c: i32 = deref_id(ptr);
+    let mut a: i32 = id(1);
+    let mut b: i32 = unbox(box);
+    let mut c: i32 = deref_id(ptr);
     _ = choose(1, flag);
     a + b + c
 }
@@ -48,9 +48,9 @@ fn from_return() i32 {
 }
 
 fn main() i32 {
-    var a: i32 = id(1);
-    var b: usize = id(1);
-    var c: i32 = choose(id(1), 2);
+    let mut a: i32 = id(1);
+    let mut b: usize = id(1);
+    let mut c: i32 = choose(id(1), 2);
     _ = id(1);
     a + b as i32 + c + from_return()
 }
@@ -96,8 +96,8 @@ fn keep_first[T, U](left: T, right: U) T {
 }
 
 fn main() i32 {
-    var a: i32 = keep_first[i32](7, true);
-    var b: u8 = keep_first[u8](3u8, 123usize);
+    let mut a: i32 = keep_first[i32](7, true);
+    let mut b: u8 = keep_first[u8](3u8, 123usize);
     a + b as i32
 }
 "#,
@@ -114,8 +114,8 @@ fn take_range[T](bounds: T..T) T {
 }
 
 fn main(count: usize) usize {
-    var from_suffix = take_range(0..4usize);
-    var from_variable = take_range(0..count);
+    let mut from_suffix = take_range(0..4usize);
+    let mut from_variable = take_range(0..count);
     from_suffix + from_variable
 }
 "#,
@@ -165,9 +165,9 @@ extern fn printf(fmt: &u8, ...);
 
 fn main(flag: bool) i32 {
     _ = printf(flag, 1);
-    var s = b"hello\0";
+    let mut s = b"hello\0";
     printf(&(s.*[0]), s);
-    var sp = &s;
+    let mut sp = &s;
     printf(&(s.*[0]), sp.*);
     0
 }

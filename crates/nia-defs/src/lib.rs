@@ -1194,7 +1194,7 @@ struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;
 fn Point() i32 { 0 }
-var counter = 0;
+let mut counter = 0;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1294,7 +1294,7 @@ extend[T, T] Methods[T] {
         let (module, errors) = parse_module(
             r#"
 let global: i32 = 1;
-comptime let answer: i32 = 42;
+comptime answer: i32 = 42;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

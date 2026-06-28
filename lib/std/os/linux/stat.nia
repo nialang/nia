@@ -3,30 +3,30 @@ using pkg::os::linux::types;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 
-comptime let at_symlink_no_follow: usize = 0x100usize;
-comptime let at_no_automount: usize = 0x800usize;
-comptime let at_empty_path: usize = 0x1000usize;
-comptime let statx_type: u32 = 0x00000001u32;
-comptime let statx_mode: u32 = 0x00000002u32;
-comptime let statx_nlink: u32 = 0x00000004u32;
-comptime let statx_atime: u32 = 0x00000020u32;
-comptime let statx_mtime: u32 = 0x00000040u32;
-comptime let statx_ctime: u32 = 0x00000080u32;
-comptime let statx_ino: u32 = 0x00000100u32;
-comptime let statx_size: u32 = 0x00000200u32;
-comptime let statx_blocks: u32 = 0x00000400u32;
-comptime let statx_request_basic: u32 =
+comptime at_symlink_no_follow: usize = 0x100usize;
+comptime at_no_automount: usize = 0x800usize;
+comptime at_empty_path: usize = 0x1000usize;
+comptime statx_type: u32 = 0x00000001u32;
+comptime statx_mode: u32 = 0x00000002u32;
+comptime statx_nlink: u32 = 0x00000004u32;
+comptime statx_atime: u32 = 0x00000020u32;
+comptime statx_mtime: u32 = 0x00000040u32;
+comptime statx_ctime: u32 = 0x00000080u32;
+comptime statx_ino: u32 = 0x00000100u32;
+comptime statx_size: u32 = 0x00000200u32;
+comptime statx_blocks: u32 = 0x00000400u32;
+comptime statx_request_basic: u32 =
     statx_type | statx_mode | statx_nlink | statx_atime | statx_mtime | statx_ctime | statx_ino | statx_size | statx_blocks;
-comptime let statx_required_basic: u32 =
+comptime statx_required_basic: u32 =
     statx_type | statx_mode | statx_nlink | statx_mtime | statx_ctime | statx_ino | statx_size;
-comptime let s_ifmt: u16 = 0o170000u16;
-comptime let s_ififo: u16 = 0o010000u16;
-comptime let s_ifchr: u16 = 0o020000u16;
-comptime let s_ifdir: u16 = 0o040000u16;
-comptime let s_ifblk: u16 = 0o060000u16;
-comptime let s_ifreg: u16 = 0o100000u16;
-comptime let s_iflnk: u16 = 0o120000u16;
-comptime let s_ifsock: u16 = 0o140000u16;
+comptime s_ifmt: u16 = 0o170000u16;
+comptime s_ififo: u16 = 0o010000u16;
+comptime s_ifchr: u16 = 0o020000u16;
+comptime s_ifdir: u16 = 0o040000u16;
+comptime s_ifblk: u16 = 0o060000u16;
+comptime s_ifreg: u16 = 0o100000u16;
+comptime s_iflnk: u16 = 0o120000u16;
+comptime s_ifsock: u16 = 0o140000u16;
 
 pub extern struct StatxTimestamp {
     sec: i64,
@@ -74,7 +74,7 @@ pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
 }
 
 pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
-    var flags = at_no_automount;
+    let mut flags = at_no_automount;
     if not follow_symlinks {
         flags = flags | at_symlink_no_follow;
     }
@@ -82,8 +82,8 @@ pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
 }
 
 fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
-    var stx: Statx;
-    var bytes = &mut ((&mut stx as &mut u8)[0..@size[Statx]()]);
+    let mut stx: Statx;
+    let mut bytes = &mut ((&mut stx as &mut u8)[0..@size[Statx]()]);
     @memset(bytes, 0);
     let ret = syscall::syscall5(
         syscall::statx,
@@ -128,11 +128,11 @@ extend Statx {
         if not self.has_required_basic() {
             return Errno::Invalid!;
         }
-        var atime: ?Timestamp = null;
+        let mut atime: ?Timestamp = null;
         if (self.mask & statx_atime) == statx_atime {
             atime = ?self.atime.as_timestamp();
         }
-        var block_size = 1u32;
+        let mut block_size = 1u32;
         if (self.mask & statx_blocks) == statx_blocks {
             block_size = self.blksize;
         }

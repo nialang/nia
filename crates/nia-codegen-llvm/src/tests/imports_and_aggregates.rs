@@ -18,7 +18,7 @@ fn inc(value: i32) i32 {
 }
 
 fn main() i32 {
-    var build = build::Build::init();
+    let mut build = build::Build::init();
     build.step("run", &inc);
     let step = types::Step::init("run", &inc);
     step.run(41) + build.run(0)
@@ -109,7 +109,7 @@ fn maybe(flag: bool) errors::Error!i32 {
 }
 
 fn add_two(flag: bool) errors::Error!i32 {
-    var value = maybe(flag).?;
+    let mut value = maybe(flag).?;
     !(value + 2)
 }
 
@@ -163,7 +163,7 @@ fn make() HoldsItem {
 }
 
 fn main() i32 {
-    var held = make();
+    let mut held = make();
     held.item.value
 }
 "#,
@@ -219,7 +219,7 @@ struct T {
 }
 
 fn main() i32 {
-    var t: T = { xs: [{ x: 0 }; 256] };
+    let mut t: T = { xs: [{ x: 0 }; 256] };
     t.xs[255].x
 }
 "#,
@@ -259,10 +259,10 @@ module defs;
 using entry::defs;
 
 fn main() i32 {
-    var bag = defs::make_bag();
-    var i: usize = 2;
+    let mut bag = defs::make_bag();
+    let mut i: usize = 2;
     bag.items[i] = defs::make_item(5);
-    var tail = & bag.items[1..=2];
+    let mut tail = & bag.items[1..=2];
     bag.items.len() as i32 + tail.len() as i32 + bag.items[i].value
 }
 "#,
@@ -315,8 +315,8 @@ module defs;
 using entry::defs;
 
 fn main() i32 {
-    var callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
-    var pair = callback(defs::make_pair(2, 5));
+    let callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
+    let mut pair = callback(defs::make_pair(2, 5));
     pair.a + pair.b
 }
 "#,
@@ -368,7 +368,7 @@ using entry::module_enum_defs;
 using module_enum_defs::Mode;
 
 fn main() i32 {
-    var box = module_enum_defs::make_box();
+    let mut box = module_enum_defs::make_box();
     switch box.mode {
         module_enum_defs::Mode::A => Mode::A as u8 as i32,
         module_enum_defs::Mode::B => 2,
@@ -421,7 +421,7 @@ module module_enum_defs;
 using entry::module_enum_defs;
 
 fn main() i32 {
-    var box = module_enum_defs::make_box();
+    let mut box = module_enum_defs::make_box();
     switch box.mode {
         module_enum_defs::Mode::A => return 1,
         module_enum_defs::Mode::B => return 2,
@@ -556,7 +556,7 @@ using entry::module_assoc_defs;
 using module_assoc_defs::Box;
 
 fn main() i32 {
-    var box = Box::make(42);
+    let mut box = Box::make(42);
     box.value
 }
 "#,
@@ -681,7 +681,7 @@ module defs;
 using entry::defs;
 
 fn main() i32 {
-    var b = defs::make_box();
+    let mut b = defs::make_box();
     b.bytes.len() as i32
 }
 "#,

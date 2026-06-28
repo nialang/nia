@@ -26,7 +26,7 @@ pub using defs::answer;
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime let answer: i32 = 42;
+pub comptime answer: i32 = 42;
 "#,
     );
 
@@ -48,8 +48,8 @@ fn comptime_values_drive_static_global_integer_initializers() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let base = 20;
-var value: i32 = base + 2;
+comptime base = 20;
+let mut value: i32 = base + 2;
 "#,
     );
 
@@ -76,11 +76,11 @@ fn comptime_values_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-pub comptime let width: usize = 2 + 2;
+pub comptime width: usize = 2 + 2;
 
 fn main() i32 {
-    comptime let local_width: usize = width;
-    var values: [local_width]i32 = [1, 2, 3, 4];
+    comptime local_width: usize = width;
+    let mut values: [local_width]i32 = [1, 2, 3, 4];
     values[3]
 }
 "#,
@@ -101,10 +101,10 @@ comptime fn width(base: usize) usize {
     return base + extra;
 }
 
-comptime let n: usize = width(2);
+comptime n: usize = width(2);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -145,11 +145,11 @@ comptime fn width(use_wide: bool) usize {
     }
 }
 
-comptime let bits: usize = 64usize;
-comptime let n: usize = width(bits == 64);
+comptime bits: usize = 64usize;
+comptime n: usize = width(bits == 64);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -173,11 +173,11 @@ comptime fn word_bytes(bits: usize) usize {
     }
 }
 
-comptime let bits: usize = 64usize;
-comptime let n: usize = word_bytes(bits);
+comptime bits: usize = 64usize;
+comptime n: usize = word_bytes(bits);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -201,10 +201,10 @@ comptime fn width(use_wide: bool) usize {
     };
 }
 
-comptime let n: usize = width(true);
+comptime n: usize = width(true);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -229,11 +229,11 @@ comptime fn word_bytes(bits: usize) usize {
     }
 }
 
-comptime let bits: usize = 64usize;
-comptime let n: usize = word_bytes(bits);
+comptime bits: usize = 64usize;
+comptime n: usize = word_bytes(bits);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -257,10 +257,10 @@ comptime fn bucket(value: usize) usize {
     }
 }
 
-comptime let n: usize = bucket(6);
+comptime n: usize = bucket(6);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -284,11 +284,11 @@ comptime fn unwrap(value: ?usize) usize {
     }
 }
 
-comptime let some: ?usize = ?8usize;
-comptime let n: usize = unwrap(some);
+comptime some: ?usize = ?8usize;
+comptime n: usize = unwrap(some);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -312,11 +312,11 @@ comptime fn unwrap(value: usize!usize) usize {
     }
 }
 
-comptime let ok: usize!usize = !8;
-comptime let n: usize = unwrap(ok);
+comptime ok: usize!usize = !8;
+comptime n: usize = unwrap(ok);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -337,7 +337,7 @@ comptime fn is_native_word(bits: usize) bool {
 }
 
 fn main() i32 {
-    comptime let native: bool = is_native_word(64usize);
+    comptime native: bool = is_native_word(64usize);
     if native {
         1
     } else {
@@ -360,10 +360,10 @@ fn imported_comptime_functions_are_ordinary_comptime_values() {
 module config;
 using entry::config;
 
-comptime let width: usize = config::width(2);
+comptime width: usize = config::width(2);
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -419,11 +419,11 @@ struct Point {
     y: usize,
 }
 
-comptime let p: Point = Point{x: 2, y: 3};
-comptime let width: usize = p.x + p.y;
+comptime p: Point = Point{x: 2, y: 3};
+comptime width: usize = p.x + p.y;
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -445,9 +445,9 @@ struct Point {
 }
 
 fn main() i32 {
-    comptime let p: Point = Point{x: 4, y: 2};
-    comptime let width: usize = p.x + p.y;
-    var values: [width]i32 = [0; width];
+    comptime p: Point = Point{x: 4, y: 2};
+    comptime width: usize = p.x + p.y;
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -463,11 +463,11 @@ fn comptime_array_values_drive_index_access() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let widths: [3]usize = [2, 4, 8];
-comptime let width: usize = widths[1];
+comptime widths: [3]usize = [2, 4, 8];
+comptime width: usize = widths[1];
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -484,9 +484,9 @@ fn function_local_structural_comptime_array_index_drives_field_access() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    comptime let configs = [{width: 2usize}, {width: 4usize}];
-    comptime let width: usize = configs[1].width;
-    var values: [width]i32 = [0; width];
+    comptime configs = [{width: 2usize}, {width: 4usize}];
+    comptime width: usize = configs[1].width;
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -506,11 +506,11 @@ struct Config {
     widths: [3]usize,
 }
 
-comptime let config: Config = Config{widths: [2, 4, 8]};
-comptime let width: usize = config.widths[2];
+comptime config: Config = Config{widths: [2, 4, 8]};
+comptime width: usize = config.widths[2];
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -530,11 +530,11 @@ comptime fn pick(widths: [3]usize, index: usize) usize {
     widths[index]
 }
 
-comptime let widths: [3]usize = [2, 4, 8];
-comptime let width: usize = pick(widths, 2);
+comptime widths: [3]usize = [2, 4, 8];
+comptime width: usize = pick(widths, 2);
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -554,15 +554,15 @@ comptime fn pair_sum(values: [2]usize) usize {
     values[0] + values[1]
 }
 
-comptime let values: [4]usize = [1, 2, 3, 4];
-comptime let middle: [2]usize = values[1..3];
-comptime let prefix: [2]usize = values[..2];
-comptime let suffix: [2]usize = values[2..];
-comptime let direct: usize = pair_sum(values[1..=2]);
-comptime let n: usize = pair_sum(middle) + pair_sum(prefix) + pair_sum(suffix) + direct;
+comptime values: [4]usize = [1, 2, 3, 4];
+comptime middle: [2]usize = values[1..3];
+comptime prefix: [2]usize = values[..2];
+comptime suffix: [2]usize = values[2..];
+comptime direct: usize = pair_sum(values[1..=2]);
+comptime n: usize = pair_sum(middle) + pair_sum(prefix) + pair_sum(suffix) + direct;
 
 fn main() i32 {
-    var array: [n]i32 = [0; n];
+    let mut array: [n]i32 = [0; n];
     array.len() as i32
 }
 "#,
@@ -587,21 +587,21 @@ comptime fn add_one(value: ?usize) ?usize {
     }
 }
 
-comptime let some: ?usize = add_one(?7usize);
-comptime let none: ?usize = add_one(null);
-comptime let width: usize = if let ?payload = some {
+comptime some: ?usize = add_one(?7usize);
+comptime none: ?usize = add_one(null);
+comptime width: usize = if let ?payload = some {
     payload
 } else null {
     1
 };
-comptime let fallback: usize = if let ?payload = none {
+comptime fallback: usize = if let ?payload = none {
     payload
 } else null {
     2
 };
 
 fn main() i32 {
-    var values: [width + fallback]i32 = [0; width + fallback];
+    let mut values: [width + fallback]i32 = [0; width + fallback];
     values.len() as i32
 }
 "#,
@@ -621,21 +621,21 @@ comptime fn add_one(value: usize!usize) usize!usize {
     !(value.? + 1)
 }
 
-comptime let ok: usize!usize = add_one(!7usize);
-comptime let err: usize!usize = add_one(3usize!);
-comptime let width: usize = if let !payload = ok {
+comptime ok: usize!usize = add_one(!7usize);
+comptime err: usize!usize = add_one(3usize!);
+comptime width: usize = if let !payload = ok {
     payload
 } else err! {
     0
 };
-comptime let fallback: usize = if let !payload = err {
+comptime fallback: usize = if let !payload = err {
     payload
 } else err_payload! {
     2
 };
 
 fn main() i32 {
-    var values: [width + fallback]i32 = [0; width + fallback];
+    let mut values: [width + fallback]i32 = [0; width + fallback];
     values.len() as i32
 }
 "#,

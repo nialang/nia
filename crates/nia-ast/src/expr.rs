@@ -41,42 +41,18 @@ pub enum StmtKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingStmt {
-    pub name: String,
-    pub pattern_kind: BindingPatternKind,
-    pub pattern_span: Span,
-    pub pattern_node_key: VersionedNodeKey,
+    pub pattern: Pattern,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_let: bool,
+    pub is_mutable: bool,
     pub is_comptime: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForInStmt {
-    pub pattern: ForPattern,
+    pub pattern: Pattern,
     pub iter: Expr,
     pub body: Block,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ForPattern {
-    pub span: Span,
-    pub node_key: VersionedNodeKey,
-    pub name: Option<String>,
-    pub kind: BindingPatternKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BindingPatternKind {
-    Value,
-    Pointer,
-    MutPointer,
-}
-
-impl ForPattern {
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,21 +66,8 @@ pub struct LoopStmt {
     pub body: Block,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PatternBindingMode {
-    Let,
-    Var,
-}
-
-impl PatternBindingMode {
-    pub fn is_let(self) -> bool {
-        matches!(self, Self::Let)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfPatternExpr {
-    pub binding_mode: PatternBindingMode,
     pub target: Expr,
     pub arms: Vec<IfPatternArm>,
     pub else_branch: Option<Box<Expr>>,
@@ -157,6 +120,9 @@ impl Pattern {
     pub fn contains_binding(&self) -> bool {
         match &self.kind {
             PatternKind::Bind { .. } => true,
+            PatternKind::Pointer(pattern) | PatternKind::MutPointer(pattern) => {
+                pattern.contains_binding()
+            }
             PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => pattern.contains_binding(),
@@ -174,7 +140,10 @@ pub enum PatternKind {
     Bind {
         name: String,
         node_key: VersionedNodeKey,
+        is_mutable: bool,
     },
+    Pointer(Box<Pattern>),
+    MutPointer(Box<Pattern>),
     OptionalSome(Box<Pattern>),
     OptionalNull,
     ErrorOk(Box<Pattern>),

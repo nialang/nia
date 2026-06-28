@@ -10,13 +10,13 @@ using process::{Init, ExitCode};
 fn run(init: Init) mem::Error!void {
     _ = init;
 
-    var page = mem::PageAllocator::init();
-    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
     defer gpa.deinit().ok().?;
     let allocator = &mut gpa;
 
     // init_seed is deterministic, which keeps example output stable.
-    var scores = std::HashMap[i32, i32]::init_seed(2024u64);
+    let mut scores = std::HashMap[i32, i32]::init_seed(2024u64);
     defer scores.deinit(allocator).?;
 
     // Reserve before repeated insertion when an approximate size is known.
@@ -26,9 +26,9 @@ fn run(init: Init) mem::Error!void {
     _ = scores.put(allocator, 9, 90).?;
     // get_or_put returns an entry slot. value() is a pointer to the stored
     // value, so .* reads or writes through that pointer.
-    var answer_slot = scores.get_or_put(allocator, 42).?;
+    let mut answer_slot = scores.get_or_put(allocator, 42).?;
     answer_slot.value().* = answer_slot.value().* + 1;
-    if var ?entry = scores.get_entry_mut(&42) {
+    if let mut ?entry = scores.get_entry_mut(&42) {
         entry.value_mut().* = entry.value().* + 9;
     } else null {
         return mem::Error::Invalid!;
@@ -37,15 +37,15 @@ fn run(init: Init) mem::Error!void {
         value.* = value.* / 10;
     }
 
-    var answer = 0;
+    let mut answer = 0;
     if let ?value = scores.get(&42) {
         answer = value.*;
     } else null {
         return mem::Error::Invalid!;
     }
 
-    var removed_key = 0;
-    var removed_value = 0;
+    let mut removed_key = 0;
+    let mut removed_value = 0;
     // remove_entry transfers the removed key and value out of the map.
     if let ?entry = scores.remove_entry(&7) {
         removed_key = entry.key().*;
@@ -54,13 +54,13 @@ fn run(init: Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var total = 0;
+    let mut total = 0;
     for entry in scores.iter() {
         total += entry.value().*;
     }
 
-    var len = scores.len();
-    var has_seven = scores.contains_key(&7);
+    let mut len = scores.len();
+    let mut has_seven = scores.contains_key(&7);
 
     debug::print("hash_map len={} answer={} removed_key={} removed_value={} total={} has_seven={}\n", &[
         &len,

@@ -17,10 +17,10 @@ using std::mem;
 using std::process;
 
 fn check_page_allocator_allocates() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
-    var layout: mem::Layout;
+    let mut allocator = mem::PageAllocator::init();
+    let mut layout: mem::Layout;
     if let !value = mem::Layout::of[u8]() { layout = value; } else error! { return (5 as process::ExitCode)!; }
-    if let !block = allocator.alloc_bytes(4096, layout.align()) { var ptr = block.ptr();
+    if let !block = allocator.alloc_bytes(4096, layout.align()) { let mut ptr = block.ptr();
             ptr.* = 42u8;
             if ptr.* != 42u8 {
                 return (2 as process::ExitCode)!;
@@ -30,15 +30,15 @@ fn check_page_allocator_allocates() process::ExitCode!void {
 }
 
 fn check_page_allocator_overaligned_layouts() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
-    var layout: mem::Layout;
+    let mut allocator = mem::PageAllocator::init();
+    let mut layout: mem::Layout;
     if let !value = mem::Layout::init(64, 8192) { layout = value; } else error! { return (1 as process::ExitCode)!; }
-    var block: mem::Block;
+    let mut block: mem::Block;
     if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
     if block.ptr() as usize % 8192usize != 0usize {
         return (3 as process::ExitCode)!;
     }
-    var bytes = block.bytes();
+    let mut bytes = block.bytes();
     bytes[0] = 17u8;
     bytes[63] = 23u8;
     if bytes[0] != 17u8 or bytes[63] != 23u8 {
@@ -65,8 +65,8 @@ fn check_layout_rejects_array_size_overflow() process::ExitCode!void {
 }
 
 fn check_allocator_can_allocate_typed_slices() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
-    if var !items = allocator.alloc_slice[i32](4) { items[0] = 10;
+    let mut allocator = mem::PageAllocator::init();
+    if let mut !items = allocator.alloc_slice[i32](4) { items[0] = 10;
             items[1] = 20;
             items[2] = 30;
             items[3] = 40;
@@ -124,17 +124,17 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var storage: [64]u8 = [_]u8[0; 64];
-    var allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
+    let mut storage: [64]u8 = [_]u8[0; 64];
+    let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
 
     let first_layout = mem::Layout::init(8, 8).exit().?;
-    var first = allocator.alloc(first_layout).exit().?;
+    let mut first = allocator.alloc(first_layout).exit().?;
     if first.ptr() as usize % 8usize != 0usize {
         return (1 as process::ExitCode)!;
     }
 
     let second_layout = mem::Layout::init(8, 1).exit().?;
-    var second = allocator.alloc(second_layout).exit().?;
+    let mut second = allocator.alloc(second_layout).exit().?;
     if allocator.resize(first, mem::Layout::init(16, 8).exit().?) {
         return (2 as process::ExitCode)!;
     }

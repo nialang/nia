@@ -71,7 +71,7 @@ extend Command {
     }
 
     pub fn spawn(&self) Error!Child {
-        var options = os::SpawnOptions::init();
+        let mut options = os::SpawnOptions::init();
         options.set_stdin(self.stdin.as_os_stdio().?).as_process_setup_error().?;
         options.set_stdout(self.stdout.as_os_stdio().?).as_process_setup_error().?;
         options.set_stderr(self.stderr.as_os_stdio().?).as_process_setup_error().?;
@@ -82,7 +82,7 @@ extend Command {
     }
 
     pub fn run(&self) Error!Term {
-        var child = self.spawn().?;
+        let mut child = self.spawn().?;
         child.wait()
     }
 }
@@ -117,10 +117,10 @@ pub fn run(command: &Command) Error!Term {
 }
 
 pub(pkg) fn run_path_args(path: fs::PathView, args: &[&u8], envp: &&u8) Error!Term {
-    var path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-    var arg_storage: [64]&u8 = [0usize as &u8; 64];
+    let mut path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+    let mut arg_storage: [64]&u8 = [0usize as &u8; 64];
     let encoded_path = path.encode(&mut path_storage[..]).as_process_setup_error().?;
-    var argv = ArgList::init(&mut arg_storage[..]);
+    let mut argv = ArgList::init(&mut arg_storage[..]);
     argv.push_ptr(encoded_path.ptr()).?;
     argv.push_ptrs(args).?;
     let raw_argv = argv.finish().?;

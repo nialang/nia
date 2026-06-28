@@ -535,6 +535,12 @@ impl Pruner<'_> {
                 kind @ (PatternKind::Wildcard
                 | PatternKind::Bind { .. }
                 | PatternKind::OptionalNull) => kind,
+                PatternKind::Pointer(pattern) => {
+                    PatternKind::Pointer(Box::new(self.prune_pattern(*pattern)))
+                }
+                PatternKind::MutPointer(pattern) => {
+                    PatternKind::MutPointer(Box::new(self.prune_pattern(*pattern)))
+                }
                 PatternKind::OptionalSome(pattern) => {
                     PatternKind::OptionalSome(Box::new(self.prune_pattern(*pattern)))
                 }

@@ -1058,7 +1058,7 @@ struct Point {
 }
 
 extend Point {
-    pub comptime let Origin: i32 = 0;
+    pub comptime Origin: i32 = 0;
     fn len2(&self) i32 { missing + self.x }
 }
 
@@ -1068,7 +1068,7 @@ enum Color: u8 {
 }
 
 type Byte = u8;
-var counter: i32 = 0;
+let mut counter: i32 = 0;
 
 fn add(a: i32, b: i32) i32 {
     a + b

@@ -169,8 +169,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [0]u8 = [];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    let mut buffer: [0]u8 = [];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     if let !ok = stdout.write_all(b"nia\n") {
         _ = ok;
     } else error! {
@@ -198,10 +198,10 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [64]u8 = [0; 64];
-    var raw_buffer: [0]u8 = [];
-    var raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
-    var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
+    let mut buffer: [64]u8 = [0; 64];
+    let mut raw_buffer: [0]u8 = [];
+    let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
+    let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     if let !ok = stdout.write_all(b"nia\n") {
         _ = ok;
     } else error! {
@@ -273,9 +273,9 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [64]u8 = [0; 64];
-    var reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
-    var bytes: [1]u8 = [0];
+    let mut buffer: [64]u8 = [0; 64];
+    let mut reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
+    let mut bytes: [1]u8 = [0];
     if let !ok = reader.read(&mut bytes[..]) {
         _ = ok;
     } else error! {
@@ -304,7 +304,7 @@ using std::os;
 using std::process;
 
 fn main(argc: usize, argv: &&u8, envp: &&u8) void {
-    var backend = io::BlockingIo::init();
+    let mut backend = io::BlockingIo::init();
     let init = process::Init::init(argc, argv, envp, &mut backend);
     let object: &mut io::Io[Error = os::Error] = init.io();
     _ = object;
@@ -702,7 +702,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub comptime let LIMIT: usize = 123usize;
+    pub comptime LIMIT: usize = 123usize;
 }
 "#,
     );
@@ -732,7 +732,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub comptime let LIMIT: usize = if 64usize == 64 {
+    pub comptime LIMIT: usize = if 64usize == 64 {
         18446744073709551615usize
     } else {
         4294967295usize
@@ -792,7 +792,7 @@ using std;
 using std::*;
 
 fn main() usize {
-    var total = 0usize;
+    let mut total = 0usize;
     for i in std::range(0usize..4usize) {
         total += i;
     }
@@ -815,7 +815,7 @@ using std;
 using std::*;
 
 fn sum_to(count: usize) usize {
-    var total = 0usize;
+    let mut total = 0usize;
     for i in range(0..count) {
         total += i;
     }
@@ -823,7 +823,7 @@ fn sum_to(count: usize) usize {
 }
 
 fn main() usize {
-    var total = 0usize;
+    let mut total = 0usize;
     for i in range(0..4usize) {
         total += i;
     }
@@ -846,7 +846,7 @@ using std;
 using std::*;
 
 fn main() i64 {
-    var total = 0i64;
+    let mut total = 0i64;
     for i in std::range[i64](1..4) {
         total += i;
     }
@@ -869,7 +869,7 @@ using std;
 using std::*;
 
 fn main() i32 {
-    var total = 0i32;
+    let mut total = 0i32;
     for i in std::inclusive[i32](2..=4) {
         total += i;
     }
@@ -892,12 +892,12 @@ using std;
 using std::*;
 
 fn main() usize {
-    var total = 0usize;
+    let mut total = 0usize;
     for i in std::inclusive(2usize..=4usize) {
         total += i;
     }
-    var from = std::from(5usize..);
-    var count = 0usize;
+    let mut from = std::from(5usize..);
+    let mut count = 0usize;
     for i in from {
         total += i;
         count += 1usize;
@@ -924,8 +924,8 @@ using std;
 using std::*;
 
 fn main() usize {
-    var iter: std::Range[usize] = std::range(1usize..3usize);
-    var total = 0usize;
+    let mut iter: std::Range[usize] = std::range(1usize..3usize);
+    let mut total = 0usize;
     for i in iter {
         total += i;
     }
@@ -947,7 +947,7 @@ fn std_facade_does_not_reexport_range_module_namespace() {
 using std;
 
 fn main() void {
-    var iter: std::range::Range[usize] = std::range(1usize..3usize);
+    let mut iter: std::range::Range[usize] = std::range(1usize..3usize);
     _ = iter;
 }
 "#,
@@ -973,7 +973,7 @@ fn std_facade_exposes_array_list_type_directly() {
 using std;
 
 fn main() usize {
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     list.len()
 }
 "#,
@@ -1030,7 +1030,7 @@ fn imported_type_alias_can_be_used_as_associated_call_prefix() {
 using std::collections::ArrayList;
 
 fn main() usize {
-    var list = ArrayList[i32]::init();
+    let mut list = ArrayList[i32]::init();
     list.len()
 }
 "#,
@@ -1075,7 +1075,7 @@ fn std_facade_does_not_reexport_array_list_module_namespace() {
 using std;
 
 fn main() usize {
-    var list = std::array_list::ArrayList[i32]::init();
+    let mut list = std::array_list::ArrayList[i32]::init();
     list.len()
 }
 "#,
@@ -1226,7 +1226,7 @@ fn std_hash_facade_exposes_builtin_hash_impls() {
 using std::hash;
 
 fn main() u64 {
-    var hasher = hash::Wyhash::init(1u64);
+    let mut hasher = hash::Wyhash::init(1u64);
     42usize.hash(&mut hasher);
     true.hash(&mut hasher);
     hasher.finish()
@@ -1250,9 +1250,9 @@ using std::hash;
 using std::mem;
 
 fn main() mem::Error!usize {
-    var buffer: [4096]u8 = [0; 4096];
-    var allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
-    var map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    let mut buffer: [4096]u8 = [0; 4096];
+    let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
+    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
     defer map.deinit(&mut allocator).?;
     _ = map.put(&mut allocator, 1, 2).?;
     !map.len()
@@ -1387,9 +1387,9 @@ using std::collections;
 using std::mem;
 
 fn main() mem::Error!usize {
-    var buffer: [4096]u8 = [0; 4096];
-    var allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
-    var map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
+    let mut buffer: [4096]u8 = [0; 4096];
+    let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
+    let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::init_seed(1u64);
     defer map.deinit(&mut allocator).?;
     _ = map.put(&mut allocator, 1, 2).?;
     !map.len()
@@ -1475,8 +1475,8 @@ module facade;
 using entry::facade;
 
 fn main() usize {
-    var iter: facade::range::Range[usize] = facade::range(1usize..4usize);
-    var total = 0usize;
+    let mut iter: facade::range::Range[usize] = facade::range(1usize..4usize);
+    let mut total = 0usize;
     for i in iter {
         total += i;
     }
@@ -1769,7 +1769,7 @@ module types;
 using entry::facade;
 
 fn main() usize {
-    var bag = facade::Bag[i32]::init();
+    let mut bag = facade::Bag[i32]::init();
     bag.len()
 }
 "#,
@@ -1818,7 +1818,7 @@ using entry::ptr;
 extern fn read_readonly() &u8;
 
 fn main(mut_ptr: &mut u8) i32 {
-    var readonly_ptr = read_readonly();
+    let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
@@ -1991,7 +1991,7 @@ using entry::share;
 extern fn read_readonly() &u8;
 
 fn main(mut_ptr: &mut u8) i32 {
-    var readonly_ptr = read_readonly();
+    let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
@@ -2037,7 +2037,7 @@ using entry::share;
 extern fn read_readonly() &u8;
 
 fn main(mut_ptr: &mut u8) i32 {
-    var readonly_ptr = read_readonly();
+    let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
@@ -2623,7 +2623,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub(pkg) comptime let LIMIT: usize = 123usize;
+    pub(pkg) comptime LIMIT: usize = 123usize;
 }
 "#,
     );

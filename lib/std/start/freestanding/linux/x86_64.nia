@@ -16,7 +16,7 @@ extern fn nia_start_stack(stack: &usize) void {
     let argc = stack.*;
     let argv = (stack as usize + @size[usize]()) as &&u8;
     let envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
-    var runtime_io = io::BlockingIo::init();
+    let mut runtime_io = io::BlockingIo::init();
     let init = process::Init::init(argc, argv, envp, &mut runtime_io);
     let exit = call_user_main(init);
     os::exit(exit as i32);

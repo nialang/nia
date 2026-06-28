@@ -123,8 +123,8 @@ fn classify(state: State) i32 {
 }
 
 fn main() i32 {
-    var total = 0;
-    var iter = Counter { current: 0, end: 4 };
+    let mut total = 0;
+    let mut iter = Counter { current: 0, end: 4 };
     for i in iter {
         defer log(i);
         if i == 1 {
@@ -154,7 +154,7 @@ using entry::facade;
 using facade::{Box, make_box, read_box};
 
 fn main() i32 {
-    var box: Box[i32] = make_box(40);
+    let mut box: Box[i32] = make_box(40);
     read_box(& box) + facade::answer
 }
 "#,
@@ -170,7 +170,7 @@ pub using impl::{Box, make_box, read_box, answer};
                 (
                     "impl.nia",
                     r#"
-pub comptime let answer: i32 = 2;
+pub comptime answer: i32 = 2;
 
 pub struct Box[T] {
     value: T,
@@ -208,7 +208,7 @@ struct Header {
 let header: Header = { tag: 1, count: 2, flag: 3 };
 let bytes: [3]u8 = b"ok\0".*;
 let byte_ptr: & u8 = &bytes[0];
-var global: i32 = 5;
+let mut global: i32 = 5;
 let global_ptr: &i32 = &global;
 
 fn main() i32 {
@@ -224,8 +224,8 @@ fn main() i32 {
                 "main.nia",
                 r#"
 fn sum(xs: & [i32]) i32 {
-    var out = 0;
-    var i = 0usize;
+    let mut out = 0;
+    let mut i = 0usize;
     while i < xs.len() {
         out += xs[i];
         i += 1;
@@ -239,8 +239,8 @@ fn fill(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    var xs: [4]i32 = [1, 2, 3, 4];
-    var part = & xs[1..=2];
+    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut part = & xs[1..=2];
     sum(part) + sum(&[5, 6]) + fill(&mut [0, 1])
 }
 "#,
@@ -382,8 +382,8 @@ extend[T] Ptr[T] {
 }
 
 fn main(ptr: &i32) i32 {
-    var is_null: &fn(&i32) bool = & [&i32]::is_null;
-    var zero: &fn() usize = & [&i32]::zero;
+    let is_null: &fn(&i32) bool = & [&i32]::is_null;
+    let zero: &fn() usize = & [&i32]::zero;
     if is_null(ptr) or [&i32]::is_null(ptr) {
         zero() as i32
     } else {
@@ -399,7 +399,7 @@ fn main(ptr: &i32) i32 {
             files: &[(
                 "main.nia",
                 r#"
-comptime let width: usize = 2 + 2;
+comptime width: usize = 2 + 2;
 
 union Bits {
     i: i32,
@@ -413,8 +413,8 @@ enum Flag: u32 {
 }
 
 fn main(flag: Flag) i32 {
-    var values: [width]i32 = [10, 20, 30, 40];
-    var bits: Bits = { i: values[0] };
+    let mut values: [width]i32 = [10, 20, 30, 40];
+    let mut bits: Bits = { i: values[0] };
     switch flag {
         Flag::A => return bits.i,
         _ => return Flag::B as u32 as i32,

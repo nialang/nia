@@ -3,7 +3,7 @@ use super::common::*;
 
 #[test]
 fn reports_lexer_errors_through_parser() {
-    let (_module, errors) = parse_module(r#"fn main() { var x = "\q"; }"#);
+    let (_module, errors) = parse_module(r#"fn main() { let mut x = "\q"; }"#);
     assert!(
         errors
             .iter()

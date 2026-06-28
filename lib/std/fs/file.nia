@@ -23,8 +23,8 @@ pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
     os::getcwd(buffer).as_fs_error()
 }
 
-comptime let max_path_bytes: usize = os::max_path_bytes;
-comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
+comptime max_path_bytes: usize = os::max_path_bytes;
+comptime max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {
     fn from_owned_descriptor(handle: os::FileHandle) Dir {
@@ -42,37 +42,37 @@ extend Dir {
     }
 
     pub fn open_file(&self, path: PathView, options: OpenOptions) Error!File {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.open_encoded_file(encoded, options)
     }
 
     pub fn open_dir(&self, path: PathView, options: OpenDirOptions) Error!Dir {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.open_encoded_dir(encoded, options)
     }
 
     pub fn create_file(&self, path: PathView, options: CreateOptions) Error!File {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.create_encoded_file(encoded, options)
     }
 
     pub fn create_dir(&self, path: PathView, options: CreateDirOptions) Error!void {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.create_encoded_dir(encoded, options)
     }
 
     pub fn delete_file(&self, path: PathView) Error!void {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.delete_encoded_file(encoded)
     }
 
     pub fn delete_dir(&self, path: PathView) Error!void {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.delete_encoded_dir(encoded)
     }
@@ -82,15 +82,15 @@ extend Dir {
     }
 
     pub fn rename_to(&self, old_path: PathView, new_dir: &Dir, new_path: PathView) Error!void {
-        var old_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
-        var new_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut old_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut new_storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let old_encoded = old_path.encode(&mut old_storage[..]).?;
         let new_encoded = new_path.encode(&mut new_storage[..]).?;
         self.rename_encoded_to(old_encoded, new_dir, new_encoded)
     }
 
     pub fn metadata(&self, path: PathView, options: MetadataOptions) Error!Metadata {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.encoded_metadata(encoded, options)
     }
@@ -198,7 +198,7 @@ extend File {
     }
 
     pub fn open(path: PathView, options: OpenOptions) Error!File {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         let handle = os::open_at(
             os::cwd(),
@@ -213,7 +213,7 @@ extend File {
     }
 
     pub fn create(path: PathView, options: CreateOptions) Error!File {
-        var storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
+        let mut storage: [max_path_bytes]u8 = [_]u8[0; max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         let handle = os::open_at(
             os::cwd(),

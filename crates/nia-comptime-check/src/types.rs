@@ -121,7 +121,9 @@ impl ComptimeValueType {
 pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedComptimePattern) -> Option<LocalId> {
     match pattern.kind() {
         ResolvedComptimePatternKind::Bind { local_id, .. } => Some(*local_id),
-        ResolvedComptimePatternKind::OptionalSome { pattern, .. }
+        ResolvedComptimePatternKind::Pointer { pattern, .. }
+        | ResolvedComptimePatternKind::MutPointer { pattern, .. }
+        | ResolvedComptimePatternKind::OptionalSome { pattern, .. }
         | ResolvedComptimePatternKind::ErrorOk { pattern, .. }
         | ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
             resolved_pattern_local_id(pattern)

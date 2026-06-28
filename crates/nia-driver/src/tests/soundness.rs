@@ -63,7 +63,7 @@ fn read_concrete(value: [I32Ref as RefLike]::Ref) i32 {
 }
 
 fn main() i32 {
-    var value: i32 = 5;
+    let mut value: i32 = 5;
     read_concrete(& value)
 }
 "#,
@@ -197,7 +197,7 @@ where T: traits::Source {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     read[Counter](& counter)
 }
 "#,

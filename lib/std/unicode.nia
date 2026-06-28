@@ -89,8 +89,8 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
         return null;
     }
     let first = bytes[0];
-    var code: u32;
-    var width: usize;
+    let mut code: u32;
+    let mut width: usize;
     if first < 0x80u8 {
         code = first as u32;
         width = 1usize;
@@ -109,7 +109,7 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
     if bytes.len() < width {
         return null;
     }
-    var index = 1usize;
+    let mut index = 1usize;
     while index < width {
         let continuation = bytes[index];
         if (continuation & 0xc0u8) != 0x80u8 {

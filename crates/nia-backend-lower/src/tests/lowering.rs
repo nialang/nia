@@ -18,7 +18,7 @@ extend Point {
 }
 
 fn main() i32 {
-    var p = Point::make(1, 2);
+    let mut p = Point::make(1, 2);
     p.x
 }
 "#;
@@ -267,10 +267,10 @@ fn comptime_enum_values_from_check(
 #[test]
 fn comptime_bindings_do_not_lower_to_storage() {
     let source = r#"
-comptime let answer: i32 = 40 + 2;
+comptime answer: i32 = 40 + 2;
 
 fn main() i32 {
-    comptime let local: i32 = answer;
+    comptime local: i32 = answer;
     local
 }
 "#;
@@ -295,10 +295,10 @@ fn main() i32 {
 #[test]
 fn lowers_large_array_repeat_count_from_comptime_binding() {
     let source = r#"
-comptime let N: usize = 1048576;
+comptime N: usize = 1048576;
 
 fn main() i32 {
-    var buffer: [N]u8 = [0u8; N];
+    let mut buffer: [N]u8 = [0u8; N];
     0
 }
 "#;
@@ -328,7 +328,7 @@ fn lowers_function_body_to_function_ir() {
 fn main() i32 {
     defer {
     };
-    var value = 1;
+    let mut value = 1;
     return value;
 }
 "#;
@@ -440,8 +440,8 @@ fn outer[T](value: &T) &T {
 }
 
 fn main() i32 {
-    var value = 1;
-    var ptr = &value;
+    let mut value = 1;
+    let mut ptr = &value;
     _ = outer[i32](ptr);
     0
 }
@@ -533,7 +533,7 @@ extend Env {
 }
 
 fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
-    var init: Init = { argc: argc, argv: argv, envp: envp };
+    let mut init: Init = { argc: argc, argv: argv, envp: envp };
     _ = init;
     argc
 }

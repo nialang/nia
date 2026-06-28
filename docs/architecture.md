@@ -600,14 +600,14 @@ Lowers AST plus local/value/type semantic tables into `ComptimeModule`, then
 uses `nia-comptime-engine` to check and collect current compile-time values. It
 owns `comptime` binding dependency resolution, cycle diagnostics, enum
 discriminant values, and array length values that depend on local or imported
-comptime let bindings or imported `comptime fn` calls.
+comptime bindings or imported `comptime fn` calls.
 Layout builtins such as `@size[T]()` and `@align[T]()` consume those evaluated
 array lengths through narrow lookup closures while computing layouts; they do
 not construct ad hoc `ComptimeCheck` result tables for layout queries.
 
 This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
-storage or address, while top-level `let` and `var` bindings do.
+storage or address, while top-level `let` and `let mut` bindings do.
 
 `nia-comptime-check` also owns the typed comptime value layer. The engine may
 produce a pure value such as an integer, string, array, or struct, but the
@@ -754,7 +754,7 @@ runtime source `switch`: value patterns, integer ranges, and default cases.
 Value-producing arm bodies are typed and unified to one typed comptime value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
 do not invent a switch result type. Recursive optional and error-union payload
-patterns belong to `if let` / `if var`; their payload locals are typed from the
+patterns belong to `if let` / `if let mut`; their payload locals are typed from the
 target type while checking those if-pattern arms. The evaluator still performs
 actual matching; the checker only records the arm and payload types needed for
 comptime generic inference.
@@ -1243,7 +1243,7 @@ filesystem paths as semantic identity.
 
 Module cycles are load-time errors. Loaded modules keep separate `ModuleId`s
 and source paths, and references still go through explicit using aliases and
-normal visibility checks. Recursive aliases, comptime let dependencies, layouts,
+normal visibility checks. Recursive aliases, comptime dependencies, layouts,
 generic expansion, or re-export chains remain concrete semantic errors for
 their owning phases.
 

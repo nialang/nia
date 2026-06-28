@@ -17,7 +17,7 @@ using std::mem;
 using std::process;
 
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     if let !items = allocator.alloc_slice[i32](0) { if items.len() != 0 {
                 return (2 as process::ExitCode)!;
             }
@@ -26,7 +26,7 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
 }
 
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     if let !items = allocator.alloc_slice[void](4) { if items.len() != 4 {
                 return (2 as process::ExitCode)!;
             }
@@ -35,12 +35,12 @@ fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
 }
 
 fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void {
-    var allocator = mem::PageAllocator::init();
-    var layout: mem::Layout;
+    let mut allocator = mem::PageAllocator::init();
+    let mut layout: mem::Layout;
     if let !value = mem::Layout::array[void](8) { layout = value; } else error! { return (1 as process::ExitCode)!; }
-    var block: mem::Block;
+    let mut block: mem::Block;
     if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
-    var items = block.as_slice[void]();
+    let mut items = block.as_slice[void]();
     if items.len() != 0 {
         return (3 as process::ExitCode)!;
     }
@@ -90,28 +90,28 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var left: [5]i32 = [1, 2, 3, 4, 5];
+    let mut left: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_forwards[i32](&mut left[0..3], &left[1..4]);
     let expected_left: [5]i32 = [2, 3, 4, 4, 5];
     if not mem::equal[i32](&left[..], &expected_left[..]) {
         return (1 as process::ExitCode)!;
     }
 
-    var right: [5]i32 = [1, 2, 3, 4, 5];
+    let mut right: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_backwards[i32](&mut right[1..4], &right[0..3]);
     let expected_right: [5]i32 = [1, 1, 2, 3, 5];
     if not mem::equal[i32](&right[..], &expected_right[..]) {
         return (2 as process::ExitCode)!;
     }
 
-    var exact_to: [3]u8 = [0, 0, 0];
+    let mut exact_to: [3]u8 = [0, 0, 0];
     let exact_from: [3]u8 = [7, 8, 9];
     mem::copy_forwards[u8](&mut exact_to[..], &exact_from[..]);
     if not mem::equal[u8](&exact_to[..], &exact_from[..]) {
         return (3 as process::ExitCode)!;
     }
 
-    var short_to: [2]u8 = [0, 0];
+    let mut short_to: [2]u8 = [0, 0];
     let long_from: [4]u8 = [5, 6, 7, 8];
     mem::copy_forwards[u8](&mut short_to[..], &long_from[..]);
     let expected_short_to: [2]u8 = [5, 6];
@@ -119,7 +119,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (8 as process::ExitCode)!;
     }
 
-    var short_backward: [2]u8 = [0, 0];
+    let mut short_backward: [2]u8 = [0, 0];
     mem::copy_backwards[u8](&mut short_backward[..], &long_from[..]);
     if not mem::equal[u8](&short_backward[..], &expected_short_to[..]) {
         return (9 as process::ExitCode)!;
@@ -177,40 +177,40 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    var ints: [3]i32 = [0, 0, 0];
+    let mut ints: [3]i32 = [0, 0, 0];
     let source_ints: [3]i32 = [7, 8, 9];
     @memcpy(&mut ints[..], &source_ints[..]);
     if ints[0] != 7 or ints[1] != 8 or ints[2] != 9 {
         return (1 as process::ExitCode)!;
     }
 
-    var wide: [5]i32 = [0, 0, 0, 44, 55];
+    let mut wide: [5]i32 = [0, 0, 0, 44, 55];
     let short: [3]i32 = [11, 22, 33];
     @memcpy(&mut wide[..], &short[..]);
     if wide[0] != 11 or wide[1] != 22 or wide[2] != 33 or wide[3] != 44 or wide[4] != 55 {
         return (4 as process::ExitCode)!;
     }
 
-    var narrow: [4]u8 = [0, 0, 77, 88];
+    let mut narrow: [4]u8 = [0, 0, 77, 88];
     let long: [4]u8 = [10, 20, 30, 40];
     @memcpy(&mut narrow[0..2], &long[..]);
     if narrow[0] != 10 or narrow[1] != 20 or narrow[2] != 77 or narrow[3] != 88 {
         return (5 as process::ExitCode)!;
     }
 
-    var overlap: [5]u8 = [1, 2, 3, 4, 5];
+    let mut overlap: [5]u8 = [1, 2, 3, 4, 5];
     @memmove(&mut overlap[1..], &overlap[0..4]);
     if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
         return (2 as process::ExitCode)!;
     }
 
-    var short_move: [4]u8 = [9, 8, 7, 6];
+    let mut short_move: [4]u8 = [9, 8, 7, 6];
     @memmove(&mut short_move[0..2], &short_move[1..4]);
     if short_move[0] != 8 or short_move[1] != 7 or short_move[2] != 7 or short_move[3] != 6 {
         return (6 as process::ExitCode)!;
     }
 
-    var bytes: [4]u8 = [1, 2, 3, 4];
+    let mut bytes: [4]u8 = [1, 2, 3, 4];
     @memset(&mut bytes[1..3], 9);
     if bytes[0] != 1 or bytes[1] != 9 or bytes[2] != 9 or bytes[3] != 4 {
         return (3 as process::ExitCode)!;
@@ -265,7 +265,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var dest: [2]u8 = [0; 2];
+    let mut dest: [2]u8 = [0; 2];
     let source: [2]u8 = [b'a', b'b'];
     helper::copy_prefix[u8](&mut dest[..], &source[..]);
     if dest[0] != b'a' or dest[1] != b'b' {
@@ -357,8 +357,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var data: [3]i32 = [10, 20, 30];
-    var total = 0;
+    let mut data: [3]i32 = [10, 20, 30];
+    let mut total = 0;
     for &value in (&data[..]).iter_custom() {
         total += value;
     }

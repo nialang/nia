@@ -17,12 +17,12 @@ using process::{Init, ExitCode, exit};
 pub fn main(init: Init) ExitCode!void {
     _ = init;
 
-    var point: Point = { x: 3, y: 4 };
-    var values: [config::width]i32 = [1, 2, 3, 4];
-    var sum = plus(values[0], values[3]);
-    var len2 = point.len2();
-    var color = api::color_code(Green);
-    var diff = api::math::sub(10, 5);
+    let mut point: Point = { x: 3, y: 4 };
+    let mut values: [config::width]i32 = [1, 2, 3, 4];
+    let mut sum = plus(values[0], values[3]);
+    let mut len2 = point.len2();
+    let mut color = api::color_code(Green);
+    let mut diff = api::math::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
         return exit(1)!;

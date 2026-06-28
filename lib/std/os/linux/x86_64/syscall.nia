@@ -1,32 +1,32 @@
-pub comptime let read: usize = 0usize;
-pub comptime let write: usize = 1usize;
-pub comptime let close: usize = 3usize;
-pub comptime let dup2: usize = 33usize;
-pub comptime let lseek: usize = 8usize;
-pub comptime let mmap: usize = 9usize;
-pub comptime let munmap: usize = 11usize;
-pub comptime let fork: usize = 57usize;
-pub comptime let execve: usize = 59usize;
-pub comptime let exit: usize = 60usize;
-pub comptime let wait4: usize = 61usize;
-pub comptime let kill: usize = 62usize;
-pub comptime let fchmod: usize = 91usize;
-pub comptime let fsync: usize = 74usize;
-pub comptime let fdatasync: usize = 75usize;
-pub comptime let ftruncate: usize = 77usize;
-pub comptime let getcwd: usize = 79usize;
-pub comptime let chdir: usize = 80usize;
-pub comptime let getdents64: usize = 217usize;
-pub comptime let openat: usize = 257usize;
-pub comptime let mkdirat: usize = 258usize;
-pub comptime let unlinkat: usize = 263usize;
-pub comptime let renameat: usize = 264usize;
-pub comptime let pipe2: usize = 293usize;
-pub comptime let getrandom: usize = 318usize;
-pub comptime let statx: usize = 332usize;
+pub comptime read: usize = 0usize;
+pub comptime write: usize = 1usize;
+pub comptime close: usize = 3usize;
+pub comptime dup2: usize = 33usize;
+pub comptime lseek: usize = 8usize;
+pub comptime mmap: usize = 9usize;
+pub comptime munmap: usize = 11usize;
+pub comptime fork: usize = 57usize;
+pub comptime execve: usize = 59usize;
+pub comptime exit: usize = 60usize;
+pub comptime wait4: usize = 61usize;
+pub comptime kill: usize = 62usize;
+pub comptime fchmod: usize = 91usize;
+pub comptime fsync: usize = 74usize;
+pub comptime fdatasync: usize = 75usize;
+pub comptime ftruncate: usize = 77usize;
+pub comptime getcwd: usize = 79usize;
+pub comptime chdir: usize = 80usize;
+pub comptime getdents64: usize = 217usize;
+pub comptime openat: usize = 257usize;
+pub comptime mkdirat: usize = 258usize;
+pub comptime unlinkat: usize = 263usize;
+pub comptime renameat: usize = 264usize;
+pub comptime pipe2: usize = 293usize;
+pub comptime getrandom: usize = 318usize;
+pub comptime statx: usize = 332usize;
 
 pub fn syscall0(number: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -44,7 +44,7 @@ pub fn syscall0(number: usize) isize {
 }
 
 pub fn syscall1(number: usize, arg0: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -63,7 +63,7 @@ pub fn syscall1(number: usize, arg0: usize) isize {
 }
 
 pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -83,7 +83,7 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
 }
 
 pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -104,7 +104,7 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
 }
 
 pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -126,7 +126,7 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
 }
 
 pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -157,7 +157,7 @@ pub fn syscall6(
     arg4: usize,
     arg5: usize,
 ) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall

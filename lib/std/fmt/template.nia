@@ -79,13 +79,13 @@ fn parse_spec_end(
 }
 
 fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
-    var index = start;
-    var fill = ' ';
-    var alignment = core::FormatAlignment::None;
-    var sign_plus = false;
-    var alternate = false;
+    let mut index = start;
+    let mut fill = ' ';
+    let mut alignment = core::FormatAlignment::None;
+    let mut sign_plus = false;
+    let mut alternate = false;
 
-    var parsing_flags = true;
+    let mut parsing_flags = true;
     while parsing_flags and index < template.len() {
         let ch = template[index];
         if index + 1usize < template.len() {
@@ -116,8 +116,8 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    var width = 0usize;
-    var dynamic_width = false;
+    let mut width = 0usize;
+    let mut dynamic_width = false;
     if index + 1usize < template.len() and template[index] == '{' and template[index + 1usize] == '}' {
         dynamic_width = true;
         index += 2usize;
@@ -133,16 +133,16 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    var precision: ?usize = null;
-    var dynamic_precision = false;
+    let mut precision: ?usize = null;
+    let mut dynamic_precision = false;
     if index < template.len() and template[index] == '.' {
         index += 1usize;
         if index + 1usize < template.len() and template[index] == '{' and template[index + 1usize] == '}' {
             dynamic_precision = true;
             index += 2usize;
         } else {
-            var parsed_precision = 0usize;
-            var has_digit = false;
+            let mut parsed_precision = 0usize;
+            let mut has_digit = false;
             while index < template.len() {
                 let digit = if let ?digit = digit_value(template[index]) {
                     digit
@@ -160,7 +160,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    var presentation = core::FormatPresentation::Display;
+    let mut presentation = core::FormatPresentation::Display;
     if index < template.len() {
         if let ?parsed = parse_presentation(template[index]) {
             presentation = parsed;
@@ -205,8 +205,8 @@ fn resolve_dynamic_spec(
     arg_index: &mut usize,
     checked_args: bool,
 ) core::Error!core::FormatSpec {
-    var width = parsed.spec.width();
-    var precision = parsed.spec.precision();
+    let mut width = parsed.spec.width();
+    let mut precision = parsed.spec.precision();
     if parsed.dynamic_width {
         width = next_usize_arg(args, arg_index, checked_args).?;
     }
@@ -232,9 +232,9 @@ fn print_template[W](
 ) core::Error!void
 where W: io::Writer
 {
-    var formatter = core::Formatter::init(writer);
-    var index = 0usize;
-    var arg_index = 0usize;
+    let mut formatter = core::Formatter::init(writer);
+    let mut index = 0usize;
+    let mut arg_index = 0usize;
     while index < template.len() {
         let ch = template[index];
         if ch == '{' {

@@ -262,7 +262,7 @@ extend char : core::Format {
 
 extend [char] : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < self.len() {
             formatter.write_char(self[index]).?;
             index += 1usize;
@@ -290,7 +290,7 @@ where T: Sized + core::Format
 {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         formatter.write_byte(b'[').?;
-        var index = 0usize;
+        let mut index = 0usize;
         while index < self.len() {
             if index != 0usize {
                 formatter.write_text(", ").?;

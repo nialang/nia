@@ -6,7 +6,7 @@ fn checks_inline_asm_configuration() {
     let checked = pipeline(
         r#"
 fn main() void {
-    var ret: i64 = 0;
+    let mut ret: i64 = 0;
     @asm({
         code: b"syscall",
         outputs: { rax: ret },
@@ -71,7 +71,7 @@ fn main() void {
     let bare_option = pipeline(
         r#"
 fn main() void {
-    var volatile = 0;
+    let mut volatile = 0;
     @asm({
         code: b"nop",
         options: [volatile],
@@ -93,7 +93,7 @@ fn main() void {
 struct Pair { x: i64 }
 
 fn main() void {
-    var pair: Pair = { x: 1 };
+    let mut pair: Pair = { x: 1 };
     @asm({
         code: b"nop",
         inputs: { rax: pair },

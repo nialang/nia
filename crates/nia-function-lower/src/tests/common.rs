@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    AtomicOrder, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr, TypedExprKind,
-    TypedForBinding, TypedForIn, TypedIfPattern, TypedIfPatternArm, TypedLocal, TypedLocalKind,
-    TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
-    TypedPlace, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    AtomicOrder, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr, TypedExprKind, TypedForIn,
+    TypedIfPattern, TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
 };
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
@@ -75,13 +75,16 @@ pub(super) fn for_iterator_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt
     TypedStmt {
         span,
         kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
-            binding: Some(TypedForBinding {
-                local_id,
-                name: "i".to_string(),
-            }),
-            pattern_kind: nia_ast::BindingPatternKind::Value,
+            pattern: TypedPattern {
+                ty,
+                span,
+                kind: TypedPatternKind::Bind {
+                    local_id,
+                    name: "i".to_string(),
+                },
+            },
             item_ty: ty,
-            binding_ty: ty,
+            iter_self_ty: ty,
             iter: TypedExpr {
                 span,
                 ty,

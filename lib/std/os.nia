@@ -4,7 +4,7 @@ pub(pkg) module linux;
 using pkg::os::linux as platform;
 using pkg::error;
 
-pub comptime let max_path_bytes: usize = platform::max_path_bytes;
+pub comptime max_path_bytes: usize = platform::max_path_bytes;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -405,7 +405,7 @@ extend platform::Timestamp {
 
 extend platform::FileMetadata {
     fn as_os_metadata(&self) FileMetadata {
-        var accessed: ?Timestamp = null;
+        let mut accessed: ?Timestamp = null;
         if let ?value = self.atime() {
             accessed = ?value.as_os_timestamp();
         } else null {}

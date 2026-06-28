@@ -260,7 +260,7 @@ trait
 true
 type
 using
-var
+let mut
 void
 where
 ```
@@ -291,9 +291,9 @@ u8 u16 u32 u64 u128 usize
 ```
 
 ```nia
-var x: u8 = 1;
-var n: usize = 10;
-var chained = 10i32;
+let mut x: u8 = 1;
+let mut n: usize = 10;
+let mut chained = 10i32;
 ```
 
 The suffix selects the literal's type before contextual inference. The literal
@@ -301,9 +301,9 @@ value must fit in that type. Underscores may separate digits and do not affect
 the value. Radix prefixes and underscores may be combined with suffixes:
 
 ```nia
-var mask = 0xffu8;
-var bits = 0b1010_0000u8;
-var mode = 0o755usize;
+let mut mask = 0xffu8;
+let mut bits = 0b1010_0000u8;
+let mut mode = 0o755usize;
 ```
 
 Floating-point literals:
@@ -319,9 +319,9 @@ Floating literal type is inferred from context. Without context, it defaults to
 `f64`. Floating literals may use `f32` or `f64` suffixes:
 
 ```nia
-var x: f32 = 1.5;
-var y = 1.5f32;
-var z = 1.0e-3f64;
+let mut x: f32 = 1.5;
+let mut y = 1.5f32;
+let mut z = 1.0e-3f64;
 ```
 
 The suffix selects the literal's type before contextual inference. The value
@@ -519,17 +519,17 @@ Pointers are ordinary values. Nia has no borrow checker. Read-only and writable
 pointers are different types. Pointer conversions must be explicit:
 
 ```nia
-var addr = ptr as usize;
-var ptr2 = addr as &u8;
+let mut addr = ptr as usize;
+let mut ptr2 = addr as &u8;
 ```
 
 Address-of and dereference syntax:
 
 ```nia
-var value = 1;
-var p = &value;
-var mp = &mut value;
-var x = p.*;
+let mut value = 1;
+let mut p = &value;
+let mut mp = &mut value;
+let mut x = p.*;
 mp.* = 1;
 ```
 
@@ -586,11 +586,11 @@ fn make_i32() i32 {
     42
 }
 
-var point: Point = { x: 10, y: 20 };
-var p: &Point = &point;
-var temp = &Point { x: 1, y: 2 };
-var answer = &42i32;
-var returned = &make_i32();
+let mut point: Point = { x: 10, y: 20 };
+let mut p: &Point = &point;
+let mut temp = &Point { x: 1, y: 2 };
+let mut answer = &42i32;
+let mut returned = &make_i32();
 
 let hello = b"hello\0";
 _ = &(hello.*[0]);
@@ -608,8 +608,8 @@ Array length may be written explicitly in type syntax, or inferred with `_` when
 an array literal provides the element count:
 
 ```nia
-var xs: [_]i32 = [1, 2, 3];
-var name: [_]u8 = b"nia".*;
+let mut xs: [_]i32 = [1, 2, 3];
+let mut name: [_]u8 = b"nia".*;
 ```
 
 `[_]T` is only valid in contexts initialized by an array literal or string
@@ -626,7 +626,7 @@ When an array literal initializes a binding without a type annotation, the
 binding type is inferred from the literal:
 
 ```nia
-var xs = [1, 2, 3]; // [3]i32
+let mut xs = [1, 2, 3]; // [3]i32
 ```
 
 In other expression contexts, the expected type must still supply the array
@@ -649,7 +649,7 @@ alone, when nested array shape should be explicit, or when the literal is
 immediately materialized, for example:
 
 ```nia
-var s = & ([3]i32[1, 2, 3])[..];
+let mut s = & ([3]i32[1, 2, 3])[..];
 ```
 
 Repeated array literals use semicolon syntax:
@@ -666,18 +666,18 @@ length, the repeat count must match it.
 Arrays may be nested:
 
 ```nia
-var matrix: [2][3]i32 = [
+let mut matrix: [2][3]i32 = [
     [1, 2, 3],
     [4, 5, 6],
 ];
 
-var zeros: [2][3]i32 = [[0; 3]; 2];
+let mut zeros: [2][3]i32 = [[0; 3]; 2];
 ```
 
 Array indexing:
 
 ```nia
-var x = arr[0];
+let mut x = arr[0];
 arr[1] = 42;
 ```
 
@@ -703,20 +703,20 @@ type `usize`.
 Slices may be constructed by combining range indexing with address-of:
 
 ```nia
-var hello = "hello";
-var s = &hello[..];       // &[char]
-var t = &hello[0..2];     // &[char]
-var u = &hello[0..=1];    // &[char]
-var v = &hello[1..];      // &[char]
-var w = &hello[..3];      // &[char]
-var x = &hello[..=3];     // &[char]
+let mut hello = "hello";
+let mut s = &hello[..];       // &[char]
+let mut t = &hello[0..2];     // &[char]
+let mut u = &hello[0..=1];    // &[char]
+let mut v = &hello[1..];      // &[char]
+let mut w = &hello[..3];      // &[char]
+let mut x = &hello[..=3];     // &[char]
 ```
 
 Writable slices use `&mut` and require a writable base place:
 
 ```nia
-var xs: [4]i32 = [1, 2, 3, 4];
-var s = &mut xs[1..3]; // &mut [i32]
+let mut xs: [4]i32 = [1, 2, 3, 4];
+let mut s = &mut xs[1..3]; // &mut [i32]
 s[0] = 10;
 ```
 
@@ -740,9 +740,9 @@ fn write(xs: &mut [i32]) {
     xs[0] = 10;
 }
 
-var arr: [3]i32 = [1, 2, 3];
-var ro: &[i32] = &arr;
-var rw: &mut [i32] = &mut arr;
+let mut arr: [3]i32 = [1, 2, 3];
+let mut ro: &[i32] = &arr;
+let mut rw: &mut [i32] = &mut arr;
 read(&arr);
 write(&mut arr);
 read(&[1, 2, 3]);
@@ -754,7 +754,7 @@ materialization rule used by address-of creates a block-scoped temporary array.
 Ordinary array values do not convert directly:
 
 ```nia
-var arr: [3]i32 = [1, 2, 3];
+let mut arr: [3]i32 = [1, 2, 3];
 read(arr);      // error
 read([1, 2, 3]); // error
 ```
@@ -807,16 +807,16 @@ The base of a slice construction may be an array, another slice, or a
 single-element pointer:
 
 ```nia
-var arr: [4]i32 = [1, 2, 3, 4];
-var a = &arr[..];      // len = 4
+let mut arr: [4]i32 = [1, 2, 3, 4];
+let mut a = &arr[..];      // len = 4
 
-var b = &a[1..3];      // slice from slice
+let mut b = &a[1..3];      // slice from slice
 
-var x: i32 = 10;
-var p = &x;
-var c = &p[..];        // len = 1
-var d = &p[0..1];      // len = 1
-var e = &p[0..12];     // allowed; programmer owns the length claim
+let mut x: i32 = 10;
+let mut p = &x;
+let mut c = &p[..];        // len = 1
+let mut d = &p[0..1];      // len = 1
+let mut e = &p[0..12];     // allowed; programmer owns the length claim
 ```
 
 For `&T` and `&mut T`, an omitted upper bound uses a base length of 1. An
@@ -831,8 +831,8 @@ Optional types are written `?T`. `null` constructs the empty value and `?value`
 constructs the present value:
 
 ```nia
-var a: ?i32 = ?10i32;
-var b: ?i32 = null;
+let mut a: ?i32 = ?10i32;
+let mut b: ?i32 = null;
 ```
 
 `null` and `?value` require an expected optional type when the full optional
@@ -843,12 +843,12 @@ is the success value type. `!value` constructs the success case and `error!`
 constructs the error case:
 
 ```nia
-var ok: i32!i32 = !10i32;
-var err: i32!i32 = 2i32!;
+let mut ok: i32!i32 = !10i32;
+let mut err: i32!i32 = 2i32!;
 ```
 
 Both error-union constructors require an expected `E!T` type. A binding such as
-`var x = !10i32;` is invalid because the error type `E` cannot be inferred from
+`let mut x = !10i32;` is invalid because the error type `E` cannot be inferred from
 the success value alone.
 
 The postfix propagation operator `.?` unwraps an optional or error union inside a
@@ -861,7 +861,7 @@ type.
 
 ```nia
 fn read(value: i32!i32) i32!i32 {
-    var x = value.?;
+    let mut x = value.?;
     !x
 }
 ```
@@ -914,28 +914,28 @@ struct String {
 Struct value construction:
 
 ```nia
-var s: String = { ptr: & bytes[0], len: 3 };
+let mut s: String = { ptr: & bytes[0], len: 3 };
 ```
 
 The common struct literal form does not carry a nominal type by itself. The
 expected type must provide the struct type. Anonymous struct inference such as
-`var p = { x: 10, y: 20 };` is not supported.
+`let mut p = { x: 10, y: 20 };` is not supported.
 
 ```nia
 fn sum(point: Point) i32 {
     point.x + point.y
 }
 
-var p: Point = { x: 10, y: 20 };
-var total = sum({ x: 1, y: 2 });
+let mut p: Point = { x: 10, y: 20 };
+let mut total = sum({ x: 1, y: 2 });
 ```
 
 A struct literal may also carry an explicit nominal type prefix:
 
 ```nia
-var p = Point { x: 10, y: 20 };
-var q = Point{x: 1, y: 2};
-var ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
+let mut p = Point { x: 10, y: 20 };
+let mut q = Point{x: 1, y: 2};
+let mut ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
 ```
 
 In a `comptime` value context, an untyped struct literal may also be used as a
@@ -943,14 +943,14 @@ structural compile-time-only value. This does not create an anonymous runtime
 struct type:
 
 ```nia
-comptime let config = { width: 4usize };
-comptime let width: usize = config.width;
+comptime config = { width: 4usize };
+comptime width: usize = config.width;
 ```
 
 Field access:
 
 ```nia
-var len = s.len;
+let mut len = s.len;
 s.len = 4;
 ```
 
@@ -979,13 +979,13 @@ Union value construction uses the same aggregate literal syntax as structs, but
 exactly one field must be initialized:
 
 ```nia
-var bits: Bits = { i: 42 };
+let mut bits: Bits = { i: 42 };
 ```
 
 Union field access is explicit:
 
 ```nia
-var n = bits.i;
+let mut n = bits.i;
 bits.f = 1.0;
 ```
 
@@ -1030,7 +1030,7 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-var log_total: i32 = 0;
+let mut log_total: i32 = 0;
 
 fn log(value: i32) {
     log_total += value;
@@ -1054,14 +1054,14 @@ fn add(a: i32, b: i32) i32 {
     a + b
 }
 
-var f = add; // error
+let mut f = add; // error
 ```
 
 Addressing a function item with `&` creates a function pointer:
 
 ```nia
-var f = & add;                  // &fn(i32, i32) i32
-var g: &fn(i32, i32) i32 = & add;   // allowed
+let mut f = & add;                  // &fn(i32, i32) i32
+let mut g: &fn(i32, i32) i32 = & add;   // allowed
 ```
 
 Generic functions must be explicitly instantiated before taking a function
@@ -1072,8 +1072,8 @@ fn id[T](x: T) T {
     x
 }
 
-var f = & id[i32]; // &fn(i32) i32
-var g = & id;      // error
+let mut f = & id[i32]; // &fn(i32) i32
+let mut g = & id;      // error
 ```
 
 `& function_item` is a specific function-item address rule. It does not
@@ -1135,8 +1135,8 @@ active target rather than read from disk:
 ```nia
 using builtin;
 
-comptime let word_bits: usize = builtin::pointer_width;
-comptime let target_os = builtin::os;
+comptime word_bits: usize = builtin::pointer_width;
+comptime target_os = builtin::os;
 ```
 
 The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`, `abi`,
@@ -1214,7 +1214,7 @@ Extern global bindings declare external symbols:
 
 ```nia
 extern let errno: i32;
-extern var global_counter: usize;
+extern let mut global_counter: usize;
 ```
 
 Extern functions default to return type `void` when no return type is written.
@@ -1256,7 +1256,7 @@ enum Color {
 Enum variants are accessed through the enum namespace:
 
 ```nia
-var c = Color::Black;
+let mut c = Color::Black;
 ```
 
 If no explicit value is written, variant values start at `0` and increase by
@@ -1290,13 +1290,13 @@ backing integer type is a valid value of the enum, including unnamed values.
 Integers may be explicitly cast to open enums:
 
 ```nia
-var flag: Flag = 3 as Flag;
+let mut flag: Flag = 3 as Flag;
 ```
 
 `switch` is an expression that may match integers and enums:
 
 ```nia
-var value = switch c {
+let mut value = switch c {
     Color::Black => return 0;
     Color::White => 1,
     Color::Red => 2,
@@ -1331,7 +1331,7 @@ ranges and overlapping integer patterns are rejected.
 
 `switch` case patterns are value dispatch patterns only: expression patterns,
 integer ranges, and `_`. `switch` does not destructure optional or error-union
-values. Use `if let` or `if var` for recursive binding patterns:
+values. Use `if let` or `if let mut` for recursive binding patterns:
 
 ```nia
 if let ?x = value {
@@ -1358,7 +1358,7 @@ if let ?!value = nested {
 `?pattern` matches the payload of a present optional. `!pattern` matches the
 success payload of an error union. `pattern!` matches the error payload of an
 error union. `null` matches the empty optional case. `_` is a catch-all
-optional/error-union pattern in `if let` / `if var`; in `switch`, `_` is the
+optional/error-union pattern in `if let` / `if let mut`; in `switch`, `_` is the
 default case. These match patterns may nest across optional and error-union
 layers. Pointer destructuring forms such as `let &value = ptr;` are separate
 local/loop binding syntax, not switch case syntax.
@@ -1381,7 +1381,7 @@ let mask: u32 = 0xff;
 Use `comptime` for named compile-time values:
 
 ```nia
-comptime let size: usize = 16;
+comptime size: usize = 16;
 ```
 
 Local `let` bindings cannot be assigned after declaration:
@@ -1391,7 +1391,7 @@ let x = 1;
 x = 2; // error
 ```
 
-`let x: T;` is a valid local declaration. Like `var x: T;`, it creates
+`let x: T;` is a valid local declaration. Like `let mut x: T;`, it creates
 uninitialized automatic storage of type `T`; the difference is that the binding
 cannot be assigned and cannot form writable `&T`:
 
@@ -1438,16 +1438,16 @@ Contexts requiring compile-time values, such as non-literal array lengths, read
 address:
 
 ```nia
-comptime let width: usize = 4;
+comptime width: usize = 4;
 
 fn first_value() i32 {
-    comptime let local_width: usize = width;
-    var xs: [local_width]i32 = [1, 2, 3, 4];
+    comptime local_width: usize = width;
+    let mut xs: [local_width]i32 = [1, 2, 3, 4];
     xs[0]
 }
 ```
 
-`comptime` may appear wherever `var` or `let` binding syntax is accepted. A
+`comptime` may appear wherever `let mut` or `let` binding syntax is accepted. A
 `comptime` binding must have an initializer. Its initializer must be evaluable
 with the current compile-time value evaluator. Current compile-time values cover
 integer, boolean, string, array, and struct literal values; struct field access;
@@ -1461,11 +1461,11 @@ may be used through imports:
 
 ```nia
 // config.nia
-pub comptime let width: usize = 4;
+pub comptime width: usize = 4;
 
 // main.nia
 using root::config;
-var xs: [config::width]i32 = [1, 2, 3, 4];
+let mut xs: [config::width]i32 = [1, 2, 3, 4];
 ```
 
 Taking the address of a `comptime` binding is invalid because it has no runtime
@@ -1479,8 +1479,8 @@ struct Point {
     y: usize,
 }
 
-comptime let p: Point = Point{x: 2, y: 3};
-comptime let width: usize = p.x + p.y;
+comptime p: Point = Point{x: 2, y: 3};
+comptime width: usize = p.x + p.y;
 ```
 
 Conditional source selection is expressed with `@[if ...]`, not with
@@ -1492,7 +1492,7 @@ Top-level value bindings create global static storage. There is no `static`
 keyword.
 
 ```nia
-var a = 1;
+let mut a = 1;
 
 fn bump() i32 {
     a = a + 1;
@@ -1503,8 +1503,8 @@ fn bump() i32 {
 Top-level bindings may infer their type or write it explicitly:
 
 ```nia
-var hello = "hello\n";
-var counter: i32 = 0;
+let mut hello = "hello\n";
+let mut counter: i32 = 0;
 let banner = b"nia";
 ```
 
@@ -1512,9 +1512,9 @@ Non-extern top-level initialized bindings must satisfy static initialization
 rules. A bare global value does not automatically become an address:
 
 ```nia
-var target: i32 = 1;
-var p: &i32 = &target; // allowed
-var q: &i32 = target;  // error
+let mut target: i32 = 1;
+let mut p: &i32 = &target; // allowed
+let mut q: &i32 = target;  // error
 ```
 
 Top-level bindings are visible inside the same module. Cross-module visibility
@@ -1522,22 +1522,22 @@ is controlled by the module system.
 
 ## 6. Local Bindings And Assignment
 
-`var` introduces mutable bindings. `let` introduces immutable bindings with
-storage. `comptime let` and `comptime var` introduce compile-time value bindings
+`let mut` introduces mutable bindings. `let` introduces immutable bindings with
+storage. `comptime` and `comptime mut` introduce compile-time value bindings
 with no runtime storage.
 
 Inferred type declaration:
 
 ```nia
-var x = 1;
-var name = "nia";
+let mut x = 1;
+let mut name = "nia";
 ```
 
 Explicit type declaration:
 
 ```nia
-var x: i32 = 1;
-var name: [4]u8 = b"nia\0".*;
+let mut x: i32 = 1;
+let mut name: [4]u8 = b"nia\0".*;
 ```
 
 Assignment to an existing place:
@@ -1557,8 +1557,8 @@ x *= 2;
 x /= 2;
 ```
 
-`var` introduces a mutable binding. `let` introduces an immutable binding.
-`var x: T;` and `let x: T;` are valid
+`let mut` introduces a mutable binding. `let` introduces an immutable binding.
+`let mut x: T;` and `let x: T;` are valid
 uninitialized declarations. A declaration without an explicit type must have an
 initializer.
 
@@ -1566,14 +1566,14 @@ Local bindings may use pointer destructuring:
 
 ```nia
 let &x = ptr;
-var &mut y: i32 = mut_ptr;
+let mut &mut y: i32 = mut_ptr;
 ```
 
-`let &x = ptr` requires `ptr: &T` and binds `x: T`. `var &mut y: T = ptr`
+`let &x = ptr` requires `ptr: &T` and binds `x: T`. `let mut &mut y: T = ptr`
 requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
 type after destructuring, not the pointer input type. Pointer-destructuring
 local bindings require an initializer. This syntax is separate from the
-optional/error-union match patterns used by `if let` and `if var`, and from the
+optional/error-union match patterns used by `if let` and `if let mut`, and from the
 value/range/default patterns used by `switch`.
 
 ## 7. Statements And Semicolons
@@ -1583,7 +1583,7 @@ Nia uses semicolons for statement boundaries.
 Statements requiring semicolons:
 
 ```nia
-var x = 1;
+let mut x = 1;
 x = x + 1;
 record(x);
 return x;
@@ -1595,7 +1595,7 @@ Block-shaped control flow used as a standalone statement does not need a trailin
 semicolon. The recommended rule is:
 
 - ordinary expression statements need `;`;
-- `if`, `if let`, `if var`, `for`, and `switch` used as standalone statements
+- `if`, `if let`, `if let mut`, `for`, and `switch` used as standalone statements
   do not need `;`;
 - a block tail expression does not use `;`.
 
@@ -1607,7 +1607,7 @@ Blocks are expressions:
 
 ```nia
 {
-    var x = 1;
+    let mut x = 1;
     x + 1
 }
 ```
@@ -1620,7 +1620,7 @@ tail expression has type `void`.
 `if` is an expression:
 
 ```nia
-var result = if score >= 60 {
+let mut result = if score >= 60 {
     "pass"
 } else {
     "fail"
@@ -1631,7 +1631,7 @@ When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
 
-`if let` and `if var` match a value with the binding/destructuring pattern
+`if let` and `if let mut` match a value with the binding/destructuring pattern
 language:
 
 ```nia
@@ -1642,14 +1642,14 @@ if let !value = result {
 }
 ```
 
-The first arm writes `if let pattern = expr` or `if var pattern = expr`.
+The first arm writes `if let pattern = expr` or `if let mut pattern = expr`.
 Additional pattern arms write `else pattern { ... }`; they do not repeat `let`
-or `var`. A final `else { ... }` block may be used as a fallback. `if let`
-creates immutable pattern bindings, while `if var` creates mutable pattern
+or `let mut`. A final `else { ... }` block may be used as a fallback. `if let`
+creates immutable pattern bindings, while `if let mut` creates mutable pattern
 bindings. The matched expression is evaluated once and then tested against each
 pattern arm in order.
 
-When all pattern arms cover the matched type, an `if let` or `if var` expression
+When all pattern arms cover the matched type, an `if let` or `if let mut` expression
 may produce a value without a final `else` block. Otherwise, omitting the final
 `else` makes the expression type `void`, like an ordinary `if` without `else`.
 
@@ -1705,12 +1705,12 @@ so that its item type is clear:
 ```nia
 using std;
 
-var total: usize = 0;
+let mut total: usize = 0;
 for i in std::range(0usize..len) {
     total += i;
 }
 
-var wide_total: i64 = 0;
+let mut wide_total: i64 = 0;
 for i in std::range[i64](1..4) {
     wide_total += i;
 }
@@ -1742,7 +1742,7 @@ Loops are statements and do not produce values.
 
 ```nia
 {
-    var file = open(path);
+    let mut file = open(path);
     defer close(file);
 
     work(file);
@@ -2071,7 +2071,7 @@ are compiler-consumed metadata, not a runtime struct:
 
 ```nia
 fn syscall1(sys_num: usize, arg1: usize) isize {
-    var ret: isize = 0;
+    let mut ret: isize = 0;
     @asm({
         code:
             b\\syscall
@@ -2128,15 +2128,15 @@ struct Pair[T, U] {
 Generic type instantiation uses `[]`:
 
 ```nia
-var p: Pair[i32, bool] = { first: 1, second: true };
+let mut p: Pair[i32, bool] = { first: 1, second: true };
 ```
 
 Expression generic instantiation also uses `[]` for explicit type arguments in
 function-item, method, or other expression positions:
 
 ```nia
-var x = id[i32](1);
-var f = & id[i32];
+let mut x = id[i32](1);
+let mut f = & id[i32];
 ```
 
 In expressions, `expr[...]` is parsed uniformly and disambiguated semantically.
@@ -2192,8 +2192,8 @@ extend Vec2 {
 Method call:
 
 ```nia
-var v: Vec2 = { x: 3, y: 4 };
-var n = v.len2();
+let mut v: Vec2 = { x: 3, y: 4 };
+let mut n = v.len2();
 ```
 
 Methods are ordinary functions associated with a concrete nominal type. Receiver
@@ -2248,7 +2248,7 @@ Receiver methods may also be called through their associated type path by
 passing the receiver explicitly:
 
 ```nia
-var n = Vec2::len2(& v);
+let mut n = Vec2::len2(& v);
 ```
 
 The same associated path can be used as an unbound function item when forming a
@@ -2256,8 +2256,8 @@ function pointer. This does not capture a receiver; the receiver remains the
 first explicit function parameter:
 
 ```nia
-var f: &fn(&Vec2) i32 = &Vec2::len2;
-var n = f(&v);
+let mut f: &fn(&Vec2) i32 = &Vec2::len2;
+let mut n = f(&v);
 ```
 
 Generic structs may have methods:
@@ -2284,17 +2284,17 @@ extend[T] Box[T] {
     }
 }
 
-var box: Box[i32] = { value: 1 };
-var x = box.replace[bool](true);
+let mut box: Box[i32] = { value: 1 };
+let mut x = box.replace[bool](true);
 ```
 
 Associated paths use the same brackets for generic type and method arguments:
 
 ```nia
-var make: &fn(i32) Box[i32] = & Box[i32]::make;
-var replace: &fn(&Box[i32], bool) bool =
+let mut make: &fn(i32) Box[i32] = & Box[i32]::make;
+let mut replace: &fn(&Box[i32], bool) bool =
     &Box[i32]::replace[bool];
-var y = Box[i32]::replace[bool](&box, true);
+let mut y = Box[i32]::replace[bool](&box, true);
 ```
 
 Structural extension targets use `[type]::name` as their explicit associated
@@ -2311,9 +2311,9 @@ extend[T] &T {
     }
 }
 
-var p: &u8 = [&u8]::zero() as &u8;
-var n = [&u8]::null(p);
-var f: &fn(&u8) bool = &[&u8]::null;
+let mut p: &u8 = [&u8]::zero() as &u8;
+let mut n = [&u8]::null(p);
+let mut f: &fn(&u8) bool = &[&u8]::null;
 ```
 
 `[type]::name` is only an associated target path. It does not introduce a
@@ -2871,7 +2871,7 @@ Modules and declarations are private by default. Public APIs are marked with
 children. `pub(pkg)` exposes it within the package selected by one `-M`
 entry or by the reserved `root`/`std` packages.
 
-`pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `var`,
+`pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `let mut`,
 `extern` declarations, and `using`. Nia has no separate `mod` or `use` syntax.
 Package management is outside the language specification.
 
@@ -2965,7 +2965,7 @@ A conforming Nia compiler supports:
 - primitive type checking;
 - arrays, slices, pointers, optional types, error union types, structs, unions,
   C-style enums, and function types;
-- `var`, `let`, and `comptime` bindings;
+- `let mut`, `let`, and `comptime` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
 - the three `for` forms;
@@ -2973,7 +2973,7 @@ A conforming Nia compiler supports:
 - `switch` and enum exhaustiveness checks;
 - `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.get_ptr_read()`, and `@asm({...})`;
 - explicit `module` declarations, module-map package roots, and `using`;
-- global static storage from top-level `var` and `let`;
+- global static storage from top-level `let mut` and `let`;
 - top-level `pub` visibility;
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;
@@ -3133,7 +3133,7 @@ fn add(a: i32, b: i32) i32 {
 }
 
 fn sum(xs: &[i32]) i32 {
-    var total = 0;
+    let mut total = 0;
     for &value in xs.iter() {
         total += value;
     }
@@ -3151,9 +3151,9 @@ fn score(answer: Pair[i32, i32]) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    var v: Vec2 = { x: 3, y: 4 };
-    var values = [_]i32[add(40, 2), v.len2(), 7];
-    var pair: Pair[i32, i32] = { first: values[0], second: sum(&values) };
+    let mut v: Vec2 = { x: 3, y: 4 };
+    let mut values = [_]i32[add(40, 2), v.len2(), 7];
+    let mut pair: Pair[i32, i32] = { first: values[0], second: sum(&values) };
 
     if score(pair) != 116 {
         return process::exit(1)!;

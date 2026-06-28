@@ -1123,14 +1123,14 @@ mod tests {
     fn resolves_module_value_names_and_defers_locals() {
         let (module, errors) = parse_module(
             r#"
-var counter = 0;
+let mut counter = 0;
 
 fn add(a: i32, b: i32) i32 {
     a + b + counter
 }
 
 fn main() i32 {
-    var local = add(counter, 1);
+    let mut local = add(counter, 1);
     local
 }
 "#,
@@ -1163,10 +1163,10 @@ fn main() i32 {
         let (module, errors) = parse_module(
             r#"
 fn main() usize {
-    var a = @size[usize]();
-    var b = @align[usize]();
-    var c = @unknown[usize]();
-    comptime let d: usize = @error("bad");
+    let mut a = @size[usize]();
+    let mut b = @align[usize]();
+    let mut c = @unknown[usize]();
+    comptime d: usize = @error("bad");
     @trap();
     a + b + c
 }

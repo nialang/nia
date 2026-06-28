@@ -300,8 +300,8 @@ using std::fmt;
 using std::io;
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    var buffer: [1024]u8 = [_]u8[0; 1024];
-    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut buffer: [1024]u8 = [_]u8[0; 1024];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
     stdout.print("root={}\n", &[b.package_root().text()]).as_build_error().?;
     stdout.print("build={}\n", &[b.build_dir().text()]).as_build_error().?;
     stdout.print("cache={}\n", &[b.cache_dir().text()]).as_build_error().?;
@@ -394,24 +394,24 @@ using std::build;
 using std::io;
 
 fn prepare(b: &mut build::Build) build::Error!void {
-    var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
     stdout.print("prepare\n", &[]).as_build_error().?;
     stdout.flush().as_build_error().?;
     !{}
 }
 
 fn build_app(b: &mut build::Build) build::Error!void {
-    var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
     stdout.print("build\n", &[]).as_build_error().?;
     stdout.flush().as_build_error().?;
     !{}
 }
 
 fn check(b: &mut build::Build) build::Error!void {
-    var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
     stdout.print("check\n", &[]).as_build_error().?;
     stdout.flush().as_build_error().?;
     !{}
@@ -457,8 +457,8 @@ using std::fs;
 using std::io;
 
 fn verify(b: &mut build::Build) build::Error!void {
-    var buffer: [128]u8 = [_]u8[0; 128];
-    var stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
+    let mut buffer: [128]u8 = [_]u8[0; 128];
+    let mut stdout = io::FileWriter::stdout(b.io(), &mut buffer[..]);
     stdout.print("verified\n", &[]).as_build_error().?;
     stdout.flush().as_build_error().?;
     !{}
@@ -1273,7 +1273,7 @@ fn main() i32 {
     std::fs::write(
         &mapped,
         r#"
-pub comptime let answer: i32 = 42;
+pub comptime answer: i32 = 42;
 "#,
     )
     .expect("write mapped source");
@@ -1460,7 +1460,7 @@ fn check_can_emit_backend_optimization_report() {
 let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
-    var unused = 1;
+    let mut unused = 1;
     zeroes[0]
 }
 "#,
@@ -1683,7 +1683,7 @@ fn emit_llvm_prints_checked_program_ir() {
         &main,
         r#"
 fn main() i32 {
-    var x = 41;
+    let mut x = 41;
     x + 1
 }
 "#,
@@ -1724,7 +1724,7 @@ where T: Sized
 }
 
 fn main() i32 {
-    var point: Point = { x: 1 };
+    let mut point: Point = { x: 1 };
     _ = load[Point](&point);
     0
 }

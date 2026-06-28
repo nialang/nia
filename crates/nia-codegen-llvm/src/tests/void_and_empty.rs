@@ -13,9 +13,9 @@ struct Empty {}
 fn sink(p: &void) {}
 
 fn main() i32 {
-    var unit: void = {};
-    var empty: Empty = {};
-    var value: i32 = 7;
+    let mut unit: void = {};
+    let mut empty: Empty = {};
+    let mut value: i32 = 7;
     sink(&value as &void);
     0
 }
@@ -51,8 +51,8 @@ fn take_local(value: LocalEmpty) i32 {
 }
 
 fn main() i32 {
-    var local: LocalEmpty = {};
-    var imported: defs::Empty = {};
+    let mut local: LocalEmpty = {};
+    let mut imported: defs::Empty = {};
     take_local(local) + defs::take(imported)
 }
 "#,
@@ -155,7 +155,7 @@ fn emits_zero_sized_local_assignment_and_return_without_payload_loads() {
 struct Empty {}
 
 fn id(value: Empty) Empty {
-    var out: Empty = {};
+    let mut out: Empty = {};
     out = value;
     out
 }
@@ -196,8 +196,8 @@ fn take_local(value: LocalBox[i32]) i32 {
 }
 
 fn main() i32 {
-    var local: LocalBox[i32] = {};
-    var imported: defs::Box[i32] = {};
+    let mut local: LocalBox[i32] = {};
+    let mut imported: defs::Box[i32] = {};
     take_local(local) + defs::take(imported) + defs::take({})
 }
 "#,
@@ -348,7 +348,7 @@ struct Empty {}
 extern fn observe(value: &Empty);
 
 fn main() i32 {
-    var empty: Empty = {};
+    let mut empty: Empty = {};
     observe(&empty);
     0
 }
@@ -387,7 +387,7 @@ fn take(value: Wrap) void {}
 fn take_array(value: [2]void) void {}
 
 fn main() i32 {
-    var local: Wrap = { value: effect(1) };
+    let mut local: Wrap = { value: effect(1) };
     take({ value: effect(2) });
     take_array([effect(3), effect(4)]);
     take_array([effect(5); 2]);

@@ -70,26 +70,18 @@ pub enum TypedStmtKind {
 pub struct TypedBinding {
     pub local_id: LocalId,
     pub name: String,
-    pub pattern_kind: nia_ast::BindingPatternKind,
     pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
-    pub is_let: bool,
+    pub is_mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedForIn {
-    pub binding: Option<TypedForBinding>,
-    pub pattern_kind: nia_ast::BindingPatternKind,
+    pub pattern: TypedPattern,
     pub item_ty: InternedTyId,
-    pub binding_ty: InternedTyId,
+    pub iter_self_ty: InternedTyId,
     pub iter: TypedExpr,
     pub body: TypedBody,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypedForBinding {
-    pub local_id: LocalId,
-    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +138,8 @@ pub enum TypedPatternKind {
         local_id: LocalId,
         name: String,
     },
+    Pointer(Box<TypedPattern>),
+    MutPointer(Box<TypedPattern>),
     OptionalSome(Box<TypedPattern>),
     OptionalNull,
     ErrorOk(Box<TypedPattern>),
