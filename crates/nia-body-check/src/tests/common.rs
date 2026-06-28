@@ -223,7 +223,7 @@ fn pipeline_with_options(
                             def_id: method_id,
                         },
                         impl_id,
-                        impl_generics: extend.generics.clone(),
+                        effective_generics: extend.generics.clone(),
                         trait_id: None,
                         trait_args: Vec::new(),
                         where_predicates: Vec::new(),

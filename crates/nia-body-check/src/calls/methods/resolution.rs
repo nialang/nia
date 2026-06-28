@@ -47,7 +47,7 @@ impl<'a> BodyChecker<'a> {
                     name: method.name.clone(),
                     def_id: method.def_id,
                     impl_id: method.impl_id,
-                    impl_generics: lookup.impl_generics.clone(),
+                    effective_generics: lookup.effective_generics.clone(),
                     trait_id: method.trait_id,
                     trait_args: Vec::new(),
                     where_predicates: lookup.where_predicates.clone(),
@@ -235,9 +235,11 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         let candidate_target_ty = self.receiver_candidate_target_ty(target_ty, method_id);
         if self.try_match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
+            self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
         if self.try_match_type_pattern(target_ty, receiver_ty, substitutions) {
+            self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
         if self.trait_object_extension_target_matches_receiver(
@@ -257,6 +259,17 @@ impl<'a> BodyChecker<'a> {
             );
         }
         false
+    }
+
+    fn bind_extension_self_from_target(
+        &mut self,
+        target_ty: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) {
+        if substitutions.contains_key("Self") {
+            return;
+        }
+        substitutions.insert("Self".to_string(), target_ty);
     }
 
     fn try_match_type_pattern(
@@ -291,7 +304,7 @@ impl<'a> BodyChecker<'a> {
             return false;
         }
         let receiver_ty = self.normalization.normalize(receiver_ty);
-        let self_ty = match self.interner.get(receiver_ty).cloned() {
+        let receiver_self_ty = match self.interner.get(receiver_ty).cloned() {
             Some(TyKind::Pointer { elem, .. }) => self.normalization.normalize(elem),
             _ => receiver_ty,
         };
@@ -306,10 +319,14 @@ impl<'a> BodyChecker<'a> {
             }
             concrete_trait_args.push(trait_arg);
         }
-        if !self.current_context_proves_trait_obligation(self_ty, trait_id, concrete_trait_args) {
+        if !self.current_context_proves_trait_obligation(
+            receiver_self_ty,
+            trait_id,
+            concrete_trait_args,
+        ) {
             return false;
         }
-        substitutions.entry("Self".to_string()).or_insert(self_ty);
+        substitutions.entry("Self".to_string()).or_insert(target_ty);
         true
     }
 
@@ -1198,7 +1215,7 @@ impl<'a> BodyChecker<'a> {
     fn extension_impl_generics_for_method(&self, method_id: GlobalDefId) -> Option<&[String]> {
         self.extension_methods_by_id
             .get(&method_id)
-            .map(|method| method.impl_generics.as_slice())
+            .map(|method| method.effective_generics.as_slice())
     }
 
     pub(crate) fn match_type_pattern(

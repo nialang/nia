@@ -9,6 +9,7 @@ pub using types::{
     ExecutableHandle,
     ExecutableOptions,
     ModuleHandle,
+    ModuleImport,
     ModuleOptions,
     OptimizationMode,
     Runtime,

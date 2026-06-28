@@ -348,7 +348,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let args = method
-                .impl_generics
+                .effective_generics
                 .iter()
                 .filter_map(|generic| substitutions.get(generic).copied())
                 .collect::<Vec<_>>();

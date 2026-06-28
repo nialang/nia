@@ -118,7 +118,7 @@ pub fn run(command: &Command) Error!Term {
 
 pub(pkg) fn run_path_args(path: fs::PathView, args: &[&u8], envp: &&u8) Error!Term {
     var path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-    var arg_storage: [32]&u8 = [0usize as &u8; 32];
+    var arg_storage: [64]&u8 = [0usize as &u8; 64];
     let encoded_path = path.encode(&mut path_storage[..]).as_process_setup_error().?;
     var argv = ArgList::init(&mut arg_storage[..]);
     argv.push_ptr(encoded_path.ptr()).?;

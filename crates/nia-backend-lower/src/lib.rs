@@ -464,7 +464,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
-    impl_generics: Vec<String>,
+    effective_generics: Vec<String>,
     interner: nia_ty::TyInterner,
 }
 
@@ -1773,7 +1773,7 @@ fn index_extension_generics_by_method(
 ) -> HashMap<GlobalDefId, Vec<String>> {
     let mut generics_by_method = HashMap::new();
     for method in extensions.all_methods() {
-        generics_by_method.insert(method.def_id, method.impl_generics.clone());
+        generics_by_method.insert(method.def_id, method.effective_generics.clone());
     }
     generics_by_method
 }
@@ -1784,7 +1784,7 @@ fn index_local_extension_generics_by_method(
     let mut generics_by_method = HashMap::new();
     for target in extensions.targets() {
         for method in &target.methods {
-            generics_by_method.insert(method.def_id, method.impl_generics.clone());
+            generics_by_method.insert(method.def_id, method.effective_generics.clone());
         }
     }
     generics_by_method
@@ -1951,7 +1951,7 @@ fn index_extension_trait_method_candidates(
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
-                    impl_generics: method.impl_generics.clone(),
+                    effective_generics: method.effective_generics.clone(),
                     interner: source_interner.clone(),
                 });
         }
@@ -1993,7 +1993,7 @@ fn index_program_extension_trait_method_candidates(
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
-                    impl_generics: method.impl_generics.clone(),
+                    effective_generics: method.effective_generics.clone(),
                     interner: (*interner).clone(),
                 };
                 let bucket = candidates

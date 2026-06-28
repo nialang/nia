@@ -435,14 +435,8 @@ pub(crate) fn collect_extension_methods(
                 continue;
             }
             for method in &impl_signature.methods {
-                let mut impl_generics = impl_signature.generics.clone();
-                if matches!(
-                    module.lowering.interner.get(target_ty),
-                    Some(TyKind::TraitObjectPointee { .. })
-                ) && !impl_generics.iter().any(|generic| generic == "Self")
-                {
-                    impl_generics.push("Self".to_string());
-                }
+                let effective_generics =
+                    extension_method_effective_generics(module, impl_signature, method, target_ty);
                 extensions.insert_with_nominal_target(
                     module.module_id,
                     ExtensionMethod {
@@ -452,7 +446,7 @@ pub(crate) fn collect_extension_methods(
                             def_id: method.def_id,
                         },
                         impl_id: impl_signature.impl_id,
-                        impl_generics,
+                        effective_generics,
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
@@ -487,14 +481,8 @@ pub(crate) fn collect_extension_method_index(
             let where_predicates =
                 normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
             for method in &impl_signature.methods {
-                let mut impl_generics = impl_signature.generics.clone();
-                if matches!(
-                    module.lowering.interner.get(target_ty),
-                    Some(TyKind::TraitObjectPointee { .. })
-                ) && !impl_generics.iter().any(|generic| generic == "Self")
-                {
-                    impl_generics.push("Self".to_string());
-                }
+                let effective_generics =
+                    extension_method_effective_generics(module, impl_signature, method, target_ty);
                 extensions.insert(
                     module.module_id,
                     ExtensionMethod {
@@ -504,7 +492,7 @@ pub(crate) fn collect_extension_method_index(
                             def_id: method.def_id,
                         },
                         impl_id: impl_signature.impl_id,
-                        impl_generics,
+                        effective_generics,
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
@@ -516,6 +504,51 @@ pub(crate) fn collect_extension_method_index(
         }
     }
     extensions
+}
+
+fn extension_method_effective_generics(
+    module: &impl ExtensionMethodModule,
+    impl_signature: &TraitImplSignature,
+    method: &nia_item_signatures::TraitImplMethodSignature,
+    target_ty: InternedTyId,
+) -> Vec<String> {
+    let mut generics = impl_signature.generics.clone();
+    if matches!(
+        module.interner().get(target_ty),
+        Some(TyKind::TraitObjectPointee { .. })
+    ) && !generics.iter().any(|generic| generic == "Self")
+    {
+        generics.push("Self".to_string());
+    }
+    if let Some(def) = module.defs().defs.get(method.def_id) {
+        generics.extend(def.generics.iter().cloned());
+    }
+    generics
+}
+
+trait ExtensionMethodModule {
+    fn defs(&self) -> &DefCollection;
+    fn interner(&self) -> &TyInterner;
+}
+
+impl ExtensionMethodModule for ExtensionModuleInput<'_> {
+    fn defs(&self) -> &DefCollection {
+        self.defs
+    }
+
+    fn interner(&self) -> &TyInterner {
+        &self.lowering.interner
+    }
+}
+
+impl ExtensionMethodModule for ExtensionMethodIndexModuleInput<'_> {
+    fn defs(&self) -> &DefCollection {
+        self.defs
+    }
+
+    fn interner(&self) -> &TyInterner {
+        &self.lowering.interner
+    }
 }
 
 fn normalize_where_predicates(
@@ -2115,7 +2148,7 @@ pub(crate) fn visible_extensions_for_module(
                     name: method.name.clone(),
                     def_id: method.def_id,
                     impl_id: method.impl_id,
-                    impl_generics: method.impl_generics.clone(),
+                    effective_generics: method.effective_generics.clone(),
                     trait_id: method.trait_id,
                     trait_args: method
                         .trait_args
@@ -2301,13 +2334,18 @@ fn declared_witness_module_closure(
                 .map(|entry| entry.target_module),
         )
         .collect::<Vec<_>>();
-    for module_id in roots {
+    for module_id in roots.iter().copied() {
         if module_id == context.module_id {
             continue;
         }
         seen.insert(module_id);
         if let Some(using_scope) = context.using_scopes.get(&module_id) {
-            for provider in using_scope.modules.values().copied() {
+            for provider in using_scope
+                .modules
+                .values()
+                .copied()
+                .chain(using_scope.types.values().map(|entry| entry.target_module))
+            {
                 if provider != context.module_id {
                     seen.insert(provider);
                 }

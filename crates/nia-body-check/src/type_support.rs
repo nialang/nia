@@ -738,6 +738,44 @@ impl<'a> BodyChecker<'a> {
             self.interner.get(actual).cloned(),
         ) {
             (
+                Some(TyKind::Pointer {
+                    is_readonly: expected_const,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_const,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: expected_const,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_const,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_readonly: expected_const,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: actual_const,
+                    elem: actual_elem,
+                }),
+            ) if expected_const == actual_const => {
+                self.types_match_normalized(expected_elem, actual_elem)
+            }
+            (
+                Some(TyKind::SlicePointee {
+                    elem: expected_elem,
+                }),
+                Some(TyKind::SlicePointee { elem: actual_elem }),
+            ) => self.types_match_normalized(expected_elem, actual_elem),
+            (
                 Some(TyKind::Array {
                     len: ArrayLenTy::Infer,
                     elem: expected_elem,
@@ -849,6 +887,26 @@ impl<'a> BodyChecker<'a> {
                                 self.types_match_normalized(expected_binding.ty, actual_binding.ty)
                             })
                     })
+            }
+            (
+                Some(TyKind::FunctionPointer {
+                    params: expected_params,
+                    return_type: expected_return,
+                    is_variadic: expected_variadic,
+                }),
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                }),
+            ) => {
+                expected_variadic == actual_variadic
+                    && expected_params.len() == actual_params.len()
+                    && expected_params
+                        .iter()
+                        .zip(actual_params.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && self.types_match_normalized(expected_return, actual_return)
             }
             _ => false,
         }

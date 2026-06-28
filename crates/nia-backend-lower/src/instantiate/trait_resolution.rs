@@ -55,7 +55,7 @@ impl<'a> ModuleLowerer<'a> {
             })
             .and_then(|method| {
                 let args = method
-                    .impl_generics
+                    .effective_generics
                     .iter()
                     .map(|generic| substitutions.get(generic).copied())
                     .collect::<Option<Vec<_>>>()?;
@@ -104,7 +104,7 @@ impl<'a> ModuleLowerer<'a> {
                 method_def_id: method.def_id,
                 trait_args: impl_signature.trait_args.clone(),
                 where_predicates: impl_signature.where_predicates.clone(),
-                impl_generics: impl_signature.generics.clone(),
+                effective_generics: impl_signature.generics.clone(),
                 interner: impl_signature.interner.clone(),
             };
             if let Some(resolved) =
@@ -155,7 +155,7 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             let args = method
-                .impl_generics
+                .effective_generics
                 .iter()
                 .map(|generic| user_impl.substitutions.get(generic).copied())
                 .collect::<Option<Vec<_>>>()?;
@@ -173,7 +173,7 @@ impl<'a> ModuleLowerer<'a> {
                     continue;
                 }
                 let args = method
-                    .impl_generics
+                    .effective_generics
                     .iter()
                     .map(|generic| user_impl.substitutions.get(generic).copied())
                     .collect::<Option<Vec<_>>>()?;

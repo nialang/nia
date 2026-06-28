@@ -547,6 +547,79 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_pointer_to_nested_fixed_array_parameters() {
+    let checked = pipeline(
+        r#"
+fn touch(xs: &mut ([2][2]i32)) void {
+    _ = xs;
+}
+
+fn main() void {
+    var matrix: [2][2]i32 = [[1, 2], [3, 4]];
+    touch(&mut matrix);
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_mutable_slice_iteration() {
+    let checked = pipeline(
+        r#"
+struct SliceIterMut[T]
+where T: Sized
+{
+    ptr: &mut T,
+    len: usize,
+    index: usize,
+}
+
+extend[T] SliceIterMut[T]
+where T: Sized
+{
+    fn from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
+        { ptr: ptr, len: len, index: 0 }
+    }
+}
+
+extend[T] SliceIterMut[T] : Iterator
+where T: Sized
+{
+    type Item = &mut T;
+
+    fn next(&mut self) ?&mut T {
+        if self.index >= self.len {
+            null
+        } else {
+            let item = (self.ptr as usize + self.index * @size[T]()) as &mut T;
+            self.index += 1usize;
+            ?item
+        }
+    }
+}
+
+extend[T] [T]
+where T: Sized
+{
+    fn iter_mut(&mut self) SliceIterMut[T] {
+        SliceIterMut[T]::from_raw_parts(self.get_ptr(), self.len())
+    }
+}
+
+fn main() void {
+    var values: [3]i32 = [1, 2, 3];
+    var slice = &mut values[..];
+    for value in slice.iter_mut() {
+        value.* = value.* + 1;
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn reports_invalid_array_repeat_count() {
     let checked = pipeline(
         r#"

@@ -79,11 +79,18 @@ pub struct StepDependency {
 pub struct ModuleOptions {
     root_source: fs::PathView,
     optimization: OptimizationMode,
+    imports: ?&[ModuleImport],
 }
 
 pub struct Module {
     root_source: fs::PathView,
     optimization: OptimizationMode,
+    imports: &mut [ModuleImport],
+}
+
+pub struct ModuleImport {
+    name: string::StringView,
+    path: fs::PathView,
 }
 
 pub struct ExecutableOptions {

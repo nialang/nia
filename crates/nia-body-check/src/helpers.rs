@@ -36,11 +36,8 @@ impl<'a> BodyChecker<'a> {
         }
         let self_nominal = self.method_owner_type(def_id)?;
         let receiver = signature.params.first()?.receiver?;
-        if self.method_owner_trait_object_type(def_id).is_some() {
-            let self_generic = self
-                .interner
-                .intern(TyKind::GenericParam("Self".to_string()));
-            return Some(self.receiver_ty_for_target(self_generic, receiver));
+        if let Some(object_ty) = self.method_owner_trait_object_type(def_id) {
+            return Some(self.receiver_ty_for_target(object_ty, receiver));
         }
         Some(self.receiver_ty_for_target(self_nominal, receiver))
     }
