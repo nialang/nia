@@ -1,11 +1,13 @@
 using pkg::collections;
 using pkg::process;
 using pkg::process::command;
+using pkg::process::types::ArgList;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
 using pkg::mem;
 using pkg::os;
+using pkg::slice;
 using pkg::string;
 using pkg::build::error;
 using pkg::build::types;
@@ -24,6 +26,7 @@ using types::{
     ExecutableStep,
     Module,
     ModuleHandle,
+    ModuleImport,
     ModuleOptions,
     OptimizationMode,
     Runtime,
@@ -65,6 +68,9 @@ extend Build {
 
     pub fn deinit(&mut self) Error!void {
         self.executables.deinit(self.allocator).as_build_error().?;
+        for module_record in self.modules.as_mut_slice().iter_mut() {
+            module_record.deinit(self.allocator).?;
+        }
         self.modules.deinit(self.allocator).as_build_error().?;
         self.dependencies.deinit(self.allocator).as_build_error().?;
         self.steps.deinit(self.allocator).as_build_error()
@@ -111,13 +117,10 @@ extend Build {
         if step.index() == dependency.index() {
             return Error::StepCycle!;
         }
-        var index = 0usize;
-        while index < self.dependencies.len() {
-            let edge = self.dependencies.as_slice()[index];
+        for &edge in self.dependencies.iter() {
             if edge.step.index() == step.index() and edge.dependency.index() == dependency.index() {
                 return !{};
             }
-            index += 1usize;
         }
         self.dependencies.push(
             self.allocator,
@@ -134,10 +137,12 @@ extend Build {
     }
 
     pub fn add_module(&mut self, options: ModuleOptions) Error!ModuleHandle {
+        validate_module_imports(options.imports).?;
         let handle = ModuleHandle::init(self.modules.len());
+        let module_record = Module::init(self.allocator, options).?;
         self.modules.push(
             self.allocator,
-            Module::init(options),
+            module_record,
         ).as_build_error().?;
         !handle
     }
@@ -190,13 +195,13 @@ extend Build {
         let exe_arg = b"--exe\0";
         let runtime_arg = runtime.argv();
         let optimization_arg = mod_record.optimization.argv();
-        self.run_toolchain_args(&[
+        self.run_toolchain_module_args(&[
             &check_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
             runtime_arg,
             optimization_arg,
-        ])
+        ], mod_record.imports, &[])
     }
 
     fn emit_exe(
@@ -215,12 +220,13 @@ extend Build {
         let cache_dir_flag = b"--cache-dir\0";
         let runtime_arg = runtime.argv();
         let optimization_arg = mod_record.optimization.argv();
-        self.run_toolchain_args(&[
+        self.run_toolchain_module_args(&[
             &emit_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
             runtime_arg,
             optimization_arg,
+        ], mod_record.imports, &[
             &output_arg.*[0],
             output.ptr(),
             &cache_dir_flag.*[0],
@@ -252,6 +258,21 @@ extend Build {
             return Error::CommandFailed!;
         }
         !{}
+    }
+
+    fn run_toolchain_module_args(
+        &mut self,
+        head: &[&u8],
+        imports: &[ModuleImport],
+        tail: &[&u8],
+    ) Error!void {
+        var import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
+        var arg_storage: [48]&u8 = [0usize as &u8; 48];
+        var argv = ArgList::init(&mut arg_storage[..]);
+        argv.push_ptrs(head).as_build_error().?;
+        append_module_import_args(&mut argv, imports, &mut import_storage[..]).?;
+        argv.push_ptrs(tail).as_build_error().?;
+        self.run_toolchain_args(&arg_storage[0..argv.len()])
     }
 
     pub fn requested_step(&self) ?process::Arg {
@@ -289,9 +310,7 @@ extend Build {
 
         self.set_step_state(handle, StepState::Running);
 
-        var index = 0usize;
-        while index < self.dependencies.len() {
-            let edge = self.dependencies.as_slice()[index];
+        for &edge in self.dependencies.iter() {
             if edge.step.index() == handle.index() {
                 if let !ok = self.run_step(edge.dependency) {
                     _ = ok;
@@ -300,7 +319,6 @@ extend Build {
                     return err!;
                 }
             }
-            index += 1usize;
         }
 
         let step = self.steps.as_slice()[handle.index()];
@@ -329,21 +347,17 @@ extend Build {
     }
 
     fn find_step(&self, name: string::StringView) ?Step {
-        var index = 0usize;
-        while index < self.steps.len() {
-            let step = self.steps.as_slice()[index];
+        for &step in self.steps.iter() {
             if mem::equal[char](step.name.text(), name.text()) {
                 return ?step;
             }
-            index += 1usize;
         }
         null
     }
 
     fn find_step_arg(&self, arg: process::Arg) ?StepHandle {
         var index = 0usize;
-        while index < self.steps.len() {
-            let step = self.steps.as_slice()[index];
+        for &step in self.steps.iter() {
             if arg_matches_text(arg, step.name.text()) {
                 return ?StepHandle::init(index);
             }
@@ -353,13 +367,10 @@ extend Build {
     }
 
     fn find_executable(&self, name: string::StringView) ?ExecutableTarget {
-        var index = 0usize;
-        while index < self.executables.len() {
-            let target = self.executables.as_slice()[index];
+        for &target in self.executables.iter() {
             if mem::equal[char](target.name.text(), name.text()) {
                 return ?target;
             }
-            index += 1usize;
         }
         null
     }
@@ -475,6 +486,7 @@ extend ModuleOptions {
         {
             root_source: root_source,
             optimization: OptimizationMode::O2,
+            imports: null,
         }
     }
 
@@ -482,15 +494,39 @@ extend ModuleOptions {
         {
             root_source: self.root_source,
             optimization: optimization,
+            imports: self.imports,
+        }
+    }
+
+    pub fn with_imports(self, imports: &[ModuleImport]) ModuleOptions {
+        {
+            root_source: self.root_source,
+            optimization: self.optimization,
+            imports: ?imports,
         }
     }
 }
 
 extend Module {
-    pub fn init(options: ModuleOptions) Module {
-        {
+    pub fn init(allocator: &mut mem::Allocator, options: ModuleOptions) Error!Module {
+        let imports = clone_module_imports(allocator, options.imports).?;
+        !{
             root_source: options.root_source,
             optimization: options.optimization,
+            imports: imports,
+        }
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        allocator.free_slice[ModuleImport](self.imports).as_build_error()
+    }
+}
+
+extend ModuleImport {
+    pub fn init(name: &[char], path: fs::PathView) ModuleImport {
+        {
+            name: string::StringView::init(name),
+            path: path,
         }
     }
 }
@@ -571,34 +607,133 @@ fn is_valid_target_name(name: string::StringView) bool {
     if name.len() == 0usize {
         return false;
     }
-    var index = 0usize;
     let text = name.text();
-    while index < text.len() {
-        let code = text[index] as u32;
+    for &ch in text.iter() {
+        let code = ch as u32;
         if code == 0u32 or code == 47u32 or code == 92u32 {
             return false;
         }
-        index += 1usize;
     }
     true
+}
+
+fn validate_module_imports(imports: ?&[ModuleImport]) Error!void {
+    if let ?items = imports {
+        for &import in items.iter() {
+            if not is_valid_module_import_name(import.name) {
+                return Error::InvalidTarget!;
+            }
+        }
+    } else null {}
+    !{}
+}
+
+fn clone_module_imports(
+    allocator: &mut mem::Allocator,
+    imports: ?&[ModuleImport],
+) Error!&mut [ModuleImport] {
+    if let ?items = imports {
+        if items.len() == 0usize {
+            var empty = 1usize as &mut ModuleImport;
+            return !&mut empty[0..0];
+        }
+        var owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
+        mem::copy_forwards[ModuleImport](owned, items);
+        !owned
+    } else null {
+        var empty = 1usize as &mut ModuleImport;
+        !&mut empty[0..0]
+    }
+}
+
+fn is_valid_module_import_name(name: string::StringView) bool {
+    if name.len() == 0usize {
+        return false;
+    }
+    let text = name.text();
+    if mem::equal[char](text, "entry") or mem::equal[char](text, "pkg") or mem::equal[char](text, "builtin") {
+        return false;
+    }
+    for &ch in text.iter() {
+        let code = ch as u32;
+        let valid = (code >= 48u32 and code <= 57u32)
+            or (code >= 65u32 and code <= 90u32)
+            or (code >= 97u32 and code <= 122u32)
+            or code == 95u32
+            or code == 45u32;
+        if not valid {
+            return false;
+        }
+    }
+    true
+}
+
+fn append_module_import_args(
+    argv: &mut ArgList,
+    imports: &[ModuleImport],
+    storage: &mut [[os::max_path_bytes]u8],
+) Error!void {
+    if imports.len() > 16usize {
+        return Error::InvalidTarget!;
+    }
+    let module_flag = b"--module\0";
+    var index = 0usize;
+    for &import in imports.iter() {
+        argv.push_ptr(&module_flag.*[0]).as_build_error().?;
+        let arg = encode_module_import(import, &mut storage[index][..]).?;
+        argv.push_ptr(arg.ptr()).as_build_error().?;
+        index += 1usize;
+    }
+    !{}
+}
+
+fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::EncodedPath {
+    var out = 0usize;
+    out = append_chars_to_bytes(import.name.text(), storage, out).?;
+    if out >= storage.len() {
+        return Error::InvalidTarget!;
+    }
+    storage[out] = b'=';
+    out += 1usize;
+    out = append_chars_to_bytes(import.path.text(), storage, out).?;
+    if out >= storage.len() {
+        return Error::InvalidTarget!;
+    }
+    storage[out] = 0u8;
+    !fs::EncodedPath::init(storage.get_ptr_read(), out)
+}
+
+fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {
+    var out = start;
+    for &ch in text.iter() {
+        if ch as u32 == 0u32 {
+            return Error::InvalidTarget!;
+        }
+        let encoded = ch.encode_utf8();
+        let bytes = encoded.bytes();
+        for &byte in bytes.iter() {
+            if out >= storage.len() {
+                return Error::InvalidTarget!;
+            }
+            storage[out] = byte;
+            out += 1usize;
+        }
+    }
+    !out
 }
 
 fn arg_matches_text(arg: process::Arg, text: &[char]) bool {
     let bytes = arg.bytes();
     var byte_index = 0usize;
-    var char_index = 0usize;
-    while char_index < text.len() {
-        let encoded = text[char_index].encode_utf8();
+    for &ch in text.iter() {
+        let encoded = ch.encode_utf8();
         let encoded_bytes = encoded.bytes();
-        var encoded_index = 0usize;
-        while encoded_index < encoded_bytes.len() {
-            if byte_index >= bytes.len() or bytes[byte_index] != encoded_bytes[encoded_index] {
+        for &encoded_byte in encoded_bytes.iter() {
+            if byte_index >= bytes.len() or bytes[byte_index] != encoded_byte {
                 return false;
             }
             byte_index += 1usize;
-            encoded_index += 1usize;
         }
-        char_index += 1usize;
     }
     byte_index == bytes.len()
 }

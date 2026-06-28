@@ -680,6 +680,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         .unwrap_or_else(|| input.normalization.interner.clone());
     let extension_methods_by_id = BodyChecker::extension_method_lookup(
         module_id,
+        input.defs,
         input.signatures,
         input.extensions,
         input.program_extension_methods,
@@ -968,7 +969,7 @@ impl<'a> FunctionSignatureScope<'a> {
 struct ExtensionMethodLookup {
     target_ty: InternedTyId,
     impl_id: nia_ids::TraitImplId,
-    impl_generics: Vec<String>,
+    effective_generics: Vec<String>,
     where_predicates: Vec<nia_defs::WherePredicateSignature>,
 }
 
@@ -1075,6 +1076,7 @@ fn import_where_predicates_between_interners(
 impl<'a> BodyChecker<'a> {
     fn extension_method_lookup(
         module_id: ModuleId,
+        defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
         extensions: &VisibleExtensionMethods,
         program_extensions: &ExtensionMethods,
@@ -1089,6 +1091,10 @@ impl<'a> BodyChecker<'a> {
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
             let target_ty = nia_ty::import_type_into(interner, local_type_interner, target_ty);
             for method in &impl_signature.methods {
+                let mut effective_generics = impl_signature.generics.clone();
+                if let Some(def) = defs.defs.get(method.def_id) {
+                    effective_generics.extend(def.generics.iter().cloned());
+                }
                 methods.insert(
                     GlobalDefId {
                         module_id,
@@ -1097,7 +1103,7 @@ impl<'a> BodyChecker<'a> {
                     ExtensionMethodLookup {
                         target_ty,
                         impl_id: impl_signature.impl_id,
-                        impl_generics: impl_signature.generics.clone(),
+                        effective_generics,
                         where_predicates: impl_signature.where_predicates.clone(),
                     },
                 );
@@ -1126,7 +1132,7 @@ impl<'a> BodyChecker<'a> {
                     .or_insert_with(|| ExtensionMethodLookup {
                         target_ty,
                         impl_id: method.impl_id,
-                        impl_generics: method.impl_generics.clone(),
+                        effective_generics: method.effective_generics.clone(),
                         where_predicates: method.where_predicates.clone(),
                     });
             }
@@ -1155,7 +1161,7 @@ impl<'a> BodyChecker<'a> {
                     ExtensionMethodLookup {
                         target_ty,
                         impl_id: method.impl_id,
-                        impl_generics: method.impl_generics.clone(),
+                        effective_generics: method.effective_generics.clone(),
                         where_predicates,
                     },
                 );

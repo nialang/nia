@@ -502,7 +502,7 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         candidate: &'b ExtensionTraitMethodCandidate,
     ) -> &'b [String] {
-        &candidate.impl_generics
+        &candidate.effective_generics
     }
 
     pub(crate) fn candidate_type_interner<'b>(

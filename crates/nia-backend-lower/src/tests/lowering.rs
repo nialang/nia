@@ -113,7 +113,7 @@ fn main() i32 {
                 def_id: make_id,
             },
             impl_id,
-            impl_generics: Vec::new(),
+            effective_generics: Vec::new(),
             trait_id: None,
             trait_args: Vec::new(),
             where_predicates: Vec::new(),

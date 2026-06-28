@@ -107,17 +107,14 @@ impl<'a> BodyChecker<'a> {
         }
         let mut generics = self.extension_method_effective_generics(def_id);
         if def_id.module_id == self.defs.module_id {
-            if generics.is_empty() {
-                generics = self
-                    .defs
-                    .defs
-                    .get(def_id.def_id)
-                    .and_then(|def| def.parent)
+            if generics.is_empty()
+                && let Some(def) = self.defs.defs.get(def_id.def_id)
+            {
+                generics = def
+                    .parent
                     .and_then(|parent| self.defs.defs.get(parent))
                     .map(|parent| parent.generics.clone())
                     .unwrap_or_default();
-            }
-            if let Some(def) = self.defs.defs.get(def_id.def_id) {
                 generics.extend(def.generics.clone());
             }
         }
@@ -167,12 +164,12 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .flat_map(|target| target.methods.iter())
             .find(|method| method.def_id == def_id)
-            .map(|method| method.impl_generics.clone())
+            .map(|method| method.effective_generics.clone())
             .or_else(|| {
                 self.program_extension_methods
                     .all_methods()
                     .find(|method| method.def_id == def_id)
-                    .map(|method| method.impl_generics.clone())
+                    .map(|method| method.effective_generics.clone())
             })
             .unwrap_or_default()
     }

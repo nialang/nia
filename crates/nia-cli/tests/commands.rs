@@ -605,6 +605,75 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn build_command_accepts_configured_module_imports() {
+    let root = temp_dir("build_command_accepts_configured_module_imports");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let imports = [
+        build::ModuleImport::init("helper", fs::PathView::init("deps/helper.nia")),
+    ];
+    let root_module = b.add_module(
+        build::ModuleOptions::init(fs::PathView::init("src/main.nia"))
+            .with_imports(&imports[..]),
+    ).?;
+    let app = b.add_executable(build::ExecutableOptions::init("app", root_module)).?;
+    let emit = b.add_emit_executable_step("emit-app", app).?;
+    b.set_default_step(emit).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::create_dir_all(root.join("deps")).expect("create deps dir");
+    std::fs::write(
+        root.join("deps").join("helper.nia"),
+        r#"
+pub fn value() i32 {
+    7
+}
+"#,
+    )
+    .expect("write helper source");
+    std::fs::write(
+        root.join("src").join("main.nia"),
+        r#"
+using helper;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    if helper::value() != 7 {
+        return process::exit(1)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build with configured module imports");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(root.join(".nia-build/app"))
+        .status_timeout("run emitted module import executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn build_command_reports_step_dependency_cycle() {
     let root = temp_dir("build_command_reports_step_dependency_cycle");
     std::fs::write(
