@@ -71,6 +71,11 @@ pub struct Arg {
     text: cstr::CStr,
 }
 
+pub(pkg) struct ArgList {
+    args: &mut [&u8],
+    arg_len: usize,
+}
+
 pub struct Env {
     ptr: &&u8,
 }

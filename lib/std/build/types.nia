@@ -22,6 +22,22 @@ pub enum StepState: i32 {
     _
 }
 
+pub enum OptimizationMode: i32 {
+    O0 = 0,
+    O1 = 1,
+    O2 = 2,
+    O3 = 3,
+    Os = 4,
+    Oz = 5,
+    _
+}
+
+pub enum Runtime: i32 {
+    Bare = 1,
+    Freestanding = 2,
+    _
+}
+
 pub struct StepHandle {
     index: usize,
 }
@@ -61,22 +77,26 @@ pub struct StepDependency {
 
 pub struct ModuleOptions {
     root_source: fs::Path,
+    optimization: OptimizationMode,
 }
 
 pub struct Module {
     root_source: fs::Path,
+    optimization: OptimizationMode,
 }
 
 pub struct ExecutableOptions {
     name: &[char],
     root_module: ModuleHandle,
     output_name: ?&[char],
+    runtime: Runtime,
 }
 
 pub struct ExecutableTarget {
     name: &[char],
     root_module: ModuleHandle,
     output_name: &[char],
+    runtime: Runtime,
 }
 
 pub struct Build {

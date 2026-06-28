@@ -10,6 +10,8 @@ pub using types::{
     ExecutableOptions,
     ModuleHandle,
     ModuleOptions,
+    OptimizationMode,
+    Runtime,
     StepFn,
     StepHandle,
 };
