@@ -16,6 +16,7 @@ pub(super) struct MethodCall<'a> {
     pub(super) node_key: &'a nia_node_id::VersionedNodeKey,
     pub(super) receiver: &'a Expr,
     pub(super) receiver_ty: InternedTyId,
+    pub(super) actual_receiver_ty: InternedTyId,
     pub(super) name: &'a str,
     pub(super) type_args: Option<&'a [BracketArg]>,
     pub(super) args: &'a [Expr],
@@ -108,6 +109,7 @@ impl<'a> BodyChecker<'a> {
                 node_key: &expr.node_key,
                 receiver,
                 receiver_ty: call_receiver_ty,
+                actual_receiver_ty: receiver_ty,
                 name,
                 type_args: None,
                 args,
@@ -162,6 +164,7 @@ impl<'a> BodyChecker<'a> {
                 node_key: &expr.node_key,
                 receiver,
                 receiver_ty: call_receiver_ty,
+                actual_receiver_ty: receiver_ty,
                 name,
                 type_args: Some(type_args),
                 args,
@@ -200,7 +203,7 @@ impl<'a> BodyChecker<'a> {
             trait_candidates
                 .into_iter()
                 .partition(|candidate| candidate.is_assumed);
-        if !dynamic_candidates.is_empty() {
+        if viable_candidates.is_empty() && !dynamic_candidates.is_empty() {
             return self.profile_stage("body_check.profile.method.dynamic_call", |this| {
                 this.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates)
             });
@@ -267,7 +270,31 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(self.error());
         };
-        self.check_receiver_match(call.receiver, receiver_ty, receiver_kind);
+        let receiver_expected_ty = self.receiver_ty_for_target(candidate.target_ty, receiver_kind);
+        let receiver_expected_ty =
+            self.substitute_generics(receiver_expected_ty, &candidate.target_substitutions);
+        let receiver_expr_expected_ty = self.method_receiver_expr_expected_ty(
+            receiver_expected_ty,
+            call.actual_receiver_ty,
+            receiver_kind,
+        );
+        if self
+            .coerce_method_receiver_to_trait_object(
+                call.receiver,
+                receiver_expected_ty,
+                call.actual_receiver_ty,
+                receiver_kind,
+            )
+            .is_none()
+        {
+            self.expect_expr_type(
+                call.receiver,
+                receiver_expr_expected_ty,
+                call.actual_receiver_ty,
+                "receiver argument",
+            );
+        }
+        self.check_receiver_match(call.receiver, receiver_expected_ty, receiver_kind);
 
         let Some(method_instantiation_args) = self
             .profile_stage("body_check.profile.method.lower_type_args", |this| {
@@ -389,6 +416,56 @@ impl<'a> BodyChecker<'a> {
                 matches!(self.interner.get(elem), Some(TyKind::TraitObject { .. })).then_some(elem)
             }
             _ => None,
+        }
+    }
+
+    fn method_receiver_expr_expected_ty(
+        &mut self,
+        receiver_ty: InternedTyId,
+        actual_ty: InternedTyId,
+        receiver_kind: ReceiverKind,
+    ) -> InternedTyId {
+        match receiver_kind {
+            ReceiverKind::Value => receiver_ty,
+            ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                if self.receiver_expr_already_matches_receiver_ty(receiver_ty, actual_ty) {
+                    return receiver_ty;
+                }
+                match self.interner.get(self.normalization.normalize(receiver_ty)) {
+                    Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => {
+                        *elem
+                    }
+                    _ => receiver_ty,
+                }
+            }
+        }
+    }
+
+    fn receiver_expr_already_matches_receiver_ty(
+        &mut self,
+        receiver_ty: InternedTyId,
+        actual_ty: InternedTyId,
+    ) -> bool {
+        if self.types_match(receiver_ty, actual_ty) {
+            return true;
+        }
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let actual_ty = self.normalization.normalize(actual_ty);
+        match (self.interner.get(receiver_ty), self.interner.get(actual_ty)) {
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                (*expected_readonly || !*actual_readonly)
+                    && self.types_match(*expected_elem, *actual_elem)
+            }
+            _ => false,
         }
     }
 

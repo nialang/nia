@@ -211,6 +211,98 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 }
 
 #[test]
+fn statement_if_error_union_pattern_binding_uses_payload_type() {
+    let mut interner = TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let void_ty = interner.primitive(PrimitiveTy::Void);
+    let error_ty = interner.intern(TyKind::ErrorUnion {
+        error: i32_ty,
+        value: i32_ty,
+    });
+    let target_local = LocalId(0);
+    let payload_local = LocalId(1);
+    let span = Span::default();
+    let body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: target_local,
+                name: "value".to_string(),
+                kind: TypedLocalKind::Param,
+                ty: error_ty,
+                span,
+            },
+            TypedLocal {
+                id: payload_local,
+                name: "x".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty: i32_ty,
+                span,
+            },
+        ],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Expr(TypedExpr {
+                span,
+                ty: void_ty,
+                kind: TypedExprKind::IfPattern(Box::new(TypedIfPattern {
+                    target: TypedExpr {
+                        span,
+                        ty: error_ty,
+                        kind: TypedExprKind::Local(target_local),
+                    },
+                    bool_ty: interner.primitive(PrimitiveTy::Bool),
+                    arms: vec![TypedIfPatternArm {
+                        pattern: TypedPattern {
+                            ty: error_ty,
+                            span,
+                            kind: TypedPatternKind::ErrorOk(Box::new(TypedPattern {
+                                ty: i32_ty,
+                                span,
+                                kind: TypedPatternKind::Bind {
+                                    local_id: payload_local,
+                                    name: "x".to_string(),
+                                },
+                            })),
+                        },
+                        body: empty_body(void_ty),
+                        span,
+                    }],
+                    else_branch: None,
+                })),
+            }),
+        }],
+        tail: None,
+        ty: void_ty,
+    };
+
+    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &interner)
+        .expect("valid typed body")
+        .body;
+
+    assert!(
+        function_body.blocks.iter().any(|block| {
+            block.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::StoreLocal {
+                        local_id,
+                        value:
+                            FunctionExpr {
+                                ty,
+                                kind: FunctionExprKind::TaggedUnionPayload { .. },
+                                ..
+                            },
+                        ..
+                    } if *local_id == payload_local && *ty == i32_ty
+                )
+            })
+        }),
+        "{function_body:#?}"
+    );
+}
+
+#[test]
 fn value_if_pattern_caches_target_and_stores_payload_binding() {
     let ty = test_ty();
     let target_local = LocalId(0);

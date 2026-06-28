@@ -692,6 +692,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         target_ty: InternedTyId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let object_ptr = self.emit_trait_object_data_ptr(span, inner)?;
+        self.emit_trait_object_from_data_ptr(span, self_ty, target_ty, object_ptr)
+    }
+
+    pub(super) fn emit_trait_object_from_data_ptr(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        target_ty: InternedTyId,
+        object_ptr: PointerValue<'ctx>,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(vtable) = self.module.trait_object_vtable(self_ty, target_ty) else {
             return Err(self.error(span, "missing trait object vtable"));
         };
