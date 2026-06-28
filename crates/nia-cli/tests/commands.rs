@@ -309,11 +309,13 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.flush().as_build_error().?;
     let root_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable(build::ExecutableOptions{
         name: "app",
         root_module: root_module,
         output_name: null,
+        runtime: build::Runtime::Freestanding,
     }).?;
     let build_step = b.add_emit_executable_step("build", app).?;
     _ = b.add_check_executable_step("check", app).?;
@@ -473,11 +475,13 @@ fn verify(b: &mut build::Build) build::Error!void {
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable(build::ExecutableOptions{
         name: "app",
         root_module: root_module,
         output_name: null,
+        runtime: build::Runtime::Freestanding,
     }).?;
     let emit = b.add_emit_executable_step("emit-app", app).?;
     let verify_step = b.add_step("verify", &verify).?;
@@ -529,11 +533,13 @@ using std::fs;
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module({
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable({
         name: "app",
         root_module: root_module,
         output_name: ?"custom-app",
+        runtime: build::Runtime::Freestanding,
     }).?;
     let emit = b.add_emit_executable_step("emit-app", app).?;
     b.set_default_step(emit).?;
@@ -569,6 +575,60 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert!(root.join(".nia-build/custom-app").is_file());
     assert!(!root.join(".nia-build/app").exists());
+}
+
+#[test]
+fn build_command_accepts_configured_module_optimization() {
+    let root = temp_dir("build_command_accepts_configured_module_optimization");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O0,
+    }).?;
+    let app = b.add_executable(build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: null,
+        runtime: build::Runtime::Freestanding,
+    }).?;
+    let check = b.add_check_executable_step("check", app).?;
+    b.set_default_step(check).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::write(
+        root.join("src").join("main.nia"),
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build with configured module optimization");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -693,19 +753,23 @@ using std::fs;
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let other_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/other.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
         name: "app",
         root_module: root_module,
         output_name: null,
+        runtime: build::Runtime::Freestanding,
     };
     let other_options = build::ExecutableOptions{
         name: "app",
         root_module: other_module,
         output_name: null,
+        runtime: build::Runtime::Freestanding,
     };
     _ = b.add_executable(app_options).?;
     _ = b.add_executable(other_options).?;
@@ -739,11 +803,13 @@ using std::fs;
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
         name: "../bad",
         root_module: root_module,
         output_name: null,
+        runtime: build::Runtime::Freestanding,
     };
     _ = b.add_executable(app_options).?;
     !{}
@@ -777,11 +843,13 @@ using std::fs;
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
         root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
         name: "app",
         root_module: root_module,
         output_name: ?"nested/bad",
+        runtime: build::Runtime::Freestanding,
     };
     _ = b.add_executable(app_options).?;
     !{}
@@ -801,6 +869,44 @@ pub fn build(b: &mut build::Build) build::Error!void {
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(stderr.contains("exit status: 22"), "{stderr}");
     assert!(!root.join(".nia-build/nested").exists());
+}
+
+#[test]
+fn build_command_rejects_bare_runtime_executable_artifact() {
+    let root = temp_dir("build_command_rejects_bare_runtime_executable_artifact");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+        optimization: build::OptimizationMode::O2,
+    }).?;
+    _ = b.add_executable(build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: null,
+        runtime: build::Runtime::Bare,
+    }).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build bare executable artifact");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 22"), "{stderr}");
 }
 
 #[test]

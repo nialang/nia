@@ -1,6 +1,6 @@
 using pkg::collections;
-using pkg::cstr;
 using pkg::process;
+using pkg::process::command;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
@@ -24,6 +24,8 @@ using types::{
     Module,
     ModuleHandle,
     ModuleOptions,
+    OptimizationMode,
+    Runtime,
     ExecutableOptions,
     ExecutableTarget,
     StepPayload,
@@ -144,6 +146,9 @@ extend Build {
             return Error::InvalidTarget!;
         }
         self.validate_module_handle(options.root_module).?;
+        if options.runtime != Runtime::Freestanding {
+            return Error::InvalidTarget!;
+        }
         let output_name = executable_output_name(options);
         if not is_valid_target_name(output_name) {
             return Error::InvalidTarget!;
@@ -163,7 +168,7 @@ extend Build {
     fn check_executable(&mut self, handle: ExecutableHandle) Error!void {
         let target = self.executable_target(handle).?;
         let mod_record = self.build_module(target.root_module).?;
-        self.check_exe(mod_record.root_source)
+        self.check_exe(mod_record, target.runtime)
     }
 
     fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
@@ -178,49 +183,52 @@ extend Build {
         ).as_build_error().?;
         var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
-        self.emit_exe(mod_record.root_source, output)
+        self.emit_exe(mod_record, output, target.runtime)
     }
 
-    fn check_exe(&mut self, source: fs::Path) Error!void {
-        var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+    fn check_exe(&mut self, mod_record: Module, runtime: Runtime) Error!void {
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
-        let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
+        let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
         let check_arg = b"check\0";
         let exe_arg = b"--exe\0";
-        var argv: [5]&u8 = [
-            toolchain.ptr(),
+        let runtime_arg = runtime.argv();
+        let optimization_arg = mod_record.optimization.argv();
+        self.run_toolchain_args(&[
             &check_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
-            0usize as &u8,
-        ];
-        self.run_toolchain_argv(toolchain, &argv[0])
+            runtime_arg,
+            optimization_arg,
+        ])
     }
 
-    fn emit_exe(&mut self, source: fs::Path, output: fs::EncodedPath) Error!void {
-        var toolchain_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+    fn emit_exe(
+        &mut self,
+        mod_record: Module,
+        output: fs::EncodedPath,
+        runtime: Runtime,
+    ) Error!void {
         var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         var cache_dir_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        let toolchain = self.toolchain_executable.encode(&mut toolchain_storage[..]).as_build_error().?;
-        let source_arg = source.encode(&mut source_storage[..]).as_build_error().?;
+        let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
         let cache_dir_arg = self.cache_dir.encode(&mut cache_dir_storage[..]).as_build_error().?;
         let emit_arg = b"emit\0";
         let exe_arg = b"--exe\0";
         let output_arg = b"-o\0";
         let cache_dir_flag = b"--cache-dir\0";
-        var argv: [9]&u8 = [
-            toolchain.ptr(),
+        let runtime_arg = runtime.argv();
+        let optimization_arg = mod_record.optimization.argv();
+        self.run_toolchain_args(&[
             &emit_arg.*[0],
             &exe_arg.*[0],
             source_arg.ptr(),
+            runtime_arg,
+            optimization_arg,
             &output_arg.*[0],
             output.ptr(),
             &cache_dir_flag.*[0],
             cache_dir_arg.ptr(),
-            0usize as &u8,
-        ];
-        self.run_toolchain_argv(toolchain, &argv[0])
+        ])
     }
 
     fn executable_target(&self, handle: ExecutableHandle) Error!ExecutableTarget {
@@ -237,9 +245,12 @@ extend Build {
         !self.modules.as_slice()[handle.index()]
     }
 
-    fn run_toolchain_argv(&mut self, toolchain: fs::EncodedPath, argv: &&u8) Error!void {
-        var command = process::Command::init(cstr::CStr::from_ptr(toolchain.ptr()), argv, self.init.raw_envp());
-        let term = command.run().as_build_error().?;
+    fn run_toolchain_args(&mut self, args: &[&u8]) Error!void {
+        let term = command::run_path_args(
+            self.toolchain_executable,
+            args,
+            self.init.raw_envp(),
+        ).as_build_error().?;
         if not term.exited_success() {
             return Error::CommandFailed!;
         }
@@ -464,7 +475,10 @@ extend Step {
 
 extend Module {
     pub fn init(options: ModuleOptions) Module {
-        { root_source: options.root_source }
+        {
+            root_source: options.root_source,
+            optimization: options.optimization,
+        }
     }
 }
 
@@ -474,6 +488,7 @@ extend ExecutableTarget {
             name: options.name,
             root_module: options.root_module,
             output_name: output_name,
+            runtime: options.runtime,
         }
     }
 }
@@ -483,6 +498,30 @@ fn executable_output_name(options: ExecutableOptions) &[char] {
         name
     } else {
         options.name
+    }
+}
+
+extend OptimizationMode {
+    fn argv(self) &u8 {
+        switch self {
+            OptimizationMode::O0 => &b"-O0\0".*[0],
+            OptimizationMode::O1 => &b"-O1\0".*[0],
+            OptimizationMode::O2 => &b"-O2\0".*[0],
+            OptimizationMode::O3 => &b"-O3\0".*[0],
+            OptimizationMode::Os => &b"-Os\0".*[0],
+            OptimizationMode::Oz => &b"-Oz\0".*[0],
+            _ => &b"-O2\0".*[0],
+        }
+    }
+}
+
+extend Runtime {
+    fn argv(self) &u8 {
+        switch self {
+            Runtime::Bare => &b"--runtime=bare\0".*[0],
+            Runtime::Freestanding => &b"--runtime=freestanding\0".*[0],
+            _ => &b"--runtime=freestanding\0".*[0],
+        }
     }
 }
 
