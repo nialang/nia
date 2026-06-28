@@ -15,6 +15,7 @@ use nia_loader_query::{EntryRuntime, LoadRequest};
 
 static EMIT_EXE_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 const EMIT_EXE_ARTIFACT_FINGERPRINT_VERSION: &str = "nia-emit-exe-artifact-v1";
+const EMIT_EXE_ARTIFACT_MANIFEST_VERSION: &str = "nia-emit-exe-artifact-manifest-v1";
 
 mod help;
 
@@ -1126,6 +1127,23 @@ fn run_emit_exe(
 #[derive(Debug, Clone)]
 struct EmitExeArtifactCacheEntry {
     executable: PathBuf,
+    cache_dir: PathBuf,
+    snapshot: Option<EmitExeArtifactCacheSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmitExeArtifactCacheSnapshot {
+    request_hash: String,
+    fingerprint: String,
+    inputs: Vec<EmitExeArtifactCacheInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmitExeArtifactCacheInput {
+    path: String,
+    generated: bool,
+    content_len: u64,
+    content_hash: String,
 }
 
 fn emit_exe_artifact_cache_entry(
@@ -1135,6 +1153,42 @@ fn emit_exe_artifact_cache_entry(
     options: &EmitExeOptions,
     cache_dir: &Path,
 ) -> Result<EmitExeArtifactCacheEntry, String> {
+    let request_hash = emit_exe_artifact_request_hash(path, &module_map, optimization, options);
+    if let Some(snapshot) = restore_emit_exe_artifact_manifest(cache_dir, &request_hash)? {
+        let executable = emit_exe_artifact_cache_path(cache_dir, &snapshot.fingerprint);
+        return Ok(EmitExeArtifactCacheEntry {
+            executable,
+            cache_dir: cache_dir.to_path_buf(),
+            snapshot: Some(snapshot),
+        });
+    }
+    let Some(inputs) = loaded_emit_exe_module_inputs(path, module_map)? else {
+        let fingerprint = emit_exe_artifact_fingerprint(&request_hash, &[]);
+        return Ok(EmitExeArtifactCacheEntry {
+            executable: emit_exe_artifact_cache_path(cache_dir, &fingerprint),
+            cache_dir: cache_dir.to_path_buf(),
+            snapshot: None,
+        });
+    };
+    let fingerprint = emit_exe_artifact_fingerprint(&request_hash, &inputs);
+    let snapshot = EmitExeArtifactCacheSnapshot {
+        request_hash,
+        fingerprint: fingerprint.clone(),
+        inputs,
+    };
+    Ok(EmitExeArtifactCacheEntry {
+        executable: emit_exe_artifact_cache_path(cache_dir, &fingerprint),
+        cache_dir: cache_dir.to_path_buf(),
+        snapshot: Some(snapshot),
+    })
+}
+
+fn emit_exe_artifact_request_hash(
+    path: &str,
+    module_map: &ModuleMap,
+    optimization: NiaOptimizationLevel,
+    options: &EmitExeOptions,
+) -> String {
     let mut hash = StableFingerprint::new();
     hash.string(EMIT_EXE_ARTIFACT_FINGERPRINT_VERSION);
     hash.string(env!("CARGO_PKG_VERSION"));
@@ -1142,29 +1196,52 @@ fn emit_exe_artifact_cache_entry(
     hash.string(&format!("{:?}", optimization));
     hash.string(&format!("{:?}", nia_driver::DriverConfig::default().target));
     hash.string(&format!("{:?}", options.link_options));
-    hash_loaded_emit_exe_modules(&mut hash, path, module_map)?;
-    let fingerprint = hash.finish();
-    Ok(EmitExeArtifactCacheEntry {
-        executable: cache_dir
-            .join("artifacts")
-            .join("executables")
-            .join(fingerprint)
-            .join("app"),
-    })
+    let mut module_entries = module_map
+        .entries()
+        .map(|(name, path)| (name.to_string(), path.as_str().to_string()))
+        .collect::<Vec<_>>();
+    module_entries.sort();
+    for (name, path) in module_entries {
+        hash.string(&name);
+        hash.string(&path);
+    }
+    hash.finish()
 }
 
-fn hash_loaded_emit_exe_modules(
-    hash: &mut StableFingerprint,
+fn emit_exe_artifact_fingerprint(
+    request_hash: &str,
+    inputs: &[EmitExeArtifactCacheInput],
+) -> String {
+    let mut hash = StableFingerprint::new();
+    hash.string(request_hash);
+    for input in inputs {
+        hash.string(&input.path);
+        hash.string(if input.generated { "generated" } else { "file" });
+        hash.string(&input.content_len.to_string());
+        hash.string(&input.content_hash);
+    }
+    hash.finish()
+}
+
+fn emit_exe_artifact_cache_path(cache_dir: &Path, fingerprint: &str) -> PathBuf {
+    cache_dir
+        .join("artifacts")
+        .join("executables")
+        .join(fingerprint)
+        .join("app")
+}
+
+fn loaded_emit_exe_module_inputs(
     path: &str,
     module_map: ModuleMap,
-) -> Result<(), String> {
+) -> Result<Option<Vec<EmitExeArtifactCacheInput>>, String> {
     let loaded = nia_loader_query::load_program_request(
         LoadRequest::new(path)
             .with_module_map(module_map)
             .with_entry_runtime(EntryRuntime::Freestanding),
     );
     if !loaded.diagnostics.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let mut modules = loaded
         .modules
@@ -1173,14 +1250,24 @@ fn hash_loaded_emit_exe_modules(
         .collect::<Vec<_>>();
     modules.sort();
     modules.dedup();
+    let mut inputs = Vec::with_capacity(modules.len());
     for module_path in modules {
-        hash.string(&module_path);
         if module_path.starts_with("<nia:") {
-            hash.string("<generated>");
+            inputs.push(EmitExeArtifactCacheInput {
+                path: module_path,
+                generated: true,
+                content_len: 0,
+                content_hash: content_hash("<generated>"),
+            });
             continue;
         }
         match fs::read_to_string(&module_path) {
-            Ok(source) => hash.string(&source),
+            Ok(source) => inputs.push(EmitExeArtifactCacheInput {
+                path: module_path,
+                generated: false,
+                content_len: source.len() as u64,
+                content_hash: content_hash(&source),
+            }),
             Err(error) => {
                 return Err(format!(
                     "failed to read `{module_path}` for executable cache fingerprint: {error}"
@@ -1188,7 +1275,178 @@ fn hash_loaded_emit_exe_modules(
             }
         }
     }
-    Ok(())
+    Ok(Some(inputs))
+}
+
+fn restore_emit_exe_artifact_manifest(
+    cache_dir: &Path,
+    request_hash: &str,
+) -> Result<Option<EmitExeArtifactCacheSnapshot>, String> {
+    let Some(snapshot) = read_emit_exe_artifact_manifest(cache_dir, request_hash)? else {
+        return Ok(None);
+    };
+    for input in &snapshot.inputs {
+        let current = current_emit_exe_artifact_input(input)?;
+        if current.content_len != input.content_len || current.content_hash != input.content_hash {
+            return Ok(None);
+        }
+    }
+    let fingerprint = emit_exe_artifact_fingerprint(&snapshot.request_hash, &snapshot.inputs);
+    if fingerprint == snapshot.fingerprint {
+        Ok(Some(snapshot))
+    } else {
+        Ok(None)
+    }
+}
+
+fn current_emit_exe_artifact_input(
+    input: &EmitExeArtifactCacheInput,
+) -> Result<EmitExeArtifactCacheInput, String> {
+    if input.generated {
+        return Ok(EmitExeArtifactCacheInput {
+            path: input.path.clone(),
+            generated: true,
+            content_len: 0,
+            content_hash: content_hash("<generated>"),
+        });
+    }
+    let source = fs::read_to_string(&input.path).map_err(|error| {
+        format!(
+            "failed to read `{}` for executable cache manifest: {error}",
+            input.path
+        )
+    })?;
+    Ok(EmitExeArtifactCacheInput {
+        path: input.path.clone(),
+        generated: false,
+        content_len: source.len() as u64,
+        content_hash: content_hash(&source),
+    })
+}
+
+fn emit_exe_artifact_manifest_path(cache_dir: &Path, request_hash: &str) -> PathBuf {
+    cache_dir
+        .join("artifacts")
+        .join("executables")
+        .join("manifests")
+        .join(request_hash)
+}
+
+fn read_emit_exe_artifact_manifest(
+    cache_dir: &Path,
+    request_hash: &str,
+) -> Result<Option<EmitExeArtifactCacheSnapshot>, String> {
+    let path = emit_exe_artifact_manifest_path(cache_dir, request_hash);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "failed to read executable cache manifest `{}`: {error}",
+                path.display()
+            ));
+        }
+    };
+    Ok(parse_emit_exe_artifact_manifest(&text)
+        .filter(|snapshot| snapshot.request_hash == request_hash))
+}
+
+fn save_emit_exe_artifact_manifest(
+    cache: &EmitExeArtifactCacheEntry,
+    snapshot: &EmitExeArtifactCacheSnapshot,
+) -> Result<(), String> {
+    let path = emit_exe_artifact_manifest_path(&cache.cache_dir, &snapshot.request_hash);
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid executable cache manifest path".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "failed to create executable cache manifest directory `{}`: {error}",
+            parent.display()
+        )
+    })?;
+    let staged = path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        EMIT_EXE_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::write(&staged, format_emit_exe_artifact_manifest(snapshot)).map_err(|error| {
+        format!(
+            "failed to write executable cache manifest `{}`: {error}",
+            staged.display()
+        )
+    })?;
+    match fs::rename(&staged, &path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&staged);
+            Err(format!(
+                "failed to publish executable cache manifest `{}`: {error}",
+                path.display()
+            ))
+        }
+    }
+}
+
+fn format_emit_exe_artifact_manifest(snapshot: &EmitExeArtifactCacheSnapshot) -> String {
+    let mut text = String::new();
+    text.push_str(EMIT_EXE_ARTIFACT_MANIFEST_VERSION);
+    text.push('\n');
+    text.push_str("request\t");
+    text.push_str(&snapshot.request_hash);
+    text.push('\n');
+    text.push_str("fingerprint\t");
+    text.push_str(&snapshot.fingerprint);
+    text.push('\n');
+    for input in &snapshot.inputs {
+        text.push_str("input\t");
+        text.push_str(if input.generated { "generated" } else { "file" });
+        text.push('\t');
+        text.push_str(&input.content_len.to_string());
+        text.push('\t');
+        text.push_str(&input.content_hash);
+        text.push('\t');
+        text.push_str(&input.path);
+        text.push('\n');
+    }
+    text
+}
+
+fn parse_emit_exe_artifact_manifest(text: &str) -> Option<EmitExeArtifactCacheSnapshot> {
+    let mut lines = text.lines();
+    (lines.next()? == EMIT_EXE_ARTIFACT_MANIFEST_VERSION).then_some(())?;
+    let request_hash = lines.next()?.strip_prefix("request\t")?.to_string();
+    let fingerprint = lines.next()?.strip_prefix("fingerprint\t")?.to_string();
+    if request_hash.is_empty() || fingerprint.is_empty() {
+        return None;
+    }
+    let mut inputs = Vec::new();
+    for line in lines {
+        let mut fields = line.splitn(5, '\t');
+        (fields.next()? == "input").then_some(())?;
+        let generated = match fields.next()? {
+            "generated" => true,
+            "file" => false,
+            _ => return None,
+        };
+        let content_len = fields.next()?.parse().ok()?;
+        let content_hash = fields.next()?.to_string();
+        let path = fields.next()?.to_string();
+        if content_hash.is_empty() || path.is_empty() {
+            return None;
+        }
+        inputs.push(EmitExeArtifactCacheInput {
+            path,
+            generated,
+            content_len,
+            content_hash,
+        });
+    }
+    Some(EmitExeArtifactCacheSnapshot {
+        request_hash,
+        fingerprint,
+        inputs,
+    })
 }
 
 fn restore_emit_exe_artifact_cache(cache: &EmitExeArtifactCacheEntry, output: &Path) -> bool {
@@ -1272,7 +1530,11 @@ fn publish_emit_exe_artifact_cache(
                 cache.executable.display()
             ))
         }
+    }?;
+    if let Some(snapshot) = &cache.snapshot {
+        save_emit_exe_artifact_manifest(cache, snapshot)?;
     }
+    Ok(())
 }
 
 fn make_executable_like(path: &Path, source: &Path) -> io::Result<()> {
@@ -1314,6 +1576,12 @@ impl StableFingerprint {
     fn finish(self) -> String {
         format!("{:016x}", self.state)
     }
+}
+
+fn content_hash(text: &str) -> String {
+    let mut hash = StableFingerprint::new();
+    hash.string(text);
+    hash.finish()
 }
 
 struct EmitObjOptions {
@@ -1699,6 +1967,104 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .expect("fingerprint after");
 
         assert_eq!(before.executable, after.executable);
+    }
+
+    #[test]
+    fn emit_exe_artifact_manifest_restores_unchanged_fingerprint() {
+        let root = temp_root("emit_exe_artifact_manifest_restores_unchanged_fingerprint");
+        std::fs::create_dir_all(root.join("src")).expect("create src");
+        std::fs::write(
+            root.join("src/main.nia"),
+            r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+        )
+        .expect("write main");
+        let source = root.join("src/main.nia").to_string_lossy().into_owned();
+        let cache_dir = root.join(".nia-cache");
+        let options = EmitExeOptions {
+            output: root.join(".nia-build/app"),
+            cache_dir: Some(cache_dir.clone()),
+            link_options: nia_linker::LinkOptions::default(),
+        };
+        let before = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint before");
+        let snapshot = before.snapshot.clone().expect("snapshot");
+        save_emit_exe_artifact_manifest(&before, &snapshot).expect("save manifest");
+
+        let after = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint after");
+
+        assert_eq!(before.executable, after.executable);
+    }
+
+    #[test]
+    fn emit_exe_artifact_manifest_rejects_changed_loaded_source() {
+        let root = temp_root("emit_exe_artifact_manifest_rejects_changed_loaded_source");
+        std::fs::create_dir_all(root.join("src")).expect("create src");
+        std::fs::write(
+            root.join("src/main.nia"),
+            r#"
+module helper;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    _ = helper::value();
+    !{}
+}
+"#,
+        )
+        .expect("write main");
+        std::fs::write(root.join("src/helper.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write helper");
+        let source = root.join("src/main.nia").to_string_lossy().into_owned();
+        let cache_dir = root.join(".nia-cache");
+        let options = EmitExeOptions {
+            output: root.join(".nia-build/app"),
+            cache_dir: Some(cache_dir.clone()),
+            link_options: nia_linker::LinkOptions::default(),
+        };
+        let before = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint before");
+        let snapshot = before.snapshot.clone().expect("snapshot");
+        save_emit_exe_artifact_manifest(&before, &snapshot).expect("save manifest");
+
+        std::fs::write(root.join("src/helper.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("edit helper");
+        let after = emit_exe_artifact_cache_entry(
+            &source,
+            ModuleMap::default(),
+            NiaOptimizationLevel::default(),
+            &options,
+            &cache_dir,
+        )
+        .expect("fingerprint after");
+
+        assert_ne!(before.executable, after.executable);
     }
 
     fn temp_root(name: &str) -> PathBuf {

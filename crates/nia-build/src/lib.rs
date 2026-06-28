@@ -13,6 +13,7 @@ use nia_imports::ModuleMap;
 use nia_source::SourcePath;
 
 const BUILD_RUNNER_FINGERPRINT_VERSION: &str = "nia-build-runner-fingerprint-v3";
+const BUILD_RUNNER_MANIFEST_VERSION: &str = "nia-build-runner-manifest-v1";
 const BUILD_RUNNER_TOOLCHAIN_ABI_VERSION: &str = "nia-build-runner-toolchain-abi-v1";
 static SHARED_RUNNER_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -86,6 +87,51 @@ impl BuildStepSelection {
 pub struct BuildRunnerSource {
     pub path: String,
     pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BuildRunnerFingerprintSnapshot {
+    fingerprint: String,
+    runner_source_hash: String,
+    inputs: Vec<BuildRunnerFingerprintInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BuildRunnerFingerprintInput {
+    root: BuildRunnerFingerprintRoot,
+    relative_path: PathBuf,
+    content_len: u64,
+    content_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildRunnerFingerprintRoot {
+    Build,
+    Std,
+}
+
+impl BuildRunnerFingerprintRoot {
+    fn as_manifest_str(self) -> &'static str {
+        match self {
+            Self::Build => "build",
+            Self::Std => "std",
+        }
+    }
+
+    fn from_manifest_str(text: &str) -> Option<Self> {
+        match text {
+            "build" => Some(Self::Build),
+            "std" => Some(Self::Std),
+            _ => None,
+        }
+    }
+
+    fn root_dir(self, plan: &BuildPlan) -> PathBuf {
+        match self {
+            Self::Build => plan.package_root.clone(),
+            Self::Std => workspace_std_root(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -366,22 +412,38 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
         error,
     })?;
     let runner = build_runner_source(plan)?;
-    let fingerprint = build_runner_fingerprint(plan, &runner)?;
+    if let Some(fingerprint) = restore_build_runner_fingerprint(plan, &runner)? {
+        let local_runner = local_build_runner_executable(plan, &fingerprint);
+        if build_runner_cache_valid(&local_runner) {
+            return Ok(local_runner);
+        }
+        let shared_runner = shared_build_runner_executable(&fingerprint);
+        if shared_runner.is_file() {
+            install_shared_build_runner(&local_runner, &shared_runner)?;
+            return Ok(local_runner);
+        }
+    }
+    let snapshot = build_runner_fingerprint(plan, &runner)?;
+    let fingerprint = snapshot.fingerprint.clone();
     let local_runner = local_build_runner_executable(plan, &fingerprint);
     if build_runner_cache_valid(&local_runner) {
+        save_build_runner_manifest(plan, &snapshot)?;
         return Ok(local_runner);
     }
     let shared_runner = shared_build_runner_executable(&fingerprint);
     if shared_runner.is_file() {
         install_shared_build_runner(&local_runner, &shared_runner)?;
+        save_build_runner_manifest(plan, &snapshot)?;
         return Ok(local_runner);
     }
     let _compile_lock = SharedRunnerCompileLock::acquire(&fingerprint)?;
     if build_runner_cache_valid(&local_runner) {
+        save_build_runner_manifest(plan, &snapshot)?;
         return Ok(local_runner);
     }
     if shared_runner.is_file() {
         install_shared_build_runner(&local_runner, &shared_runner)?;
+        save_build_runner_manifest(plan, &snapshot)?;
         return Ok(local_runner);
     }
     if let Some(parent) = local_runner.parent() {
@@ -417,6 +479,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
     make_executable_if_needed(&staged_runner, &staged_runner)?;
     publish_runner(&staged_runner, &local_runner)?;
     save_shared_build_runner(&local_runner, &fingerprint)?;
+    save_build_runner_manifest(plan, &snapshot)?;
     Ok(local_runner)
 }
 
@@ -434,23 +497,110 @@ fn prepare_build_directories(plan: &BuildPlan) -> Result<(), BuildError> {
 fn build_runner_fingerprint(
     plan: &BuildPlan,
     runner: &BuildRunnerSource,
-) -> Result<String, BuildError> {
+) -> Result<BuildRunnerFingerprintSnapshot, BuildError> {
+    let inputs = build_runner_fingerprint_inputs(plan, runner)?;
+    Ok(BuildRunnerFingerprintSnapshot {
+        fingerprint: build_runner_fingerprint_from_inputs(&runner.source, &inputs),
+        runner_source_hash: content_hash(&runner.source),
+        inputs,
+    })
+}
+
+fn build_runner_fingerprint_from_inputs(
+    runner_source: &str,
+    inputs: &[BuildRunnerFingerprintInput],
+) -> String {
     let mut hash = StableFingerprint::new();
     hash.string(BUILD_RUNNER_FINGERPRINT_VERSION);
     hash.string(BUILD_RUNNER_TOOLCHAIN_ABI_VERSION);
     hash.string(env!("CARGO_PKG_VERSION"));
-    hash.string(&runner.source);
-    hash_loaded_build_runner_modules(&mut hash, plan, runner)?;
-    let std_root = workspace_std_root();
-    hash_nia_files_relative(&mut hash, &std_root)?;
-    Ok(hash.finish())
+    hash.string(runner_source);
+    for input in inputs {
+        hash.string(input.root.as_manifest_str());
+        hash.path(&input.relative_path);
+        hash.string(&input.content_len.to_string());
+        hash.string(&input.content_hash);
+    }
+    hash.finish()
 }
 
-fn hash_loaded_build_runner_modules(
-    hash: &mut StableFingerprint,
+fn build_runner_fingerprint_inputs(
     plan: &BuildPlan,
     runner: &BuildRunnerSource,
-) -> Result<(), BuildError> {
+) -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
+    let mut inputs = Vec::new();
+    inputs.extend(loaded_build_runner_module_inputs(plan, runner)?);
+    inputs.extend(std_build_runner_inputs()?);
+    inputs.sort_by(|lhs, rhs| {
+        lhs.root
+            .as_manifest_str()
+            .cmp(rhs.root.as_manifest_str())
+            .then_with(|| lhs.relative_path.cmp(&rhs.relative_path))
+    });
+    inputs.dedup_by(|lhs, rhs| lhs.root == rhs.root && lhs.relative_path == rhs.relative_path);
+    Ok(inputs)
+}
+
+fn std_build_runner_inputs() -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
+    let root = workspace_std_root();
+    let mut files = Vec::new();
+    collect_nia_files(&root, &mut files)?;
+    files.sort();
+    let mut inputs = Vec::with_capacity(files.len());
+    for file in files {
+        inputs.push(build_runner_fingerprint_input(
+            BuildRunnerFingerprintRoot::Std,
+            &root,
+            &file,
+        )?);
+    }
+    Ok(inputs)
+}
+
+fn build_runner_fingerprint_input(
+    root_kind: BuildRunnerFingerprintRoot,
+    root: &Path,
+    file: &Path,
+) -> Result<BuildRunnerFingerprintInput, BuildError> {
+    let relative_path = safe_relative_build_runner_input_path(root, file).ok_or_else(|| {
+        BuildError::BuildRunnerFingerprint {
+            path: file.to_path_buf(),
+            operation: "relativize",
+            error: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "input path is outside fingerprint root",
+            ),
+        }
+    })?;
+    let text = fs::read_to_string(file).map_err(|error| BuildError::BuildRunnerFingerprint {
+        path: file.to_path_buf(),
+        operation: "read",
+        error,
+    })?;
+    Ok(BuildRunnerFingerprintInput {
+        root: root_kind,
+        relative_path,
+        content_len: text.len() as u64,
+        content_hash: content_hash(&text),
+    })
+}
+
+fn safe_relative_build_runner_input_path(root: &Path, file: &Path) -> Option<PathBuf> {
+    let relative = file.strip_prefix(root).ok()?;
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    Some(relative.to_path_buf())
+}
+
+fn loaded_build_runner_module_inputs(
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+) -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
     let mut module_map = ModuleMap::new();
     module_map.insert(
         "build_script",
@@ -476,14 +626,157 @@ fn hash_loaded_build_runner_modules(
     paths.sort();
     paths.dedup();
 
+    let mut inputs = Vec::new();
     for path in paths {
-        hash_nia_file(hash, &plan.package_root, &path)?;
+        inputs.push(build_runner_fingerprint_input(
+            BuildRunnerFingerprintRoot::Build,
+            &plan.package_root,
+            &path,
+        )?);
     }
-    Ok(())
+    Ok(inputs)
 }
 
 fn build_runner_cache_valid(runner: &Path) -> bool {
     runner.is_file()
+}
+
+fn restore_build_runner_fingerprint(
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+) -> Result<Option<String>, BuildError> {
+    let Some(snapshot) = read_build_runner_manifest(plan)? else {
+        return Ok(None);
+    };
+    if snapshot.runner_source_hash != content_hash(&runner.source) {
+        return Ok(None);
+    }
+    if !std_manifest_input_set_matches(&snapshot)? {
+        return Ok(None);
+    }
+    for input in &snapshot.inputs {
+        let root = input.root.root_dir(plan);
+        let Some(path) = build_runner_manifest_input_path(&root, &input.relative_path) else {
+            return Ok(None);
+        };
+        let Ok(current) = current_build_runner_input(&input.root, &root, &path) else {
+            return Ok(None);
+        };
+        if current.content_len != input.content_len || current.content_hash != input.content_hash {
+            return Ok(None);
+        }
+    }
+    let fingerprint = build_runner_fingerprint_from_inputs(&runner.source, &snapshot.inputs);
+    if fingerprint == snapshot.fingerprint {
+        Ok(Some(snapshot.fingerprint))
+    } else {
+        Ok(None)
+    }
+}
+
+fn std_manifest_input_set_matches(
+    snapshot: &BuildRunnerFingerprintSnapshot,
+) -> Result<bool, BuildError> {
+    let root = workspace_std_root();
+    let mut current = Vec::new();
+    collect_nia_files(&root, &mut current)?;
+    let mut current = current
+        .into_iter()
+        .map(|path| safe_relative_build_runner_input_path(&root, &path))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| BuildError::BuildRunnerFingerprint {
+            path: root.clone(),
+            operation: "relativize",
+            error: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "input path is outside fingerprint root",
+            ),
+        })?;
+    current.sort();
+
+    let mut stored = snapshot
+        .inputs
+        .iter()
+        .filter(|input| input.root == BuildRunnerFingerprintRoot::Std)
+        .map(|input| input.relative_path.clone())
+        .collect::<Vec<_>>();
+    stored.sort();
+
+    Ok(current == stored)
+}
+
+fn current_build_runner_input(
+    root_kind: &BuildRunnerFingerprintRoot,
+    root: &Path,
+    file: &Path,
+) -> Result<BuildRunnerFingerprintInput, BuildError> {
+    build_runner_fingerprint_input(*root_kind, root, file)
+}
+
+fn build_runner_manifest_input_path(root: &Path, relative: &Path) -> Option<PathBuf> {
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    Some(root.join(relative))
+}
+
+fn build_runner_manifest_path(plan: &BuildPlan) -> PathBuf {
+    plan.runner_dir.join("fingerprint.manifest")
+}
+
+fn read_build_runner_manifest(
+    plan: &BuildPlan,
+) -> Result<Option<BuildRunnerFingerprintSnapshot>, BuildError> {
+    let path = build_runner_manifest_path(plan);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(BuildError::BuildRunnerFingerprint {
+                path,
+                operation: "read",
+                error,
+            });
+        }
+    };
+    Ok(parse_build_runner_manifest(&text))
+}
+
+fn save_build_runner_manifest(
+    plan: &BuildPlan,
+    snapshot: &BuildRunnerFingerprintSnapshot,
+) -> Result<(), BuildError> {
+    let path = build_runner_manifest_path(plan);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    let stage_id = SHARED_RUNNER_STAGE_ID.fetch_add(1, Ordering::Relaxed);
+    let staged = path.with_extension(format!("manifest.tmp.{}.{}", std::process::id(), stage_id));
+    fs::write(&staged, format_build_runner_manifest(snapshot)).map_err(|error| {
+        BuildError::BuildRunnerFingerprint {
+            path: staged.clone(),
+            operation: "write",
+            error,
+        }
+    })?;
+    match fs::rename(&staged, &path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&staged);
+            Err(BuildError::BuildRunnerFingerprint {
+                path,
+                operation: "rename",
+                error,
+            })
+        }
+    }
 }
 
 fn local_build_runner_executable(plan: &BuildPlan, fingerprint: &str) -> PathBuf {
@@ -611,28 +904,6 @@ fn make_executable_if_needed(path: &Path, source: &Path) -> Result<(), BuildErro
     Ok(())
 }
 
-fn hash_nia_files_relative(hash: &mut StableFingerprint, root: &Path) -> Result<(), BuildError> {
-    let mut files = Vec::new();
-    collect_nia_files(root, &mut files)?;
-    files.sort();
-    for file in files {
-        hash_nia_file(hash, root, &file)?;
-    }
-    Ok(())
-}
-
-fn hash_nia_file(hash: &mut StableFingerprint, root: &Path, file: &Path) -> Result<(), BuildError> {
-    let relative = file.strip_prefix(root).unwrap_or(file);
-    hash.path(relative);
-    let text = fs::read_to_string(file).map_err(|error| BuildError::BuildRunnerFingerprint {
-        path: file.to_path_buf(),
-        operation: "read",
-        error,
-    })?;
-    hash.string(&text);
-    Ok(())
-}
-
 fn collect_nia_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
@@ -666,6 +937,65 @@ fn collect_nia_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildErr
         }
     }
     Ok(())
+}
+
+fn format_build_runner_manifest(snapshot: &BuildRunnerFingerprintSnapshot) -> String {
+    let mut text = String::new();
+    text.push_str(BUILD_RUNNER_MANIFEST_VERSION);
+    text.push('\n');
+    text.push_str("fingerprint\t");
+    text.push_str(&snapshot.fingerprint);
+    text.push('\n');
+    text.push_str("runner\t");
+    text.push_str(&snapshot.runner_source_hash);
+    text.push('\n');
+    for input in &snapshot.inputs {
+        text.push_str("input\t");
+        text.push_str(input.root.as_manifest_str());
+        text.push('\t');
+        text.push_str(&input.content_len.to_string());
+        text.push('\t');
+        text.push_str(&input.content_hash);
+        text.push('\t');
+        text.push_str(&input.relative_path.to_string_lossy());
+        text.push('\n');
+    }
+    text
+}
+
+fn parse_build_runner_manifest(text: &str) -> Option<BuildRunnerFingerprintSnapshot> {
+    let mut lines = text.lines();
+    (lines.next()? == BUILD_RUNNER_MANIFEST_VERSION).then_some(())?;
+    let fingerprint = lines.next()?.strip_prefix("fingerprint\t")?.to_string();
+    let runner_source_hash = lines.next()?.strip_prefix("runner\t")?.to_string();
+    if fingerprint.is_empty() || runner_source_hash.is_empty() {
+        return None;
+    }
+    let mut inputs = Vec::new();
+    for line in lines {
+        let mut fields = line.splitn(5, '\t');
+        (fields.next()? == "input").then_some(())?;
+        let root = BuildRunnerFingerprintRoot::from_manifest_str(fields.next()?)?;
+        let content_len = fields.next()?.parse().ok()?;
+        let content_hash = fields.next()?.to_string();
+        let relative_path = PathBuf::from(fields.next()?);
+        if content_hash.is_empty()
+            || build_runner_manifest_input_path(Path::new(""), &relative_path).is_none()
+        {
+            return None;
+        }
+        inputs.push(BuildRunnerFingerprintInput {
+            root,
+            relative_path,
+            content_len,
+            content_hash,
+        });
+    }
+    Some(BuildRunnerFingerprintSnapshot {
+        fingerprint,
+        runner_source_hash,
+        inputs,
+    })
 }
 
 fn workspace_std_root() -> PathBuf {
@@ -706,6 +1036,12 @@ impl StableFingerprint {
     fn finish(self) -> String {
         format!("{:016x}", self.state)
     }
+}
+
+fn content_hash(text: &str) -> String {
+    let mut hash = StableFingerprint::new();
+    hash.string(text);
+    hash.finish()
 }
 
 fn run_build_runner(plan: &BuildPlan, runner_executable: &Path) -> Result<(), BuildError> {
@@ -1144,7 +1480,7 @@ mod tests {
         std::fs::write(root.join("src/main.nia"), "fn main() i32 { 1 }\n").expect("edit app");
         let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
 
-        assert_eq!(before, after);
+        assert_eq!(before.fingerprint, after.fingerprint);
     }
 
     #[test]
@@ -1166,7 +1502,7 @@ mod tests {
             .expect("edit helper");
         let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
 
-        assert_ne!(before, after);
+        assert_ne!(before.fingerprint, after.fingerprint);
     }
 
     #[test]
@@ -1190,8 +1526,69 @@ mod tests {
         let second_runner = build_runner_source(&second_plan).expect("second runner source");
 
         assert_eq!(
-            build_runner_fingerprint(&first_plan, &first_runner).expect("first fingerprint"),
-            build_runner_fingerprint(&second_plan, &second_runner).expect("second fingerprint"),
+            build_runner_fingerprint(&first_plan, &first_runner)
+                .expect("first fingerprint")
+                .fingerprint,
+            build_runner_fingerprint(&second_plan, &second_runner)
+                .expect("second fingerprint")
+                .fingerprint,
+        );
+    }
+
+    #[test]
+    fn build_runner_manifest_restores_unchanged_fingerprint() {
+        let root = temp_root("build_runner_manifest_restores_unchanged_fingerprint");
+        std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let snapshot = build_runner_fingerprint(&plan, &runner).expect("fingerprint");
+        save_build_runner_manifest(&plan, &snapshot).expect("save manifest");
+
+        assert_eq!(
+            restore_build_runner_fingerprint(&plan, &runner).expect("restore manifest"),
+            Some(snapshot.fingerprint)
+        );
+    }
+
+    #[test]
+    fn build_runner_manifest_rejects_changed_build_graph_input() {
+        let root = temp_root("build_runner_manifest_rejects_changed_build_graph_input");
+        std::fs::create_dir_all(root.join("build")).expect("create build module dir");
+        std::fs::write(
+            root.join("build.nia"),
+            "module helper;\nusing std::build;\n",
+        )
+        .expect("write build script");
+        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write helper");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let snapshot = build_runner_fingerprint(&plan, &runner).expect("fingerprint");
+        save_build_runner_manifest(&plan, &snapshot).expect("save manifest");
+
+        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("edit helper");
+
+        assert_eq!(
+            restore_build_runner_fingerprint(&plan, &runner).expect("restore manifest"),
+            None
+        );
+    }
+
+    #[test]
+    fn build_runner_manifest_rejects_changed_runner_source() {
+        let root = temp_root("build_runner_manifest_rejects_changed_runner_source");
+        std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let snapshot = build_runner_fingerprint(&plan, &runner).expect("fingerprint");
+        save_build_runner_manifest(&plan, &snapshot).expect("save manifest");
+        let mut changed_runner = runner.clone();
+        changed_runner.source.push_str("\n");
+
+        assert_eq!(
+            restore_build_runner_fingerprint(&plan, &changed_runner).expect("restore manifest"),
+            None
         );
     }
 
