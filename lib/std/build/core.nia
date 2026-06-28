@@ -40,10 +40,10 @@ extend Build {
     pub fn init(
         init: process::Init,
         allocator: &mut mem::Allocator,
-        package_root: fs::Path,
-        build_dir: fs::Path,
-        cache_dir: fs::Path,
-        toolchain_executable: fs::Path,
+        package_root: fs::PathView,
+        build_dir: fs::PathView,
+        cache_dir: fs::PathView,
+        toolchain_executable: fs::PathView,
         step_arg_index: usize,
     ) Build {
         {
@@ -73,19 +73,19 @@ extend Build {
         self.init.io()
     }
 
-    pub fn package_root(&self) fs::Path {
+    pub fn package_root(&self) fs::PathView {
         self.package_root
     }
 
-    pub fn build_dir(&self) fs::Path {
+    pub fn build_dir(&self) fs::PathView {
         self.build_dir
     }
 
-    pub fn cache_dir(&self) fs::Path {
+    pub fn cache_dir(&self) fs::PathView {
         self.cache_dir
     }
 
-    pub fn toolchain_executable(&self) fs::Path {
+    pub fn toolchain_executable(&self) fs::PathView {
         self.toolchain_executable
     }
 

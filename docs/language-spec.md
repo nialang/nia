@@ -114,7 +114,7 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   exit value, and `exit` for constructing exit values.
 - `std::process` exposes program arguments and environment entries as
   `Arg`/`EnvVar` values. These values provide `len()`, `bytes()`, `is_empty()`,
-  `cstr()`, and `raw_ptr()`; they also implement `std::fmt::Format`, so they can
+  `cstring()`, and `raw_ptr()`; they also implement `std::fmt::Format`, so they can
   be printed directly. `Args` provides `program()`, `get(index)`, `iter()`,
   `skip_program()`, and `raw_argv()`; `ArgsIter` implements `Iterator` with
   `Item = Arg` and also provides `remaining()`. `Env` provides `get(index)`,
@@ -125,11 +125,11 @@ facade keeps the ordinary user-facing entry points at `std::ArrayList` and
   process exit codes from executable entries. It also extends `std::fs.Error!T`
   and `std::mem.Error!T` with `exit`, which maps the error side to `ExitCode!T`
   so callers can write `io_call().exit().?`.
-- `std::cstr` defines `CStr`, a non-owning view of a NUL-terminated byte
+- `std::cstring` defines `CStringView`, a non-owning view of a NUL-terminated byte
   sequence. It provides `from_ptr` for external C string pointers,
   `from_bytes` for NUL-terminated byte slices such as `b"name\0"`, `raw_ptr`,
   `len`, `bytes`, and `is_empty`, and implements `std::fmt::Format` as raw byte
-  output. `CStr` does not imply UTF-8 validity and is not required for FFI APIs
+  output. `CStringView` does not imply UTF-8 validity and is not required for FFI APIs
   that can operate directly on `&u8`.
 - `std::os` defines a target-dispatched OS facade. It currently exposes
   `Error`, `File`, page mapping helpers, and process termination.
@@ -2984,10 +2984,10 @@ A conforming Nia compiler supports:
 - freestanding executable emission for Linux x86_64 when a target linker is
   available.
 
-The standard `std::fs::Path` is a borrowed path view over `&[char]`. Owned path
+The standard `std::fs::PathView` is a borrowed path view over `&[char]`. Owned path
 text is ordinary caller-owned storage such as `std::collections::ArrayList[char]`;
-`Path::join_into(allocator, component, out)` and
-`Path::join_component_into(allocator, component, out)` write joined path text
+`PathView::join_into(allocator, component, out)` and
+`PathView::join_component_into(allocator, component, out)` write joined path text
 into that storage without hiding allocation.
 
 The CLI surface is:

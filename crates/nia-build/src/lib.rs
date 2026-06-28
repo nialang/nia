@@ -352,13 +352,13 @@ fn path_arg(
     allocator: &mut mem::Allocator,
     index: usize,
     storage: &mut collections::ArrayList[char],
-) build::Error!fs::Path {
+) build::Error!fs::PathView {
     let arg = if let ?value = init.args().get(index) {
         value
     } else null {
         return build::Error::Internal!;
     };
-    fs::Path::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
+    fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
@@ -1338,7 +1338,7 @@ mod tests {
         assert!(runner.source.contains("using std::mem;"));
         assert!(runner.source.contains("using build_script;"));
         assert!(runner.source.contains("fn path_arg("));
-        assert!(runner.source.contains("fs::Path::from_utf8_into("));
+        assert!(runner.source.contains("fs::PathView::from_utf8_into("));
         assert!(runner.source.contains("var api = build::Build::init("));
         assert!(
             runner

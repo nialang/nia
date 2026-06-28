@@ -1135,9 +1135,9 @@ does not infer a default from step registration order.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
 
-Path construction follows the standard-library convention that `fs::Path` is a
+PathView construction follows the standard-library convention that `fs::PathView` is a
 borrowed `&[char]` view. Owned path text is supplied by the caller, typically an
-`ArrayList[char]`; `Path::join_into` appends with a native separator into that
+`ArrayList[char]`; `PathView::join_into` appends with a native separator into that
 storage and keeps allocation explicit.
 
 Global module-map options:

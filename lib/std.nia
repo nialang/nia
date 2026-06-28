@@ -7,7 +7,7 @@
 pub module atomic;
 pub module build;
 pub module collections;
-pub module cstr;
+pub module cstring;
 pub module debug;
 pub module error;
 pub module fmt;
@@ -20,9 +20,12 @@ pub module os;
 pub module process;
 pub(pkg) module range;
 pub module slice;
+pub module string;
 pub module unicode;
 
 pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap};
-pub using cstr::CStr;
+pub using cstring::CStringView;
+pub using fs::PathView;
 pub using range::{Range, RangeFrom, RangeInclusive, Step, from, inclusive, range};
+pub using string::StringView;

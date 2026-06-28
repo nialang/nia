@@ -989,10 +989,10 @@ fn std_facade_type_can_be_imported_directly() {
     write(
         &root.join("main.nia"),
         r#"
-using std::CStr;
+using std::CStringView;
 
 fn main() void {
-    if let ?text = CStr::from_bytes(b"nia\0") {
+    if let ?text = CStringView::from_bytes(b"nia\0") {
         _ = text;
     } else null {}
 }
@@ -1010,7 +1010,7 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    if let ?text = std::CStr::from_bytes(b"nia\0") {
+    if let ?text = std::CStringView::from_bytes(b"nia\0") {
         _ = text;
     } else null {}
 }

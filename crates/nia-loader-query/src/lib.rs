@@ -1506,13 +1506,13 @@ module present;
     fn query_loader_activates_std_facade_for_root_reexport_import() {
         let root = temp_dir("query_loader_activates_std_facade_for_root_reexport_import");
         let main_path = root.join("main.nia");
-        write(&main_path, "using std::CStr; fn main() void {}");
+        write(&main_path, "using std::CStringView; fn main() void {}");
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.graph.package_facade_active("std"));
-        assert_module_loaded(&program, "lib/std/cstr.nia");
+        assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
@@ -1536,14 +1536,14 @@ module present;
         let main_path = root.join("main.nia");
         write(
             &main_path,
-            r#"fn main() void { if let ?text = std::CStr::from_bytes(b"nia\0") { _ = text; } else null {} }"#,
+            r#"fn main() void { if let ?text = std::CStringView::from_bytes(b"nia\0") { _ = text; } else null {} }"#,
         );
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.graph.package_facade_active("std"));
-        assert_module_loaded(&program, "lib/std/cstr.nia");
+        assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 

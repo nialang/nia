@@ -27,7 +27,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var path_text = collections::ArrayList[char]::init();
     defer path_text.deinit(&mut page).exit().?;
 
-    var path = fs::Path::init("subdir").join_component_into(
+    var path = fs::PathView::init("subdir").join_component_into(
         &mut page,
         "/inside.txt",
         &mut path_text,
@@ -39,7 +39,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     var cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
-    cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()).exit().?;
+    cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()).exit().?;
     var file = cwd.create_file(path, fs::CreateOptions::read_write()).exit().?;
     var buffer: [16]u8 = [0; 16];
     var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
@@ -144,7 +144,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::Path::init("data.txt");
+    var path = fs::PathView::init("data.txt");
     var cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
@@ -251,7 +251,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::Path::init("data.txt");
+    var path = fs::PathView::init("data.txt");
     var file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
@@ -345,7 +345,7 @@ using std::fs;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = if let !value = fs::File::create(fs::Path::init("data.txt"), fs::CreateOptions::init()) {
+    var file = if let !value = fs::File::create(fs::PathView::init("data.txt"), fs::CreateOptions::init()) {
         value
     } else error! {
         return (1 as process::ExitCode)!;
@@ -444,7 +444,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             return (6 as process::ExitCode)!;
         }
     }
-    if let !file = cwd.create_file(fs::Path::init("bad.txt"), fs::CreateOptions::init()) {
+    if let !file = cwd.create_file(fs::PathView::init("bad.txt"), fs::CreateOptions::init()) {
         _ = file;
         return (7 as process::ExitCode)!;
     } else error! {
@@ -491,7 +491,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::Path::init("data.txt");
+    var path = fs::PathView::init("data.txt");
     var file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
@@ -631,7 +631,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::Path::init("data.txt");
+    var path = fs::PathView::init("data.txt");
     var file: fs::File;
     if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
@@ -746,7 +746,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var path = fs::Path::init("data.txt");
+    var path = fs::PathView::init("data.txt");
     var file = fs::File::create(path, fs::CreateOptions::init()).exit().?;
     defer file.close().exit().?;
     file.set_permissions(0o755).exit().?;
@@ -800,7 +800,7 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var path = fs::Path::init("nia-λ.txt");
+    var path = fs::PathView::init("nia-λ.txt");
     var cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
@@ -875,7 +875,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var path = fs::Path::init("bad\0path");
+    var path = fs::PathView::init("bad\0path");
     var cwd: fs::Dir;
     if let !value = fs::Dir::cwd() {
         cwd = value;
@@ -948,7 +948,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         } else error! {}
     };
     var file: fs::File;
-    if let !value = cwd.create_file(fs::Path::init("delete-me.txt"), fs::CreateOptions::init()) {
+    if let !value = cwd.create_file(fs::PathView::init("delete-me.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
         return (1 as process::ExitCode)!;
@@ -958,18 +958,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::Path::init("delete-me.txt")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("delete-me.txt")) {
         _ = ok;
     } else error! {
         return (3 as process::ExitCode)!;
     }
-    if let !file = cwd.open_file(fs::Path::init("delete-me.txt"), fs::OpenOptions::read_only()) {
+    if let !file = cwd.open_file(fs::PathView::init("delete-me.txt"), fs::OpenOptions::read_only()) {
         _ = file;
         return (4 as process::ExitCode)!;
     } else error! {
     }
 
-    if let !ok = cwd.delete_file(fs::Path::init("bad\0path")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("bad\0path")) {
         _ = ok;
         return (5 as process::ExitCode)!;
     } else error! {
@@ -1029,14 +1029,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         } else error! {}
     };
 
-    if let !ok = cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
+    if let !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
         _ = ok;
     } else error! {
         return (1 as process::ExitCode)!;
     }
 
     var file: fs::File;
-    if let !value = cwd.create_file(fs::Path::init("old-name.txt"), fs::CreateOptions::init()) {
+    if let !value = cwd.create_file(fs::PathView::init("old-name.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
         return (2 as process::ExitCode)!;
@@ -1047,19 +1047,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (3 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.rename(fs::Path::init("old-name.txt"), fs::Path::init("subdir/new-name.txt")) {
+    if let !ok = cwd.rename(fs::PathView::init("old-name.txt"), fs::PathView::init("subdir/new-name.txt")) {
         _ = ok;
     } else error! {
         return (4 as process::ExitCode)!;
     }
 
-    if let !value = cwd.open_file(fs::Path::init("old-name.txt"), fs::OpenOptions::read_only()) {
+    if let !value = cwd.open_file(fs::PathView::init("old-name.txt"), fs::OpenOptions::read_only()) {
         _ = value;
         return (5 as process::ExitCode)!;
     } else error! {
     }
 
-    if let !value = cwd.open_file(fs::Path::init("subdir/new-name.txt"), fs::OpenOptions::read_only()) {
+    if let !value = cwd.open_file(fs::PathView::init("subdir/new-name.txt"), fs::OpenOptions::read_only()) {
         file = value;
     } else error! {
         return (6 as process::ExitCode)!;
@@ -1070,24 +1070,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (7 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.delete_dir(fs::Path::init("subdir")) {
+    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
         return (8 as process::ExitCode)!;
     } else error! {
     }
 
-    if let !ok = cwd.delete_file(fs::Path::init("subdir/new-name.txt")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("subdir/new-name.txt")) {
         _ = ok;
     } else error! {
         return (9 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::Path::init("subdir")) {
+    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
     } else error! {
         return (10 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.create_dir(fs::Path::init("bad\0path"), fs::CreateDirOptions::init()) {
+    if let !ok = cwd.create_dir(fs::PathView::init("bad\0path"), fs::CreateDirOptions::init()) {
         _ = ok;
         return (11 as process::ExitCode)!;
     } else error! {
@@ -1146,21 +1146,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
             _ = ok;
         } else error! {}
     };
-    if let !ok = cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
+    if let !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
         _ = ok;
     } else error! {
         return (1 as process::ExitCode)!;
     }
 
     var subdir: fs::Dir;
-    if let !value = cwd.open_dir(fs::Path::init("subdir"), fs::OpenDirOptions::init()) {
+    if let !value = cwd.open_dir(fs::PathView::init("subdir"), fs::OpenDirOptions::init()) {
         subdir = value;
     } else error! {
         return (2 as process::ExitCode)!;
     }
 
     var file: fs::File;
-    if let !value = subdir.create_file(fs::Path::init("inside.txt"), fs::CreateOptions::init()) {
+    if let !value = subdir.create_file(fs::PathView::init("inside.txt"), fs::CreateOptions::init()) {
         file = value;
     } else error! {
         return (3 as process::ExitCode)!;
@@ -1171,7 +1171,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    if let !value = subdir.open_file(fs::Path::init("inside.txt"), fs::OpenOptions::read_only()) {
+    if let !value = subdir.open_file(fs::PathView::init("inside.txt"), fs::OpenOptions::read_only()) {
         file = value;
     } else error! {
         return (5 as process::ExitCode)!;
@@ -1188,18 +1188,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (7 as process::ExitCode)!;
     }
 
-    if let !value = cwd.open_dir(fs::Path::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
+    if let !value = cwd.open_dir(fs::PathView::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
         _ = value;
         return (8 as process::ExitCode)!;
     } else error! {
     }
 
-    if let !ok = cwd.delete_file(fs::Path::init("subdir/inside.txt")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("subdir/inside.txt")) {
         _ = ok;
     } else error! {
         return (9 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::Path::init("subdir")) {
+    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
     } else error! {
         return (10 as process::ExitCode)!;
@@ -1256,14 +1256,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (1 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.create_dir(fs::Path::init("entries"), fs::CreateDirOptions::init()) {
+    if let !ok = cwd.create_dir(fs::PathView::init("entries"), fs::CreateDirOptions::init()) {
         _ = ok;
     } else error! {
         return (2 as process::ExitCode)!;
     }
 
     var first: fs::File;
-    if let !value = cwd.create_file(fs::Path::init("entries/alpha.txt"), fs::CreateOptions::init()) {
+    if let !value = cwd.create_file(fs::PathView::init("entries/alpha.txt"), fs::CreateOptions::init()) {
         first = value;
     } else error! {
         return (3 as process::ExitCode)!;
@@ -1275,7 +1275,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var second: fs::File;
-    if let !value = cwd.create_file(fs::Path::init("entries/beta.txt"), fs::CreateOptions::init()) {
+    if let !value = cwd.create_file(fs::PathView::init("entries/beta.txt"), fs::CreateOptions::init()) {
         second = value;
     } else error! {
         return (5 as process::ExitCode)!;
@@ -1287,7 +1287,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     var dir: fs::Dir;
-    if let !value = cwd.open_dir(fs::Path::init("entries"), fs::OpenDirOptions::init()) {
+    if let !value = cwd.open_dir(fs::PathView::init("entries"), fs::OpenDirOptions::init()) {
         dir = value;
     } else error! {
         return (7 as process::ExitCode)!;
@@ -1335,17 +1335,17 @@ pub fn main(init: process::Init) process::ExitCode!void {
     } else error! {
         return (13 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::Path::init("entries/alpha.txt")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("entries/alpha.txt")) {
         _ = ok;
     } else error! {
         return (14 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::Path::init("entries/beta.txt")) {
+    if let !ok = cwd.delete_file(fs::PathView::init("entries/beta.txt")) {
         _ = ok;
     } else error! {
         return (15 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::Path::init("entries")) {
+    if let !ok = cwd.delete_dir(fs::PathView::init("entries")) {
         _ = ok;
     } else error! {
         return (16 as process::ExitCode)!;

@@ -181,12 +181,16 @@ impl<'a> ModuleLowerer<'a> {
         if signature.is_comptime {
             return None;
         }
+        if !signature.is_extern && !signature.has_body {
+            return None;
+        }
         let global_def_id = self.global_def_id(def_id);
         let instantiation_snapshot = self.instantiation.take_snapshot();
         self.instantiation.set_function_scope(global_def_id, None);
         let effective_generics = self
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
+        let source_function_body = self.input.function_bodies.get(&global_def_id).cloned();
         let identity_substitutions = effective_generics
             .iter()
             .map(|generic| {
@@ -198,21 +202,26 @@ impl<'a> ModuleLowerer<'a> {
                 )
             })
             .collect::<std::collections::HashMap<_, _>>();
-        let function_body = self
-            .input
-            .function_bodies
-            .get(&global_def_id)
-            .cloned()
+        let function_body = source_function_body.clone().map(|body| {
+            self.instantiate_function_body(
+                global_def_id,
+                self.input.module_id,
+                false,
+                0,
+                body,
+                &identity_substitutions,
+            )
+        });
+        let typed_param_tys = source_function_body
+            .as_ref()
             .map(|body| {
-                self.instantiate_function_body(
-                    global_def_id,
-                    self.input.module_id,
-                    false,
-                    0,
-                    body,
-                    &identity_substitutions,
-                )
-            });
+                body.locals
+                    .iter()
+                    .filter(|local| local.kind == nia_function_ir::FunctionLocalKind::Param)
+                    .map(|local| (local.id, local.ty))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let backend_function = Some(BackendFunction {
             def_id: global_def_id,
             name: function.name.clone(),
@@ -221,7 +230,8 @@ impl<'a> ModuleLowerer<'a> {
                 .params
                 .iter()
                 .zip(signature.params.iter())
-                .map(|(param, signature)| {
+                .enumerate()
+                .map(|(index, (param, signature))| {
                     let local_id = self
                         .input
                         .locals
@@ -229,14 +239,25 @@ impl<'a> ModuleLowerer<'a> {
                         .get(&param.node_key)
                         .copied();
                     let local_ty = if signature.receiver.is_some() {
-                        local_id
-                            .and_then(|local_id| {
-                                self.input
-                                    .semantic_facts
-                                    .function_facts
-                                    .get(&global_def_id)
-                                    .and_then(|facts| facts.local_types.get(&local_id))
-                                    .copied()
+                        typed_param_tys
+                            .get(index)
+                            .map(|(_, ty)| *ty)
+                            .or_else(|| {
+                                local_id.and_then(|local_id| {
+                                    typed_param_tys
+                                        .iter()
+                                        .find_map(|(id, ty)| (*id == local_id).then_some(*ty))
+                                })
+                            })
+                            .or_else(|| {
+                                local_id.and_then(|local_id| {
+                                    self.input
+                                        .semantic_facts
+                                        .function_facts
+                                        .get(&global_def_id)
+                                        .and_then(|facts| facts.local_types.get(&local_id))
+                                        .copied()
+                                })
                             })
                             .unwrap_or(signature.ty)
                     } else {

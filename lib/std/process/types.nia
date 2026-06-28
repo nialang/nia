@@ -1,4 +1,4 @@
-using pkg::cstr;
+using pkg::cstring;
 using pkg::io;
 using pkg::os;
 
@@ -48,13 +48,13 @@ pub struct Term {
 }
 
 pub struct Command {
-    path: cstr::CStr,
+    path: cstring::CStringView,
     argv: &&u8,
     envp: &&u8,
     stdin: StdIo,
     stdout: StdIo,
     stderr: StdIo,
-    cwd: ?cstr::CStr,
+    cwd: ?cstring::CStringView,
 }
 
 pub struct Args {
@@ -68,7 +68,7 @@ pub struct ArgsIter {
 }
 
 pub struct Arg {
-    text: cstr::CStr,
+    text: cstring::CStringView,
 }
 
 pub(pkg) struct ArgList {
@@ -87,7 +87,7 @@ pub struct EnvIter {
 }
 
 pub struct EnvVar {
-    text: cstr::CStr,
+    text: cstring::CStringView,
 }
 
 pub enum ChildStateKind: i32 {

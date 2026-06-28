@@ -331,8 +331,11 @@ pub fn extend_executable_reachability_from_checked_module(
         .map(|checked_module| (checked_module.module_id, *checked_module))
         .collect::<HashMap<_, _>>();
     modules_by_id.insert(module.module_id, module);
-    let mut current_reachable_modules = HashSet::new();
-    current_reachable_modules.insert(module.module_id);
+    let current_reachable_modules = modules_by_id
+        .keys()
+        .copied()
+        .filter(|module_id| reachability.modules.contains(module_id))
+        .collect::<HashSet<_>>();
     extend_reachable_traits_from_generic_instances(
         &modules_by_id,
         &current_reachable_modules,
@@ -376,6 +379,8 @@ pub struct ExecutableSignatureIndex<'a> {
     pub struct_: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     pub union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     pub trait_: &'a dyn Fn(GlobalDefId) -> Option<ProgramTraitSignature>,
+    pub trait_default_method:
+        &'a dyn Fn(GlobalDefId) -> Option<(GlobalDefId, ProgramTraitSignature)>,
 }
 
 impl std::fmt::Debug for ExecutableSignatureIndex<'_> {
@@ -501,12 +506,23 @@ fn extend_reachable_traits_from_generic_instantiation(
     traits: &mut ReachableTraitRefs,
     instantiation: &nia_sema_ir::GenericInstantiation,
 ) {
+    extend_reachable_traits_from_trait_default_instantiation(
+        use_module,
+        program_signatures,
+        needed_methods,
+        traits,
+        instantiation,
+    );
     let Some(signature) = (program_signatures.function)(instantiation.def_id) else {
         return;
     };
     let mut signature_interner = signature.interner.clone();
-    let substitutions = instantiation
-        .generics
+    let generics = if instantiation.generics.is_empty() && !instantiation.args.is_empty() {
+        &signature.signature.generics
+    } else {
+        &instantiation.generics
+    };
+    let substitutions = generics
         .iter()
         .cloned()
         .zip(instantiation.args.iter().copied())
@@ -556,6 +572,69 @@ fn extend_reachable_traits_from_generic_instantiation(
                 );
             }
         }
+    }
+}
+
+fn extend_reachable_traits_from_trait_default_instantiation(
+    use_module: &ReachableModuleInput<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    needed_methods: &HashSet<(TraitId, String)>,
+    traits: &mut ReachableTraitRefs,
+    instantiation: &nia_sema_ir::GenericInstantiation,
+) {
+    let Some((trait_def, trait_signature)) =
+        (program_signatures.trait_default_method)(instantiation.def_id)
+    else {
+        return;
+    };
+    let Some(_) = trait_signature
+        .signature
+        .methods
+        .iter()
+        .find(|method| method.def_id == instantiation.def_id.def_id && method.has_default)
+    else {
+        return;
+    };
+    let trait_id = TraitId::Source(trait_def);
+    let needed_names = needed_methods
+        .iter()
+        .filter_map(|(needed_trait_id, method_name)| {
+            (*needed_trait_id == trait_id).then_some(method_name)
+        })
+        .collect::<Vec<_>>();
+    if needed_names.is_empty() {
+        return;
+    }
+    let Some(self_ty) = instantiation.args.first().copied() else {
+        return;
+    };
+    let mut method_interner = trait_signature.interner.clone();
+    let Ok(self_ty) =
+        nia_ty::try_import_type_into(&mut method_interner, &use_module.body_ir.interner, self_ty)
+    else {
+        return;
+    };
+    let trait_args = instantiation
+        .args
+        .iter()
+        .skip(1)
+        .take(trait_signature.signature.generics.len())
+        .map(|arg| {
+            nia_ty::try_import_type_into(&mut method_interner, &use_module.body_ir.interner, *arg)
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(trait_args) = trait_args else {
+        return;
+    };
+    for method_name in needed_names {
+        traits.insert_method_with_interner(
+            use_module.module_id,
+            trait_id,
+            method_name.clone(),
+            self_ty,
+            trait_args.clone(),
+            Some(method_interner.clone()),
+        );
     }
 }
 

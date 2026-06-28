@@ -330,36 +330,10 @@ fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
 
 fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTreeNode> {
     let kind = match (&item.kind, set) {
-        (ItemTreeNodeKind::Module(_), _)
-        | (ItemTreeNodeKind::Using(_), _)
-        | (
-            ItemTreeNodeKind::Struct(_),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Values
-            | SignatureItemSet::Traits,
-        )
-        | (
-            ItemTreeNodeKind::Union(_),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Values
-            | SignatureItemSet::Traits,
-        )
-        | (
-            ItemTreeNodeKind::Enum(_),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Values
-            | SignatureItemSet::Traits,
-        )
-        | (
-            ItemTreeNodeKind::TypeAlias(_),
-            SignatureItemSet::Functions
-            | SignatureItemSet::ExtensionFunctions
-            | SignatureItemSet::Values
-            | SignatureItemSet::Traits,
-        )
+        (ItemTreeNodeKind::Struct(_), SignatureItemSet::Values)
+        | (ItemTreeNodeKind::Union(_), SignatureItemSet::Values)
+        | (ItemTreeNodeKind::Enum(_), SignatureItemSet::Values)
+        | (ItemTreeNodeKind::TypeAlias(_), SignatureItemSet::Values)
         | (
             ItemTreeNodeKind::Function(_),
             SignatureItemSet::ExtensionFunctions
@@ -376,18 +350,36 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
         )
         | (ItemTreeNodeKind::Trait(_), SignatureItemSet::Values | SignatureItemSet::Types)
         | (ItemTreeNodeKind::Extend(_), SignatureItemSet::Types) => return None,
-        (ItemTreeNodeKind::Struct(item), SignatureItemSet::Types) => {
-            ItemTreeNodeKind::Struct(item.clone())
-        }
-        (ItemTreeNodeKind::Union(item), SignatureItemSet::Types) => {
-            ItemTreeNodeKind::Union(item.clone())
-        }
-        (ItemTreeNodeKind::Enum(item), SignatureItemSet::Types) => {
-            ItemTreeNodeKind::Enum(item.clone())
-        }
-        (ItemTreeNodeKind::TypeAlias(item), SignatureItemSet::Types) => {
-            ItemTreeNodeKind::TypeAlias(item.clone())
-        }
+        (ItemTreeNodeKind::Module(item), _) => ItemTreeNodeKind::Module(item.clone()),
+        (ItemTreeNodeKind::Using(item), _) => ItemTreeNodeKind::Using(item.clone()),
+        (
+            ItemTreeNodeKind::Struct(item),
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
+        ) => ItemTreeNodeKind::Struct(item.clone()),
+        (
+            ItemTreeNodeKind::Union(item),
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
+        ) => ItemTreeNodeKind::Union(item.clone()),
+        (
+            ItemTreeNodeKind::Enum(item),
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
+        ) => ItemTreeNodeKind::Enum(item.clone()),
+        (
+            ItemTreeNodeKind::TypeAlias(item),
+            SignatureItemSet::Functions
+            | SignatureItemSet::ExtensionFunctions
+            | SignatureItemSet::Types
+            | SignatureItemSet::Traits,
+        ) => ItemTreeNodeKind::TypeAlias(item.clone()),
         (ItemTreeNodeKind::Function(item), SignatureItemSet::Functions) => {
             ItemTreeNodeKind::Function(item.clone())
         }

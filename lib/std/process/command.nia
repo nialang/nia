@@ -1,4 +1,4 @@
-using pkg::cstr;
+using pkg::cstring;
 using pkg::error;
 using pkg::fs;
 using pkg::os;
@@ -8,7 +8,7 @@ using pkg::process::types;
 using types::{ArgList, Child, Command, Error, StdIo, Term};
 
 extend Command {
-    pub fn init(path: cstr::CStr, argv: &&u8, envp: &&u8) Command {
+    pub fn init(path: cstring::CStringView, argv: &&u8, envp: &&u8) Command {
         {
             path: path,
             argv: argv,
@@ -20,7 +20,7 @@ extend Command {
         }
     }
 
-    pub fn path(&self) cstr::CStr {
+    pub fn path(&self) cstring::CStringView {
         self.path
     }
 
@@ -44,7 +44,7 @@ extend Command {
         self.stderr
     }
 
-    pub fn cwd(&self) ?cstr::CStr {
+    pub fn cwd(&self) ?cstring::CStringView {
         self.cwd
     }
 
@@ -66,7 +66,7 @@ extend Command {
         !{}
     }
 
-    pub fn set_cwd(&mut self, cwd: cstr::CStr) void {
+    pub fn set_cwd(&mut self, cwd: cstring::CStringView) void {
         self.cwd = ?cwd;
     }
 
@@ -116,7 +116,7 @@ pub fn run(command: &Command) Error!Term {
     command.run()
 }
 
-pub(pkg) fn run_path_args(path: fs::Path, args: &[&u8], envp: &&u8) Error!Term {
+pub(pkg) fn run_path_args(path: fs::PathView, args: &[&u8], envp: &&u8) Error!Term {
     var path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
     var arg_storage: [32]&u8 = [0usize as &u8; 32];
     let encoded_path = path.encode(&mut path_storage[..]).as_process_setup_error().?;
@@ -124,7 +124,7 @@ pub(pkg) fn run_path_args(path: fs::Path, args: &[&u8], envp: &&u8) Error!Term {
     argv.push_ptr(encoded_path.ptr()).?;
     argv.push_ptrs(args).?;
     let raw_argv = argv.finish().?;
-    let command = Command::init(cstr::CStr::from_ptr(encoded_path.ptr()), raw_argv, envp);
+    let command = Command::init(cstring::CStringView::from_ptr(encoded_path.ptr()), raw_argv, envp);
     command.run()
 }
 

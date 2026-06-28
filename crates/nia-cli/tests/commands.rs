@@ -308,7 +308,7 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable(build::ExecutableOptions{
@@ -474,7 +474,7 @@ fn verify(b: &mut build::Build) build::Error!void {
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable(build::ExecutableOptions{
@@ -532,7 +532,7 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module({
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app = b.add_executable({
@@ -588,7 +588,7 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O0,
     }).?;
     let app = b.add_executable(build::ExecutableOptions{
@@ -752,11 +752,11 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let other_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/other.nia"),
+        root_source: fs::PathView::init("src/other.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
@@ -802,7 +802,7 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
@@ -842,7 +842,7 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     let app_options = build::ExecutableOptions{
@@ -882,7 +882,7 @@ using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
     let root_module = b.add_module(build::ModuleOptions{
-        root_source: fs::Path::init("src/main.nia"),
+        root_source: fs::PathView::init("src/main.nia"),
         optimization: build::OptimizationMode::O2,
     }).?;
     _ = b.add_executable(build::ExecutableOptions{

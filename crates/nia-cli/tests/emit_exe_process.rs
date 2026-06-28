@@ -132,7 +132,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -184,7 +184,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/echo\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -243,7 +243,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -304,7 +304,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -366,7 +366,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -419,7 +419,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let bad_path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let bad_path = if let ?value = std::CStr::from_bytes(bad_path_bytes) {
+    let bad_path = if let ?value = std::CStringView::from_bytes(bad_path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -446,7 +446,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let good_path_bytes = b"/bin/true\0";
-    let good_path = if let ?value = std::CStr::from_bytes(good_path_bytes) {
+    let good_path = if let ?value = std::CStringView::from_bytes(good_path_bytes) {
         value
     } else null {
         return process::exit(4)!;
@@ -502,7 +502,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -592,7 +592,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -666,7 +666,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -757,7 +757,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -816,7 +816,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -878,7 +878,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -953,7 +953,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -1022,7 +1022,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -1100,7 +1100,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
@@ -1187,13 +1187,13 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {{
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {{
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {{
         value
     }} else null {{
         return process::exit(1)!;
     }};
     let cwd_bytes = b"{cwd_literal}";
-    let cwd = if let ?value = std::CStr::from_bytes(cwd_bytes) {{
+    let cwd = if let ?value = std::CStringView::from_bytes(cwd_bytes) {{
         value
     }} else null {{
         return process::exit(2)!;
@@ -1249,13 +1249,13 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStr::from_bytes(path_bytes) {
+    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
         value
     } else null {
         return process::exit(1)!;
     };
     let cwd_bytes = b"/definitely/not/a/nia/process-test-cwd\0";
-    let cwd = if let ?value = std::CStr::from_bytes(cwd_bytes) {
+    let cwd = if let ?value = std::CStringView::from_bytes(cwd_bytes) {
         value
     } else null {
         return process::exit(2)!;
@@ -1412,7 +1412,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let value = if let ?value = std::CStr::from_bytes(b"nia\0") {
+    let value = if let ?value = std::CStringView::from_bytes(b"nia\0") {
         value
     } else null {
         return process::exit(3)!;
@@ -1424,7 +1424,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
         return process::exit(2)!;
     }
-    if let ?invalid = std::CStr::from_bytes(b"nia") {
+    if let ?invalid = std::CStringView::from_bytes(b"nia") {
         _ = invalid;
         return process::exit(4)!;
     } else null {}
@@ -1444,13 +1444,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout("run nia emit --exe std root CStr");
+        .output_timeout("run nia emit --exe std root CStringView");
     assert!(
         emit.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&emit.stderr)
     );
-    let status = Command::new(&exe).status_timeout("run emitted std root CStr executable");
+    let status = Command::new(&exe).status_timeout("run emitted std root CStringView executable");
     assert_eq!(status.code(), Some(0));
 }
 
