@@ -5,7 +5,7 @@ using pkg::mem;
 using pkg::string;
 using pkg::unicode;
 
-using types::{EncodedPath, Error, PathError, PathView};
+using types::{EncodedPath, Error, PathBuf, PathError, PathView};
 
 extend PathView {
     pub fn init(text: &[char]) PathView {
@@ -43,6 +43,11 @@ extend PathView {
         self.text
     }
 
+    pub fn to_path_buf(&self, allocator: &mut mem::Allocator) Error!PathBuf {
+        var text = string::StringBuf::from_slice(allocator, self.text()).as_fs_error().?;
+        !PathBuf::from_string_buf(text)
+    }
+
     pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
         self.encode_bytes(storage).as_fs_error()
     }
@@ -76,48 +81,108 @@ extend PathView {
         !EncodedPath::init(storage.get_ptr_read(), out)
     }
 
-    pub fn join_into(
-        &self,
-        allocator: &mut mem::Allocator,
-        component: PathView,
-        out: &mut collections::ArrayList[char],
-    ) Error!PathView {
-        out.clear_retaining_capacity();
-        out.append_slice(allocator, self.text()).as_fs_error().?;
-        append_component_into(allocator, component.text(), out).?;
-        !PathView::init(out.as_slice())
+}
+
+extend PathBuf {
+    pub fn init() PathBuf {
+        { text: string::StringBuf::init() }
     }
 
-    pub fn join_component_into(
-        &self,
-        allocator: &mut mem::Allocator,
-        component: &[char],
-        out: &mut collections::ArrayList[char],
-    ) Error!PathView {
-        self.join_into(allocator, PathView::init(component), out)
+    pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) Error!PathBuf {
+        var text = string::StringBuf::init_capacity(allocator, capacity).as_fs_error().?;
+        !PathBuf { text: text }
+    }
+
+    pub fn from_owned_slice(text: &mut [char]) PathBuf {
+        { text: string::StringBuf::from_owned_slice(text) }
+    }
+
+    pub fn from_string_buf(text: string::StringBuf) PathBuf {
+        { text: text }
+    }
+
+    pub fn from_path(allocator: &mut mem::Allocator, path: PathView) Error!PathBuf {
+        path.to_path_buf(allocator)
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!void {
+        self.text.deinit(allocator).as_fs_error()
+    }
+
+    pub fn view(&self) PathView {
+        PathView::from_string(self.text.view())
+    }
+
+    pub fn text(&self) &[char] {
+        self.text.text()
+    }
+
+    pub fn string(&self) string::StringView {
+        self.text.view()
+    }
+
+    pub fn string_buf(&self) &string::StringBuf {
+        &self.text
+    }
+
+    pub fn len(&self) usize {
+        self.text.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.text.is_empty()
+    }
+
+    pub fn clear(&mut self) void {
+        self.text.clear()
+    }
+
+    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) Error!void {
+        self.text.append(allocator, text).as_fs_error()
+    }
+
+    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) Error!void {
+        self.text.push(allocator, ch).as_fs_error()
+    }
+
+    pub fn join(&mut self, allocator: &mut mem::Allocator, component: PathView) Error!void {
+        append_component_to_string_buf(allocator, component.text(), &mut self.text).?;
+        !{}
+    }
+
+    pub fn join_component(&mut self, allocator: &mut mem::Allocator, component: &[char]) Error!void {
+        self.join(allocator, PathView::init(component))
+    }
+
+    pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
+        self.view().encode(storage)
+    }
+
+    pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
+        self.view().encode_bytes(storage)
     }
 }
 
-fn append_component_into(
+fn append_component_to_string_buf(
     allocator: &mut mem::Allocator,
     component: &[char],
-    out: &mut collections::ArrayList[char],
+    out: &mut string::StringBuf,
 ) Error!void {
     if component.len() == 0usize {
         return !{};
     }
     if out.len() == 0usize {
-        out.append_slice(allocator, component).as_fs_error()
+        out.append(allocator, component).as_fs_error()
     } else {
-        let out_has_sep = is_separator(out.as_slice()[out.len() - 1usize]);
+        let out_has_sep = is_separator(out.text()[out.len() - 1usize]);
         let component_has_sep = is_separator(component[0]);
         if not out_has_sep and not component_has_sep {
             out.push(allocator, '/').as_fs_error().?;
-            out.append_slice(allocator, component).as_fs_error()
+            out.append(allocator, component).as_fs_error()
         } else if out_has_sep and component_has_sep {
-            out.append_slice(allocator, &component[1usize..]).as_fs_error()
+            out.append(allocator, &component[1usize..]).as_fs_error()
         } else {
-            out.append_slice(allocator, component).as_fs_error()
+            out.append(allocator, component).as_fs_error()
         }
     }
 }

@@ -2984,11 +2984,11 @@ A conforming Nia compiler supports:
 - freestanding executable emission for Linux x86_64 when a target linker is
   available.
 
-The standard `std::fs::PathView` is a borrowed path view over `&[char]`. Owned path
-text is ordinary caller-owned storage such as `std::collections::ArrayList[char]`;
-`PathView::join_into(allocator, component, out)` and
-`PathView::join_component_into(allocator, component, out)` write joined path text
-into that storage without hiding allocation.
+The standard text/path naming follows the view/buffer split: `std::StringView`
+and `std::fs::PathView` are borrowed views over `&[char]`, while
+`std::StringBuf` and `std::fs::PathBuf` own caller-allocated text storage.
+`PathBuf::join(allocator, component)` and `PathBuf::join_component(allocator, text)`
+append path components with explicit allocation.
 
 The CLI surface is:
 
@@ -3013,13 +3013,18 @@ runner, so it can use the standard library. The runner passes a `std::build::Bui
 value with explicit `package_root()`, `build_dir()`, `cache_dir()`, and
 `toolchain_executable()` accessors instead of requiring scripts to infer those
 paths.
-`Build::add_executable(name, path)` declares an executable artifact and returns
-an executable handle. `Build::add_check_executable_step(name, target)` adds a
-graph step that checks that artifact through the same toolchain as
-`nia check --exe <path>` with the package root as the working directory.
-`Build::add_emit_executable_step(name, target)` adds a graph step that emits the
-artifact to `.nia-build/<name>` through the same toolchain as
-`nia emit --exe <path> -o .nia-build/<name>`.
+`Build::add_module(ModuleOptions::init(root_source))` declares a root source
+module and returns a module handle. `ModuleOptions::with_optimization(mode)`
+overrides the default optimization mode. `Build::add_executable(
+ExecutableOptions::init(name, root_module))` declares an executable artifact and
+returns an executable handle; `ExecutableOptions::with_output_name(name)` and
+`ExecutableOptions::with_runtime(runtime)` customize it.
+`Build::add_check_executable_step(name, target)` adds a graph step that checks
+that artifact through the same toolchain as `nia check --exe <path>` with the
+package root as the working directory. `Build::add_emit_executable_step(name,
+target)` adds a graph step that emits the artifact to
+`.nia-build/<output-name-or-target-name>` through the same toolchain as
+`nia emit --exe <path> -o ...`.
 `Build::set_default_step(step)` selects the graph step used by `nia build` when
 no step name is passed. If a script registers steps but does not set a default,
 `nia build` without an explicit step exits with an invalid build-script error.

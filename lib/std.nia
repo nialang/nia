@@ -26,6 +26,6 @@ pub module unicode;
 pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap};
 pub using cstring::CStringView;
-pub using fs::PathView;
+pub using fs::{PathBuf, PathView};
 pub using range::{Range, RangeFrom, RangeInclusive, Step, from, inclusive, range};
-pub using string::StringView;
+pub using string::{StringBuf, StringView};

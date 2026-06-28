@@ -1408,10 +1408,13 @@ fn emit_exe_exposes_cstr_from_std_root() {
         &main,
         r#"
 using std;
+using std::mem;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
+    var page_allocator = mem::PageAllocator::init();
+    let page: &mut mem::Allocator = &mut page_allocator;
+
     let value = if let ?value = std::CStringView::from_bytes(b"nia\0") {
         value
     } else null {
@@ -1432,6 +1435,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::exit(5)!;
     }
+    var text = std::StringBuf::from_slice(page, "nia").exit().?;
+    defer text.deinit(page).exit().?;
+    text.append(page, " std").exit().?;
+    if text.view().len() != 7usize {
+        return process::exit(6)!;
+    }
+    var path = std::PathBuf::from_path(page, std::PathView::init("root")).exit().?;
+    defer path.deinit(page).exit().?;
+    path.join_component(page, "child").exit().?;
+    if path.view().text().len() != 10usize {
+        return process::exit(7)!;
+    }
+    _ = init;
     !{}
 }
 "#,

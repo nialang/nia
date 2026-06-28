@@ -57,6 +57,10 @@ pub struct PathView {
     text: string::StringView,
 }
 
+pub struct PathBuf {
+    text: string::StringBuf,
+}
+
 pub struct EncodedPath {
     ptr: &u8,
     len: usize,

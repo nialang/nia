@@ -6,6 +6,7 @@ using pkg::fs;
 using pkg::io;
 using pkg::mem;
 using pkg::os;
+using pkg::string;
 using pkg::build::error;
 using pkg::build::types;
 
@@ -90,17 +91,17 @@ extend Build {
     }
 
     pub fn add_step(&mut self, name: &[char], run: StepFn) Error!StepHandle {
-        self.add_step_record(Step::custom(name, run))
+        self.add_step_record(Step::custom(string::StringView::init(name), run))
     }
 
     pub fn add_check_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validate_executable_handle(target).?;
-        self.add_step_record(Step::check_executable(name, target))
+        self.add_step_record(Step::check_executable(string::StringView::init(name), target))
     }
 
     pub fn add_emit_executable_step(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validate_executable_handle(target).?;
-        self.add_step_record(Step::emit_executable(name, target))
+        self.add_step_record(Step::emit_executable(string::StringView::init(name), target))
     }
 
     pub fn depend_on(&mut self, step: StepHandle, dependency: StepHandle) Error!void {
@@ -174,13 +175,9 @@ extend Build {
     fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
         let target = self.executable_target(handle).?;
         let mod_record = self.build_module(target.root_module).?;
-        var output_text = collections::ArrayList[char]::init();
-        defer output_text.deinit(self.allocator).as_build_error().?;
-        let output_path = self.build_dir.join_component_into(
-            self.allocator,
-            target.output_name,
-            &mut output_text,
-        ).as_build_error().?;
+        var output_path = fs::PathBuf::from_path(self.allocator, self.build_dir).as_build_error().?;
+        defer output_path.deinit(self.allocator).as_build_error().?;
+        output_path.join_component(self.allocator, target.output_name.text()).as_build_error().?;
         var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
         self.emit_exe(mod_record, output, target.runtime)
@@ -331,11 +328,11 @@ extend Build {
         steps[handle.index()].state = state;
     }
 
-    fn find_step(&self, name: &[char]) ?Step {
+    fn find_step(&self, name: string::StringView) ?Step {
         var index = 0usize;
         while index < self.steps.len() {
             let step = self.steps.as_slice()[index];
-            if mem::equal[char](step.name, name) {
+            if mem::equal[char](step.name.text(), name.text()) {
                 return ?step;
             }
             index += 1usize;
@@ -347,7 +344,7 @@ extend Build {
         var index = 0usize;
         while index < self.steps.len() {
             let step = self.steps.as_slice()[index];
-            if arg_matches_text(arg, step.name) {
+            if arg_matches_text(arg, step.name.text()) {
                 return ?StepHandle::init(index);
             }
             index += 1usize;
@@ -355,11 +352,11 @@ extend Build {
         null
     }
 
-    fn find_executable(&self, name: &[char]) ?ExecutableTarget {
+    fn find_executable(&self, name: string::StringView) ?ExecutableTarget {
         var index = 0usize;
         while index < self.executables.len() {
             let target = self.executables.as_slice()[index];
-            if mem::equal[char](target.name, name) {
+            if mem::equal[char](target.name.text(), name.text()) {
                 return ?target;
             }
             index += 1usize;
@@ -451,7 +448,7 @@ extend ExecutableStep {
 }
 
 extend Step {
-    fn init(name: &[char], kind: StepKind, payload: StepPayload) Step {
+    fn init(name: string::StringView, kind: StepKind, payload: StepPayload) Step {
         {
             name: name,
             kind: kind,
@@ -460,16 +457,32 @@ extend Step {
         }
     }
 
-    fn custom(name: &[char], run: StepFn) Step {
+    fn custom(name: string::StringView, run: StepFn) Step {
         Step::init(name, StepKind::Custom, { custom: CustomStep::init(run) })
     }
 
-    fn check_executable(name: &[char], target: ExecutableHandle) Step {
+    fn check_executable(name: string::StringView, target: ExecutableHandle) Step {
         Step::init(name, StepKind::CheckExecutable, { executable: ExecutableStep::init(target) })
     }
 
-    fn emit_executable(name: &[char], target: ExecutableHandle) Step {
+    fn emit_executable(name: string::StringView, target: ExecutableHandle) Step {
         Step::init(name, StepKind::EmitExecutable, { executable: ExecutableStep::init(target) })
+    }
+}
+
+extend ModuleOptions {
+    pub fn init(root_source: fs::PathView) ModuleOptions {
+        {
+            root_source: root_source,
+            optimization: OptimizationMode::O2,
+        }
+    }
+
+    pub fn with_optimization(self, optimization: OptimizationMode) ModuleOptions {
+        {
+            root_source: self.root_source,
+            optimization: optimization,
+        }
     }
 }
 
@@ -483,7 +496,7 @@ extend Module {
 }
 
 extend ExecutableTarget {
-    pub fn init(options: ExecutableOptions, output_name: &[char]) ExecutableTarget {
+    pub fn init(options: ExecutableOptions, output_name: string::StringView) ExecutableTarget {
         {
             name: options.name,
             root_module: options.root_module,
@@ -493,7 +506,36 @@ extend ExecutableTarget {
     }
 }
 
-fn executable_output_name(options: ExecutableOptions) &[char] {
+extend ExecutableOptions {
+    pub fn init(name: &[char], root_module: ModuleHandle) ExecutableOptions {
+        {
+            name: string::StringView::init(name),
+            root_module: root_module,
+            output_name: null,
+            runtime: Runtime::Freestanding,
+        }
+    }
+
+    pub fn with_output_name(self, output_name: &[char]) ExecutableOptions {
+        {
+            name: self.name,
+            root_module: self.root_module,
+            output_name: ?string::StringView::init(output_name),
+            runtime: self.runtime,
+        }
+    }
+
+    pub fn with_runtime(self, runtime: Runtime) ExecutableOptions {
+        {
+            name: self.name,
+            root_module: self.root_module,
+            output_name: self.output_name,
+            runtime: runtime,
+        }
+    }
+}
+
+fn executable_output_name(options: ExecutableOptions) string::StringView {
     if let ?name = options.output_name {
         name
     } else {
@@ -525,13 +567,14 @@ extend Runtime {
     }
 }
 
-fn is_valid_target_name(name: &[char]) bool {
+fn is_valid_target_name(name: string::StringView) bool {
     if name.len() == 0usize {
         return false;
     }
     var index = 0usize;
-    while index < name.len() {
-        let code = name[index] as u32;
+    let text = name.text();
+    while index < text.len() {
+        let code = text[index] as u32;
         if code == 0u32 or code == 47u32 or code == 92u32 {
             return false;
         }

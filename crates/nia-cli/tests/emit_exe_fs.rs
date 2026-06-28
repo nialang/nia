@@ -8,15 +8,14 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_std_fs_path_join_into_builds_char_paths() {
-    let root = temp_dir("emit_exe_std_fs_path_join_into_builds_char_paths");
+fn emit_exe_std_fs_path_buf_builds_char_paths() {
+    let root = temp_dir("emit_exe_std_fs_path_buf_builds_char_paths");
     let data_path = root.join("subdir").join("inside.txt");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-using std::collections;
 using std::fs;
 using std::io;
 using std::mem;
@@ -24,14 +23,10 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var page = mem::PageAllocator::init();
-    var path_text = collections::ArrayList[char]::init();
-    defer path_text.deinit(&mut page).exit().?;
+    var path = fs::PathBuf::from_path(&mut page, fs::PathView::init("subdir")).exit().?;
+    defer path.deinit(&mut page).exit().?;
 
-    var path = fs::PathView::init("subdir").join_component_into(
-        &mut page,
-        "/inside.txt",
-        &mut path_text,
-    ).exit().?;
+    path.join_component(&mut page, "/inside.txt").exit().?;
     let expected: &[char] = "subdir/inside.txt";
     if path.text().len() != expected.len() {
         return process::exit(1)!;
@@ -40,7 +35,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     var cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
     cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()).exit().?;
-    var file = cwd.create_file(path, fs::CreateOptions::read_write()).exit().?;
+    var file = cwd.create_file(path.view(), fs::CreateOptions::read_write()).exit().?;
     var buffer: [16]u8 = [0; 16];
     var writer = file.writer(init.io(), &mut buffer[..]).exit().?;
     writer.write_all(b"joined").exit().?;

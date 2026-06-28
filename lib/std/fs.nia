@@ -25,6 +25,7 @@ pub using types::{
     OpenDirOptions,
     OpenMode,
     OpenOptions,
+    PathBuf,
     PathError,
     PathView,
     Timestamp,
