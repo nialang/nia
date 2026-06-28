@@ -185,6 +185,9 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
+        if !signature.is_extern && !self.input.function_bodies.contains_key(&global_def_id) {
+            return None;
+        }
         let instantiation_snapshot = self.instantiation.take_snapshot();
         self.instantiation.set_function_scope(global_def_id, None);
         let effective_generics = self

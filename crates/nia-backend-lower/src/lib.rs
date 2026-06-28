@@ -1981,55 +1981,16 @@ fn index_program_extension_trait_method_candidates(
         let Some(trait_id) = method.trait_id else {
             continue;
         };
-        if !impls.contains_key(&(method.def_id.module_id, method.impl_id)) {
-            continue;
-        }
-        let Some(normalization) = input
-            .program_type_normalizations
-            .get(&method.def_id.module_id)
-        else {
+        let Some(impl_signature) = impls.get(&(method.def_id.module_id, method.impl_id)) else {
             continue;
         };
-        let target_ty = normalization.normalize(method.target_ty);
-        let trait_args = method
-            .trait_args
-            .iter()
-            .map(|arg| normalization.normalize(*arg))
-            .collect::<Vec<_>>();
-        let where_predicates = method
-            .where_predicates
-            .iter()
-            .map(|predicate| WherePredicateSignature {
-                ty: normalization.normalize(predicate.ty),
-                bounds: predicate
-                    .bounds
-                    .iter()
-                    .map(|bound| nia_item_signatures::WhereBoundSignature {
-                        trait_ty: normalization.normalize(bound.trait_ty),
-                        associated_type_bindings: bound
-                            .associated_type_bindings
-                            .iter()
-                            .map(
-                                |binding| nia_item_signatures::AssociatedTypeBindingSignature {
-                                    name: binding.name.clone(),
-                                    ty: normalization.normalize(binding.ty),
-                                    span: binding.span,
-                                },
-                            )
-                            .collect(),
-                        span: bound.span,
-                    })
-                    .collect(),
-                span: predicate.span,
-            })
-            .collect::<Vec<_>>();
         let candidate = ExtensionTraitMethodCandidate {
-            target_ty,
+            target_ty: impl_signature.target_ty,
             method_def_id: method.def_id,
-            trait_args,
-            where_predicates,
-            effective_generics: method.effective_generics.clone(),
-            interner: normalization.interner.clone(),
+            trait_args: impl_signature.trait_args.clone(),
+            where_predicates: impl_signature.where_predicates.clone(),
+            effective_generics: impl_signature.generics.clone(),
+            interner: impl_signature.interner.clone(),
         };
         candidates
             .entry(ExtensionTraitMethodKey {

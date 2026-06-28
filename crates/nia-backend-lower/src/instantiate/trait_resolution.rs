@@ -398,10 +398,20 @@ impl<'a> ModuleLowerer<'a> {
                 )
             })
             .clone();
-        let target_ty = self.input.type_normalization.normalize(source.target_ty);
-        let Some(TyKind::Nominal { def_id, args }) = interner.get(target_ty).cloned() else {
+        let (target_interner, target_ty) = self
+            .normalized_program_type_source_for_module(
+                source.interner_id.module_id(),
+                &interner,
+                source.target_ty,
+            )
+            .unwrap_or_else(|| (interner.clone(), source.target_ty));
+        let Some(TyKind::Nominal { def_id, args }) = target_interner.get(target_ty).cloned() else {
             return None;
         };
+        let args = args
+            .iter()
+            .map(|arg| self.import_type_from_known_interner(&target_interner, *arg))
+            .collect::<Vec<_>>();
         let predicates = if def_id.module_id == self.input.module_id {
             self.input
                 .signatures
@@ -411,6 +421,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         signature.generics.clone(),
                         signature.where_predicates.clone(),
+                        self.input.type_lowering.interner.clone(),
                     )
                 })
                 .or_else(|| {
@@ -422,6 +433,7 @@ impl<'a> ModuleLowerer<'a> {
                             (
                                 signature.generics.clone(),
                                 signature.where_predicates.clone(),
+                                self.input.type_lowering.interner.clone(),
                             )
                         })
                 })?
@@ -433,6 +445,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         signature.signature.generics.clone(),
                         signature.signature.where_predicates.clone(),
+                        signature.interner.clone(),
                     )
                 })
                 .or_else(|| {
@@ -440,6 +453,7 @@ impl<'a> ModuleLowerer<'a> {
                         (
                             signature.signature.generics.clone(),
                             signature.signature.where_predicates.clone(),
+                            signature.interner.clone(),
                         )
                     })
                 })?
@@ -450,8 +464,8 @@ impl<'a> ModuleLowerer<'a> {
             .cloned()
             .zip(args)
             .collect::<std::collections::HashMap<_, _>>();
-        let predicates = predicates
-            .1
+        let imported_predicates = self.import_where_predicates(&predicates.1, &predicates.2);
+        let predicates = imported_predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
             .collect();

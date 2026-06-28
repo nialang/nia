@@ -456,21 +456,6 @@ impl QueryKey<CompilerContext> for ProgramTraitSolvingSignaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramTraitImplSignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramTraitImplSignaturesQuery {
-    type Value = Arc<Vec<nia_item_signatures::ProgramTraitImplSignature>>;
-
-    fn name() -> &'static str {
-        "program_trait_impl_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_trait_impl_signatures)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramVisibleTypeSignaturesQuery;
 
 impl QueryKey<CompilerContext> for ProgramVisibleTypeSignaturesQuery {
@@ -518,6 +503,7 @@ impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionMethodIndexQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
