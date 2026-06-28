@@ -187,18 +187,6 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
     }
 }
 
-enum ModuleDefs {
-    Owned(DefCollection),
-}
-
-impl ModuleDefs {
-    fn as_ref(&self) -> &DefCollection {
-        match self {
-            ModuleDefs::Owned(defs) => defs,
-        }
-    }
-}
-
 pub fn lower_module_types(module: &Module, resolved: &TypeResolution) -> TypeLowering {
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree(ModuleId(0), &item_tree, resolved)
@@ -303,6 +291,7 @@ fn lower_module_types_from_items(
         module_id,
         resolved,
         program_defs,
+        defs_cache: HashMap::new(),
         interner: TyInterner::new(module_id),
         type_uses: HashMap::new(),
         const_exprs: HashMap::new(),
@@ -336,6 +325,7 @@ struct TypeLowerer<'a> {
     module_id: ModuleId,
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
+    defs_cache: HashMap<ModuleId, Option<DefCollection>>,
     interner: TyInterner,
     type_uses: HashMap<NodeSite, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
@@ -1373,29 +1363,31 @@ impl<'a> TypeLowerer<'a> {
             .intern(TyKind::BuiltinTrait { trait_id, args })
     }
 
-    fn projection_trait_id(&self, trait_ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
-        match self.interner.get(trait_ty) {
-            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def(*def_id) => {
-                Some((TraitId::Source(*def_id), args.clone()))
+    fn projection_trait_id(
+        &mut self,
+        trait_ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(trait_ty).cloned() {
+            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def(def_id) => {
+                Some((TraitId::Source(def_id), args))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
-                Some((TraitId::Builtin(*trait_id), args.clone()))
+                Some((TraitId::Builtin(trait_id), args))
             }
             _ => None,
         }
     }
 
-    fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
+    fn is_trait_def(&mut self, def_id: GlobalDefId) -> bool {
         self.defs_for_module(def_id.module_id)
-            .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.kind))
+            .and_then(|defs| defs.defs.get(def_id.def_id).map(|def| def.kind))
             == Some(nia_defs::DefKind::Trait)
     }
 
-    fn trait_has_associated_type(&self, trait_id: GlobalDefId, name: &str) -> bool {
+    fn trait_has_associated_type(&mut self, trait_id: GlobalDefId, name: &str) -> bool {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return true;
         };
-        let defs = defs.as_ref();
         let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
             return true;
         };
@@ -1406,7 +1398,7 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn trait_id_has_associated_type(&self, trait_id: TraitId, name: &str) -> bool {
+    fn trait_id_has_associated_type(&mut self, trait_id: TraitId, name: &str) -> bool {
         match trait_id {
             TraitId::Source(def_id) => self.trait_has_associated_type(def_id, name),
             TraitId::Builtin(trait_id) => trait_id.has_associated_type(name),
@@ -1417,18 +1409,17 @@ impl<'a> TypeLowerer<'a> {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
             return;
         };
-        let defs = defs.as_ref();
         let Some(def) = defs.defs.get(def_id.def_id) else {
             return;
         };
         let expected = def.generics.len();
+        let name = def.name.clone();
         if expected != actual {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_NORMALIZATION,
                 span,
                 format!(
-                    "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
-                    def.name
+                    "generic argument count mismatch for `{name}`: expected {expected}, got {actual}"
                 ),
             ));
         }
@@ -1506,9 +1497,8 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn local_trait_id(&self, node_key: &nia_node_id::VersionedNodeKey) -> Option<GlobalDefId> {
+    fn local_trait_id(&mut self, node_key: &nia_node_id::VersionedNodeKey) -> Option<GlobalDefId> {
         let defs = self.defs_for_module(self.module_id)?;
-        let defs = defs.as_ref();
         let def_id = defs.def_nodes.get(node_key)?;
         Some(GlobalDefId {
             module_id: self.module_id,
@@ -1535,11 +1525,10 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn source_trait_associated_type_names(&self, trait_id: GlobalDefId) -> Vec<String> {
+    fn source_trait_associated_type_names(&mut self, trait_id: GlobalDefId) -> Vec<String> {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return Vec::new();
         };
-        let defs = defs.as_ref();
         defs.defs
             .iter()
             .filter_map(|(_, def)| {
@@ -1625,8 +1614,8 @@ impl<'a> TypeLowerer<'a> {
         left == right || self.interner.get(left) == self.interner.get(right)
     }
 
-    fn invalid_value_type_message(&self, ty: InternedTyId) -> Option<&'static str> {
-        match self.interner.get(ty) {
+    fn invalid_value_type_message(&mut self, ty: InternedTyId) -> Option<&'static str> {
+        match self.interner.get(ty).cloned() {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
                 Some("`never` is not valid as a value, field, parameter, or array element type")
             }
@@ -1639,15 +1628,21 @@ impl<'a> TypeLowerer<'a> {
             Some(TyKind::BuiltinTrait { .. }) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
-            Some(TyKind::Nominal { def_id, .. }) if self.is_trait_def(*def_id) => Some(
+            Some(TyKind::Nominal { def_id, .. }) if self.is_trait_def(def_id) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
             _ => None,
         }
     }
 
-    fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs> {
-        Some(ModuleDefs::Owned((self.program_defs.defs?)(module_id)?))
+    fn defs_for_module(&mut self, module_id: ModuleId) -> Option<&DefCollection> {
+        if !self.defs_cache.contains_key(&module_id) {
+            self.defs_cache
+                .insert(module_id, (self.program_defs.defs?)(module_id));
+        }
+        self.defs_cache
+            .get(&module_id)
+            .and_then(|defs| defs.as_ref())
     }
 }
 

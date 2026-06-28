@@ -483,7 +483,7 @@ pub(crate) fn collect_extension_method_index(
             for method in &impl_signature.methods {
                 let effective_generics =
                     extension_method_effective_generics(module, impl_signature, method, target_ty);
-                extensions.insert(
+                extensions.insert_with_nominal_target(
                     module.module_id,
                     ExtensionMethod {
                         name: method.name.clone(),
@@ -499,6 +499,7 @@ pub(crate) fn collect_extension_method_index(
                         where_predicates: where_predicates.clone(),
                         visibility: method.visibility,
                     },
+                    nominal_target_def_id(&module.normalization.interner, target_ty),
                 );
             }
         }
@@ -2301,7 +2302,11 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
     enqueue_using_scope_modules(context.using_scope, &mut queue);
-    queue.extend(public_inherent_extension_providers_for_using_scope(context));
+    enqueue_public_inherent_extension_providers_for_using_scope(
+        context,
+        context.using_scope,
+        &mut queue,
+    );
 
     while let Some(visible) = queue.pop_front() {
         if visible == context.module_id || !seen.insert(visible) {
@@ -2309,6 +2314,11 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
         }
         if let Some(using_scope) = context.using_scopes.get(&visible) {
             enqueue_using_scope_modules(using_scope, &mut queue);
+            enqueue_public_inherent_extension_providers_for_using_scope(
+                context,
+                using_scope,
+                &mut queue,
+            );
         }
     }
 
@@ -2321,35 +2331,25 @@ fn declared_witness_module_closure(
     context: &VisibilityClosureContext<'_>,
 ) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
-    let roots = context
-        .using_scope
-        .modules
-        .values()
-        .copied()
-        .chain(
-            context
-                .using_scope
-                .types
-                .values()
-                .map(|entry| entry.target_module),
-        )
-        .collect::<Vec<_>>();
-    for module_id in roots.iter().copied() {
-        if module_id == context.module_id {
+    let mut queue = VecDeque::new();
+    enqueue_using_scope_modules(context.using_scope, &mut queue);
+    enqueue_public_inherent_extension_providers_for_using_scope(
+        context,
+        context.using_scope,
+        &mut queue,
+    );
+
+    while let Some(module_id) = queue.pop_front() {
+        if module_id == context.module_id || !seen.insert(module_id) {
             continue;
         }
-        seen.insert(module_id);
         if let Some(using_scope) = context.using_scopes.get(&module_id) {
-            for provider in using_scope
-                .modules
-                .values()
-                .copied()
-                .chain(using_scope.types.values().map(|entry| entry.target_module))
-            {
-                if provider != context.module_id {
-                    seen.insert(provider);
-                }
-            }
+            enqueue_using_scope_modules(using_scope, &mut queue);
+            enqueue_public_inherent_extension_providers_for_using_scope(
+                context,
+                using_scope,
+                &mut queue,
+            );
         }
     }
 
@@ -2378,12 +2378,12 @@ struct VisibilityClosureContext<'a> {
     associated_values: &'a ExtensionAssociatedValues,
 }
 
-fn public_inherent_extension_providers_for_using_scope(
+fn enqueue_public_inherent_extension_providers_for_using_scope(
     context: &VisibilityClosureContext<'_>,
-) -> Vec<nia_ids::ModuleId> {
-    let mut providers = Vec::new();
-    for type_def_id in context
-        .using_scope
+    using_scope: &nia_defs::ModuleUsingScope,
+    queue: &mut VecDeque<nia_ids::ModuleId>,
+) {
+    for type_def_id in using_scope
         .types
         .values()
         .filter(|entry| entry.namespace == PublicNamespace::Type)
@@ -2399,22 +2399,19 @@ fn public_inherent_extension_providers_for_using_scope(
             )
         })
     {
-        providers.extend(public_inherent_method_providers_for_nominal(
+        queue.extend(public_inherent_method_providers_for_nominal(
             context.module_id,
             context.graph,
             type_def_id,
             context.extensions,
         ));
-        providers.extend(public_associated_value_providers_for_nominal(
+        queue.extend(public_associated_value_providers_for_nominal(
             context.module_id,
             context.graph,
             type_def_id,
             context.associated_values,
         ));
     }
-    providers.sort();
-    providers.dedup();
-    providers
 }
 
 fn nominal_def_id_for_public_type(

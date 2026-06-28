@@ -2614,6 +2614,214 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_visible_extensions_follow_facade_provider_chains() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module facade;
+using entry::facade;
+
+fn main() i32 {
+    let init = facade::Init::init();
+    let args = init.args();
+    let mut iter = args.iter();
+    if ?value = iter.next() {
+        value
+    } or null {
+        0
+    }
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(1),
+            "facade.nia",
+            r#"
+module args_impl;
+module init_impl;
+module types;
+
+pub using self::types::{Args, ArgsIter, Init};
+"#,
+        );
+        let init_impl = loaded_module(
+            ModuleId(2),
+            "facade/init_impl.nia",
+            r#"
+using entry::facade::types::{Args, Init};
+
+extend Init {
+    pub fn init() Init {
+        {}
+    }
+
+    pub fn args(&self) Args {
+        Args {}
+    }
+}
+"#,
+        );
+        let args_impl = loaded_module(
+            ModuleId(3),
+            "facade/args_impl.nia",
+            r#"
+using entry::facade::types::{Args, ArgsIter};
+
+extend Args {
+    pub fn iter(&self) ArgsIter {
+        ArgsIter {}
+    }
+}
+
+extend ArgsIter {
+    pub fn next(&mut self) ?i32 {
+        ?42
+    }
+}
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(4),
+            "facade/types.nia",
+            r#"
+pub struct Init {}
+pub struct Args {}
+pub struct ArgsIter {}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "facade",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern facade module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "args_impl",
+                nia_ids::Visibility::Private,
+                Span::default(),
+            )
+            .expect("intern args_impl module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "init_impl",
+                nia_ids::Visibility::Private,
+                Span::default(),
+            )
+            .expect("intern init_impl module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "types",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern types module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, facade, init_impl, args_impl, types],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let checked = db.query(CodegenProgramQuery);
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn executable_reachability_keeps_matched_trait_impl_method_bodies() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module parse;
+using entry::parse;
+
+pub fn main() i32 {
+    parse::parse[i32, parse::Input](parse::Input {})
+}
+"#,
+        );
+        let parse = loaded_module(
+            ModuleId(1),
+            "parse.nia",
+            r#"
+pub struct Input {}
+
+pub trait ParseFrom[Input] {
+    fn parse_from(input: Input) Self;
+}
+
+pub fn parse[T, Input](input: Input) T
+where T: ParseFrom[Input]
+{
+    [T]::parse_from(input)
+}
+
+extend i32 : ParseFrom[Input] {
+    fn parse_from(input: Input) i32 {
+        _ = input;
+        42
+    }
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "parse",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern parse module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, parse],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let checked = db.query(ExecutableCheckedModulesQuery);
+        let parse_module = checked
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("parse module should be executable-reachable");
+        let parse_from = parse_module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == "parse_from" && def.kind == nia_defs::DefKind::Method).then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(1),
+                        def_id,
+                    },
+                )
+            })
+            .expect("impl parse_from method should be defined");
+
+        assert!(
+            parse_module
+                .body_ir
+                .function_bodies
+                .contains_key(&parse_from),
+            "matched trait impl method body should be retained for executable codegen"
+        );
+    }
+
+    #[test]
     fn comptime_module_uses_full_active_item_tree_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -4010,6 +4218,89 @@ fn main() i32 {
                 .iter()
                 .all(|item| item.name != "Recursive"),
             "unreachable recursive aggregate should not be lowered for codegen"
+        );
+    }
+
+    #[test]
+    fn executable_backend_lowering_imports_external_extension_owner_where_predicates() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module ext;
+module bounds;
+using entry::ext;
+using entry::bounds;
+
+fn main() i32 {
+    let value = ext::Box[bounds::Token]::init(bounds::Token {});
+    value.get()
+}
+"#,
+        );
+        let ext = loaded_module(
+            ModuleId(1),
+            "ext.nia",
+            r#"
+using entry::bounds;
+
+pub struct Box[T]
+where T: bounds::Marker
+{
+    value: T,
+}
+
+extend[T] Box[T]
+where T: bounds::Marker
+{
+    pub fn init(value: T) Box[T] {
+        { value: value }
+    }
+
+    pub fn get(self) i32 {
+        1
+    }
+}
+"#,
+        );
+        let bounds = loaded_module(
+            ModuleId(2),
+            "bounds.nia",
+            r#"
+pub trait Marker {}
+
+pub struct Token {}
+
+extend Token : Marker {}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(main.id, "ext", nia_ids::Visibility::Public, Span::default())
+            .expect("intern ext module");
+        graph
+            .intern_declared_child(
+                main.id,
+                "bounds",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern bounds module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, ext, bounds],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let backend_lowering = db.query(BackendLoweringQuery);
+
+        assert!(
+            backend_lowering.diagnostics.is_empty(),
+            "backend lowering should import external extension owner predicates without diagnostics: {:?}",
+            backend_lowering.diagnostics
         );
     }
 

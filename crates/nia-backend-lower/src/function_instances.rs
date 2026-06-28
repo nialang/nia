@@ -433,6 +433,12 @@ impl<'a> ModuleLowerer<'a> {
         if include_body && !signature.signature.is_extern && !signature.signature.has_body {
             return None;
         }
+        if include_body
+            && !signature.signature.is_extern
+            && !self.input.program_function_bodies.contains_key(&def_id)
+        {
+            return None;
+        }
         let source_interner = &signature.interner;
         let body_interner = self
             .type_context

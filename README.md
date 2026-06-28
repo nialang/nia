@@ -28,7 +28,7 @@ extend Point {
 }
 
 fn sum(xs: &[i32]) i32 {
-    var total = 0;
+    let mut total = 0;
     for &value in xs.iter() {
         total = total + value;
     }
@@ -38,10 +38,10 @@ fn sum(xs: &[i32]) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    var point: Point = { x: 3, y: 4 };
-    var also_point = Point { x: 5, y: 12 };
-    var values: [_]i32 = [point.len2(), also_point.len2(), 7];
-    var slice_view = &([3]i32[1, 2, 3])[..];
+    let mut point: Point = { x: 3, y: 4 };
+    let mut also_point = Point { x: 5, y: 12 };
+    let mut values = [_]i32[point.len2(), also_point.len2(), 7];
+    let mut slice_view = &([3]i32[1, 2, 3])[..];
 
     if point.len2() + sum(&values) + sum(slice_view) != 232 {
         return process::exit(1)!;

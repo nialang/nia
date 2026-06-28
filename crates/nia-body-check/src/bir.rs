@@ -13,7 +13,7 @@ use nia_body_ir::{
     TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
     TypedSwitchPatternKind, TypedWhile,
 };
-use nia_ids::{BuiltinTraitMethod, ReceiverKind, TraitId};
+use nia_ids::{BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
@@ -268,12 +268,53 @@ impl<'a> BodyChecker<'a> {
             local_id,
             name: name.to_string(),
             ty,
-            value: binding
-                .value
-                .as_ref()
-                .map(|value| self.lower_expr_with_ty(value, Some(ty))),
+            value: binding.value.as_ref().map(|value| {
+                self.lower_binding_initializer_for_pattern(&binding.pattern, value, ty)
+            }),
             is_mutable: binding.is_mutable,
         })
+    }
+
+    fn lower_binding_initializer_for_pattern(
+        &mut self,
+        pattern: &nia_ast::Pattern,
+        value: &nia_ast::Expr,
+        binding_ty: InternedTyId,
+    ) -> TypedExpr {
+        match &pattern.kind {
+            nia_ast::PatternKind::Pointer(_) | nia_ast::PatternKind::MutPointer(_) => {
+                let input_ty = self.pattern_input_ty(pattern, binding_ty);
+                let value = self.lower_expr_with_ty(value, Some(input_ty));
+                self.lower_binding_pointer_pattern_initializer(pattern, value, binding_ty)
+            }
+            _ => self.lower_expr_with_ty(value, Some(binding_ty)),
+        }
+    }
+
+    fn lower_binding_pointer_pattern_initializer(
+        &mut self,
+        pattern: &nia_ast::Pattern,
+        value: TypedExpr,
+        binding_ty: InternedTyId,
+    ) -> TypedExpr {
+        match &pattern.kind {
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                let elem_ty = match self.interner.get(self.normalization.normalize(value.ty)) {
+                    Some(TyKind::Pointer { elem, .. }) => *elem,
+                    _ => self.error(),
+                };
+                let deref = TypedExpr {
+                    span: value.span,
+                    ty: elem_ty,
+                    kind: TypedExprKind::Unary {
+                        op: UnaryOp::Deref,
+                        expr: Box::new(value),
+                    },
+                };
+                self.lower_binding_pointer_pattern_initializer(inner, deref, binding_ty)
+            }
+            _ => value,
+        }
     }
 
     fn single_pattern_binding<'b>(
