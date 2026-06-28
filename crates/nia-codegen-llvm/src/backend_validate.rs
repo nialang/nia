@@ -65,7 +65,10 @@ impl BackendValidator<'_> {
     fn validate_module(&mut self, module: &BackendModule) {
         for function in &module.functions {
             if function.generics.is_empty() {
-                self.current_item = Some(format!("function {}", function.name));
+                self.current_item = Some(format!(
+                    "function {} in {}::{:?}",
+                    function.name, module.name, function.def_id
+                ));
                 self.validate_type(function.return_type, function.span);
                 for param in &function.params {
                     self.current_subject = Some("param passing_ty");
@@ -83,8 +86,8 @@ impl BackendValidator<'_> {
         }
         for function in &module.function_instances {
             self.current_item = Some(format!(
-                "function instance {}::{:?}",
-                function.name, function.args
+                "function instance {} in {}::{:?}::{:?}",
+                function.name, module.name, function.def_id, function.args
             ));
             self.validate_type(function.return_type, function.span);
             for param in &function.params {

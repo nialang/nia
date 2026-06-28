@@ -1,0 +1,37 @@
+using pkg::fmt;
+
+pub struct StringView {
+    text: &[char],
+}
+
+extend StringView {
+    pub fn init(text: &[char]) StringView {
+        { text: text }
+    }
+
+    pub fn text(&self) &[char] {
+        self.text
+    }
+
+    pub fn as_slice(&self) &[char] {
+        self.text
+    }
+
+    pub fn len(&self) usize {
+        self.text.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.text.len() == 0usize
+    }
+}
+
+extend StringView : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        self.text.format(formatter)
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        self.text.format_spec(formatter, spec)
+    }
+}

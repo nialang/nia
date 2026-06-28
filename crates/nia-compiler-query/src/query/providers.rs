@@ -1411,6 +1411,16 @@ fn needed_const_exprs_for_active_item_tree(
     out
 }
 
+fn const_expr_subset_for_ids(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+    ids: &HashSet<GlobalConstExprId>,
+) -> HashMap<GlobalConstExprId, nia_ast::Expr> {
+    const_exprs
+        .iter()
+        .filter_map(|(id, expr)| ids.contains(id).then_some((*id, expr.clone())))
+        .collect()
+}
+
 fn collect_array_len_const_exprs_in_ty(
     interner: &nia_ty::TyInterner,
     ty: InternedTyId,
@@ -2256,6 +2266,7 @@ fn filtered_comptime_global_initializer_for_body_check(
             )
         },
     );
+    let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
     let lower_with_values = |values: ValueResolution| {
         let locals = time_module_provider(
             db,
@@ -2299,7 +2310,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                     values: &values,
                     locals: &locals,
                     semantic_uses: &semantic_uses,
-                    const_exprs: &lowered.const_exprs,
+                    const_exprs: &filtered_const_exprs,
                     source_path: &source_path,
                 })
             },
@@ -2372,6 +2383,9 @@ fn comptime_inputs_for_body_check(
         &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     >,
 ) -> BodyCheckComptimeInputs {
+    let needed_const_exprs =
+        needed_const_exprs_for_active_item_tree(&inputs.active_item_tree, lowered);
+    let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
     let module = time_module_provider(
         db,
         "executable_body_check.comptime.lower_module",
@@ -2383,7 +2397,7 @@ fn comptime_inputs_for_body_check(
                 values: &inputs.values,
                 locals: &inputs.locals,
                 semantic_uses: &inputs.semantic_uses,
-                const_exprs: &lowered.const_exprs,
+                const_exprs: &filtered_const_exprs,
                 source_path,
             })
         },
@@ -2777,7 +2791,10 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let program_comptime_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let program_visible_extensions =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
-    let body_check =
+    let run_body_check = |inputs: &BodyCheckResolutionInputs,
+                          body_comptime: nia_body_check::BodyComptime<'_>,
+                          comptime_module: &nia_comptime_ir::ResolvedComptimeModule,
+                          filter: nia_body_check::BodyCheckFilter<'_>| {
         nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
             nia_body_check::BodyCheckInput {
                 source_version: Some(source_version),
@@ -2792,7 +2809,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
                 comptime_signatures: &signatures,
                 normalization: &normalization,
-                seed_interner,
+                seed_interner: seed_interner.clone(),
                 target: &db.query(CompilerTargetQuery),
                 comptime: body_comptime,
                 comptime_module,
@@ -2825,19 +2842,26 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 filter,
             },
             body_timing_mode(db.query(CompilerTimingsQuery)),
-        );
-    let (stored_inputs, stored_comptime_inputs) = match (filter, stored_inputs) {
+        )
+    };
+    let body_check = run_body_check(&inputs, body_comptime, comptime_module, filter);
+    let (body_check, stored_inputs, stored_comptime_inputs) = match (filter, stored_inputs) {
         (
             nia_body_check::BodyCheckFilter::ReachableItems {
                 functions, globals, ..
             },
             Some(stored_inputs),
         ) => {
+            let mut body_check = body_check;
             let mut final_functions = functions.iter().copied().collect::<HashSet<_>>();
-            final_functions.extend(body_check.ir.function_bodies.keys().copied());
-            if final_functions.len() == functions.len() {
-                (Some(stored_inputs), None)
-            } else {
+            let mut current_inputs = stored_inputs;
+            let mut current_comptime_inputs = None;
+            loop {
+                let before = final_functions.len();
+                final_functions.extend(body_check.ir.function_bodies.keys().copied());
+                if final_functions.len() == before {
+                    break;
+                }
                 let final_filter = nia_body_check::BodyCheckFilter::ReachableItems {
                     functions: &final_functions,
                     globals,
@@ -2875,10 +2899,23 @@ fn body_check_with_filter_and_layouts_with_inputs(
                         )
                     },
                 );
-                (Some(final_inputs), Some(final_comptime_inputs))
+                let final_body_comptime = nia_body_check::BodyComptime::from_phases(
+                    &final_comptime_inputs.values,
+                    &final_comptime_inputs.array_lengths,
+                    &final_comptime_inputs.typed_facts,
+                );
+                body_check = run_body_check(
+                    &final_inputs,
+                    final_body_comptime,
+                    &final_comptime_inputs.module.module,
+                    final_filter,
+                );
+                current_inputs = final_inputs;
+                current_comptime_inputs = Some(final_comptime_inputs);
             }
+            (body_check, Some(current_inputs), current_comptime_inputs)
         }
-        (_, stored_inputs) => (stored_inputs, None),
+        (_, stored_inputs) => (body_check, stored_inputs, None),
     };
     BodyCheckWithResolutionInputs {
         body_check,
@@ -3938,7 +3975,11 @@ fn extend_executable_checked_module_state(
         .node_type_uses
         .extend(increment.semantic_uses.node_type_uses);
 
-    state.module.comptime.interner = increment.comptime.interner;
+    merge_executable_interner_snapshot(
+        &mut state.module.comptime.interner,
+        increment.comptime.interner,
+        "comptime",
+    );
     state
         .module
         .comptime
@@ -3970,7 +4011,11 @@ fn extend_executable_checked_module_state(
         .diagnostics
         .extend(increment.comptime.diagnostics);
 
-    state.module.body_ir.interner = increment.body_ir.interner;
+    merge_executable_interner_snapshot(
+        &mut state.module.body_ir.interner,
+        increment.body_ir.interner,
+        "body",
+    );
     state
         .module
         .body_ir
@@ -4072,6 +4117,24 @@ fn extend_executable_checked_module_state(
     state.module.layouts = increment.layouts;
     state.checked_functions.extend(checked_functions);
     state.checked_globals.extend(checked_globals);
+}
+
+fn merge_executable_interner_snapshot(
+    current: &mut nia_ty::TyInterner,
+    increment: nia_ty::TyInterner,
+    source: &str,
+) {
+    if current.interner_id() != increment.interner_id() {
+        *current = increment;
+    } else if current.is_prefix_of(&increment) {
+        *current = increment;
+    } else if increment.is_prefix_of(current) {
+    } else {
+        panic!(
+            "Nia ICE: executable {source} type interner snapshots share id {:?} but are not prefix-compatible",
+            current.interner_id()
+        );
+    }
 }
 
 fn executable_signature_checked_module(
@@ -4357,6 +4420,38 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .interner,
         })
     };
+    let trait_default_method = |def_id: GlobalDefId| {
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        signatures
+            .traits
+            .iter()
+            .find_map(|(trait_def_id, signature)| {
+                signature
+                    .methods
+                    .iter()
+                    .any(|method| method.def_id == def_id.def_id && method.has_default)
+                    .then(|| {
+                        (
+                            GlobalDefId {
+                                module_id: def_id.module_id,
+                                def_id: *trait_def_id,
+                            },
+                            ProgramTraitSignature {
+                                signature: signature.clone(),
+                                interner: db
+                                    .query(SignatureTypeLoweringQuery(
+                                        def_id.module_id,
+                                        nia_item_tree::SignatureItemSet::Traits,
+                                    ))
+                                    .interner,
+                            },
+                        )
+                    })
+            })
+    };
     let named_function = |module_id, name: &str| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
@@ -4414,6 +4509,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                         struct_: &struct_signature,
                         union: &union_signature,
                         trait_: &trait_signature,
+                        trait_default_method: &trait_default_method,
                     },
                     &extension_methods.methods,
                     &program_trait_impls,
@@ -4572,8 +4668,12 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     )
                 },
             );
-            let mut checked_this_round = module_functions;
-            checked_this_round.extend(module.body_ir.function_bodies.keys().copied());
+            let checked_this_round = module
+                .body_ir
+                .function_bodies
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>();
             reachability
                 .functions
                 .extend(module.body_ir.function_bodies.keys().copied());
@@ -4608,6 +4708,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                             struct_: &struct_signature,
                             union: &union_signature,
                             trait_: &trait_signature,
+                            trait_default_method: &trait_default_method,
                         },
                         &extension_methods.methods,
                         &program_trait_impls,

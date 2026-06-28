@@ -2,12 +2,17 @@ using pkg::collections;
 using pkg::error;
 using pkg::fs::types;
 using pkg::mem;
+using pkg::string;
 using pkg::unicode;
 
-using types::{EncodedPath, Error, Path, PathError};
+using types::{EncodedPath, Error, PathError, PathView};
 
-extend Path {
-    pub fn init(text: &[char]) Path {
+extend PathView {
+    pub fn init(text: &[char]) PathView {
+        { text: string::StringView::init(text) }
+    }
+
+    pub fn from_string(text: string::StringView) PathView {
         { text: text }
     }
 
@@ -15,7 +20,7 @@ extend Path {
         allocator: &mut mem::Allocator,
         bytes: &[u8],
         out: &mut collections::ArrayList[char],
-    ) Error!Path {
+    ) Error!PathView {
         out.clear_retaining_capacity();
         var index = 0usize;
         while index < bytes.len() {
@@ -27,10 +32,14 @@ extend Path {
             out.push(allocator, decoded.char()).as_fs_error().?;
             index += decoded.len();
         }
-        !Path::init(out.as_slice())
+        !PathView::init(out.as_slice())
     }
 
     pub fn text(&self) &[char] {
+        self.text.text()
+    }
+
+    pub fn string(&self) string::StringView {
         self.text
     }
 
@@ -41,8 +50,9 @@ extend Path {
     pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
         var out = 0usize;
         var index = 0usize;
-        while index < self.text.len() {
-            let ch = self.text[index];
+        let text = self.text();
+        while index < text.len() {
+            let ch = text[index];
             if ch as u32 == 0u32 {
                 return PathError::Invalid!;
             }
@@ -69,13 +79,13 @@ extend Path {
     pub fn join_into(
         &self,
         allocator: &mut mem::Allocator,
-        component: Path,
+        component: PathView,
         out: &mut collections::ArrayList[char],
-    ) Error!Path {
+    ) Error!PathView {
         out.clear_retaining_capacity();
-        out.append_slice(allocator, self.text).as_fs_error().?;
+        out.append_slice(allocator, self.text()).as_fs_error().?;
         append_component_into(allocator, component.text(), out).?;
-        !Path::init(out.as_slice())
+        !PathView::init(out.as_slice())
     }
 
     pub fn join_component_into(
@@ -83,8 +93,8 @@ extend Path {
         allocator: &mut mem::Allocator,
         component: &[char],
         out: &mut collections::ArrayList[char],
-    ) Error!Path {
-        self.join_into(allocator, Path::init(component), out)
+    ) Error!PathView {
+        self.join_into(allocator, PathView::init(component), out)
     }
 }
 

@@ -76,12 +76,12 @@ pub struct StepDependency {
 }
 
 pub struct ModuleOptions {
-    root_source: fs::Path,
+    root_source: fs::PathView,
     optimization: OptimizationMode,
 }
 
 pub struct Module {
-    root_source: fs::Path,
+    root_source: fs::PathView,
     optimization: OptimizationMode,
 }
 
@@ -102,10 +102,10 @@ pub struct ExecutableTarget {
 pub struct Build {
     init: process::Init,
     allocator: &mut mem::Allocator,
-    package_root: fs::Path,
-    build_dir: fs::Path,
-    cache_dir: fs::Path,
-    toolchain_executable: fs::Path,
+    package_root: fs::PathView,
+    build_dir: fs::PathView,
+    cache_dir: fs::PathView,
+    toolchain_executable: fs::PathView,
     step_arg_index: usize,
     default_step: ?StepHandle,
     steps: collections::ArrayList[Step],

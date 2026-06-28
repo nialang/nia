@@ -1,5 +1,6 @@
 using pkg::fs::convert;
 using pkg::os;
+using pkg::string;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -52,8 +53,8 @@ pub enum FileKind: i32 {
     _,
 }
 
-pub struct Path {
-    text: &[char],
+pub struct PathView {
+    text: string::StringView,
 }
 
 pub struct EncodedPath {

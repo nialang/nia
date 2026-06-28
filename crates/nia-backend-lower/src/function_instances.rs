@@ -430,6 +430,9 @@ impl<'a> ModuleLowerer<'a> {
         if signature.signature.is_comptime {
             return None;
         }
+        if include_body && !signature.signature.is_extern && !signature.signature.has_body {
+            return None;
+        }
         let source_interner = &signature.interner;
         let body_interner = self
             .type_context

@@ -930,6 +930,9 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemTreeNodeKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
+                        if method.function.body.is_none() {
+                            continue;
+                        }
                         self.index_function_source(
                             method.function.span,
                             &method.function,

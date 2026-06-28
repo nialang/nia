@@ -349,7 +349,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             let Some(function_body) = &function.function_body else {
                 if !function.is_extern {
-                    return Err(self.error(function.span, "missing function body"));
+                    return Err(self.error(
+                        function.span,
+                        format!(
+                            "missing function body for `{}` {:?}",
+                            function.name, function.def_id
+                        ),
+                    ));
                 }
                 continue;
             };
@@ -365,7 +371,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         for instance in &self.source.function_instances {
             let Some(function_body) = &instance.function_body else {
                 if !instance.is_extern {
-                    return Err(self.error(instance.span, "missing function instance body"));
+                    return Err(self.error(
+                        instance.span,
+                        format!(
+                            "missing function instance body for `{}` {:?} with args {:?}",
+                            instance.name, instance.def_id, instance.args
+                        ),
+                    ));
                 }
                 continue;
             };

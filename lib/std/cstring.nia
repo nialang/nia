@@ -1,22 +1,22 @@
 using pkg::fmt;
 
-pub struct CStr {
+pub struct CStringView {
     ptr: &u8,
 }
 
-extend CStr {
-    pub fn from_ptr(ptr: &u8) CStr {
+extend CStringView {
+    pub fn from_ptr(ptr: &u8) CStringView {
         { ptr: ptr }
     }
 
-    pub fn from_bytes(bytes: &[u8]) ?CStr {
+    pub fn from_bytes(bytes: &[u8]) ?CStringView {
         if bytes.len() == 0usize {
             return null;
         }
         if bytes[bytes.len() - 1usize] != 0u8 {
             return null;
         }
-        ?CStr::from_ptr(bytes.get_ptr_read())
+        ?CStringView::from_ptr(bytes.get_ptr_read())
     }
 
     pub fn raw_ptr(&self) &u8 {
@@ -40,7 +40,7 @@ extend CStr {
     }
 }
 
-extend CStr : fmt::Format {
+extend CStringView : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         formatter.write_bytes(self.bytes())
     }
@@ -61,14 +61,14 @@ extend CStr : fmt::Format {
     }
 }
 
-extend[T] T : fmt::ParseFrom[CStr]
+extend[T] T : fmt::ParseFrom[CStringView]
 where T: fmt::ParseFrom[&[u8]]
 {
-    fn parse_from(input: CStr) fmt::ParseError!T {
+    fn parse_from(input: CStringView) fmt::ParseError!T {
         fmt::parse[T, &[u8]](input.bytes())
     }
 
-    fn parse_radix_from(input: CStr, radix: u32) fmt::ParseError!T {
+    fn parse_radix_from(input: CStringView, radix: u32) fmt::ParseError!T {
         fmt::parse_radix[T, &[u8]](input.bytes(), radix)
     }
 }

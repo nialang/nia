@@ -2878,6 +2878,659 @@ pub comptime let LEN: usize = 4usize;
     }
 
     #[test]
+    fn executable_filtered_comptime_resolves_local_forwarded_array_len_in_method_body() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module raw;
+using entry::raw;
+
+comptime let LEN: usize = raw::LEN;
+
+struct Box {}
+
+extend Box {
+    fn value(&self) usize {
+        var values: [LEN]u8 = [_]u8[0; LEN];
+        values.len()
+    }
+}
+
+fn main() usize {
+    let box = Box {};
+    box.value()
+}
+"#,
+        );
+        let raw = loaded_module(
+            ModuleId(1),
+            "raw.nia",
+            r#"
+pub comptime let LEN: usize = 4usize;
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(main.id, "raw", nia_ids::Visibility::Public, Span::default())
+            .expect("intern raw module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, raw],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let entry = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+
+        assert!(
+            entry.body_diagnostics.is_empty(),
+            "filtered executable body checking should resolve local forwarded array lengths used in method bodies: {:?}",
+            entry.body_diagnostics
+        );
+        assert!(
+            entry
+                .comptime
+                .array_lengths
+                .values()
+                .any(|length| *length == 4),
+            "filtered executable comptime should evaluate local forwarded method-body array length"
+        );
+    }
+
+    #[test]
+    fn executable_incremental_body_check_preserves_extension_method_receiver_types() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module writer;
+using entry::writer;
+
+fn main() i32 {
+    var sink = writer::Sink::init();
+    if let !value = sink.write(b"ok") {
+        value as i32
+    } else error! {
+        0
+    }
+}
+"#,
+        );
+        let writer = loaded_module(
+            ModuleId(1),
+            "writer.nia",
+            r#"
+pub trait Writer {
+    type Error;
+
+    fn short_write(&self) Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize;
+}
+
+pub enum WriteError: i32 {
+    Short = 1,
+    _,
+}
+
+pub struct Sink {}
+
+extend Sink {
+    pub fn init() Sink {
+        {}
+    }
+}
+
+extend Sink : Writer {
+    type Error = WriteError;
+
+    pub fn short_write(&self) Error {
+        WriteError::Short
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        if bytes.len() == 0 {
+            return self.short_write()!;
+        }
+        !bytes.len()
+    }
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "writer",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern writer module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, writer],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let writer = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("writer module should be executable-reachable");
+        let write_def = writer
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == "write" && def.kind == nia_defs::DefKind::Method).then_some(def_id)
+            })
+            .expect("write method should be defined");
+        let write_id = GlobalDefId {
+            module_id: ModuleId(1),
+            def_id: write_def,
+        };
+        let write_body = writer
+            .body_ir
+            .function_bodies
+            .get(&write_id)
+            .expect("write method should have a checked body");
+        let self_ty = write_body
+            .locals
+            .iter()
+            .find(|local| local.name == "self" && local.kind == nia_body_ir::TypedLocalKind::Param)
+            .map(|local| local.ty)
+            .expect("write method should have a self param");
+
+        assert!(
+            !matches!(writer.body_ir.interner.get(self_ty), Some(TyKind::Error)),
+            "reachable extension method receiver/params should not collapse to error types"
+        );
+    }
+
+    #[test]
+    fn trait_signature_subset_resolves_local_extend_target_types() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+trait Writer {
+    type Error;
+    fn write(&mut self) Error!void;
+}
+
+enum WriteError: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = WriteError;
+
+    fn write(&mut self) Error!void {
+        !{}
+    }
+}
+"#,
+        )]);
+        let db = query_db(loaded);
+
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let lowering = db.query(SignatureTypeLoweringQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let impl_signature = signatures
+            .trait_impls
+            .iter()
+            .find(|impl_signature| !impl_signature.methods.is_empty())
+            .expect("trait impl should be collected");
+
+        assert!(
+            !matches!(
+                lowering.interner.get(impl_signature.target_ty),
+                Some(TyKind::Error)
+            ),
+            "trait signature subset should resolve local extend target types"
+        );
+    }
+
+    #[test]
+    fn trait_signature_subset_resolves_imported_extend_target_types() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module platform;
+using entry::platform;
+
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+extend platform::Errno : IntoError[Error] {
+    fn into_error(self) Error {
+        Error::Bad
+    }
+}
+"#,
+        );
+        let platform = loaded_module(
+            ModuleId(1),
+            "platform.nia",
+            r#"
+pub enum Errno: i32 {
+    Bad = 1,
+    _,
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "platform",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern platform module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, platform],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let lowering = db.query(SignatureTypeLoweringQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let impl_signature = signatures
+            .trait_impls
+            .iter()
+            .find(|impl_signature| !impl_signature.methods.is_empty())
+            .expect("trait impl should be collected");
+
+        assert!(
+            !matches!(
+                lowering.interner.get(impl_signature.target_ty),
+                Some(TyKind::Error)
+            ),
+            "trait signature subset should resolve imported extend target types"
+        );
+    }
+
+    #[test]
+    fn trait_signature_subset_resolves_reexported_extend_target_types() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module platform;
+using entry::platform;
+
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+extend platform::Errno : IntoError[Error] {
+    fn into_error(self) Error {
+        Error::Bad
+    }
+}
+"#,
+        );
+        let platform = loaded_module(
+            ModuleId(1),
+            "platform.nia",
+            r#"
+module types;
+using entry::platform::types;
+
+pub using types::{Errno};
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(2),
+            "types.nia",
+            r#"
+pub enum Errno: i32 {
+    Bad = 1,
+    _,
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "platform",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern platform module");
+        graph
+            .intern_declared_child(
+                platform.id,
+                "types",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern platform types module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, platform, types],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let lowering = db.query(SignatureTypeLoweringQuery(
+            ModuleId(0),
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let impl_signature = signatures
+            .trait_impls
+            .iter()
+            .find(|impl_signature| !impl_signature.methods.is_empty())
+            .expect("trait impl should be collected");
+
+        assert!(
+            !matches!(
+                lowering.interner.get(impl_signature.target_ty),
+                Some(TyKind::Error)
+            ),
+            "trait signature subset should resolve re-exported extend target types"
+        );
+    }
+
+    #[test]
+    fn executable_incremental_body_check_preserves_reexported_trait_witness_receiver_types() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module platform;
+using entry::platform;
+
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+extend[T, Source, Target] Source!T
+where Source: IntoError[Target]
+{
+    fn cast_error(self) Target!T {
+        if let !ok = self {
+            !ok
+        } else error! {
+            error.into_error()!
+        }
+    }
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+extend platform::Errno : IntoError[Error] {
+    fn into_error(self) Error {
+        Error::Bad
+    }
+}
+
+fn fail() platform::Errno!i32 {
+    platform::Errno::Bad!
+}
+
+fn main() Error!i32 {
+    fail().cast_error()
+}
+"#,
+        );
+        let platform = loaded_module(
+            ModuleId(1),
+            "platform.nia",
+            r#"
+module types;
+using entry::platform::types;
+
+pub using types::{Errno};
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(2),
+            "types.nia",
+            r#"
+pub enum Errno: i32 {
+    Bad = 1,
+    _,
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "platform",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern platform module");
+        graph
+            .intern_declared_child(
+                platform.id,
+                "types",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern platform types module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, platform, types],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "generic extension wrapper diagnostics should stay clean: {:?}",
+            module.body_diagnostics
+        );
+        let into_error = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("into_error method should be defined");
+        let body = module
+            .body_ir
+            .function_bodies
+            .get(&into_error)
+            .expect("into_error should have a checked body");
+        let self_ty = body
+            .locals
+            .iter()
+            .find(|local| local.name == "self" && local.kind == nia_body_ir::TypedLocalKind::Param)
+            .map(|local| local.ty)
+            .expect("into_error should have a self param");
+
+        assert!(
+            !matches!(module.body_ir.interner.get(self_ty), Some(TyKind::Error)),
+            "re-exported trait witness receiver should not collapse to error"
+        );
+    }
+
+    #[test]
+    fn executable_reachability_expands_where_predicates_through_generic_extension_wrappers() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module error;
+module facade;
+using entry::error;
+using entry::facade;
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Source {
+    value: i32,
+}
+
+struct Target {
+    value: i32,
+}
+
+extend Source : error::IntoError[Target] {
+    fn into_error(self) Target {
+        Target { value: self.value }
+    }
+}
+
+fn main() i32 {
+    let value: Source!i32 = Source { value: 1 }!;
+    if let !ok = value.cast_error() {
+        ok
+    } else error! {
+        error.value
+    }
+}
+"#,
+        );
+        let error = loaded_module(
+            ModuleId(1),
+            "error.nia",
+            r#"
+pub trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+extend[T, Source, Target] Source!T
+where Source: IntoError[Target]
+{
+    pub fn cast_error(self) Target!T {
+        if let !ok = self {
+            !ok
+        } else error! {
+            error.into_error()!
+        }
+    }
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(2),
+            "facade.nia",
+            r#"
+using entry::error;
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "error",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern error module");
+        graph
+            .intern_declared_child(
+                main.id,
+                "facade",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern facade module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, error, facade],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let into_error = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("into_error method should be defined");
+
+        assert!(
+            module.body_ir.function_bodies.contains_key(&into_error),
+            "generic extension wrappers should make where-predicate trait witnesses executable-reachable"
+        );
+    }
+
+    #[test]
     fn executable_checked_modules_include_reachable_builtin_trait_witness_bodies() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -3164,6 +3817,103 @@ fn main() i32 {
         assert!(
             module.body_diagnostics.is_empty(),
             "unmatched IntoError witness diagnostics should not block executable checking: {:?}",
+            module.body_diagnostics
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_trait_witnesses_required_by_default_method_body() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+trait Writer {
+    type Error;
+
+    fn short_write(&self) Error;
+
+    fn write(&mut self) Error!usize;
+
+    fn write_all(&mut self) Error!void {
+        let n = self.write().?;
+        if n == 0usize {
+            return self.short_write()!;
+        }
+        !{}
+    }
+}
+
+struct FileWriter {
+    value: i32,
+}
+
+extend FileWriter : Writer {
+    type Error = i32;
+
+    fn short_write(&self) Error {
+        1
+    }
+
+    fn write(&mut self) Error!usize {
+        self.value = 2;
+        !1usize
+    }
+}
+
+struct Unused {}
+
+extend Unused : Writer {
+    type Error = i32;
+
+    fn short_write(&self) Error {
+        missing_symbol
+    }
+
+    fn write(&mut self) Error!usize {
+        missing_symbol
+    }
+}
+
+fn main() i32!i32 {
+    var writer = FileWriter { value: 0 };
+    writer.write_all().?;
+    !writer.value
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let checked_witness_names = module
+            .defs
+            .defs
+            .iter()
+            .filter_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Method
+                    && module.body_ir.function_bodies.contains_key(&GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    }))
+                .then_some(def.name.as_str())
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            checked_witness_names.contains(&"write"),
+            "default method reachability should include concrete write witness: {checked_witness_names:?}"
+        );
+        assert!(
+            checked_witness_names.contains(&"short_write"),
+            "default method reachability should include concrete short_write witness: {checked_witness_names:?}"
+        );
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "unmatched Writer witness diagnostics should not block executable checking: {:?}",
             module.body_diagnostics
         );
     }

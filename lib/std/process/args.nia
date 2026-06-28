@@ -1,4 +1,4 @@
-using pkg::cstr;
+using pkg::cstring;
 using pkg::fmt;
 using pkg::process::types;
 using pkg::slice;
@@ -7,14 +7,14 @@ using types::{Arg, ArgList, Args, ArgsIter, Error};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
-        { text: cstr::CStr::from_ptr(ptr) }
+        { text: cstring::CStringView::from_ptr(ptr) }
     }
 
     pub fn raw_ptr(&self) &u8 {
         self.text.raw_ptr()
     }
 
-    pub fn cstr(&self) cstr::CStr {
+    pub fn cstring(&self) cstring::CStringView {
         self.text
     }
 
@@ -42,14 +42,14 @@ extend Arg : fmt::Format {
 }
 
 extend[T] T : fmt::ParseFrom[Arg]
-where T: fmt::ParseFrom[cstr::CStr]
+where T: fmt::ParseFrom[cstring::CStringView]
 {
     fn parse_from(input: Arg) fmt::ParseError!T {
-        fmt::parse[T](input.cstr())
+        fmt::parse[T](input.cstring())
     }
 
     fn parse_radix_from(input: Arg, radix: u32) fmt::ParseError!T {
-        fmt::parse_radix[T](input.cstr(), radix)
+        fmt::parse_radix[T](input.cstring(), radix)
     }
 }
 

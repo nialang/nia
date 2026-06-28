@@ -921,6 +921,62 @@ fn main() i32 {
 }
 
 #[test]
+fn concrete_trait_impl_methods_resolve_local_associated_type_names() {
+    let root = temp_dir("concrete_trait_impl_methods_resolve_local_associated_type_names");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Writer {
+    type Error;
+
+    fn short_write(&self) Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize;
+}
+
+enum WriteError: i32 {
+    Short = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = WriteError;
+
+    fn short_write(&self) Error {
+        WriteError::Short
+    }
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        if bytes.len() == 0 {
+            return self.short_write()!;
+        }
+        !bytes.len()
+    }
+}
+
+fn main() i32 {
+    var sink = Sink {};
+    if let !value = sink.write(b"ok") {
+        value as i32
+    } else error! {
+        0
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_trait_default_method_instances() {
     let root = temp_dir("emits_trait_default_method_instances");
     let main = root.join("main.nia");
