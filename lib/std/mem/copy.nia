@@ -6,7 +6,7 @@ pub fn copy_forwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
     let count = copy_count[T](to, from);
-    var index = 0usize;
+    let mut index = 0usize;
     while index < count {
         to[index] = from[index];
         index += 1usize;
@@ -16,7 +16,7 @@ where T: Sized
 pub fn copy_backwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
-    var index = copy_count[T](to, from);
+    let mut index = copy_count[T](to, from);
     while index > 0usize {
         index -= 1usize;
         to[index] = from[index];
@@ -40,7 +40,7 @@ where T: Eq[T]
         return false;
     }
 
-    var index = 0usize;
+    let mut index = 0usize;
     while index < left.len() {
         if left[index] != right[index] {
             return false;
@@ -53,12 +53,12 @@ where T: Eq[T]
 pub fn order[T](left: &[T], right: &[T]) Order
 where T: Ord[T]
 {
-    var len = left.len();
+    let mut len = left.len();
     if right.len() < len {
         len = right.len();
     }
 
-    var index = 0usize;
+    let mut index = 0usize;
     while index < len {
         if left[index] < right[index] {
             return Order::Less;

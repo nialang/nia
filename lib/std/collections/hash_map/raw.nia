@@ -2,9 +2,9 @@ using pkg::math;
 using pkg::mem;
 using pkg::os;
 
-pub comptime let ctrl_empty: u8 = 0xffu8;
-pub comptime let ctrl_deleted: u8 = 0x80u8;
-pub comptime let group_width: usize = 8usize;
+pub comptime ctrl_empty: u8 = 0xffu8;
+pub comptime ctrl_deleted: u8 = 0x80u8;
+pub comptime group_width: usize = 8usize;
 
 pub struct ProbeCursor {
     pos: usize,
@@ -64,19 +64,19 @@ extend ProbeCursor {
 pub fn dangling_slice[T]() &mut [T]
 where T: Sized
 {
-    var ptr = @align[T]() as &mut T;
+    let mut ptr = @align[T]() as &mut T;
     &mut ptr[0..0]
 }
 
 pub fn dangling_len_slice[T](len: usize) &mut [T]
 where T: Sized
 {
-    var ptr = @align[T]() as &mut T;
+    let mut ptr = @align[T]() as &mut T;
     &mut ptr[0..len]
 }
 
 pub fn random_seed() os::Error!u64 {
-    var bytes: [8]u8 = [0; 8];
+    let mut bytes: [8]u8 = [0; 8];
     os::random(&mut bytes[..]).?;
     !read_u64(&bytes[..])
 }
@@ -123,7 +123,7 @@ pub fn mirror_ctrl_tail(ctrl: &mut [u8], bucket_count: usize) void {
     if bucket_count == 0usize {
         return;
     }
-    var index = 0usize;
+    let mut index = 0usize;
     while index < group_width - 1usize {
         ctrl[bucket_count + index] = ctrl[index];
         index += 1usize;
@@ -131,7 +131,7 @@ pub fn mirror_ctrl_tail(ctrl: &mut [u8], bucket_count: usize) void {
 }
 
 pub fn fill_ctrl(ctrl: &mut [u8], value: u8) void {
-    var index = 0usize;
+    let mut index = 0usize;
     while index < ctrl.len() {
         ctrl[index] = value;
         index += 1usize;
@@ -182,7 +182,7 @@ pub fn max_usize(left: usize, right: usize) usize {
 }
 
 pub fn next_power_of_two(value: usize) mem::Error!usize {
-    var n = 1usize;
+    let mut n = 1usize;
     while n < value {
         n = if let ?next = n.checked_mul(2usize) {
             next

@@ -31,7 +31,7 @@ pub using types::{
     WaitStatus,
 };
 
-pub comptime let max_path_bytes: usize = types::max_path_bytes;
+pub comptime max_path_bytes: usize = types::max_path_bytes;
 
 pub fn sigterm() i32 {
     types::sigterm

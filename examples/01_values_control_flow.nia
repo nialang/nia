@@ -19,7 +19,7 @@ extend Point {
 }
 
 fn sum(values: &[i32]) i32 {
-    var total = 0;
+    let mut total = 0;
     // Slice iteration yields &i32 items. The &value pattern copies out each i32.
     for &value in values.iter() {
         total += value;
@@ -42,16 +42,16 @@ pub fn main(init: Init) ExitCode!void {
     _ = init;
 
     // This literal gets its type from the binding annotation.
-    var point: Point = { x: 3, y: 4 };
+    let mut point: Point = { x: 3, y: 4 };
     // Use Type { ... } when a literal needs to stand on its own.
-    var other = Point { x: 5, y: 12 };
-    var point_len2 = point.len2();
-    var other_len2 = other.len2();
-    var score = grade(87);
+    let mut other = Point { x: 5, y: 12 };
+    let mut point_len2 = point.len2();
+    let mut other_len2 = other.len2();
+    let mut score = grade(87);
     // [_] lets the compiler infer the array length from the elements.
-    var values = [_]i32[point_len2, other_len2, score];
+    let mut values = [_]i32[point_len2, other_len2, score];
     // Array pointers coerce to slices when a slice is expected.
-    var total = sum(&values);
+    let mut total = sum(&values);
 
     // defer runs at scope exit, including returns after this point.
     defer point.x = point.x + 1;

@@ -2345,7 +2345,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "var global: i32 = 1; fn main() i32 { global }",
+            "let mut global: i32 = 1; fn main() i32 { global }",
         )]);
         let db = query_db(loaded);
 
@@ -2388,7 +2388,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 } var global: i32 = 1; fn main() i32 { global }",
+            "struct S { value: i32 } let mut global: i32 = 1; fn main() i32 { global }",
         )]);
         let db = query_db(loaded);
 
@@ -2432,7 +2432,7 @@ fn set(items: &mut [Item], index: usize, state: i32) void {
 }
 
 fn main() i32 {
-    var items: [2]Item = [
+    let mut items: [2]Item = [
         { state: 1 },
         { state: 2 },
     ];
@@ -2633,7 +2633,7 @@ fn main() i32 {
 
     #[test]
     fn semantic_use_table_query_combines_value_local_and_type_resolution() {
-        let source = "let VALUE = 1; fn main() i32 { var local: i32 = VALUE; local }";
+        let source = "let VALUE = 1; fn main() i32 { let mut local: i32 = VALUE; local }";
         let loaded =
             loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
         let db = query_db(loaded);
@@ -2672,7 +2672,7 @@ fn main() i32 {
 
     #[test]
     fn checked_module_exposes_semantic_use_table_product() {
-        let source = "fn main() i32 { var local: i32 = 1; local }";
+        let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let checked =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(ModuleId(0), "main.nia", source),
@@ -2753,7 +2753,7 @@ fn unused() i32 {
 }
 
 fn main() i32 {
-    var values: [len()]i32 = [0; len()];
+    let mut values: [len()]i32 = [0; len()];
     values.len() as i32
 }
 "#,
@@ -2808,7 +2808,7 @@ module facade;
 using entry::facade;
 
 fn main() i32 {
-    var values: [facade::LEN]u8 = [0; facade::LEN];
+    let mut values: [facade::LEN]u8 = [0; facade::LEN];
     values.len() as i32
 }
 "#,
@@ -2820,14 +2820,14 @@ fn main() i32 {
 module raw;
 using self::raw;
 
-pub comptime let LEN: usize = raw::LEN;
+pub comptime LEN: usize = raw::LEN;
 "#,
         );
         let raw = loaded_module(
             ModuleId(2),
             "facade/raw.nia",
             r#"
-pub comptime let LEN: usize = 4usize;
+pub comptime LEN: usize = 4usize;
 "#,
         );
         let mut graph = ModuleGraph::new(main.path.clone());
@@ -2886,13 +2886,13 @@ pub comptime let LEN: usize = 4usize;
 module raw;
 using entry::raw;
 
-comptime let LEN: usize = raw::LEN;
+comptime LEN: usize = raw::LEN;
 
 struct Box {}
 
 extend Box {
     fn value(&self) usize {
-        var values: [LEN]u8 = [_]u8[0; LEN];
+        let mut values: [LEN]u8 = [_]u8[0; LEN];
         values.len()
     }
 }
@@ -2907,7 +2907,7 @@ fn main() usize {
             ModuleId(1),
             "raw.nia",
             r#"
-pub comptime let LEN: usize = 4usize;
+pub comptime LEN: usize = 4usize;
 "#,
         );
         let mut graph = ModuleGraph::new(main.path.clone());
@@ -2954,7 +2954,7 @@ module writer;
 using entry::writer;
 
 fn main() i32 {
-    var sink = writer::Sink::init();
+    let mut sink = writer::Sink::init();
     if let !value = sink.write(b"ok") {
         value as i32
     } else error! {
@@ -3556,8 +3556,8 @@ extend Counter : Iterator {
 }
 
 fn main() i32 {
-    var total = 0;
-    var iter = Counter { current: 0, end: 3 };
+    let mut total = 0;
+    let mut iter = Counter { current: 0, end: 3 };
     for value in iter {
         total += value;
     }
@@ -3629,8 +3629,8 @@ extend Unused : Iterator {
 }
 
 fn main() i32 {
-    var total = 0;
-    var iter = Counter { current: 0, end: 3 };
+    let mut total = 0;
+    let mut iter = Counter { current: 0, end: 3 };
     for value in iter {
         total += value;
     }
@@ -3875,7 +3875,7 @@ extend Unused : Writer {
 }
 
 fn main() i32!i32 {
-    var writer = FileWriter { value: 0 };
+    let mut writer = FileWriter { value: 0 };
     writer.write_all().?;
     !writer.value
 }
@@ -4198,7 +4198,7 @@ pub fn expensive_or_invalid() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "comptime let N: usize = 4; fn main() i32 { var values: [N]i32 = [0; N]; values.len() as i32 }",
+            "comptime N: usize = 4; fn main() i32 { let mut values: [N]i32 = [0; N]; values.len() as i32 }",
         )]);
         let db = query_db(loaded);
 

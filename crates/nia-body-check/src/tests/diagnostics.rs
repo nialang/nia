@@ -22,7 +22,7 @@ fn take_fn_ptr(value: &fn(i32, usize) bool) void {}
 fn pred(value: i32, width: usize) void {}
 
 fn main(value: void, ptr: &u8) void {
-    var short = [1, 2];
+    let mut short = [1, 2];
     _ = value as usize;
     take_pair(true);
     take_read_point_ptr(ptr);

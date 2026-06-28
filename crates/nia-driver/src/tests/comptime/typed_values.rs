@@ -11,11 +11,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = {width: 4usize, enabled: true};
-comptime let n: usize = id(config.width);
+comptime config = {width: 4usize, enabled: true};
+comptime n: usize = id(config.width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -35,11 +35,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = {target: {word_bits: 64usize}};
-comptime let n: usize = id(config.target.word_bits / 8usize);
+comptime config = {target: {word_bits: 64usize}};
+comptime n: usize = id(config.target.word_bits / 8usize);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -55,7 +55,7 @@ fn imported_structural_comptime_struct_fields_have_typed_values() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let config = {width: 4usize};
+pub comptime config = {width: 4usize};
 "#,
     );
     write(
@@ -68,10 +68,10 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(config::config.width);
+comptime n: usize = id(config::config.width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -92,14 +92,14 @@ comptime fn id[T](value: T) T {
 }
 
 comptime fn width() usize {
-    comptime let config = {target: {word_bits: 64usize}};
+    comptime config = {target: {word_bits: 64usize}};
     id(config.target.word_bits) / 8usize
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -119,15 +119,15 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = if true {
+comptime config = if true {
     {width: 4usize}
 } else {
     {width: 8usize}
 };
-comptime let n: usize = id(config.width);
+comptime n: usize = id(config.width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -147,15 +147,15 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = if true {
+comptime config = if true {
     {width: 4usize}
 } else {
     {width: 8usize}
 };
-comptime let n: usize = id(config.width);
+comptime n: usize = id(config.width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -175,7 +175,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(if 1usize {
+comptime n: usize = id(if 1usize {
     4usize
 } else {
     8usize
@@ -208,10 +208,10 @@ comptime fn select() usize {
     }
 }
 
-comptime let n: usize = select();
+comptime n: usize = select();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -235,11 +235,11 @@ comptime fn widen_byte(value: u8) usize {
     value as usize
 }
 
-comptime let ch: char = choose_char('A');
-comptime let n: usize = widen_byte(b'\n') + 1usize;
+comptime ch: char = choose_char('A');
+comptime n: usize = widen_byte(b'\n') + 1usize;
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -259,10 +259,10 @@ comptime fn mask(value: usize) usize {
     ~value & 15usize
 }
 
-comptime let n: usize = mask(10usize);
+comptime n: usize = mask(10usize);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -282,10 +282,10 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(b'a' as usize);
+comptime n: usize = id(b'a' as usize);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -309,11 +309,11 @@ comptime fn signed(value: usize) i32 {
     (value as i8) as i32
 }
 
-comptime let narrow_value: usize = narrow(258usize);
-comptime let signed_value: i32 = signed(255usize);
+comptime narrow_value: usize = narrow(258usize);
+comptime signed_value: i32 = signed(255usize);
 
-var narrow_global: i32 = narrow_value as i32;
-var signed_global: i32 = signed_value;
+let mut narrow_global: i32 = narrow_value as i32;
+let mut signed_global: i32 = signed_value;
 "#,
     );
 
@@ -354,15 +354,15 @@ comptime fn wide(value: usize) f64 {
     value as f64
 }
 
-comptime let scaled: f64 = scale(3.25f64);
-comptime let from_int: f64 = wide(4usize);
-comptime let n: usize = if scaled > from_int {
+comptime scaled: f64 = scale(3.25f64);
+comptime from_int: f64 = wide(4usize);
+comptime n: usize = if scaled > from_int {
     scaled as usize
 } else {
     0usize
 };
 
-var value: i32 = n as i32;
+let mut value: i32 = n as i32;
 "#,
     );
 
@@ -393,7 +393,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(true as usize);
+comptime n: usize = id(true as usize);
 "#,
     );
 
@@ -418,7 +418,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let n: usize = id(({width: 4usize}) as usize);
+comptime n: usize = id(({width: 4usize}) as usize);
 "#,
     );
 
@@ -440,14 +440,14 @@ fn comptime_float_compound_assignments_update_values() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    comptime var value: f64 = 1.5f64;
+    comptime mut value: f64 = 1.5f64;
     value += 2.5f64;
     value *= 2.0f64;
     value as usize
 }
 
-comptime let n: usize = width();
-var value: i32 = n as i32;
+comptime n: usize = width();
+let mut value: i32 = n as i32;
 "#,
     );
 
@@ -478,11 +478,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let value: f64 = id(-1.5f64);
-comptime let n: usize = if value < 0.0f64 { 4usize } else { 0usize };
+comptime value: f64 = id(-1.5f64);
+comptime n: usize = if value < 0.0f64 { 4usize } else { 0usize };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -502,7 +502,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let value: bool = id(1usize == true);
+comptime value: bool = id(1usize == true);
 "#,
     );
 
@@ -527,7 +527,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let value: bool = id(true and 1usize);
+comptime value: bool = id(true and 1usize);
 "#,
     );
 
@@ -552,7 +552,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let value: bool = id(not 1usize);
+comptime value: bool = id(not 1usize);
 "#,
     );
 
@@ -573,8 +573,8 @@ fn comptime_float_values_validate_target_range() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let literal: f32 = 1e40f32;
-comptime let casted: f32 = 1e40f64 as f32;
+comptime literal: f32 = 1e40f32;
+comptime casted: f32 = 1e40f64 as f32;
 "#,
     );
 
@@ -603,9 +603,9 @@ fn comptime_nested_values_validate_primitive_ranges() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let bytes: [2]u8 = [1u16, 300u16];
-comptime let config = {values: [1u16, 300u16]};
-comptime let selected: u8 = config.values[1];
+comptime bytes: [2]u8 = [1u16, 300u16];
+comptime config = {values: [1u16, 300u16]};
+comptime selected: u8 = config.values[1];
 "#,
     );
 
@@ -634,7 +634,7 @@ struct Packet[T] {
     payload: T,
 }
 
-comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
+comptime packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
 "#,
     );
 
@@ -663,7 +663,7 @@ pub struct Packet[T] {
     payload: T,
 }
 
-pub comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
+pub comptime packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
 "#,
     );
     write(
@@ -672,7 +672,7 @@ pub comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
 module config;
 using entry::config;
 
-comptime let selected: u8 = config::packet.payload;
+comptime selected: u8 = config::packet.payload;
 "#,
     );
 
@@ -705,11 +705,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let text: [4]char = id("nia!".*);
-comptime let n: usize = accept4(text);
+comptime text: [4]char = id("nia!".*);
+comptime n: usize = accept4(text);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -729,10 +729,10 @@ comptime fn total(values: [3]usize, text: [4]char) usize {
     values.len() + text.len() + values[1..].len()
 }
 
-comptime let n: usize = total([1usize, 2usize, 3usize], "nia!".*);
+comptime n: usize = total([1usize, 2usize, 3usize], "nia!".*);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -755,10 +755,10 @@ comptime fn total() usize {
     both.start() + both.end() + from.start() + to.end()
 }
 
-comptime let n: usize = total();
+comptime n: usize = total();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -774,8 +774,8 @@ fn comptime_range_start_and_end_require_present_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let bad_end: usize = (1usize..).end();
-comptime let bad_start: usize = (..2usize).start();
+comptime bad_end: usize = (1usize..).end();
+comptime bad_start: usize = (..2usize).start();
 "#,
     );
 

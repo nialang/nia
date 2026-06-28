@@ -981,7 +981,7 @@ extend usize {
         if self == 0 {
             false
         } else {
-            var n = self;
+            let mut n = self;
             while n > 1usize {
                 if n % 2usize != 0usize {
                     return false;

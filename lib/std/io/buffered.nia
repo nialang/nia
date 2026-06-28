@@ -41,7 +41,7 @@ where R: Reader
     }
 
     fn read_buffered(&mut self, bytes: &mut [u8]) usize {
-        var count = bytes.len();
+        let mut count = bytes.len();
         if count > self.len() {
             count = self.len();
         }
@@ -103,7 +103,7 @@ where W: Writer
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < bytes.len() {
             self.buffer[self.len + index] = bytes[index];
             index += 1usize;

@@ -9,7 +9,7 @@ fn emits_if_expression_from_function_ir() {
         &main,
         r#"
 fn main() i32 {
-    var x = 1;
+    let mut x = 1;
     if x == 1 { 40 } else { 2 }
 }
 "#,
@@ -67,9 +67,9 @@ fn take(x: i32, y: i32) i32 {
 }
 
 fn main(flag: bool) i32 {
-    var values = [
+    let mut values = [
         if flag { 1 } else { 2 },
-        { var tmp = 3; tmp },
+        { let mut tmp = 3; tmp },
         switch 1 {
             0 => 4,
             _ => 5,
@@ -141,7 +141,7 @@ fn emits_while_condition_value_flow_from_function_ir() {
         &main,
         r#"
 fn main() i32 {
-    var i = 0;
+    let mut i = 0;
     while { i < 2 } {
         i += 1;
     }
@@ -170,7 +170,7 @@ fn emits_plain_local_assignment() {
         &main,
         r#"
 fn main() i32 {
-    var x = 1;
+    let mut x = 1;
     x = 41;
     x + 1
 }
@@ -229,8 +229,8 @@ struct Point {
 }
 
 fn main() i32 {
-    var p: Point = { x: 10, y: 20 };
-    var xs: [3]i32 = [1, 2, 3];
+    let mut p: Point = { x: 10, y: 20 };
+    let mut xs: [3]i32 = [1, 2, 3];
     p.x += xs[1];
     p.x
 }
@@ -273,9 +273,9 @@ extend S {
 }
 
 fn build() T {
-    var t: T = { xs: [S::make(0); 4] };
+    let mut t: T = { xs: [S::make(0); 4] };
 
-    var i = 0u16;
+    let mut i = 0u16;
     while i < 4u16 {
         t.xs[i as usize] = S::make(i as i32);
         i += 1u16;
@@ -285,7 +285,7 @@ fn build() T {
 }
 
 fn main() i32 {
-    var t = build();
+    let mut t = build();
     t.xs[2].x
 }
 "#,
@@ -324,9 +324,9 @@ extend S {
 }
 
 fn build() T {
-    var t: T = { xs: [S::make(0); 4] };
+    let mut t: T = { xs: [S::make(0); 4] };
 
-    var i = 0u16;
+    let mut i = 0u16;
     while i < 4u16 {
         t.xs[i as usize] = S::make(7);
         i += 1u16;
@@ -336,7 +336,7 @@ fn build() T {
 }
 
 fn main() i32 {
-    var t = build();
+    let mut t = build();
     t.xs[2].x
 }
 "#,
@@ -370,8 +370,8 @@ fn add2(x: i32) i32 {
 }
 
 fn main() i32 {
-    var table: Table = { fns: [& add1, & add2] };
-    var i: usize = 1;
+    let mut table: Table = { fns: [& add1, & add2] };
+    let mut i: usize = 1;
     table.fns[i](40)
 }
 "#,

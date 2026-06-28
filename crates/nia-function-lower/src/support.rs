@@ -165,37 +165,16 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionBinding {
-        let value = binding.value.as_ref().map(|value| {
-            let value = self.lower_value_expr(value, scope, current, ops, blocks);
-            self.lower_binding_pattern_value(binding.pattern_kind, binding.ty, value)
-        });
+        let value = binding
+            .value
+            .as_ref()
+            .map(|value| self.lower_value_expr(value, scope, current, ops, blocks));
         FunctionBinding {
             local_id: binding.local_id,
             name: binding.name.clone(),
             ty: binding.ty,
             value,
-            is_let: binding.is_let,
-        }
-    }
-
-    pub(super) fn lower_binding_pattern_value(
-        &mut self,
-        pattern_kind: nia_ast::BindingPatternKind,
-        binding_ty: InternedTyId,
-        value: FunctionExpr,
-    ) -> FunctionExpr {
-        match pattern_kind {
-            nia_ast::BindingPatternKind::Value => value,
-            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => {
-                FunctionExpr {
-                    span: value.span,
-                    ty: binding_ty,
-                    kind: FunctionExprKind::Unary {
-                        op: nia_ast::UnaryOp::Deref,
-                        expr: Box::new(value),
-                    },
-                }
-            }
+            is_let: !binding.is_mutable,
         }
     }
 
@@ -308,6 +287,9 @@ impl FunctionLowerer {
     ) -> Option<FunctionExpr> {
         match &pattern.kind {
             TypedPatternKind::Wildcard | TypedPatternKind::Bind { .. } => None,
+            TypedPatternKind::Pointer(inner) | TypedPatternKind::MutPointer(inner) => {
+                self.pattern_condition(target, inner, context)
+            }
             TypedPatternKind::OptionalSome(inner) => {
                 let tag = self.tagged_union_tag_condition(
                     target,
@@ -490,6 +472,17 @@ impl FunctionLowerer {
                     value: target.clone(),
                     span: pattern.span,
                 });
+            }
+            TypedPatternKind::Pointer(inner) | TypedPatternKind::MutPointer(inner) => {
+                let value = FunctionExpr {
+                    span: target.span,
+                    ty: inner.ty,
+                    kind: FunctionExprKind::Unary {
+                        op: nia_ast::UnaryOp::Deref,
+                        expr: Box::new(target.clone()),
+                    },
+                };
+                self.lower_pattern_binding(inner, &value, ops);
             }
             TypedPatternKind::OptionalSome(inner)
             | TypedPatternKind::ErrorOk(inner)
@@ -696,9 +689,7 @@ impl FunctionLowerer {
             for stmt in &body.stmts {
                 match &stmt.kind {
                     TypedStmtKind::ForIn(for_stmt) => {
-                        if let Some(binding) = &for_stmt.binding {
-                            *max_id = (*max_id).max(binding.local_id.0.saturating_add(1));
-                        }
+                        visit_pattern(&for_stmt.pattern, max_id);
                         visit_expr(&for_stmt.iter, max_id);
                         visit_body(&for_stmt.body, max_id);
                     }
@@ -839,10 +830,7 @@ impl FunctionLowerer {
                                     }
                                 }
                                 TypedStmtKind::ForIn(for_stmt) => {
-                                    if let Some(binding) = &for_stmt.binding {
-                                        *max_id =
-                                            (*max_id).max(binding.local_id.0.saturating_add(1));
-                                    }
+                                    visit_pattern(&for_stmt.pattern, max_id);
                                     visit_expr(&for_stmt.iter, max_id);
                                     visit_body(&for_stmt.body, max_id);
                                 }
@@ -927,7 +915,9 @@ impl FunctionLowerer {
 
         pub(super) fn visit_pattern(pattern: &TypedPattern, max_id: &mut u32) {
             match &pattern.kind {
-                TypedPatternKind::OptionalSome(pattern)
+                TypedPatternKind::Pointer(pattern)
+                | TypedPatternKind::MutPointer(pattern)
+                | TypedPatternKind::OptionalSome(pattern)
                 | TypedPatternKind::ErrorOk(pattern)
                 | TypedPatternKind::ErrorErr(pattern) => visit_pattern(pattern, max_id),
                 TypedPatternKind::Expr(pattern) => visit_expr(pattern, max_id),

@@ -102,7 +102,7 @@ extend Block {
     pub fn as_slice[T](&self) &mut [T]
     where T: Sized
     {
-        var ptr = self.ptr as &mut T;
+        let mut ptr = self.ptr as &mut T;
         let elem_size = @size[T]();
         if elem_size == 0usize {
             &mut ptr[0..0]

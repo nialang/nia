@@ -128,10 +128,10 @@ fn semantic_use_table(
 fn records_explicit_types_for_comptime_bindings() {
     let fixture = check_source(
         r#"
-comptime let width: usize = 4;
+comptime width: usize = 4;
 
 fn main() i32 {
-comptime let local_width: usize = width;
+comptime local_width: usize = width;
 let xs: [local_width]i32 = [1, 2, 3, 4];
 xs[0]
 }
@@ -182,7 +182,7 @@ extern struct Pair {
     b: u32,
 }
 
-comptime let OFF: usize = @offset[Pair]("b");
+comptime OFF: usize = @offset[Pair]("b");
 "#,
     );
     assert!(
@@ -275,11 +275,27 @@ y
     });
     let removed_key = removed_key.expect("local y node key");
     locals.node_local_defs.remove(&removed_key);
-    let removed_span = locals
-        .locals
+    let removed_span = module
+        .items
         .iter()
-        .find_map(|(_, local)| (local.name == "y").then_some(local.span))
-        .expect("local y span");
+        .find_map(|item| {
+            let nia_ast::ItemKind::Function(function) = &item.kind else {
+                return None;
+            };
+            let body = function.body.as_ref()?;
+            body.stmts.iter().find_map(|stmt| {
+                let nia_ast::StmtKind::Binding(binding) = &stmt.kind else {
+                    return None;
+                };
+                match &binding.pattern.kind {
+                    nia_ast::PatternKind::Bind { name, .. } if name == "y" => {
+                        Some(binding.pattern.span)
+                    }
+                    _ => None,
+                }
+            })
+        })
+        .expect("local y pattern span");
     let item_tree = ModuleItemTree::from_module(&module);
     let active_item_tree = ActiveModuleItemTree::new(
         item_tree.active_items_without_comptime(),

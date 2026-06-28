@@ -362,17 +362,17 @@ fn path_arg(
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var page_allocator = mem::PageAllocator::init();
-    var allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
+    let mut page_allocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
     defer allocator.deinit().ok().exit().?;
 
-    var package_root_text = collections::ArrayList[char]::init();
+    let mut package_root_text = collections::ArrayList[char]::init();
     defer package_root_text.deinit(&mut allocator).exit().?;
-    var build_dir_text = collections::ArrayList[char]::init();
+    let mut build_dir_text = collections::ArrayList[char]::init();
     defer build_dir_text.deinit(&mut allocator).exit().?;
-    var cache_dir_text = collections::ArrayList[char]::init();
+    let mut cache_dir_text = collections::ArrayList[char]::init();
     defer cache_dir_text.deinit(&mut allocator).exit().?;
-    var toolchain_text = collections::ArrayList[char]::init();
+    let mut toolchain_text = collections::ArrayList[char]::init();
     defer toolchain_text.deinit(&mut allocator).exit().?;
 
     let package_root = path_arg(init, &mut allocator, 1usize, &mut package_root_text).exit().?;
@@ -380,7 +380,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let cache_dir = path_arg(init, &mut allocator, 3usize, &mut cache_dir_text).exit().?;
     let toolchain_executable = path_arg(init, &mut allocator, 4usize, &mut toolchain_text).exit().?;
 
-    var api = build::Build::init(
+    let mut api = build::Build::init(
         init,
         &mut allocator,
 "#,
@@ -1339,7 +1339,7 @@ mod tests {
         assert!(runner.source.contains("using build_script;"));
         assert!(runner.source.contains("fn path_arg("));
         assert!(runner.source.contains("fs::PathView::from_utf8_into("));
-        assert!(runner.source.contains("var api = build::Build::init("));
+        assert!(runner.source.contains("let mut api = build::Build::init("));
         assert!(
             runner
                 .source
@@ -1366,7 +1366,7 @@ mod tests {
                 .source
                 .contains("build_script::build(&mut api).exit().?;")
         );
-        assert!(!runner.source.contains("comptime let"));
+        assert!(!runner.source.contains("comptime"));
     }
 
     #[test]

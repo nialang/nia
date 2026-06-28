@@ -1133,7 +1133,9 @@ fn collect_typed_pattern_refs(
     refs: &mut TypedBodyRefs,
 ) {
     match &pattern.kind {
-        TypedPatternKind::OptionalSome(pattern)
+        TypedPatternKind::Pointer(pattern)
+        | TypedPatternKind::MutPointer(pattern)
+        | TypedPatternKind::OptionalSome(pattern)
         | TypedPatternKind::ErrorOk(pattern)
         | TypedPatternKind::ErrorErr(pattern) => collect_typed_pattern_refs(module, pattern, refs),
         TypedPatternKind::Expr(expr) => collect_typed_expr_refs(module, expr, refs),

@@ -76,13 +76,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         seed: u64,
         capacity: usize,
     ) mem::Error!HashMapWithContext[K, V, C] {
-        var map = HashMapWithContext[K, V, C]::init_context_seed(context, seed);
+        let mut map = HashMapWithContext[K, V, C]::init_context_seed(context, seed);
         map.ensure_total_capacity(allocator, capacity).?;
         !map
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
-        var result: ?mem::Error = null;
+        let mut result: ?mem::Error = null;
         if let !ok = self.free_allocations(allocator) {
             _ = ok;
         } else err! {
@@ -217,13 +217,13 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
-        var cloned = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
+        let mut cloned = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
         if self.bucket_capacity() == 0usize {
             return !cloned;
         }
         cloned.allocate(allocator, self.bucket_capacity()).?;
 
-        var index = 0usize;
+        let mut index = 0usize;
         while index < self.bucket_capacity() {
             if raw::is_full(self.ctrl[index]) {
                 cloned.insert_existing(self.keys[index], self.values[index]);
@@ -504,11 +504,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
 
         let needle = raw::tag(value_hash);
-        var cursor = raw::ProbeCursor::init(value_hash, self.bucket_capacity());
+        let mut cursor = raw::ProbeCursor::init(value_hash, self.bucket_capacity());
 
         while cursor.has_remaining() {
             let group = raw::ProbeGroup::load(self.ctrl, &cursor, needle);
-            var matches = group.match_mask;
+            let mut matches = group.match_mask;
             while matches != 0usize {
                 let offset = raw::first_set(matches);
                 let index = cursor.index(offset);
@@ -527,7 +527,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn find_insert_index(&self, value_hash: u64) usize {
-        var cursor = raw::ProbeCursor::init(value_hash, self.bucket_capacity());
+        let mut cursor = raw::ProbeCursor::init(value_hash, self.bucket_capacity());
 
         while cursor.has_remaining() {
             let group = raw::ProbeGroup::load(self.ctrl, &cursor, raw::tag(value_hash));
@@ -547,10 +547,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn rehash_to_buckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!void {
-        var new_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
+        let mut new_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
         new_map.allocate(allocator, target).?;
 
-        var index = 0usize;
+        let mut index = 0usize;
         while index < self.bucket_capacity() {
             if raw::is_full(self.ctrl[index]) {
                 let key = self.keys[index];
@@ -560,7 +560,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             index += 1usize;
         }
 
-        var old_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
+        let mut old_map = HashMapWithContext[K, V, C]::init_context_seed(self.context, self.seed);
         old_map.ctrl = self.ctrl;
         old_map.keys = self.keys;
         old_map.values = self.values;
@@ -646,7 +646,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn free_allocations(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
-        var first_error: ?mem::Error = null;
+        let mut first_error: ?mem::Error = null;
         if self.ctrl.len() != 0usize {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
             if let !ok = allocator.free(mem::Block::init(self.ctrl.get_ptr() as &mut u8, layout)) {

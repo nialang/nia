@@ -952,6 +952,14 @@ fn early_pattern_matches(
             });
             Ok(true)
         }
+        EarlyComptimePattern::Pointer { pattern, span }
+        | EarlyComptimePattern::MutPointer { pattern, span } => match target {
+            ComptimeValue::Pointer(value) => early_pattern_matches(value, pattern, env, bindings),
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime pointer pattern requires a pointer target".to_string(),
+            }),
+        },
         EarlyComptimePattern::OptionalSome { pattern, span } => match target {
             ComptimeValue::Optional(Some(value)) => {
                 early_pattern_matches(value, pattern, env, bindings)
@@ -1025,6 +1033,16 @@ fn resolved_pattern_matches(
             });
             Ok(true)
         }
+        ResolvedComptimePatternKind::Pointer { pattern, span }
+        | ResolvedComptimePatternKind::MutPointer { pattern, span } => match target {
+            ComptimeValue::Pointer(value) => {
+                resolved_pattern_matches(value, pattern, env, bindings)
+            }
+            _ => Err(ComptimeError {
+                span: *span,
+                message: "comptime pointer pattern requires a pointer target".to_string(),
+            }),
+        },
         ResolvedComptimePatternKind::OptionalSome { pattern, span } => match target {
             ComptimeValue::Optional(Some(value)) => {
                 resolved_pattern_matches(value, pattern, env, bindings)
@@ -2662,7 +2680,7 @@ fn eval_for_in_stmt(
         }
     }
     let _ = span;
-    let _ = &for_in.binding;
+    let _ = &for_in.pattern;
     let _ = &for_in.body;
     let _ = env;
     Err(ComptimeError {
@@ -2690,7 +2708,7 @@ fn eval_resolved_for_in_stmt(
         }
     }
     let _ = span;
-    let _ = for_in.binding();
+    let _ = for_in.pattern();
     let _ = for_in.body();
     let _ = env;
     Err(ComptimeError {

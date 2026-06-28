@@ -307,14 +307,7 @@ impl LocalDefinitionAllocator {
             }
             StmtKind::ForIn(for_stmt) => {
                 self.allocate_expr(&for_stmt.iter);
-                if let Some(name) = for_stmt.pattern.name() {
-                    self.allocate_definition(
-                        name,
-                        LocalKind::Binding,
-                        for_stmt.pattern.span,
-                        for_stmt.pattern.node_key.clone(),
-                    );
-                }
+                self.allocate_pattern(&for_stmt.pattern, LocalKind::ConstBinding);
                 self.allocate_block(&for_stmt.body);
             }
             StmtKind::While(while_stmt) => {
@@ -335,23 +328,15 @@ impl LocalDefinitionAllocator {
         if let Some(value) = &binding.value {
             self.allocate_expr(value);
         }
-        let node_key = if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
-            fallback_key
+        let _ = fallback_key;
+        let default_kind = if binding.is_comptime {
+            LocalKind::ComptimeBinding
+        } else if binding.is_mutable {
+            LocalKind::Binding
         } else {
-            binding.pattern_node_key.clone()
+            LocalKind::ConstBinding
         };
-        self.allocate_definition(
-            &binding.name,
-            if binding.is_comptime {
-                LocalKind::ComptimeBinding
-            } else if binding.is_let {
-                LocalKind::ConstBinding
-            } else {
-                LocalKind::Binding
-            },
-            span,
-            node_key,
-        );
+        self.allocate_pattern_with_span(&binding.pattern, default_kind, span);
     }
 
     fn allocate_expr(&mut self, expr: &Expr) {
@@ -441,13 +426,8 @@ impl LocalDefinitionAllocator {
             }
             ExprKind::IfPattern(if_pattern) => {
                 self.allocate_expr(&if_pattern.target);
-                let binding_kind = if if_pattern.binding_mode.is_let() {
-                    LocalKind::ConstBinding
-                } else {
-                    LocalKind::Binding
-                };
                 for arm in &if_pattern.arms {
-                    self.allocate_pattern(&arm.pattern, binding_kind);
+                    self.allocate_pattern(&arm.pattern, LocalKind::ConstBinding);
                     self.allocate_block(&arm.body);
                 }
                 if let Some(else_branch) = &if_pattern.else_branch {
@@ -496,14 +476,39 @@ impl LocalDefinitionAllocator {
     }
 
     fn allocate_pattern(&mut self, pattern: &Pattern, binding_kind: LocalKind) {
+        self.allocate_pattern_with_span(pattern, binding_kind, pattern.span);
+    }
+
+    fn allocate_pattern_with_span(
+        &mut self,
+        pattern: &Pattern,
+        binding_kind: LocalKind,
+        binding_span: Span,
+    ) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::OptionalNull => {}
-            PatternKind::Bind { name, node_key } => {
-                self.allocate_definition(name, binding_kind, pattern.span, node_key.clone());
+            PatternKind::Bind {
+                name,
+                node_key,
+                is_mutable,
+            } => {
+                let kind = if matches!(binding_kind, LocalKind::ComptimeBinding) {
+                    LocalKind::ComptimeBinding
+                } else if *is_mutable || matches!(binding_kind, LocalKind::Binding) {
+                    LocalKind::Binding
+                } else {
+                    LocalKind::ConstBinding
+                };
+                self.allocate_definition(name, kind, binding_span, node_key.clone());
+            }
+            PatternKind::Pointer(pattern) | PatternKind::MutPointer(pattern) => {
+                self.allocate_pattern_with_span(pattern, binding_kind, binding_span)
             }
             PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
-            | PatternKind::ErrorErr(pattern) => self.allocate_pattern(pattern, binding_kind),
+            | PatternKind::ErrorErr(pattern) => {
+                self.allocate_pattern_with_span(pattern, binding_kind, binding_span)
+            }
             PatternKind::Expr(pattern) => self.allocate_expr(pattern),
             PatternKind::Range { start, end, .. } => {
                 self.allocate_expr(start);
@@ -640,15 +645,11 @@ impl<'a> LocalResolver<'a> {
             StmtKind::ForIn(for_stmt) => {
                 self.resolve_expr(&for_stmt.iter);
                 self.push_scope();
-                if let Some(name) = for_stmt.pattern.name() {
-                    self.define(
-                        name,
-                        LocalKind::Binding,
-                        for_stmt.pattern.span,
-                        for_stmt.pattern.node_key.clone(),
-                        "duplicate local binding",
-                    );
-                }
+                self.resolve_pattern(
+                    &for_stmt.pattern,
+                    LocalKind::ConstBinding,
+                    "duplicate local binding",
+                );
                 self.resolve_block(&for_stmt.body);
                 self.pop_scope();
             }
@@ -672,22 +673,18 @@ impl<'a> LocalResolver<'a> {
         if let Some(value) = &binding.value {
             self.resolve_expr(value);
         }
-        let node_key = if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
-            fallback_key
+        let _ = fallback_key;
+        let default_kind = if binding.is_comptime {
+            LocalKind::ComptimeBinding
+        } else if binding.is_mutable {
+            LocalKind::Binding
         } else {
-            binding.pattern_node_key.clone()
+            LocalKind::ConstBinding
         };
-        self.define(
-            &binding.name,
-            if binding.is_comptime {
-                LocalKind::ComptimeBinding
-            } else if binding.is_let {
-                LocalKind::ConstBinding
-            } else {
-                LocalKind::Binding
-            },
+        self.resolve_pattern_with_span(
+            &binding.pattern,
+            default_kind,
             span,
-            node_key,
             "duplicate local binding",
         );
     }
@@ -869,16 +866,11 @@ impl<'a> LocalResolver<'a> {
             }
             ExprKind::IfPattern(if_pattern) => {
                 self.resolve_expr(&if_pattern.target);
-                let binding_kind = if if_pattern.binding_mode.is_let() {
-                    LocalKind::ConstBinding
-                } else {
-                    LocalKind::Binding
-                };
                 for arm in &if_pattern.arms {
                     self.push_scope();
                     self.resolve_pattern(
                         &arm.pattern,
-                        binding_kind,
+                        LocalKind::ConstBinding,
                         "duplicate if pattern binding",
                     );
                     self.resolve_block(&arm.body);
@@ -921,21 +913,39 @@ impl<'a> LocalResolver<'a> {
         binding_kind: LocalKind,
         duplicate: &'static str,
     ) {
+        self.resolve_pattern_with_span(pattern, binding_kind, pattern.span, duplicate);
+    }
+
+    fn resolve_pattern_with_span(
+        &mut self,
+        pattern: &Pattern,
+        binding_kind: LocalKind,
+        binding_span: Span,
+        duplicate: &'static str,
+    ) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::OptionalNull => {}
-            PatternKind::Bind { name, node_key } => {
-                self.define(
-                    name,
-                    binding_kind,
-                    pattern.span,
-                    node_key.clone(),
-                    duplicate,
-                );
+            PatternKind::Bind {
+                name,
+                node_key,
+                is_mutable,
+            } => {
+                let kind = if matches!(binding_kind, LocalKind::ComptimeBinding) {
+                    LocalKind::ComptimeBinding
+                } else if *is_mutable || matches!(binding_kind, LocalKind::Binding) {
+                    LocalKind::Binding
+                } else {
+                    LocalKind::ConstBinding
+                };
+                self.define(name, kind, binding_span, node_key.clone(), duplicate);
+            }
+            PatternKind::Pointer(pattern) | PatternKind::MutPointer(pattern) => {
+                self.resolve_pattern_with_span(pattern, binding_kind, binding_span, duplicate);
             }
             PatternKind::OptionalSome(pattern)
             | PatternKind::ErrorOk(pattern)
             | PatternKind::ErrorErr(pattern) => {
-                self.resolve_pattern(pattern, binding_kind, duplicate);
+                self.resolve_pattern_with_span(pattern, binding_kind, binding_span, duplicate);
             }
             PatternKind::Expr(pattern) => self.resolve_expr(pattern),
             PatternKind::Range { start, end, .. } => {
@@ -1235,10 +1245,10 @@ mod tests {
     fn resolves_params_and_local_bindings() {
         let (module, errors) = parse_module(
             r#"
-var global = 1;
+let mut global = 1;
 
 fn add(a: i32, b: i32) i32 {
-    var sum = a + b + global;
+    let mut sum = a + b + global;
     sum
 }
 "#,
@@ -1265,7 +1275,7 @@ fn add(a: i32, b: i32) i32 {
     #[test]
     fn lexical_locals_shadow_module_values() {
         let source = r#"
-var value = 1;
+let mut value = 1;
 
 fn id(value: i32) i32 {
     value
@@ -1352,7 +1362,7 @@ fn value(input: ?S) ?i32 {
         let syntax = nia_syntax::parse_source(
             r#"
 fn main(a: i32) i32 {
-    var x = a;
+    let mut x = a;
     x
 }
 "#,
@@ -1385,7 +1395,7 @@ fn main(a: i32) i32 {
         let syntax = nia_syntax::parse_source(
             r#"
 fn main(a: i32) i32 {
-    var x = a;
+    let mut x = a;
     x
 }
 "#,
@@ -1436,8 +1446,8 @@ fn main() i32 {
         let (module, errors) = parse_module(
             r#"
 fn main(a: i32, a: i32) i32 {
-    var x = 1;
-    var x = 2;
+    let mut x = 1;
+    let mut x = 2;
     x
 }
 "#,
@@ -1480,7 +1490,7 @@ enum Color {
 }
 
 fn main() Point {
-    var c = Color::Red;
+    let mut c = Color::Red;
     Point::origin()
 }
 "#,
@@ -1511,7 +1521,7 @@ struct T {
 }
 
 fn main() i32 {
-    var t: T = { xs: [{ x: 0 }; 4] };
+    let mut t: T = { xs: [{ x: 0 }; 4] };
     for i in 0u16..4u16 {
         t.xs[i as usize] = { x: i as i32 };
     }
@@ -1552,8 +1562,8 @@ struct T {
 }
 
 fn main() i32 {
-    var t: T = { xs: [{ x: 0 }; 4] };
-    var i32: usize = 2;
+    let mut t: T = { xs: [{ x: 0 }; 4] };
+    let mut i32: usize = 2;
     t.xs[i32].x
 }
 "#,
@@ -1588,7 +1598,7 @@ fn skipped() i32 {
 }
 @[if true]
 fn selected() i32 {
-    var value = 1;
+    let mut value = 1;
     value
 }
 "#,
@@ -1622,12 +1632,12 @@ fn selected() i32 {
         let (module, errors) = parse_module(
             r#"
 fn unused(a: i32) i32 {
-    var x = a;
+    let mut x = a;
     x
 }
 
 fn used(b: i32) i32 {
-    var y = b;
+    let mut y = b;
     y
 }
 "#,

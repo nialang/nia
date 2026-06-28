@@ -706,8 +706,13 @@ impl FunctionLowerer {
         let header_current = loop_header;
         let optional_item_ty = self.optional_ty(for_stmt.item_ty);
         let next_local = self.alloc_temp_local(span, optional_item_ty);
-        let next_value =
-            self.iterator_next_expr(span, iter_local, for_stmt.iter.ty, optional_item_ty);
+        let next_value = self.iterator_next_expr(
+            span,
+            iter_local,
+            for_stmt.iter.ty,
+            for_stmt.iter_self_ty,
+            optional_item_ty,
+        );
         header_ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: next_local,
             name: "__for_next".to_string(),
@@ -744,27 +749,14 @@ impl FunctionLowerer {
             continue_target,
         });
         let mut body_ops = Vec::new();
-        if let Some(binding) = &for_stmt.binding {
-            let item_value = FunctionExpr {
-                span,
-                ty: for_stmt.item_ty,
-                kind: FunctionExprKind::TaggedUnionPayload {
-                    expr: Box::new(next_expr),
-                },
-            };
-            let binding_value = self.lower_binding_pattern_value(
-                for_stmt.pattern_kind,
-                for_stmt.binding_ty,
-                item_value,
-            );
-            body_ops.push(FunctionOp::Binding(FunctionBinding {
-                local_id: binding.local_id,
-                name: binding.name.clone(),
-                ty: for_stmt.binding_ty,
-                value: Some(binding_value),
-                is_let: true,
-            }));
-        }
+        let item_value = FunctionExpr {
+            span,
+            ty: for_stmt.item_ty,
+            kind: FunctionExprKind::TaggedUnionPayload {
+                expr: Box::new(next_expr),
+            },
+        };
+        self.lower_pattern_binding(&for_stmt.pattern, &item_value, &mut body_ops);
         let body_scope = self.alloc_scope(Some(scope), for_stmt.body.span);
         self.lower_body_into_with_ops(
             &for_stmt.body,
@@ -801,7 +793,8 @@ impl FunctionLowerer {
         &self,
         span: Span,
         iter_local: nia_ids::LocalId,
-        iter_ty: nia_ids::InternedTyId,
+        receiver_ty: nia_ids::InternedTyId,
+        iter_self_ty: nia_ids::InternedTyId,
         optional_item_ty: nia_ids::InternedTyId,
     ) -> FunctionExpr {
         FunctionExpr {
@@ -811,11 +804,11 @@ impl FunctionLowerer {
                 callee: FunctionCallee::BuiltinPlaceMethod {
                     trait_id: BuiltinTrait::Iterator,
                     method: BuiltinTraitMethod::IteratorNext,
-                    self_ty: iter_ty,
+                    self_ty: iter_self_ty,
                     trait_args: Vec::new(),
                     receiver: Box::new(FunctionExpr {
                         span,
-                        ty: iter_ty,
+                        ty: receiver_ty,
                         kind: FunctionExprKind::Local(iter_local),
                     }),
                 },

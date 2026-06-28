@@ -7,11 +7,11 @@ use nia_ast::{
 use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp,
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedFieldInit, TypedForBinding, TypedForIn, TypedIfPattern,
-    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedSwitchPattern, TypedSwitchPatternKind, TypedWhile,
+    TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern, TypedIfPatternArm,
+    TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
+    TypedPattern, TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedSwitchPatternKind, TypedWhile,
 };
 use nia_ids::{BuiltinTraitMethod, ReceiverKind, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -226,23 +226,12 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Continue => TypedStmtKind::Continue,
             StmtKind::Defer(expr) => TypedStmtKind::Defer(self.lower_expr(expr)),
             StmtKind::ForIn(for_stmt) => {
-                let local_id = self.local_def(&for_stmt.pattern.node_key);
-                let binding = for_stmt.pattern.name().and_then(|name| {
-                    Some(TypedForBinding {
-                        local_id: local_id?,
-                        name: name.to_string(),
-                    })
-                });
+                let iter_self_ty = self.expr_ty(&for_stmt.iter).unwrap_or_else(|| self.error());
+                let item_ty = self.lower_for_iterator_item_type(iter_self_ty);
                 TypedStmtKind::ForIn(Box::new(TypedForIn {
-                    binding,
-                    pattern_kind: for_stmt.pattern.kind,
-                    item_ty: self
-                        .expr_ty(&for_stmt.iter)
-                        .map(|iter_ty| self.lower_for_iterator_item_type(iter_ty))
-                        .unwrap_or_else(|| self.error()),
-                    binding_ty: local_id
-                        .and_then(|local_id| self.local_types.get(&local_id).copied())
-                        .unwrap_or_else(|| self.error()),
+                    pattern: self.lower_pattern(&for_stmt.pattern, item_ty),
+                    item_ty,
+                    iter_self_ty,
                     iter: self.lower_expr(&for_stmt.iter),
                     body: self.lower_body(&for_stmt.body),
                 }))
@@ -261,8 +250,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_binding_stmt(&mut self, stmt: &Stmt, binding: &BindingStmt) -> Option<TypedBinding> {
-        let local_id = self.local_def(self.binding_pattern_node_key(stmt, binding))?;
+    fn lower_binding_stmt(&mut self, _stmt: &Stmt, binding: &BindingStmt) -> Option<TypedBinding> {
+        let (name, node_key) = self.single_pattern_binding(&binding.pattern)?;
+        let local_id = self.local_def(node_key)?;
         let ty = if let Some(ty) = self.local_types.get(&local_id).copied() {
             ty
         } else if let Some(ty) = binding.ty.as_ref() {
@@ -276,26 +266,26 @@ impl<'a> BodyChecker<'a> {
         };
         Some(TypedBinding {
             local_id,
-            name: binding.name.clone(),
-            pattern_kind: binding.pattern_kind,
+            name: name.to_string(),
             ty,
             value: binding
                 .value
                 .as_ref()
                 .map(|value| self.lower_expr_with_ty(value, Some(ty))),
-            is_let: binding.is_let,
+            is_mutable: binding.is_mutable,
         })
     }
 
-    fn binding_pattern_node_key<'b>(
+    fn single_pattern_binding<'b>(
         &self,
-        stmt: &'b Stmt,
-        binding: &'b BindingStmt,
-    ) -> &'b nia_node_id::VersionedNodeKey {
-        if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
-            &stmt.node_key
-        } else {
-            &binding.pattern_node_key
+        pattern: &'b nia_ast::Pattern,
+    ) -> Option<(&'b str, &'b nia_node_id::VersionedNodeKey)> {
+        match &pattern.kind {
+            nia_ast::PatternKind::Bind { name, node_key, .. } => Some((name, node_key)),
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                self.single_pattern_binding(inner)
+            }
+            _ => None,
         }
     }
 
@@ -369,7 +359,7 @@ impl<'a> BodyChecker<'a> {
     ) -> TypedPattern {
         let kind = match &pattern.kind {
             nia_ast::PatternKind::Wildcard => TypedPatternKind::Wildcard,
-            nia_ast::PatternKind::Bind { name, node_key } => {
+            nia_ast::PatternKind::Bind { name, node_key, .. } => {
                 let local_id = self
                     .local_def(node_key)
                     .unwrap_or(nia_ids::LocalId(u32::MAX));
@@ -377,6 +367,20 @@ impl<'a> BodyChecker<'a> {
                     local_id,
                     name: name.clone(),
                 }
+            }
+            nia_ast::PatternKind::Pointer(inner) => {
+                let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::Pointer { elem, .. }) => *elem,
+                    _ => self.error(),
+                };
+                TypedPatternKind::Pointer(Box::new(self.lower_pattern(inner, elem_ty)))
+            }
+            nia_ast::PatternKind::MutPointer(inner) => {
+                let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::Pointer { elem, .. }) => *elem,
+                    _ => self.error(),
+                };
+                TypedPatternKind::MutPointer(Box::new(self.lower_pattern(inner, elem_ty)))
             }
             nia_ast::PatternKind::OptionalSome(inner) => {
                 let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {

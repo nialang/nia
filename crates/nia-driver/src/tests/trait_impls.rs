@@ -22,7 +22,7 @@ extend Point : Show {
 }
 
 fn main() i32 {
-    var point: Point = { x: 7 };
+    let mut point: Point = { x: 7 };
     point.show()
 }
 "#,
@@ -57,7 +57,7 @@ extend Point : Show {
 }
 
 fn main() i32 {
-    var point: Point = { x: 7 };
+    let mut point: Point = { x: 7 };
     point.double()
 }
 "#,
@@ -98,8 +98,8 @@ where T: ReadText
 }
 
 fn main() i32 {
-    var direct = [Number]::read_text("42");
-    var generic = parse_generic[Number]("42");
+    let mut direct = [Number]::read_text("42");
+    let mut generic = parse_generic[Number]("42");
     direct.value + generic.value
 }
 "#,
@@ -188,8 +188,8 @@ extend Point : Same {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 1 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 1 };
     a.eq(& b)
 }
 "#,
@@ -415,7 +415,7 @@ pub trait Writer {
 pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
 where W: Writer
 {
-    var written = writer.write(bytes).?;
+    let mut written = writer.write(bytes).?;
     _ = written;
     !{}
 }
@@ -445,10 +445,10 @@ extend File : io::Writer {
     }
 
     fn write_all(& self, bytes: &[u8]) Error!void {
-        var written = 0usize;
+        let mut written = 0usize;
         while written < bytes.len() {
-            var chunk = & bytes[written..];
-            var n = self.write(chunk).?;
+            let mut chunk = & bytes[written..];
+            let mut n = self.write(chunk).?;
             written += n;
         }
         !{}
@@ -456,7 +456,7 @@ extend File : io::Writer {
 }
 
 fn main() void {
-    var stdout: File = { raw: 1 };
+    let mut stdout: File = { raw: 1 };
     if let !ok = io::write_fully_with[File](& stdout, b"nia\n") {
         _ = ok;
     } else error! {
@@ -526,7 +526,7 @@ pub trait Writer {
 pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
 where W: Writer
 {
-    var written = writer.write(bytes).?;
+    let mut written = writer.write(bytes).?;
     _ = written;
     !{}
 }
@@ -540,10 +540,10 @@ extend fs::File : Writer {
     }
 
     fn write_all(& self, bytes: &[u8]) fs::Error!void {
-        var written = 0usize;
+        let mut written = 0usize;
         while written < bytes.len() {
-            var chunk = & bytes[written..];
-            var n = self.write(chunk).?;
+            let mut chunk = & bytes[written..];
+            let mut n = self.write(chunk).?;
             written += n;
         }
         !{}
@@ -561,7 +561,7 @@ using entry::fs;
 using entry::io;
 
 fn main() void {
-    var stdout = fs::File::standard_output();
+    let mut stdout = fs::File::standard_output();
     if let !ok = io::write_fully_with[fs::File](& stdout, b"nia\n") {
         _ = ok;
     } else error! {
@@ -609,7 +609,7 @@ extend Sink : Writer {
 }
 
 fn main() i32 {
-    var sink = Sink {};
+    let mut sink = Sink {};
     if let !ok = forward[Sink](&mut sink, b"ok") {
         _ = ok;
         0
@@ -663,7 +663,7 @@ extend Sink : Writer {
 }
 
 fn main() i32 {
-    var sink = Sink {};
+    let mut sink = Sink {};
     if let !ok = forward[Sink](&mut sink, b"ok") {
         _ = ok;
         0
@@ -716,7 +716,7 @@ extend Sink : Writer {
 }
 
 fn main() i32 {
-    var sink = Sink {};
+    let mut sink = Sink {};
     if let !ok = sink.write_fmt_bytes() {
         _ = ok;
         0

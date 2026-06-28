@@ -180,16 +180,16 @@ extend Build {
     fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
         let target = self.executable_target(handle).?;
         let mod_record = self.build_module(target.root_module).?;
-        var output_path = fs::PathBuf::from_path(self.allocator, self.build_dir).as_build_error().?;
+        let mut output_path = fs::PathBuf::from_path(self.allocator, self.build_dir).as_build_error().?;
         defer output_path.deinit(self.allocator).as_build_error().?;
         output_path.join_component(self.allocator, target.output_name.text()).as_build_error().?;
-        var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
         self.emit_exe(mod_record, output, target.runtime)
     }
 
     fn check_exe(&mut self, mod_record: Module, runtime: Runtime) Error!void {
-        var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
         let check_arg = b"check\0";
         let exe_arg = b"--exe\0";
@@ -210,8 +210,8 @@ extend Build {
         output: fs::EncodedPath,
         runtime: Runtime,
     ) Error!void {
-        var source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
-        var cache_dir_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
+        let mut cache_dir_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
         let cache_dir_arg = self.cache_dir.encode(&mut cache_dir_storage[..]).as_build_error().?;
         let emit_arg = b"emit\0";
@@ -266,9 +266,9 @@ extend Build {
         imports: &[ModuleImport],
         tail: &[&u8],
     ) Error!void {
-        var import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
-        var arg_storage: [48]&u8 = [0usize as &u8; 48];
-        var argv = ArgList::init(&mut arg_storage[..]);
+        let mut import_storage: [16][os::max_path_bytes]u8 = [[0u8; os::max_path_bytes]; 16];
+        let mut arg_storage: [48]&u8 = [0usize as &u8; 48];
+        let mut argv = ArgList::init(&mut arg_storage[..]);
         argv.push_ptrs(head).as_build_error().?;
         append_module_import_args(&mut argv, imports, &mut import_storage[..]).?;
         argv.push_ptrs(tail).as_build_error().?;
@@ -342,7 +342,7 @@ extend Build {
     }
 
     fn set_step_state(&mut self, handle: StepHandle, state: StepState) void {
-        var steps = self.steps.as_mut_slice();
+        let mut steps = self.steps.as_mut_slice();
         steps[handle.index()].state = state;
     }
 
@@ -356,7 +356,7 @@ extend Build {
     }
 
     fn find_step_arg(&self, arg: process::Arg) ?StepHandle {
-        var index = 0usize;
+        let mut index = 0usize;
         for &step in self.steps.iter() {
             if arg_matches_text(arg, step.name.text()) {
                 return ?StepHandle::init(index);
@@ -390,8 +390,8 @@ extend Build {
     }
 
     fn report_unknown_step(&mut self, step: process::Arg) Error!void {
-        var buffer: [256]u8 = [_]u8[0; 256];
-        var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
+        let mut buffer: [256]u8 = [_]u8[0; 256];
+        let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
         stderr.print("unknown build step `{}`\n", &[&step]).as_build_error().?;
         stderr.flush().as_build_error()
     }
@@ -634,14 +634,14 @@ fn clone_module_imports(
 ) Error!&mut [ModuleImport] {
     if let ?items = imports {
         if items.len() == 0usize {
-            var empty = 1usize as &mut ModuleImport;
+            let mut empty = 1usize as &mut ModuleImport;
             return !&mut empty[0..0];
         }
-        var owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
+        let mut owned = allocator.alloc_slice[ModuleImport](items.len()).as_build_error().?;
         mem::copy_forwards[ModuleImport](owned, items);
         !owned
     } else null {
-        var empty = 1usize as &mut ModuleImport;
+        let mut empty = 1usize as &mut ModuleImport;
         !&mut empty[0..0]
     }
 }
@@ -677,7 +677,7 @@ fn append_module_import_args(
         return Error::InvalidTarget!;
     }
     let module_flag = b"--module\0";
-    var index = 0usize;
+    let mut index = 0usize;
     for &import in imports.iter() {
         argv.push_ptr(&module_flag.*[0]).as_build_error().?;
         let arg = encode_module_import(import, &mut storage[index][..]).?;
@@ -688,7 +688,7 @@ fn append_module_import_args(
 }
 
 fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::EncodedPath {
-    var out = 0usize;
+    let mut out = 0usize;
     out = append_chars_to_bytes(import.name.text(), storage, out).?;
     if out >= storage.len() {
         return Error::InvalidTarget!;
@@ -704,7 +704,7 @@ fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::Enco
 }
 
 fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {
-    var out = start;
+    let mut out = start;
     for &ch in text.iter() {
         if ch as u32 == 0u32 {
             return Error::InvalidTarget!;
@@ -724,7 +724,7 @@ fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!
 
 fn arg_matches_text(arg: process::Arg, text: &[char]) bool {
     let bytes = arg.bytes();
-    var byte_index = 0usize;
+    let mut byte_index = 0usize;
     for &ch in text.iter() {
         let encoded = ch.encode_utf8();
         let encoded_bytes = encoded.bytes();

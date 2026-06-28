@@ -26,7 +26,7 @@ impl Parser {
                 StmtKind::Using(using),
             ));
         }
-        if self.at(TokenKind::Comptime) || self.at(TokenKind::Var) || self.at(TokenKind::Let) {
+        if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
                 Span::new(start, self.previous_end()),
@@ -113,27 +113,29 @@ impl Parser {
 
     fn parse_binding_stmt(&mut self) -> Option<BindingStmt> {
         let is_comptime = self.eat(TokenKind::Comptime).is_some();
-        let is_let = if self.eat(TokenKind::Let).is_some() {
-            true
-        } else if self.eat(TokenKind::Var).is_some() {
+        let mut is_mutable = if is_comptime {
+            if self.eat(TokenKind::Let).is_some() {
+                false
+            } else if self.at(TokenKind::Mut) || self.starts_binding_pattern() {
+                false
+            } else {
+                self.error_here("expected `let` binding");
+                return None;
+            }
+        } else if self.eat(TokenKind::Let).is_some() {
             false
         } else {
-            self.error_here("expected `let` or `var` binding");
+            self.error_here("expected `let` binding");
             return None;
         };
-        let pattern_start = self.peek().span.start;
-        let pattern_kind = if self.eat(TokenKind::Amp).is_some() {
-            if self.eat(TokenKind::Mut).is_some() {
-                BindingPatternKind::MutPointer
-            } else {
-                BindingPatternKind::Pointer
-            }
-        } else {
-            BindingPatternKind::Value
-        };
-        let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
-        let pattern_span = Span::new(pattern_start, self.previous_end());
-        let pattern_node_key = self.node_key(NodeSyntaxKind::Pattern, pattern_span);
+        if self.eat(TokenKind::Mut).is_some() {
+            is_mutable = true;
+        }
+        let pattern = self.parse_irrefutable_pattern_until(&[
+            TokenKind::Colon,
+            TokenKind::Eq,
+            TokenKind::Semicolon,
+        ])?;
         let ty = if self.eat(TokenKind::Colon).is_some() {
             Some(self.parse_type_until(&[TokenKind::Eq, TokenKind::Semicolon])?)
         } else {
@@ -155,24 +157,19 @@ impl Parser {
             .unwrap_or_else(|| Span::new(self.previous_end(), self.previous_end()));
         self.expect_semicolon_after(anchor, "expected `;` after binding")?;
         Some(BindingStmt {
-            name,
-            pattern_kind,
-            pattern_span,
-            pattern_node_key,
+            pattern: self.apply_pattern_binding_mutability(pattern, is_mutable),
             ty,
             value,
-            is_let,
+            is_mutable,
             is_comptime,
         })
     }
 
     fn parse_for_stmt(&mut self) -> Option<ForInStmt> {
         self.expect(TokenKind::For, "expected `for`")?;
-        let pattern = self.parse_for_pattern()?;
+        let pattern = self.parse_irrefutable_pattern_until(&[TokenKind::In, TokenKind::Colon])?;
         if self.at(TokenKind::Colon) {
-            self.error_here(
-                "for patterns do not support type annotations; use `x`, `&x`, or `&mut x`",
-            );
+            self.error_here("for patterns do not support type annotations");
             self.collect_until(&[TokenKind::LBrace])?;
             let body = self.parse_block()?;
             let pattern_span = pattern.span;
@@ -189,35 +186,6 @@ impl Parser {
             pattern,
             iter,
             body,
-        })
-    }
-
-    fn parse_for_pattern(&mut self) -> Option<ForPattern> {
-        let start = self.peek().span.start;
-        let kind = if self.eat(TokenKind::Amp).is_some() {
-            if self.eat(TokenKind::Mut).is_some() {
-                BindingPatternKind::MutPointer
-            } else {
-                BindingPatternKind::Pointer
-            }
-        } else {
-            BindingPatternKind::Value
-        };
-        if self.eat(TokenKind::Let).is_some() || self.eat(TokenKind::Var).is_some() {
-            self.error_here("for patterns do not use `let` or `var`; write `for x in iter`");
-            return None;
-        }
-        let name = if self.eat(TokenKind::Underscore).is_some() {
-            None
-        } else {
-            Some(self.expect_text(TokenKind::Ident, "expected for pattern binding")?)
-        };
-        let span = Span::new(start, self.previous_end());
-        Some(ForPattern {
-            span,
-            node_key: self.node_key(NodeSyntaxKind::Pattern, span),
-            name,
-            kind,
         })
     }
 
@@ -331,6 +299,99 @@ impl Parser {
         self.parse_pattern_until(stops)
     }
 
+    fn starts_binding_pattern(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Ident | TokenKind::Underscore | TokenKind::Amp | TokenKind::Mut
+        )
+    }
+
+    fn parse_irrefutable_pattern_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        let pattern = self.parse_irrefutable_pattern_atom_until(stops)?;
+        if self.eat(TokenKind::Bang).is_some() {
+            self.error_here("binding patterns do not support error payload suffix `!`");
+        }
+        Some(pattern)
+    }
+
+    fn parse_irrefutable_pattern_atom_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        let start = self.peek().span.start;
+        if self.eat(TokenKind::Amp).is_some() {
+            if self.eat(TokenKind::Mut).is_some() {
+                let inner = self.parse_irrefutable_pattern_atom_until(stops)?;
+                return Some(Pattern {
+                    span: Span::new(start, inner.span.end),
+                    kind: PatternKind::MutPointer(Box::new(inner)),
+                });
+            }
+            let inner = self.parse_irrefutable_pattern_atom_until(stops)?;
+            return Some(Pattern {
+                span: Span::new(start, inner.span.end),
+                kind: PatternKind::Pointer(Box::new(inner)),
+            });
+        }
+        if self.eat(TokenKind::Mut).is_some() {
+            let mut inner = self.parse_irrefutable_pattern_atom_until(stops)?;
+            Self::mark_pattern_bindings_mutable(&mut inner);
+            return Some(Pattern {
+                span: Span::new(start, inner.span.end),
+                kind: inner.kind,
+            });
+        }
+        if self.at(TokenKind::Underscore) {
+            let span = self.expect(TokenKind::Underscore, "expected `_` in pattern")?;
+            return Some(Pattern {
+                span,
+                kind: PatternKind::Wildcard,
+            });
+        }
+        if self.at(TokenKind::Ident)
+            && self
+                .tokens
+                .nth_kind(1)
+                .is_some_and(|kind| stops.contains(kind))
+        {
+            let span = self.peek().span;
+            let name = self.expect_text(TokenKind::Ident, "expected pattern binding")?;
+            return Some(Pattern {
+                span,
+                kind: PatternKind::Bind {
+                    name,
+                    node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+                    is_mutable: false,
+                },
+            });
+        }
+        self.error_here("expected binding pattern");
+        None
+    }
+
+    fn apply_pattern_binding_mutability(
+        &mut self,
+        mut pattern: Pattern,
+        is_mutable: bool,
+    ) -> Pattern {
+        if is_mutable {
+            Self::mark_pattern_bindings_mutable(&mut pattern);
+        }
+        pattern
+    }
+
+    fn mark_pattern_bindings_mutable(pattern: &mut Pattern) {
+        match &mut pattern.kind {
+            PatternKind::Bind { is_mutable, .. } => *is_mutable = true,
+            PatternKind::Pointer(inner)
+            | PatternKind::MutPointer(inner)
+            | PatternKind::OptionalSome(inner)
+            | PatternKind::ErrorOk(inner)
+            | PatternKind::ErrorErr(inner) => Self::mark_pattern_bindings_mutable(inner),
+            PatternKind::Wildcard
+            | PatternKind::OptionalNull
+            | PatternKind::Expr(_)
+            | PatternKind::Range { .. } => {}
+        }
+    }
+
     fn parse_payload_pattern_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
         self.parse_pattern_until(stops)
     }
@@ -348,6 +409,29 @@ impl Parser {
     }
 
     fn parse_pattern_atom_until(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
+        let start = self.peek().span.start;
+        if self.eat(TokenKind::Amp).is_some() {
+            if self.eat(TokenKind::Mut).is_some() {
+                let inner = self.parse_pattern_atom_until(stops)?;
+                return Some(Pattern {
+                    span: Span::new(start, inner.span.end),
+                    kind: PatternKind::MutPointer(Box::new(inner)),
+                });
+            }
+            let inner = self.parse_pattern_atom_until(stops)?;
+            return Some(Pattern {
+                span: Span::new(start, inner.span.end),
+                kind: PatternKind::Pointer(Box::new(inner)),
+            });
+        }
+        if self.eat(TokenKind::Mut).is_some() {
+            let mut inner = self.parse_pattern_atom_until(stops)?;
+            Self::mark_pattern_bindings_mutable(&mut inner);
+            return Some(Pattern {
+                span: Span::new(start, inner.span.end),
+                kind: inner.kind,
+            });
+        }
         if self.at(TokenKind::Underscore) {
             let span = self.expect(TokenKind::Underscore, "expected `_` in pattern")?;
             return Some(Pattern {
@@ -393,6 +477,7 @@ impl Parser {
                 kind: PatternKind::Bind {
                     name,
                     node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+                    is_mutable: false,
                 },
             });
         }
@@ -512,7 +597,6 @@ impl Parser {
         matches!(
             self.peek().kind,
             TokenKind::Let
-                | TokenKind::Var
                 | TokenKind::Return
                 | TokenKind::Break
                 | TokenKind::Continue

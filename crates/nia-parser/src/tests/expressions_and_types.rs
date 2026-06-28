@@ -6,7 +6,7 @@ fn parses_function_body_statements_and_expressions() {
     let (module, errors) = parse_module(
         r#"
 fn main() i32 {
-    var x = 1 + 2 * 3 << 1;
+    let mut x = 1 + 2 * 3 << 1;
     defer cleanup();
     if x > 3 {
         x = x + 1;
@@ -59,9 +59,9 @@ struct Header {
 }
 
 fn make() Header {
-    var data: [_]u8 = [0; 8];
-    var more: [_]u8 = [1, 2, 3];
-    var header: Header = { bytes: data, callback: cb };
+    let mut data: [_]u8 = [0; 8];
+    let mut more: [_]u8 = [1, 2, 3];
+    let mut header: Header = { bytes: data, callback: cb };
     header
 }
 "#,
@@ -119,11 +119,11 @@ struct Pair[T] {
 }
 
 fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
-    var size = @size[Pair[i32]]();
-    var offset = @offset[Pair[i32]]("value");
-    var addr = ptr as usize;
-    var first = xs[0];
-    var value = ptr.*;
+    let mut size = @size[Pair[i32]]();
+    let mut offset = @offset[Pair[i32]]("value");
+    let mut addr = ptr as usize;
+    let mut first = xs[0];
+    let mut value = ptr.*;
     { value: (addr + size + offset) as i32 }
 }
 "#,
@@ -204,10 +204,10 @@ struct Point {
 }
 
 fn make() i32 {
-    var p = Point{x: 1, y: 2};
-    var xs = [_]i32[1, 2, 3];
-    var boxes = [_]Box[i32][Box { value: 1 }];
-    var matrix = [2][2]Box[i32][
+    let mut p = Point{x: 1, y: 2};
+    let mut xs = [_]i32[1, 2, 3];
+    let mut boxes = [_]Box[i32][Box { value: 1 }];
+    let mut matrix = [2][2]Box[i32][
         [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
         [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
     ];
@@ -274,12 +274,12 @@ fn parses_slice_types_and_ranges() {
     let (module, errors) = parse_module(
         r#"
 fn take(xs: &[i32], ys: &mut [i32]) usize {
-    var a = &xs[..];
-    var b = &xs[0..2];
-    var c = &xs[0..=2];
-    var d = &xs[1..];
-    var e = &xs[..3];
-    var f = &xs[..=4];
+    let mut a = &xs[..];
+    let mut b = &xs[0..2];
+    let mut c = &xs[0..=2];
+    let mut d = &xs[1..];
+    let mut e = &xs[..3];
+    let mut f = &xs[..=4];
     a.len() + b.len() + c.len() + d.len() + e.len() + f.len()
 }
 "#,
@@ -464,9 +464,9 @@ fn parses_optional_and_error_union_syntax() {
     let (module, errors) = parse_module(
         r#"
 fn maybe(x: bool, err: i32) i32!i32 {
-    var a: ?i32 = ?10i32;
-    var b: i32!i32 = !20i32;
-    var c: i32!i32 = err!;
+    let mut a: ?i32 = ?10i32;
+    let mut b: i32!i32 = !20i32;
+    let mut c: i32!i32 = err!;
     if not x {
         return err!;
     }

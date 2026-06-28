@@ -23,7 +23,7 @@ extend Cell {
 }
 
 fn main() i32 {
-    var cell: Cell = { value: 1 };
+    let mut cell: Cell = { value: 1 };
     cell.set(42);
     cell.get()
 }
@@ -88,10 +88,10 @@ extend Cell : Index[usize] {
 }
 
 fn main() i32 {
-    var cell: Cell = { value: 1 };
-    var first = cell.*;
+    let mut cell: Cell = { value: 1 };
+    let mut first = cell.*;
     cell.* = 3;
-    var second = cell[0];
+    let mut second = cell[0];
     cell[0] = 5;
     first + second + cell.value
 }
@@ -138,7 +138,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     read(& counter)
 }
 "#,
@@ -217,7 +217,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var values: [3]i32 = [1, 2, 3];
+    let mut values: [3]i32 = [1, 2, 3];
     read(&values[..])
 }
 "#,
@@ -262,7 +262,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var values: [3]i32 = [1, 2, 3];
+    let mut values: [3]i32 = [1, 2, 3];
     read(&values[..])
 }
 "#,
@@ -350,7 +350,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var values: [3]i32 = [1, 2, 3];
+    let mut values: [3]i32 = [1, 2, 3];
     read(&values[..])
 }
 "#,
@@ -393,12 +393,12 @@ fn read(source: & Source) i32 {
 }
 
 fn left() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     read(& counter)
 }
 
 fn right() i32 {
-    var counter: Counter = { value: 9 };
+    let mut counter: Counter = { value: 9 };
     read(& counter)
 }
 
@@ -456,7 +456,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     defer {
         log(read(& counter))
     };
@@ -514,8 +514,8 @@ fn as_parent(child: & Child) & Parent {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
-    var child: & Child = & counter;
+    let mut counter: Counter = { value: 8 };
+    let mut child: & Child = & counter;
     as_parent(child).parent()
 }
 "#,
@@ -588,8 +588,8 @@ fn as_b(child: & Child[
 }
 
 fn main() usize {
-    var both: Both = { value: 8 };
-    var child: & Child[
+    let mut both: Both = { value: 8 };
+    let mut child: & Child[
         [Self as FatherA]::Item = i32,
         [Self as FatherB]::Item = usize,
     ] = & both;
@@ -635,8 +635,8 @@ where T: Same {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 1 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 1 };
     same[Point](& a, & b)
 }
 "#,
@@ -690,8 +690,8 @@ where T: Ranked {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 1 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 1 };
     same_ord[Point](& a, & b)
 }
 "#,
@@ -739,7 +739,7 @@ where T: Source {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 42 };
+    let mut counter: Counter = { value: 42 };
     read[Counter](& counter)
 }
 "#,
@@ -794,7 +794,7 @@ where T: Mapper[i32, i32] {
 }
 
 fn main() i32 {
-    var p: Pairer = { seed: 3 };
+    let mut p: Pairer = { seed: 3 };
     mapped[Pairer](& p, 9)
 }
 "#,
@@ -870,7 +870,7 @@ where W: FormatWriter
 }
 
 fn main() i32 {
-    var sink: Sink = { count: 0 };
+    let mut sink: Sink = { count: 0 };
     if let !ok = use_format[Sink](&mut sink, b"ok") {
         _ = ok;
         sink.count as i32
@@ -958,7 +958,7 @@ extend Sink : Writer {
 }
 
 fn main() i32 {
-    var sink = Sink {};
+    let mut sink = Sink {};
     if let !value = sink.write(b"ok") {
         value as i32
     } else error! {
@@ -1007,8 +1007,8 @@ where T: Same {
 }
 
 fn main() bool {
-    var a: Point = { x: 1 };
-    var b: Point = { x: 2 };
+    let mut a: Point = { x: 1 };
+    let mut b: Point = { x: 2 };
     different[Point](& a, & b)
 }
 "#,

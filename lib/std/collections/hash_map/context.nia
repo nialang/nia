@@ -16,7 +16,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
 {
     pub fn hash(&self, seed: u64, key: &K) u64 {
         _ = self;
-        var hasher = hash::Wyhash::init(seed);
+        let mut hasher = hash::Wyhash::init(seed);
         key.hash(&mut hasher);
         hasher.finish()
     }

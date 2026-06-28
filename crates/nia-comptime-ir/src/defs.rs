@@ -538,74 +538,34 @@ pub enum ResolvedComptimeAssignPathElemKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeForIn {
-    binding: ResolvedComptimeForBinding,
+    pattern: ResolvedComptimePattern,
     iter: ResolvedComptimeExpr,
     body: ResolvedComptimeBlock,
 }
 
 impl ResolvedComptimeForIn {
     pub fn new(
-        binding: ResolvedComptimeForBinding,
+        pattern: ResolvedComptimePattern,
         iter: ResolvedComptimeExpr,
         body: ResolvedComptimeBlock,
     ) -> Self {
         Self {
-            binding,
+            pattern,
             iter,
             body,
         }
-    }
-
-    pub fn binding(&self) -> &ResolvedComptimeForBinding {
-        &self.binding
     }
 
     pub fn iter(&self) -> &ResolvedComptimeExpr {
         &self.iter
     }
 
+    pub fn pattern(&self) -> &ResolvedComptimePattern {
+        &self.pattern
+    }
+
     pub fn body(&self) -> &ResolvedComptimeBlock {
         &self.body
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedComptimeForBinding {
-    span: Span,
-    name: Option<String>,
-    local_id: Option<LocalId>,
-    pattern_kind: nia_ast::BindingPatternKind,
-}
-
-impl ResolvedComptimeForBinding {
-    pub fn new(
-        span: Span,
-        name: Option<String>,
-        local_id: Option<LocalId>,
-        pattern_kind: nia_ast::BindingPatternKind,
-    ) -> Self {
-        Self {
-            span,
-            name,
-            local_id,
-            pattern_kind,
-        }
-    }
-
-    pub fn span(&self) -> Span {
-        self.span
-    }
-
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-
-    pub fn local_id(&self) -> Option<LocalId> {
-        self.local_id
-    }
-
-    pub fn pattern_kind(&self) -> nia_ast::BindingPatternKind {
-        self.pattern_kind
     }
 }
 
@@ -702,6 +662,24 @@ impl ResolvedComptimePattern {
         }
     }
 
+    pub fn pointer(pattern: ResolvedComptimePattern, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimePatternKind::Pointer {
+                pattern: Box::new(pattern),
+                span,
+            },
+        }
+    }
+
+    pub fn mut_pointer(pattern: ResolvedComptimePattern, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimePatternKind::MutPointer {
+                pattern: Box::new(pattern),
+                span,
+            },
+        }
+    }
+
     pub fn optional_null(span: Span) -> Self {
         Self {
             kind: ResolvedComptimePatternKind::OptionalNull { span },
@@ -771,6 +749,14 @@ pub enum ResolvedComptimePatternKind {
     Bind {
         name: String,
         local_id: LocalId,
+        span: Span,
+    },
+    Pointer {
+        pattern: Box<ResolvedComptimePattern>,
+        span: Span,
+    },
+    MutPointer {
+        pattern: Box<ResolvedComptimePattern>,
         span: Span,
     },
     OptionalSome {
@@ -1166,17 +1152,9 @@ pub enum EarlyComptimeAssignPathElem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeForIn {
-    pub binding: EarlyComptimeForBinding,
+    pub pattern: EarlyComptimePattern,
     pub iter: EarlyComptimeExpr,
     pub body: EarlyComptimeBlock,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct EarlyComptimeForBinding {
-    pub span: Span,
-    pub name: Option<String>,
-    pub local_id: Option<LocalId>,
-    pub pattern_kind: nia_ast::BindingPatternKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1201,6 +1179,14 @@ pub enum EarlyComptimePattern {
     Bind {
         name: String,
         local_id: Option<LocalId>,
+        span: Span,
+    },
+    Pointer {
+        pattern: Box<EarlyComptimePattern>,
+        span: Span,
+    },
+    MutPointer {
+        pattern: Box<EarlyComptimePattern>,
         span: Span,
     },
     OptionalSome {

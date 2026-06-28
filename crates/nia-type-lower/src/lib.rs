@@ -1724,7 +1724,7 @@ struct Box[T] {
 }
 
 fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
-    var tmp: [_]i32 = [1, 2, 3];
+    let mut tmp: [_]i32 = [1, 2, 3];
     [{ value: 0 }; 4]
 }
 "#,
@@ -1942,7 +1942,7 @@ fn bad_never_param(x: never) void {}
 fn good_return() void {}
 fn good_never_return() never {}
 
-var global_void: void;
+let mut global_void: void;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

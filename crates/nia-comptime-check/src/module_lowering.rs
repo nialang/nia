@@ -238,9 +238,7 @@ impl ComptimeModuleLowerer<'_> {
     fn collect_stmt_locals(&self, stmt: &nia_ast::Stmt, out: &mut HashSet<LocalId>) {
         match &stmt.kind {
             nia_ast::StmtKind::Binding(binding) => {
-                if let Some(local_id) = self.input.semantic_uses.node_local_def(&stmt.node_key) {
-                    out.insert(local_id);
-                }
+                self.collect_pattern_locals(&binding.pattern, out);
                 if let Some(value) = &binding.value {
                     self.collect_expr_locals(value, out);
                 }
@@ -249,14 +247,7 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
             nia_ast::StmtKind::ForIn(for_stmt) => {
-                if for_stmt.pattern.name().is_some()
-                    && let Some(local_id) = self
-                        .input
-                        .semantic_uses
-                        .node_local_def(&for_stmt.pattern.node_key)
-                {
-                    out.insert(local_id);
-                }
+                self.collect_pattern_locals(&for_stmt.pattern, out);
                 self.collect_expr_locals(&for_stmt.iter, out);
                 self.collect_block_locals(&for_stmt.body, out);
             }
@@ -419,7 +410,9 @@ impl ComptimeModuleLowerer<'_> {
                     out.insert(local_id);
                 }
             }
-            nia_ast::PatternKind::OptionalSome(pattern)
+            nia_ast::PatternKind::Pointer(pattern)
+            | nia_ast::PatternKind::MutPointer(pattern)
+            | nia_ast::PatternKind::OptionalSome(pattern)
             | nia_ast::PatternKind::ErrorOk(pattern)
             | nia_ast::PatternKind::ErrorErr(pattern) => self.collect_pattern_locals(pattern, out),
             nia_ast::PatternKind::Expr(expr) => self.collect_expr_locals(expr, out),
@@ -428,6 +421,18 @@ impl ComptimeModuleLowerer<'_> {
                 self.collect_expr_locals(end, out);
             }
             nia_ast::PatternKind::Wildcard | nia_ast::PatternKind::OptionalNull => {}
+        }
+    }
+
+    fn pattern_local_id(&self, pattern: &nia_ast::Pattern) -> Option<LocalId> {
+        match &pattern.kind {
+            nia_ast::PatternKind::Bind { node_key, .. } => {
+                self.input.semantic_uses.node_local_def(node_key)
+            }
+            nia_ast::PatternKind::Pointer(pattern) | nia_ast::PatternKind::MutPointer(pattern) => {
+                self.pattern_local_id(pattern)
+            }
+            _ => None,
         }
     }
 
@@ -460,8 +465,7 @@ impl ComptimeModuleLowerer<'_> {
         for stmt in &block.stmts {
             match &stmt.kind {
                 nia_ast::StmtKind::Binding(binding)
-                    if self.input.semantic_uses.node_local_def(&stmt.node_key)
-                        == Some(local_id) =>
+                    if self.pattern_local_id(&binding.pattern) == Some(local_id) =>
                 {
                     return binding.value.clone().map(|value| {
                         (

@@ -719,13 +719,13 @@ fn builtin_module_source(target: &TargetConfig) -> String {
     let mut source = String::new();
     for (name, value) in fields {
         source.push_str(&format!(
-            "pub comptime let {name}: [{}]char = {}.*;\n",
+            "pub comptime {name}: [{}]char = {}.*;\n",
             value.chars().count(),
             nia_string_literal(value)
         ));
     }
     source.push_str(&format!(
-        "pub comptime let pointer_width: usize = {}usize;\n",
+        "pub comptime pointer_width: usize = {}usize;\n",
         target.pointer_width
     ));
     source

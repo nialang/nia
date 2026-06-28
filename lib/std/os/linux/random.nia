@@ -4,9 +4,9 @@ using pkg::os::linux::types;
 using types::Errno;
 
 pub fn random(bytes: &mut [u8]) Errno!void {
-    var done = 0usize;
+    let mut done = 0usize;
     while done < bytes.len() {
-        var chunk = &mut bytes[done..];
+        let mut chunk = &mut bytes[done..];
         let ret = syscall::syscall3(syscall::getrandom, chunk.get_ptr() as usize, chunk.len(), 0);
         if ret < 0 {
             let err = ret.syscall_error();

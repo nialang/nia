@@ -432,7 +432,7 @@ fn lowers_integer_switch_patterns_from_checked_values() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    var x: i32 = 2;
+    let mut x: i32 = 2;
     switch x {
         1 => return 10,
         2..5 => return 20,
@@ -524,7 +524,7 @@ fn match_error_literal(value: ?(i32!i32)) i32 {
 }
 
 fn bind_plain(value: i32) i32 {
-    if var current = value {
+    if let mut current = value {
         current += 1;
         current
     }
@@ -535,11 +535,11 @@ fn bind_plain(value: i32) i32 {
 }
 
 #[test]
-fn checks_if_pattern_let_and_var_binding_mutability() {
+fn checks_if_pattern_let_and_let_mut_binding_mutability() {
     let checked = pipeline(
         r#"
 fn mutable(value: ?i32) i32 {
-    if var ?current = value {
+    if let mut ?current = value {
         current += 1;
         current
     } else null {
@@ -587,11 +587,11 @@ enum Color: u8 {
 }
 
 fn main() i32 {
-    var same = Color::Red == Color::Green;
-    var n: i32 = Color::Red;
-    var explicit: i32 = Color::Red as i32;
-    var bad_add = Color::Red + Color::Green;
-    var bad_order = Color::Red < Color::Green;
+    let mut same = Color::Red == Color::Green;
+    let mut n: i32 = Color::Red;
+    let mut explicit: i32 = Color::Red as i32;
+    let mut bad_add = Color::Red + Color::Green;
+    let mut bad_order = Color::Red < Color::Green;
     if same { explicit } else { n }
 }
 "#,

@@ -43,7 +43,7 @@ fn main() i32 {
 #[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
-comptime let N: usize = 3;
+comptime N: usize = 3;
 
 struct Box[T] {
     value: T,

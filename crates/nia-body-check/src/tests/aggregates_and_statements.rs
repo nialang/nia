@@ -11,8 +11,8 @@ struct Pair {
 }
 
 fn main() i32 {
-    var bad: Pair = { left: true, left: 1, extra: 1 };
-    var inferred: Pair = { left: 1, right: false };
+    let mut bad: Pair = { left: true, left: 1, extra: 1 };
+    let mut inferred: Pair = { left: 1, right: false };
     0
 }
 "#,
@@ -53,8 +53,8 @@ struct Pair[T] {
 }
 
 fn main(pair: Pair[i32], ptr: & Pair[i32]) i32 {
-    var x: i32 = pair.left;
-    var y: bool = ptr.right;
+    let mut x: i32 = pair.left;
+    let mut y: bool = ptr.right;
     _ = pair.missing;
     pair.right
 }
@@ -96,11 +96,11 @@ extend Point {
 }
 
 fn main() i32 {
-    var p = Point { x: 1, y: 2 };
-    var p_ptr = &(Point { x: 3, y: 4 });
-    var literal_ptr = &10i32;
-    var call_ptr = &make();
-    var slice = &([_]i32[1, 2, 3])[..];
+    let mut p = Point { x: 1, y: 2 };
+    let mut p_ptr = &(Point { x: 3, y: 4 });
+    let mut literal_ptr = &10i32;
+    let mut call_ptr = &make();
+    let mut slice = &([_]i32[1, 2, 3])[..];
     p.sum() + Point { x: 5, y: 6 }.sum() + p_ptr.x + literal_ptr.* + call_ptr.* + slice[0]
 }
 
@@ -161,7 +161,7 @@ extend Counter : Iterator {
 }
 
 fn main(flag: bool) i32 {
-    var i = 0;
+    let mut i = 0;
     while flag {
         _ = i;
         break;
@@ -171,7 +171,7 @@ fn main(flag: bool) i32 {
         break;
     }
 
-    var iter = Counter { current: 0, end: 3 };
+    let mut iter = Counter { current: 0, end: 3 };
     for n in iter {
         _ = n;
     }
@@ -256,8 +256,8 @@ extend Counter : Iterator {
 }
 
 fn main() i32 {
-    var iter = Counter { current: 0, end: 3 };
-    var total = 0;
+    let mut iter = Counter { current: 0, end: 3 };
+    let mut total = 0;
     for n in iter {
         total += n;
     }
@@ -286,8 +286,8 @@ extend Counter : Iterator {
 }
 
 fn main(len: usize) usize {
-    var total = 0usize;
-    var iter = Counter { current: 0usize, end: len };
+    let mut total = 0usize;
+    let mut iter = Counter { current: 0usize, end: len };
     for n in iter {
         total += n;
     }
@@ -321,8 +321,8 @@ extend Once : Iterator {
 }
 
 fn main(value: &i32) i32 {
-    var iter = Once { value: value, done: false };
-    var total = 0;
+    let mut iter = Once { value: value, done: false };
+    let mut total = 0;
     for &n in iter {
         total += n;
     }
@@ -339,7 +339,7 @@ fn accepts_local_pointer_binding_patterns() {
         r#"
 fn main(ptr: &i32, mut_ptr: &mut i32) i32 {
     let &x = ptr;
-    var &mut y: i32 = mut_ptr;
+    let mut &mut y: i32 = mut_ptr;
     x + y
 }
 "#,
@@ -362,7 +362,7 @@ extend Counter : Iterator {
 }
 
 fn main() i32 {
-    var iter = Counter {};
+    let mut iter = Counter {};
     for &n in iter {
         _ = n;
     }
@@ -371,9 +371,10 @@ fn main() i32 {
 "#,
     );
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("binding pattern requires value")),
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("for pattern requires value")),
         "{:?}",
         checked.diagnostics
     );
@@ -441,7 +442,7 @@ fn print_i32(value: &i32) {}
 let vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
-    var x = 1;
+    let mut x = 1;
     vtable.print(&x);
     0
 }

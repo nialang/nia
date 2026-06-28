@@ -11,10 +11,10 @@ comptime fn is_sample_os(value: [5]char) bool {
     "linux".* == value
 }
 
-comptime let n: usize = if is_sample_os("linux".*) { 4usize } else { 2usize };
+comptime n: usize = if is_sample_os("linux".*) { 4usize } else { 2usize };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -38,10 +38,10 @@ comptime fn accept_linux(value: [5]char) usize {
     }
 }
 
-comptime let n: usize = accept_linux("linux".*);
+comptime n: usize = accept_linux("linux".*);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -61,7 +61,7 @@ comptime fn accept_short(value: [4]char) usize {
     value.len()
 }
 
-comptime let n: usize = accept_short("linux".*);
+comptime n: usize = accept_short("linux".*);
 "#,
     );
 
@@ -82,15 +82,15 @@ fn typed_comptime_char_array_binding_is_a_char_array() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let os: [5]char = "linux".*;
-comptime let n: usize = if os.len() == 5usize {
+comptime os: [5]char = "linux".*;
+comptime n: usize = if os.len() == 5usize {
     os.len()
 } else {
     0usize
 };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -106,7 +106,7 @@ fn imported_typed_comptime_char_array_binding_is_a_char_array() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let os: [5]char = "linux".*;
+pub comptime os: [5]char = "linux".*;
 "#,
     );
     write(
@@ -115,10 +115,10 @@ pub comptime let os: [5]char = "linux".*;
 module config;
 using entry::config;
 
-comptime let n: usize = config::os.len();
+comptime n: usize = config::os.len();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -138,11 +138,11 @@ comptime fn sample_os() [5]char {
     "linux".*
 }
 
-comptime let os: [5]char = sample_os();
-comptime let n: usize = os.len();
+comptime os: [5]char = sample_os();
+comptime n: usize = os.len();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -162,10 +162,10 @@ comptime fn sample_os() [5]char {
     "linux".*
 }
 
-comptime let n: usize = sample_os().len();
+comptime n: usize = sample_os().len();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -185,7 +185,7 @@ comptime fn sample_os() [4]char {
     "linux".*
 }
 
-comptime let os = sample_os();
+comptime os = sample_os();
 "#,
     );
 
@@ -207,17 +207,17 @@ fn comptime_for_in_array_binding_requires_iterator() {
         &root.join("main.nia"),
         r#"
 comptime fn total(values: [1][5]char) usize {
-    var n: usize = 0usize;
+    let mut n: usize = 0usize;
     for os in values {
         n += os.len();
     }
     n
 }
 
-comptime let n: usize = total(["linux".*]);
+comptime n: usize = total(["linux".*]);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -244,14 +244,14 @@ comptime fn sample_os() ?[5]char {
     ?"linux".*
 }
 
-comptime let n: usize = if let ?os = sample_os() {
+comptime n: usize = if let ?os = sample_os() {
     os.len()
 } else null {
     0usize
 };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -267,15 +267,15 @@ fn comptime_optional_constructor_projects_char_array_payload() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let os = ?"linux".*;
-comptime let n: usize = if let ?payload = os {
+comptime os = ?"linux".*;
+comptime n: usize = if let ?payload = os {
     payload.len()
 } else null {
     0usize
 };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -291,7 +291,7 @@ fn imported_comptime_function_return_validates_imported_array_length() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let os_len: usize = 5usize;
+pub comptime os_len: usize = 5usize;
 
 pub comptime fn sample_os() [os_len]char {
     "linux".*
@@ -304,10 +304,10 @@ pub comptime fn sample_os() [os_len]char {
 module config;
 using entry::config;
 
-comptime let n: usize = config::sample_os().len();
+comptime n: usize = config::sample_os().len();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -323,7 +323,7 @@ fn imported_comptime_function_return_rejects_imported_array_length_mismatch() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let os_len: usize = 4usize;
+pub comptime os_len: usize = 4usize;
 
 pub comptime fn sample_os() [os_len]char {
     "linux".*
@@ -336,7 +336,7 @@ pub comptime fn sample_os() [os_len]char {
 module config;
 using entry::config;
 
-comptime let os = config::sample_os();
+comptime os = config::sample_os();
 "#,
     );
 
@@ -373,10 +373,10 @@ comptime fn c_score(value: [4]u8) usize {
     }
 }
 
-comptime let n: usize = byte_score(b"nia".*) + c_score(b"nia\0".*);
+comptime n: usize = byte_score(b"nia".*) + c_score(b"nia\0".*);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -416,24 +416,24 @@ comptime fn multiline_score(value: [11]char) usize {
     }
 }
 
-comptime let text: [3]char = ("n" "ia").*;
-comptime let bytes: [3]u8 = (b"n" b"ia").*;
-comptime let multiline: [11]char = (
+comptime text: [3]char = ("n" "ia").*;
+comptime bytes: [3]u8 = (b"n" b"ia").*;
+comptime multiline: [11]char = (
     \\hello
     \\world
 ).*;
-comptime let byte_multiline: [11]u8 = (
+comptime byte_multiline: [11]u8 = (
     b\\hello
     \\world
 ).*;
-comptime let n: usize =
+comptime n: usize =
     char_score(text)
     + byte_score(bytes)
     + multiline_score(multiline)
     + byte_score(byte_multiline[8..]);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,

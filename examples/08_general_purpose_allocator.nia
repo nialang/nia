@@ -8,14 +8,14 @@ using process::{Init, ExitCode};
 fn run(init: Init) mem::Error!void {
     _ = init;
 
-    var page = mem::PageAllocator::init();
+    let mut page = mem::PageAllocator::init();
     // The general-purpose allocator is the usual heap-backed allocator for
     // mixed lifetimes. The page allocator is its low-level backing source.
     let gpa = &mut mem::GeneralPurposeAllocator::init(&mut page);
     // .ok() turns a leak report into mem::Error so examples fail on leaks.
     defer gpa.deinit().ok().?;
 
-    var values = std::ArrayList[i32]::init();
+    let mut values = std::ArrayList[i32]::init();
     // Register container cleanup after allocator cleanup so it runs first.
     defer values.deinit(gpa).?;
 
@@ -26,13 +26,13 @@ fn run(init: Init) mem::Error!void {
     values.push(gpa, 20).?;
     values.push(gpa, 30).?;
 
-    var total = 0;
+    let mut total = 0;
     for &value in values.iter() {
         total += value;
     }
 
-    var used = gpa.query_used();
-    var capacity = gpa.query_capacity();
+    let mut used = gpa.query_used();
+    let mut capacity = gpa.query_capacity();
 
     debug::print("values={} total={} heap_used={} heap_capacity={}\n", &[
         &values,

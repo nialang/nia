@@ -33,10 +33,10 @@ extern struct CPoint {
     y: i32,
 }
 extern let errno: i32;
-extern var global_counter: usize;
+extern let mut global_counter: usize;
 
 fn main() {
-    var p: CPoint;
+    let mut p: CPoint;
     let origin: CPoint;
 }
 "#,
@@ -63,7 +63,7 @@ fn main() {
     let body = function.body.as_ref().expect("body");
     assert!(matches!(&body.stmts[0].kind, StmtKind::Binding(binding) if binding.value.is_none()));
     assert!(
-        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if binding.is_let && binding.value.is_none())
+        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if !binding.is_mutable && binding.value.is_none())
     );
 }
 
@@ -139,12 +139,12 @@ extern fn start() i32;
 }
 
 #[test]
-fn rejects_extern_binding_without_let_or_var() {
+fn rejects_extern_binding_without_let() {
     let (_module, errors) = parse_module("extern errno: i32;");
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, or `let` after `extern`")),
         "{errors:?}"
     );
 }
@@ -311,7 +311,7 @@ fn rejects_extern_before_pub_modifier_order() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, or `let` after `extern`")),
         "{errors:?}"
     );
 }
@@ -347,8 +347,8 @@ fn parses_extend_associated_comptime_values() {
     let (module, errors) = parse_module(
         r#"
 extend usize {
-    pub comptime let MAX: usize = 18446744073709551615usize;
-    comptime var shadow: usize = 1usize;
+    pub comptime MAX: usize = 18446744073709551615usize;
+    comptime mut shadow: usize = 1usize;
 }
 "#,
     );

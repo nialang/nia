@@ -747,10 +747,10 @@ mod tests {
             r#"
 fn make() i32 { 1 }
 
-var base: i32 = 1;
-var bad_block = { 1 };
-var bad_call = make();
-var bad_bare_ptr: &i32 = base;
+let mut base: i32 = 1;
+let mut bad_block = { 1 };
+let mut bad_call = make();
+let mut bad_bare_ptr: &i32 = base;
 "#,
         );
 
@@ -784,12 +784,12 @@ struct Pair {
     y: i32,
 }
 
-var base: i32 = 1 + 2;
-var pair: Pair = { x: 1, y: 2 };
-var xs: [2]i32 = [1, 2];
-var p: &i32 = &base;
-var q: &i32 = &pair.x;
-var r: &i32 = &xs[1];
+let mut base: i32 = 1 + 2;
+let mut pair: Pair = { x: 1, y: 2 };
+let mut xs: [2]i32 = [1, 2];
+let mut p: &i32 = &base;
+let mut q: &i32 = &pair.x;
+let mut r: &i32 = &xs[1];
 
 struct Vtable {
     print: &fn(&i32)
@@ -807,8 +807,8 @@ let vtable: Vtable = { print: & print_i32 };
     fn accepts_static_integer_expression_from_comptime_value() {
         let checked = check(
             r#"
-comptime let base = 20;
-var value: i32 = base + 2;
+comptime base = 20;
+let mut value: i32 = base + 2;
 "#,
         );
 
@@ -819,8 +819,8 @@ var value: i32 = base + 2;
     fn accepts_static_array_repeat_count_from_comptime_value() {
         let checked = check(
             r#"
-comptime let n = 3;
-var values: [3]i32 = [1; n];
+comptime n = 3;
+let mut values: [3]i32 = [1; n];
 "#,
         );
 
@@ -831,8 +831,8 @@ var values: [3]i32 = [1; n];
     fn rejects_static_array_repeat_count_from_runtime_global() {
         let checked = check(
             r#"
-var n: usize = 3;
-var values: [3]i32 = [1; n];
+let mut n: usize = 3;
+let mut values: [3]i32 = [1; n];
 "#,
         );
 
@@ -849,9 +849,9 @@ var values: [3]i32 = [1; n];
     fn rejects_non_static_global_address_indexes() {
         let checked = check(
             r#"
-var target: [2]i32 = [1, 2];
-var idx: i32 = 1;
-var bad: &i32 = &target[idx];
+let mut target: [2]i32 = [1, 2];
+let mut idx: i32 = 1;
+let mut bad: &i32 = &target[idx];
 "#,
         );
 
@@ -869,9 +869,9 @@ var bad: &i32 = &target[idx];
     fn accepts_static_global_address_index_from_comptime_value() {
         let checked = check(
             r#"
-comptime let idx = 1;
-var target: [2]i32 = [1, 2];
-var selected: &i32 = &target[idx];
+comptime idx = 1;
+let mut target: [2]i32 = [1, 2];
+let mut selected: &i32 = &target[idx];
 "#,
         );
 

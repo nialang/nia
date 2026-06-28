@@ -27,21 +27,21 @@ fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!v
 fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::ExitCode!void {
     let expected = hash::wyhash(seed, input);
 
-    var one = hash::Wyhash::init(seed);
+    let mut one = hash::Wyhash::init(seed);
     one.update(input);
     if one.finish() != expected or one.finish() != expected {
         return (code as process::ExitCode)!;
     }
 
-    var split = hash::Wyhash::init(seed);
+    let mut split = hash::Wyhash::init(seed);
     split.update(&input[0usize..split_at]);
     split.update(&input[split_at..]);
     if split.finish() != expected {
         return ((code + 1) as process::ExitCode)!;
     }
 
-    var bytewise = hash::Wyhash::init(seed);
-    var i = 0usize;
+    let mut bytewise = hash::Wyhash::init(seed);
+    let mut i = 0usize;
     while i < input.len() {
         bytewise.update(&input[i..(i + 1usize)]);
         i += 1usize;
@@ -50,10 +50,10 @@ fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::E
         return ((code + 2) as process::ExitCode)!;
     }
 
-    var chunks = hash::Wyhash::init(seed);
+    let mut chunks = hash::Wyhash::init(seed);
     i = 0usize;
     while i < input.len() {
-        var end = i + 7usize;
+        let mut end = i + 7usize;
         if end > input.len() {
             end = input.len();
         }
@@ -67,7 +67,7 @@ fn expect_stream(seed: u64, input: &[u8], split_at: usize, code: i32) process::E
 }
 
 fn hash_bytes(seed: u64, bytes: &[u8]) u64 {
-    var hasher = hash::Wyhash::init(seed);
+    let mut hasher = hash::Wyhash::init(seed);
     bytes.len().hash(&mut hasher);
     hasher.write(bytes);
     hasher.finish()
@@ -96,13 +96,13 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let long = b"12345678901234567890123456789012345678901234567890123456789012345678901234567890";
     let expected = hash::wyhash(6u64, long);
 
-    var one = hash::Wyhash::init(6u64);
+    let mut one = hash::Wyhash::init(6u64);
     one.update(long);
     if one.finish() != expected or one.finish() != expected {
         return (8 as process::ExitCode)!;
     }
 
-    var split = hash::Wyhash::init(6u64);
+    let mut split = hash::Wyhash::init(6u64);
     split.update(&long.*[0usize..1usize]);
     split.update(&long.*[1usize..17usize]);
     split.update(&long.*[17usize..48usize]);
@@ -112,8 +112,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (9 as process::ExitCode)!;
     }
 
-    var bytewise = hash::Wyhash::init(6u64);
-    var i = 0usize;
+    let mut bytewise = hash::Wyhash::init(6u64);
+    let mut i = 0usize;
     while i < long.*.len() {
         bytewise.update(&long.*[i..(i + 1usize)]);
         i += 1usize;
@@ -137,29 +137,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let pair: [2]u8 = [1u8, 2u8];
     let slice_hash = hash_bytes(12u64, &pair[..]);
-    var raw_hasher = hash::Wyhash::init(12u64);
+    let mut raw_hasher = hash::Wyhash::init(12u64);
     raw_hasher.write(&pair);
     if slice_hash == raw_hasher.finish() {
         return (70 as process::ExitCode)!;
     }
 
-    var manual_slice_hasher = hash::Wyhash::init(12u64);
+    let mut manual_slice_hasher = hash::Wyhash::init(12u64);
     (2usize).hash(&mut manual_slice_hasher);
     manual_slice_hasher.write(&pair);
     if slice_hash != manual_slice_hasher.finish() {
         return (71 as process::ExitCode)!;
     }
 
-    var int_hasher = hash::Wyhash::init(13u64);
+    let mut int_hasher = hash::Wyhash::init(13u64);
     (0x01020304u32).hash(&mut int_hasher);
     let little_endian: [4]u8 = [4u8, 3u8, 2u8, 1u8];
     if int_hasher.finish() != hash::wyhash(13u64, &little_endian) {
         return (72 as process::ExitCode)!;
     }
 
-    var bool_true = hash::Wyhash::init(14u64);
+    let mut bool_true = hash::Wyhash::init(14u64);
     true.hash(&mut bool_true);
-    var one_byte = hash::Wyhash::init(14u64);
+    let mut one_byte = hash::Wyhash::init(14u64);
     (1u8).hash(&mut one_byte);
     if bool_true.finish() != one_byte.finish() {
         return (73 as process::ExitCode)!;
@@ -202,10 +202,10 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var empty: [0]u8 = [];
+    let mut empty: [0]u8 = [];
     if let !ok = os::random(&mut empty[..]) { _ = ok; } else error! { return (2 as process::ExitCode)!; }
 
-    var bytes: [32]u8 = [
+    let mut bytes: [32]u8 = [
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
@@ -213,8 +213,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     ];
     if let !ok = os::random(&mut bytes[..]) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
 
-    var any_nonzero = false;
-    var i = 0usize;
+    let mut any_nonzero = false;
+    let mut i = 0usize;
     while i < 32usize {
         if bytes[i] != 0u8 {
             any_nonzero = true;
@@ -428,11 +428,11 @@ extend TailHashContext : std::collections::HashMapContext[i32] {
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
     defer gpa.deinit().ok().?;
 
-    var map = std::HashMap[i32, i32]::init_seed(1234u64);
+    let mut map = std::HashMap[i32, i32]::init_seed(1234u64);
     defer map.deinit(&mut gpa).?;
 
     map.reserve(&mut gpa, 64usize).?;
@@ -444,7 +444,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var i = 0;
+    let mut i = 0;
     while i < 64 {
         if let !old = map.put(&mut gpa, i, i * 10) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
         i += 1;
@@ -463,14 +463,14 @@ fn run(init: process::Init) mem::Error!void {
     if let !old = map.put(&mut gpa, 42, 7) { if let ?value = old { if value != 420 {
                 return mem::Error::Invalid!;
             } } else null { return mem::Error::Invalid!; }; } else err! { return err!; }
-    if var ?value = map.get_mut(&42) { value.* = value.* + 1; } else null { return mem::Error::Invalid!; }
+    if let mut ?value = map.get_mut(&42) { value.* = value.* + 1; } else null { return mem::Error::Invalid!; }
     if let ?value = map.get(&42) { if value.* != 8 {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
     if let ?entry = map.get_entry(&42) { if entry.key().* != 42 or entry.value().* != 8 {
                 return mem::Error::Invalid!;
             } } else null { return mem::Error::Invalid!; }
-    if var ?entry = map.get_entry_mut(&42) { if entry.key().* != 42 or entry.value().* != 8 {
+    if let mut ?entry = map.get_entry_mut(&42) { if entry.key().* != 42 or entry.value().* != 8 {
                 return mem::Error::Invalid!;
             }
             entry.value_mut().* = 9; } else null { return mem::Error::Invalid!; }
@@ -498,7 +498,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var key_sum = 0;
+    let mut key_sum = 0;
     for &key in map.keys() {
         key_sum += key;
         if key == 10 {
@@ -509,7 +509,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var value_sum = 0;
+    let mut value_sum = 0;
     for &value in map.values() {
         value_sum += value;
     }
@@ -517,7 +517,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var entry_count = 0usize;
+    let mut entry_count = 0usize;
     for entry in map.iter() {
         entry_count += 1usize;
         if entry.key().* == 42 and entry.value().* != 12 {
@@ -560,12 +560,12 @@ fn run(init: process::Init) mem::Error!void {
     if let ?value = map.get(&5) { if value.* != 50 {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
-    var inserted_entry = map.get_or_put_value(&mut gpa, 6, 60).?;
+    let mut inserted_entry = map.get_or_put_value(&mut gpa, 6, 60).?;
     if inserted_entry.found_existing() or inserted_entry.key().* != 6 {
         return mem::Error::Invalid!;
     }
     inserted_entry.value().* = 61;
-    var existing_entry = map.get_or_put_value(&mut gpa, 6, 600).?;
+    let mut existing_entry = map.get_or_put_value(&mut gpa, 6, 600).?;
     if not existing_entry.found_existing() or existing_entry.value().* != 61 {
         return mem::Error::Invalid!;
     }
@@ -573,7 +573,7 @@ fn run(init: process::Init) mem::Error!void {
     if let ?value = map.get(&6) { if value.* != 62 {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
-    var raw_entry = map.get_or_put(&mut gpa, 8).?;
+    let mut raw_entry = map.get_or_put(&mut gpa, 8).?;
     if raw_entry.found_existing() {
         return mem::Error::Invalid!;
     }
@@ -591,7 +591,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var set_like = std::HashMap[i32, Unit]::init_seed(99u64);
+    let mut set_like = std::HashMap[i32, Unit]::init_seed(99u64);
     defer set_like.deinit(&mut gpa).?;
     _ = set_like.put(&mut gpa, 1, {}).?;
     _ = set_like.put(&mut gpa, 2, {}).?;
@@ -603,7 +603,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var unit_keys = std::collections::HashMapWithContext[Unit, i32, UnitContext]::init_context_seed(
+    let mut unit_keys = std::collections::HashMapWithContext[Unit, i32, UnitContext]::init_context_seed(
         UnitContext::init(),
         0u64,
     );
@@ -626,13 +626,13 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var churn = std::HashMap[i32, i32]::init_seed(555u64);
+    let mut churn = std::HashMap[i32, i32]::init_seed(555u64);
     defer churn.deinit(&mut gpa).?;
     churn.reserve(&mut gpa, 32usize).?;
     let churn_capacity = churn.capacity();
-    var round = 0;
+    let mut round = 0;
     while round < 4 {
-        var key = 0;
+        let mut key = 0;
         while key < 28 {
             _ = churn.put(&mut gpa, key, key + round).?;
             key += 1;
@@ -647,7 +647,7 @@ fn run(init: process::Init) mem::Error!void {
     if churn.len() != 0usize or churn.capacity() != churn_capacity {
         return mem::Error::Invalid!;
     }
-    var key = 100;
+    let mut key = 100;
     while key < 128 {
         _ = churn.put(&mut gpa, key, key * 2).?;
         key += 1;
@@ -667,7 +667,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var tombstones = std::HashMap[i32, i32]::init_seed(556u64);
+    let mut tombstones = std::HashMap[i32, i32]::init_seed(556u64);
     defer tombstones.deinit(&mut gpa).?;
     tombstones.reserve(&mut gpa, 56usize).?;
     let tombstone_capacity = tombstones.capacity();
@@ -767,9 +767,9 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
 
-    var fail_storage: [8192]u8 = [0; 8192];
-    var fail_allocator = FailAllocator::init(&mut fail_storage);
-    var rollback = std::HashMap[i32, i32]::init_seed(558u64);
+    let mut fail_storage: [8192]u8 = [0; 8192];
+    let mut fail_allocator = FailAllocator::init(&mut fail_storage);
+    let mut rollback = std::HashMap[i32, i32]::init_seed(558u64);
     defer rollback.deinit(&mut fail_allocator).?;
     rollback.reserve(&mut fail_allocator, 14usize).?;
     key = 0;
@@ -820,7 +820,7 @@ fn run(init: process::Init) mem::Error!void {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
 
-    var rollback_get = std::HashMap[i32, i32]::init_seed(559u64);
+    let mut rollback_get = std::HashMap[i32, i32]::init_seed(559u64);
     defer rollback_get.deinit(&mut fail_allocator).?;
     rollback_get.reserve(&mut fail_allocator, 7usize).?;
     key = 0;
@@ -837,7 +837,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     fail_allocator.clear_failures();
-    var rollback_entry = rollback_get.get_or_put(&mut fail_allocator, 77).?;
+    let mut rollback_entry = rollback_get.get_or_put(&mut fail_allocator, 77).?;
     if rollback_entry.found_existing() {
         return mem::Error::Invalid!;
     }
@@ -846,9 +846,9 @@ fn run(init: process::Init) mem::Error!void {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
 
-    var free_fail_storage: [8192]u8 = [0; 8192];
-    var free_fail_allocator = FailAllocator::init(&mut free_fail_storage);
-    var free_fail = std::HashMap[i32, i32]::init_seed(560u64);
+    let mut free_fail_storage: [8192]u8 = [0; 8192];
+    let mut free_fail_allocator = FailAllocator::init(&mut free_fail_storage);
+    let mut free_fail = std::HashMap[i32, i32]::init_seed(560u64);
     defer free_fail.deinit(&mut free_fail_allocator).?;
     free_fail.reserve(&mut free_fail_allocator, 14usize).?;
     key = 0;
@@ -910,7 +910,7 @@ fn run(init: process::Init) mem::Error!void {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
 
-    var collisions = std::collections::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
+    let mut collisions = std::collections::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
         ConstantHashContext::init(),
         777u64,
     );
@@ -961,7 +961,7 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
 
-    var modulo = std::collections::HashMapWithContext[Key, i32, ModuloContext]::init_context_seed(
+    let mut modulo = std::collections::HashMapWithContext[Key, i32, ModuloContext]::init_context_seed(
         ModuloContext::init(5, 0x9e3779b97f4a7c15u64),
         19u64,
     );
@@ -996,7 +996,7 @@ fn run(init: process::Init) mem::Error!void {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
 
-    var tail_probe = std::collections::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
+    let mut tail_probe = std::collections::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
         TailHashContext::init(15usize),
         0u64,
     );
@@ -1030,9 +1030,9 @@ fn run(init: process::Init) mem::Error!void {
             return mem::Error::Invalid!;
         } } else null { return mem::Error::Invalid!; }
 
-    var tiny_storage: [16]u8 = [0; 16];
-    var tiny = mem::FixedBufferAllocator::init(&mut tiny_storage);
-    var tiny_map = std::HashMap[i32, i32]::init_seed(11u64);
+    let mut tiny_storage: [16]u8 = [0; 16];
+    let mut tiny = mem::FixedBufferAllocator::init(&mut tiny_storage);
+    let mut tiny_map = std::HashMap[i32, i32]::init_seed(11u64);
     defer tiny_map.deinit(&mut tiny).?;
     if let !ok = tiny_map.reserve(&mut tiny, 64usize) { return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
@@ -1085,8 +1085,8 @@ using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var map = std::HashMap[i32, i32]::init_seed(42u64);
+    let mut page = mem::PageAllocator::init();
+    let mut map = std::HashMap[i32, i32]::init_seed(42u64);
     defer map.deinit(&mut page).?;
 
     _ = map.put(&mut page, 1, 10).?;
@@ -1139,16 +1139,16 @@ using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var gpa = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page = mem::PageAllocator::init();
+    let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
     defer gpa.deinit().ok().?;
 
-    var model_map = std::HashMap[i32, i32]::init_seed(557u64);
+    let mut model_map = std::HashMap[i32, i32]::init_seed(557u64);
     defer model_map.deinit(&mut gpa).?;
-    var expected: [40]i32 = [0; 40];
-    var present: [40]bool = [false; 40];
-    var expected_len = 0usize;
-    var step = 0;
+    let mut expected: [40]i32 = [0; 40];
+    let mut present: [40]bool = [false; 40];
+    let mut expected_len = 0usize;
+    let mut step = 0;
     while step < 240 {
         let slot = (step * 17 + 3) % 40;
         let op = step % 6;
@@ -1174,7 +1174,7 @@ fn run(init: process::Init) mem::Error!void {
                     return mem::Error::Invalid!;
                 } }
         } else if op == 2 {
-            var entry = model_map.get_or_put(&mut gpa, slot).?;
+            let mut entry = model_map.get_or_put(&mut gpa, slot).?;
             if present[slot] {
                 if not entry.found_existing() or entry.value().* != expected[slot] {
                     return mem::Error::Invalid!;
@@ -1224,8 +1224,8 @@ fn run(init: process::Init) mem::Error!void {
         step += 1;
     }
 
-    var model_count = 0usize;
-    var model_sum = 0;
+    let mut model_count = 0usize;
+    let mut model_sum = 0;
     for entry in model_map.iter() {
         let entry_key = entry.key().*;
         if entry_key < 0 or entry_key >= 40 {
@@ -1241,8 +1241,8 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var key = 0;
-    var expected_sum = 0;
+    let mut key = 0;
+    let mut expected_sum = 0;
     while key < 40 {
         if present[key] {
             expected_sum += expected[key];
@@ -1253,7 +1253,7 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var cloned_model = model_map.clone(&mut gpa).?;
+    let mut cloned_model = model_map.clone(&mut gpa).?;
     defer cloned_model.deinit(&mut gpa).?;
     if cloned_model.len() != model_map.len() or cloned_model.capacity() != model_map.capacity() {
         return mem::Error::Invalid!;
@@ -1357,13 +1357,13 @@ extend FailAllocator : mem::Allocator {
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
-    var storage: [32768]u8 = [0; 32768];
-    var allocator = FailAllocator::init(&mut storage);
-    var map = std::HashMap[i32, i32]::init_seed(123u64);
+    let mut storage: [32768]u8 = [0; 32768];
+    let mut allocator = FailAllocator::init(&mut storage);
+    let mut map = std::HashMap[i32, i32]::init_seed(123u64);
     defer map.deinit(&mut allocator).?;
 
     map.reserve_exact(&mut allocator, 14usize).?;
-    var key = 0;
+    let mut key = 0;
     while key < 14 {
         _ = map.put(&mut allocator, key, key).?;
         key += 1;
@@ -1436,8 +1436,8 @@ using std::process;
 
 fn run(init: process::Init) mem::Error!void {
     _ = init;
-    var page = mem::PageAllocator::init();
-    var map = std::HashMap[i32, i32]::init_seed(321u64);
+    let mut page = mem::PageAllocator::init();
+    let mut map = std::HashMap[i32, i32]::init_seed(321u64);
     defer map.deinit(&mut page).?;
 
     map.reserve(&mut page, 4usize).?;
@@ -1452,13 +1452,13 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    var existing = map.get_or_put_value_assume_capacity(1, 111);
+    let mut existing = map.get_or_put_value_assume_capacity(1, 111);
     if not existing.found_existing() or existing.value().* != 11 {
         return mem::Error::Invalid!;
     }
     existing.value().* = 12;
 
-    var inserted = map.get_or_put_assume_capacity(3);
+    let mut inserted = map.get_or_put_assume_capacity(3);
     if inserted.found_existing() {
         return mem::Error::Invalid!;
     }

@@ -382,6 +382,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 name,
                 &trait_signature,
+                true,
             );
         }
         if debug {
@@ -427,6 +428,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 name,
                 &trait_signature,
+                true,
             );
         }
         if !candidates.is_empty() {
@@ -466,6 +468,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     name,
                     &trait_signature,
+                    false,
                 );
             }
         }
@@ -616,6 +619,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         name: &str,
         trait_signature: &nia_item_signatures::TraitSignature,
+        is_assumed: bool,
     ) {
         for method in &trait_signature.methods {
             if method.name == name {
@@ -650,6 +654,7 @@ impl<'a> BodyChecker<'a> {
                     trait_args: trait_args.clone(),
                     signature: method.signature.clone(),
                     has_default: method.has_default,
+                    is_assumed,
                 });
             }
         }
@@ -676,6 +681,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 name,
                 &supertrait_signature,
+                is_assumed,
             );
         }
     }

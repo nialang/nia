@@ -42,12 +42,12 @@ fn user_struct_fields_are_ordinary_comptime_values() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let builtin = {target: {pointer_width: 64usize}};
-comptime let bits: usize = builtin.target.pointer_width;
-comptime let word_bytes: usize = bits / 8;
+comptime builtin = {target: {pointer_width: 64usize}};
+comptime bits: usize = builtin.target.pointer_width;
+comptime word_bytes: usize = bits / 8;
 
 fn main() i32 {
-    var bytes: [word_bytes]u8 = [0; word_bytes];
+    let mut bytes: [word_bytes]u8 = [0; word_bytes];
     bytes.len() as i32
 }
 "#,
@@ -90,12 +90,12 @@ fn comptime_function_rejects_structural_array_field_assignment_type_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    comptime var config = {target: {os: "linux".*, pointer_width: 64usize}};
+    comptime mut config = {target: {os: "linux".*, pointer_width: 64usize}};
     config.target.os = true;
     config.target.pointer_width
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -117,12 +117,12 @@ fn comptime_function_rejects_structural_bool_field_assignment_type_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    comptime var config = {enabled: true};
+    comptime mut config = {enabled: true};
     config.enabled = 1usize;
     1usize
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -174,7 +174,7 @@ module config;
 using entry::config;
 
 fn main() i32 {
-    var values: [config::width]i32 = [1, 2, 3, 4];
+    let mut values: [config::width]i32 = [1, 2, 3, 4];
     values[config::width - 1]
 }
 "#,
@@ -182,7 +182,7 @@ fn main() i32 {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let width: usize = 4;
+pub comptime width: usize = 4;
 "#,
     );
 
@@ -201,11 +201,11 @@ struct Pair {
     b: i32,
 }
 
-comptime let pair_size: usize = @size[Pair]();
-comptime let pair_align: usize = @align[Pair]();
+comptime pair_size: usize = @size[Pair]();
+comptime pair_align: usize = @align[Pair]();
 
 fn main() i32 {
-    var bytes: [pair_size]u8 = [0; pair_size];
+    let mut bytes: [pair_size]u8 = [0; pair_size];
     bytes.len() as i32 + pair_align as i32
 }
 "#,
@@ -223,7 +223,7 @@ fn embed_reads_bytes_relative_to_source_file() {
     write(
         &root.join("src/main.nia"),
         r#"
-comptime let payload = @embed("assets/payload.bin");
+comptime payload = @embed("assets/payload.bin");
 
 comptime fn score(bytes: [3]u8) usize {
     if bytes[0] == b'n' and bytes[1] == b'i' and bytes[2] == b'a' {
@@ -233,10 +233,10 @@ comptime fn score(bytes: [3]u8) usize {
     }
 }
 
-comptime let n: usize = score(payload.*);
+comptime n: usize = score(payload.*);
 
 fn main() i32 {
-    var values: [n]u8 = [0; n];
+    let mut values: [n]u8 = [0; n];
     values.len() as i32
 }
 "#,
@@ -252,7 +252,7 @@ fn embed_reports_missing_file() {
     write(
         &root.join("main.nia"),
         r#"
-comptime let payload = @embed("missing.bin");
+comptime payload = @embed("missing.bin");
 
 fn main() i32 {
     payload.len() as i32

@@ -25,7 +25,7 @@ extend Vec2 {
 }
 
 let banner = "nia\0";
-extern var a: usize;
+extern let mut a: usize;
 type Byte = u8;
 fn main() i32 { 0 }
 "#;
@@ -89,7 +89,7 @@ fn parse_module_syntax_records_ast_origins_as_red_child_path_ranges() {
     let syntax = nia_syntax::parse_source(
         r#"
 fn main(a: i32) i32 {
-    var x = a;
+    let mut x = a;
     x
 }
 "#,

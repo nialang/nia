@@ -3,10 +3,10 @@ using pkg::hash::traits;
 
 using traits::Hasher;
 
-comptime let wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
-comptime let wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;
-comptime let wyhash_secret2: u64 = 0x8ebc6af09c88c6e3u64;
-comptime let wyhash_secret3: u64 = 0x589965cc75374cc3u64;
+comptime wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
+comptime wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;
+comptime wyhash_secret2: u64 = 0x8ebc6af09c88c6e3u64;
+comptime wyhash_secret3: u64 = 0x589965cc75374cc3u64;
 
 pub struct Wyhash {
     a: u64,
@@ -47,7 +47,7 @@ extend Wyhash {
             return;
         }
 
-        var index = 0usize;
+        let mut index = 0usize;
         if self.buf_len > 0usize {
             index = 48usize - self.buf_len;
             mem::copy_forwards[u8](&mut self.buf[self.buf_len..48usize], &bytes[0usize..index]);
@@ -73,13 +73,13 @@ extend Wyhash {
     }
 
     fn finish_value(&self) u64 {
-        var copy = self.shallow_copy();
+        let mut copy = self.shallow_copy();
         if self.total_len <= 16usize {
             copy.small_key(&self.buf[0usize..self.buf_len]);
         } else {
-            var offset = 0usize;
-            var scratch: [16]u8 = [0; 16];
-            var input = &self.buf[0usize..self.buf_len];
+            let mut offset = 0usize;
+            let mut scratch: [16]u8 = [0; 16];
+            let mut input = &self.buf[0usize..self.buf_len];
             if self.buf_len < 16usize {
                 let rem = 16usize - self.buf_len;
                 mem::copy_forwards[u8](&mut scratch[0usize..rem], &self.buf[(48usize - rem)..48usize]);
@@ -135,7 +135,7 @@ extend Wyhash {
 
     fn final1(&mut self, input_lb: &[u8], start_pos: usize) void {
         let input = &input_lb[start_pos..];
-        var i = 0usize;
+        let mut i = 0usize;
         while i + 16usize < input.len() {
             self.state0 = mix(read8(&input[i..]) ^ wyhash_secret1, read8(&input[i + 8usize..]) ^ self.state0);
             i += 16usize;
@@ -166,7 +166,7 @@ extend Wyhash : Hasher {
 }
 
 pub fn wyhash(seed: u64, bytes: &[u8]) u64 {
-    var hasher = Wyhash::init(seed);
+    let mut hasher = Wyhash::init(seed);
     hasher.update(bytes);
     hasher.finish_value()
 }

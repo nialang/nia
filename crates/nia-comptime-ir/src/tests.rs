@@ -178,13 +178,17 @@ fn resolved_lowering_requires_local_ids() {
             attributes: Vec::new(),
             node_key: stmt_key(0),
             kind: nia_ast::StmtKind::Binding(Box::new(nia_ast::BindingStmt {
-                name: "x".to_string(),
-                pattern_kind: nia_ast::BindingPatternKind::Value,
-                pattern_span: span(),
-                pattern_node_key: stmt_key(2),
+                pattern: nia_ast::Pattern {
+                    span: span(),
+                    kind: nia_ast::PatternKind::Bind {
+                        name: "x".to_string(),
+                        node_key: stmt_key(2),
+                        is_mutable: false,
+                    },
+                },
                 ty: None,
                 value: Some(ast_ident("x")),
-                is_let: true,
+                is_mutable: false,
                 is_comptime: true,
             })),
         }],

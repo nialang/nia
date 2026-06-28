@@ -1,21 +1,21 @@
-pub comptime let Unordered: usize = 0usize;
-pub comptime let Monotonic: usize = 1usize;
-pub comptime let Acquire: usize = 2usize;
-pub comptime let Release: usize = 3usize;
-pub comptime let AcqRel: usize = 4usize;
-pub comptime let SeqCst: usize = 5usize;
+pub comptime Unordered: usize = 0usize;
+pub comptime Monotonic: usize = 1usize;
+pub comptime Acquire: usize = 2usize;
+pub comptime Release: usize = 3usize;
+pub comptime AcqRel: usize = 4usize;
+pub comptime SeqCst: usize = 5usize;
 
-pub comptime let Xchg: usize = 0usize;
-pub comptime let Add: usize = 1usize;
-pub comptime let Sub: usize = 2usize;
-pub comptime let And: usize = 3usize;
-pub comptime let Nand: usize = 4usize;
-pub comptime let Or: usize = 5usize;
-pub comptime let Xor: usize = 6usize;
-pub comptime let Max: usize = 7usize;
-pub comptime let Min: usize = 8usize;
-pub comptime let UMax: usize = 9usize;
-pub comptime let UMin: usize = 10usize;
+pub comptime Xchg: usize = 0usize;
+pub comptime Add: usize = 1usize;
+pub comptime Sub: usize = 2usize;
+pub comptime And: usize = 3usize;
+pub comptime Nand: usize = 4usize;
+pub comptime Or: usize = 5usize;
+pub comptime Xor: usize = 6usize;
+pub comptime Max: usize = 7usize;
+pub comptime Min: usize = 8usize;
+pub comptime UMax: usize = 9usize;
+pub comptime UMin: usize = 10usize;
 
 pub struct Atomic[T]
 where T: Sized

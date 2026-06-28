@@ -1037,7 +1037,7 @@ impl<'a> ModuleLowerer<'a> {
             method_name: method_name.to_string(),
             trait_arg_count: trait_args.len(),
         };
-        let candidates = self.extension_trait_method_candidates(&key);
+        let candidates = self.program_extension_trait_method_candidates(&key);
         let mut candidate = None;
         for next_candidate in &candidates {
             let Some(next) =

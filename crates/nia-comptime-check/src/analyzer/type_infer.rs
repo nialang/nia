@@ -383,6 +383,13 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         match pattern.kind() {
             ResolvedComptimePatternKind::Bind { .. } => Some(target_ty),
+            ResolvedComptimePatternKind::Pointer { pattern, .. }
+            | ResolvedComptimePatternKind::MutPointer { pattern, .. } => {
+                let TyKind::Pointer { elem, .. } = self.ty_kind(target_ty)? else {
+                    return None;
+                };
+                self.resolved_pattern_binding_type(pattern, elem)
+            }
             ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
                 let TyKind::Optional { elem } = self.ty_kind(target_ty)? else {
                     return None;
@@ -1139,6 +1146,13 @@ impl Analyzer<'_> {
             match pattern.kind() {
                 ResolvedComptimePatternKind::Wildcard { .. }
                 | ResolvedComptimePatternKind::Bind { .. } => {}
+                ResolvedComptimePatternKind::Pointer { pattern, .. }
+                | ResolvedComptimePatternKind::MutPointer { pattern, .. } => {
+                    let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    self.check_resolved_comptime_patterns(std::slice::from_ref(pattern), elem)?;
+                }
                 ResolvedComptimePatternKind::Expr(expr) => {
                     let target_ty = ComptimeValueType::Runtime(target_ty);
                     let pattern_ty = self
@@ -1208,6 +1222,13 @@ impl Analyzer<'_> {
         match pattern.kind() {
             ResolvedComptimePatternKind::Bind { local_id, .. } => {
                 self.bind_comptime_local_type(*local_id, ComptimeValueType::Runtime(target_ty));
+            }
+            ResolvedComptimePatternKind::Pointer { pattern, .. }
+            | ResolvedComptimePatternKind::MutPointer { pattern, .. } => {
+                let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(target_ty) else {
+                    return None;
+                };
+                self.bind_typed_resolved_comptime_pattern(pattern, elem)?;
             }
             ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
                 let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
@@ -1441,9 +1462,10 @@ impl Analyzer<'_> {
         };
         self.push_typed_comptime_scope();
         let result = (|| {
-            if let Some(local_id) = for_in.binding().local_id() {
-                self.bind_comptime_local_type(local_id, binding_ty);
-            }
+            let ComptimeValueType::Runtime(binding_ty) = binding_ty else {
+                return None;
+            };
+            self.bind_typed_resolved_comptime_pattern(for_in.pattern(), binding_ty)?;
             for stmt in for_in.body().stmts() {
                 self.check_resolved_comptime_stmt(stmt)?;
             }

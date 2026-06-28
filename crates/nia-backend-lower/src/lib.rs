@@ -1977,44 +1977,79 @@ fn index_program_extension_trait_method_candidates(
         .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
-    for (module_id, (extensions, interner)) in input.program_extensions {
-        for target in extensions.targets() {
-            for method in &target.methods {
-                let Some(trait_id) = method.trait_id else {
-                    continue;
-                };
-                if !method.is_trait_witness
-                    || !impls.contains_key(&(method.def_id.module_id, method.impl_id))
-                {
-                    continue;
-                };
-                let candidate = ExtensionTraitMethodCandidate {
-                    target_ty: target.target_ty,
-                    method_def_id: method.def_id,
-                    trait_args: method.trait_args.clone(),
-                    where_predicates: method.where_predicates.clone(),
-                    effective_generics: method.effective_generics.clone(),
-                    interner: (*interner).clone(),
-                };
-                let bucket = candidates
-                    .entry(ExtensionTraitMethodKey {
-                        trait_id,
-                        method_name: method.name.clone(),
-                        trait_arg_count: method.trait_args.len(),
-                    })
-                    .or_default();
-                if let Some(existing) = bucket
-                    .iter_mut()
-                    .find(|existing| existing.method_def_id == method.def_id)
-                {
-                    if *module_id == method.def_id.module_id {
-                        *existing = candidate;
-                    }
-                } else {
-                    bucket.push(candidate);
-                }
-            }
+    for method in input.program_extension_methods.all_methods() {
+        let Some(trait_id) = method.trait_id else {
+            continue;
+        };
+        if !impls.contains_key(&(method.def_id.module_id, method.impl_id)) {
+            continue;
         }
+        let Some(normalization) = input
+            .program_type_normalizations
+            .get(&method.def_id.module_id)
+        else {
+            continue;
+        };
+        let target_ty = normalization.normalize(method.target_ty);
+        let trait_args = method
+            .trait_args
+            .iter()
+            .map(|arg| normalization.normalize(*arg))
+            .collect::<Vec<_>>();
+        let where_predicates = method
+            .where_predicates
+            .iter()
+            .map(|predicate| WherePredicateSignature {
+                ty: normalization.normalize(predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| nia_item_signatures::WhereBoundSignature {
+                        trait_ty: normalization.normalize(bound.trait_ty),
+                        associated_type_bindings: bound
+                            .associated_type_bindings
+                            .iter()
+                            .map(
+                                |binding| nia_item_signatures::AssociatedTypeBindingSignature {
+                                    name: binding.name.clone(),
+                                    ty: normalization.normalize(binding.ty),
+                                    span: binding.span,
+                                },
+                            )
+                            .collect(),
+                        span: bound.span,
+                    })
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect::<Vec<_>>();
+        let candidate = ExtensionTraitMethodCandidate {
+            target_ty,
+            method_def_id: method.def_id,
+            trait_args,
+            where_predicates,
+            effective_generics: method.effective_generics.clone(),
+            interner: normalization.interner.clone(),
+        };
+        candidates
+            .entry(ExtensionTraitMethodKey {
+                trait_id,
+                method_name: method.name.clone(),
+                trait_arg_count: method.trait_args.len(),
+            })
+            .or_default()
+            .push(candidate);
+    }
+    for bucket in candidates.values_mut() {
+        let mut seen = HashSet::new();
+        bucket.retain(|candidate| {
+            if seen.contains(&candidate.method_def_id) {
+                false
+            } else {
+                seen.insert(candidate.method_def_id);
+                true
+            }
+        });
     }
     candidates
 }

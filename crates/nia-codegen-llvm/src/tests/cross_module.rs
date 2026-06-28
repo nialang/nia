@@ -52,8 +52,8 @@ fn emits_static_global_address_initializers() {
     std::fs::write(
         &main,
         r#"
-var target: i32 = 1;
-var values: [4]i32 = [1, 2, 3, 4];
+let mut target: i32 = 1;
+let mut values: [4]i32 = [1, 2, 3, 4];
 let p: &i32 = &target;
 let q: &i32 = &values[1 + 1];
 
@@ -102,7 +102,7 @@ fn main() i32 {
     std::fs::write(
         root.join("math.nia"),
         r#"
-pub var base: i32 = 40;
+pub let mut base: i32 = 40;
 
 pub fn add(a: i32, b: i32) i32 {
     a + b
@@ -139,7 +139,7 @@ module geom;
 using entry::geom;
 
 fn main() i32 {
-    var p: geom::Point = { x: 40, y: 2 };
+    let mut p: geom::Point = { x: 40, y: 2 };
     p.x + p.y
 }
 "#,

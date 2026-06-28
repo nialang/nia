@@ -31,7 +31,7 @@ where T: Source {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 3 };
+    let mut counter: Counter = { value: 3 };
     read[Counter](& counter)
 }
 "#,
@@ -113,8 +113,8 @@ where R: Reader
 }
 
 fn main() i32 {
-    var source: Source = {};
-    var limit: Limit[Source] = { reader: &source };
+    let mut source: Source = {};
+    let mut limit: Limit[Source] = { reader: &source };
     if let !n = limit.read() {
         n as i32
     } else error! {
@@ -504,7 +504,7 @@ where T: Mapper[i32, i32] {
 }
 
 fn main() i32 {
-    var p: Pairer = { seed: 3 };
+    let mut p: Pairer = { seed: 3 };
     mapped[Pairer](& p, 9)
 }
 "#,
@@ -544,8 +544,8 @@ where T: Combines[T, Output = T] {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
     add_same[Number](& one, two).value
 }
 "#,
@@ -717,7 +717,7 @@ where T: Mapper[i32, bool, C = i32, D = bool] {
 }
 
 fn main() i32 {
-    var p: Pairer = { seed: 3 };
+    let mut p: Pairer = { seed: 3 };
     if map_d_bool[Pairer](& p) { map_c_i32[Pairer](& p) } else { 0 }
 }
 "#,
@@ -774,7 +774,7 @@ extend Device : Reader {
 }
 
 fn main() i32 {
-    var device: Device = {};
+    let mut device: Device = {};
     if let !value = device.read() {
         value
     } else error! {

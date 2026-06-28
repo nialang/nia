@@ -2135,16 +2135,7 @@ impl<'a> BodyChecker<'a> {
             StmtKind::ForIn(for_stmt) => {
                 let iter_ty = self.check_expr(&for_stmt.iter);
                 let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
-                let binding_ty = self.check_binding_pattern(
-                    for_stmt.pattern.kind,
-                    for_stmt.pattern.span,
-                    item_ty,
-                );
-                if for_stmt.pattern.name().is_some()
-                    && let Some(local_id) = self.local_def(&for_stmt.pattern.node_key)
-                {
-                    self.record_local_type(local_id, binding_ty);
-                }
+                self.check_irrefutable_pattern(&for_stmt.pattern, item_ty, "for pattern");
                 self.check_block(&for_stmt.body);
             }
             StmtKind::While(while_stmt) => {
@@ -2203,17 +2194,23 @@ impl<'a> BodyChecker<'a> {
         self.normalize_projection(item)
     }
 
-    fn check_binding_pattern(
+    fn check_irrefutable_pattern(
         &mut self,
-        kind: nia_ast::BindingPatternKind,
-        span: Span,
+        pattern: &nia_ast::Pattern,
         value_ty: InternedTyId,
+        context: &str,
     ) -> InternedTyId {
-        match kind {
-            nia_ast::BindingPatternKind::Value => value_ty,
-            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => {
-                let expected_readonly = matches!(kind, nia_ast::BindingPatternKind::Pointer);
-                match self
+        match &pattern.kind {
+            nia_ast::PatternKind::Wildcard => value_ty,
+            nia_ast::PatternKind::Bind { node_key, .. } => {
+                if let Some(local_id) = self.local_def(node_key) {
+                    self.record_local_type(local_id, value_ty);
+                }
+                value_ty
+            }
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                let expected_readonly = matches!(pattern.kind, nia_ast::PatternKind::Pointer(_));
+                let elem_ty = match self
                     .interner
                     .get(self.normalization.normalize(value_ty))
                     .cloned()
@@ -2231,8 +2228,8 @@ impl<'a> BodyChecker<'a> {
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
-                            span,
-                            format!("binding pattern {expected} does not match value type"),
+                            pattern.span,
+                            format!("{context} {expected} does not match value type"),
                         ));
                         self.error()
                     }
@@ -2244,65 +2241,86 @@ impl<'a> BodyChecker<'a> {
                         };
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
-                            span,
-                            format!("binding pattern requires value to be a {expected}"),
+                            pattern.span,
+                            format!("{context} requires value to be a {expected}"),
                         ));
                         self.error()
                     }
-                }
+                };
+                self.check_irrefutable_pattern(inner, elem_ty, context)
+            }
+            nia_ast::PatternKind::OptionalSome(_)
+            | nia_ast::PatternKind::OptionalNull
+            | nia_ast::PatternKind::ErrorOk(_)
+            | nia_ast::PatternKind::ErrorErr(_)
+            | nia_ast::PatternKind::Expr(_)
+            | nia_ast::PatternKind::Range { .. } => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    pattern.span,
+                    format!("{context} must be irrefutable"),
+                ));
+                self.error()
             }
         }
     }
 
-    fn binding_pattern_input_ty(
+    fn pattern_input_ty(
         &mut self,
-        kind: nia_ast::BindingPatternKind,
+        pattern: &nia_ast::Pattern,
         binding_ty: InternedTyId,
     ) -> InternedTyId {
-        match kind {
-            nia_ast::BindingPatternKind::Value => binding_ty,
-            nia_ast::BindingPatternKind::Pointer => self.interner.intern(TyKind::Pointer {
-                is_readonly: true,
-                elem: binding_ty,
-            }),
-            nia_ast::BindingPatternKind::MutPointer => self.interner.intern(TyKind::Pointer {
-                is_readonly: false,
-                elem: binding_ty,
-            }),
+        match &pattern.kind {
+            nia_ast::PatternKind::Pointer(inner) => {
+                let elem = self.pattern_input_ty(inner, binding_ty);
+                self.interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                })
+            }
+            nia_ast::PatternKind::MutPointer(inner) => {
+                let elem = self.pattern_input_ty(inner, binding_ty);
+                self.interner.intern(TyKind::Pointer {
+                    is_readonly: false,
+                    elem,
+                })
+            }
+            _ => binding_ty,
         }
     }
 
-    fn materialize_explicit_binding_pattern_ty(
+    fn materialize_explicit_pattern_ty(
         &mut self,
-        kind: nia_ast::BindingPatternKind,
+        pattern: &nia_ast::Pattern,
         explicit_binding: InternedTyId,
         value_ty: InternedTyId,
     ) -> InternedTyId {
-        match kind {
-            nia_ast::BindingPatternKind::Value => self
-                .materialize_inferred_array_type(explicit_binding, value_ty)
-                .unwrap_or(explicit_binding),
-            nia_ast::BindingPatternKind::Pointer | nia_ast::BindingPatternKind::MutPointer => {
+        match &pattern.kind {
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
                 let value_elem = match self.interner.get(self.normalization.normalize(value_ty)) {
                     Some(TyKind::Pointer { elem, .. }) => Some(*elem),
                     _ => None,
                 };
                 value_elem
-                    .and_then(|elem| self.materialize_inferred_array_type(explicit_binding, elem))
+                    .map(|elem| self.materialize_explicit_pattern_ty(inner, explicit_binding, elem))
                     .unwrap_or(explicit_binding)
             }
+            _ => self
+                .materialize_inferred_array_type(explicit_binding, value_ty)
+                .unwrap_or(explicit_binding),
         }
     }
 
-    fn local_binding_pattern_key<'b>(
+    fn single_pattern_binding_key<'b>(
         &self,
-        stmt: &'b Stmt,
-        binding: &'b BindingStmt,
-    ) -> &'b VersionedNodeKey {
-        if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
-            &stmt.node_key
-        } else {
-            &binding.pattern_node_key
+        pattern: &'b nia_ast::Pattern,
+    ) -> Option<&'b VersionedNodeKey> {
+        match &pattern.kind {
+            nia_ast::PatternKind::Bind { node_key, .. } => Some(node_key),
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                self.single_pattern_binding_key(inner)
+            }
+            _ => None,
         }
     }
 
@@ -2315,21 +2333,28 @@ impl<'a> BodyChecker<'a> {
                 "comptime binding requires an initializer",
             ));
         }
-        if !matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value)
+        let Some(binding_key) = self.single_pattern_binding_key(&binding.pattern) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                binding.pattern.span,
+                "binding requires a single binding pattern",
+            ));
+            return;
+        };
+        if !matches!(binding.pattern.kind, nia_ast::PatternKind::Bind { .. })
             && binding.value.is_none()
         {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
-                binding.pattern_span,
+                binding.pattern.span,
                 "binding pattern requires an initializer",
             ));
-            return self.record_error_local_binding(self.local_binding_pattern_key(stmt, binding));
+            return self.record_error_local_binding(binding_key);
         }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
                 let explicit_binding = self.ty_for_type(ty);
-                let explicit_input =
-                    self.binding_pattern_input_ty(binding.pattern_kind, explicit_binding);
+                let explicit_input = self.pattern_input_ty(&binding.pattern, explicit_binding);
                 let value_ty = if binding.is_comptime {
                     self.with_comptime_context(|this| {
                         this.check_expr_with_expected(value, Some(explicit_input))
@@ -2341,20 +2366,15 @@ impl<'a> BodyChecker<'a> {
                     // The initializer is validated by nia-comptime-check and has no runtime value.
                 } else if self.is_comptime_only_ty(value_ty) {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
-                    return self
-                        .record_error_local_binding(self.local_binding_pattern_key(stmt, binding));
+                    return self.record_error_local_binding(binding_key);
                 } else {
                     self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
                 }
-                self.materialize_explicit_binding_pattern_ty(
-                    binding.pattern_kind,
-                    explicit_binding,
-                    value_ty,
-                )
+                self.materialize_explicit_pattern_ty(&binding.pattern, explicit_binding, value_ty)
             }
             (Some(ty), None) => {
                 let explicit = self.ty_for_type(ty);
-                if matches!(binding.pattern_kind, nia_ast::BindingPatternKind::Value) {
+                if matches!(binding.pattern.kind, nia_ast::PatternKind::Bind { .. }) {
                     explicit
                 } else {
                     self.error()
@@ -2378,7 +2398,7 @@ impl<'a> BodyChecker<'a> {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
                     self.error()
                 } else {
-                    self.check_binding_pattern(binding.pattern_kind, binding.pattern_span, value_ty)
+                    self.check_irrefutable_pattern(&binding.pattern, value_ty, "binding pattern")
                 }
             }
             (None, None) => {
@@ -2390,7 +2410,7 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         };
-        if let Some(local_id) = self.local_def(self.local_binding_pattern_key(stmt, binding)) {
+        if let Some(local_id) = self.local_def(binding_key) {
             self.record_local_type(local_id, binding_ty);
         }
     }
@@ -2456,14 +2476,14 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "switch does not destructure optional values; use `if let` or `if var`",
+                    "switch does not destructure optional values; use `if let`",
                 ));
             }
             Some(TyKind::ErrorUnion { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "switch does not destructure error-union values; use `if let` or `if var`",
+                    "switch does not destructure error-union values; use `if let`",
                 ));
             }
             _ => {}
@@ -2587,6 +2607,33 @@ impl<'a> BodyChecker<'a> {
                 if let Some(coverage) = coverage {
                     coverage.catch_all = Some(pattern.span);
                 }
+            }
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                let expected_readonly = matches!(pattern.kind, nia_ast::PatternKind::Pointer(_));
+                let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
+                    Some(TyKind::Pointer { is_readonly, elem })
+                        if *is_readonly == expected_readonly =>
+                    {
+                        *elem
+                    }
+                    Some(TyKind::Pointer { .. }) => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!("{context} pointer mutability does not match target"),
+                        ));
+                        self.error()
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            pattern.span,
+                            format!("{context} pointer pattern requires a pointer target"),
+                        ));
+                        self.error()
+                    }
+                };
+                self.check_pattern(inner, elem_ty, coverage, context);
             }
             nia_ast::PatternKind::OptionalSome(inner) => {
                 let elem_ty = match self.interner.get(self.normalization.normalize(target_ty)) {
@@ -2751,14 +2798,14 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "switch over optional values is not supported; use `if let` or `if var`",
+                    "switch over optional values is not supported; use `if let`",
                 ));
             }
             Some(TyKind::ErrorUnion { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    "switch over error-union values is not supported; use `if let` or `if var`",
+                    "switch over error-union values is not supported; use `if let`",
                 ));
             }
             _ => {

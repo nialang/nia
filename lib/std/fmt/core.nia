@@ -164,7 +164,7 @@ extend Formatter {
     }
 
     pub fn write_text(&mut self, text: &[char]) Error!void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < text.len() {
             self.write_char(text[index]).?;
             index += 1usize;
@@ -173,7 +173,7 @@ extend Formatter {
     }
 
     pub fn write_text_prefix(&mut self, text: &[char], count: usize) Error!void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < text.len() and index < count {
             self.write_char(text[index]).?;
             index += 1usize;
@@ -195,7 +195,7 @@ extend Formatter {
     }
 
     pub fn write_fill(&mut self, fill: char, count: usize) Error!void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < count {
             self.write_char(fill).?;
             index += 1usize;
@@ -273,8 +273,8 @@ extend Formatter {
         if value == 0u128 {
             1usize
         } else {
-            var count = 0usize;
-            var n = value;
+            let mut count = 0usize;
+            let mut n = value;
             while n != 0u128 {
                 n = n / radix;
                 count += 1usize;
@@ -290,7 +290,7 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!void {
-        var prefix_width = 0usize;
+        let mut prefix_width = 0usize;
         if spec.alternate() {
             if radix == 16u128 or radix == 2u128 {
                 prefix_width = 2usize;
@@ -351,14 +351,14 @@ extend Formatter {
         if value == 0u128 {
             self.write_byte(b'0')
         } else {
-            var digits: [39]u8 = [
+            let mut digits: [39]u8 = [
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ];
-            var count = 0usize;
-            var n = value;
+            let mut count = 0usize;
+            let mut n = value;
             while n != 0u128 {
                 let digit = n % 10u128;
                 digits[count] = (digit as u8) + b'0';
@@ -384,8 +384,8 @@ extend Formatter {
         if value == 0u128 {
             self.write_byte(b'0')
         } else {
-            var shift = start_shift;
-            var started = false;
+            let mut shift = start_shift;
+            let mut started = false;
             while shift != 0u32 {
                 let digit = (value >> shift) & mask;
                 if digit != 0u128 or started {
@@ -432,7 +432,7 @@ extend Formatter {
         spec: FormatSpec,
     ) Error!void {
         let abs = self.signed_abs(value);
-        var prefix_width = 0usize;
+        let mut prefix_width = 0usize;
         if spec.alternate() {
             if radix == 16u128 or radix == 2u128 {
                 prefix_width = 2usize;
@@ -442,7 +442,7 @@ extend Formatter {
                 return Error::InvalidTemplate!;
             }
         }
-        var content_width = self.unsigned_digit_count(abs, radix) + prefix_width;
+        let mut content_width = self.unsigned_digit_count(abs, radix) + prefix_width;
         if value < 0i128 or spec.sign_plus() {
             content_width += 1usize;
         }

@@ -40,8 +40,14 @@ fn main() {
     let StmtKind::ForIn(for_stmt) = &body.stmts[0].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(for_stmt.pattern.name(), Some("i"));
-    assert_eq!(for_stmt.pattern.kind, BindingPatternKind::Value);
+    assert_eq!(bind_pattern_name(&for_stmt.pattern), Some("i"));
+    assert!(matches!(
+        for_stmt.pattern.kind,
+        PatternKind::Bind {
+            is_mutable: false,
+            ..
+        }
+    ));
     assert!(matches!(for_stmt.iter.kind, ExprKind::Range(_)));
 }
 
@@ -64,18 +70,18 @@ fn main(xs: &[&i32], ys: &[&mut i32]) {
     let StmtKind::ForIn(first) = &body.stmts[0].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(first.pattern.name(), Some("x"));
-    assert_eq!(first.pattern.kind, BindingPatternKind::Pointer);
+    assert_eq!(bind_pattern_name(&first.pattern), Some("x"));
+    assert!(matches!(first.pattern.kind, PatternKind::Pointer(_)));
     let StmtKind::ForIn(second) = &body.stmts[1].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(second.pattern.name(), Some("y"));
-    assert_eq!(second.pattern.kind, BindingPatternKind::MutPointer);
+    assert_eq!(bind_pattern_name(&second.pattern), Some("y"));
+    assert!(matches!(second.pattern.kind, PatternKind::MutPointer(_)));
     let StmtKind::ForIn(third) = &body.stmts[2].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(third.pattern.name(), None);
-    assert_eq!(third.pattern.kind, BindingPatternKind::Value);
+    assert_eq!(bind_pattern_name(&third.pattern), None);
+    assert!(matches!(third.pattern.kind, PatternKind::Wildcard));
 }
 
 #[test]
@@ -84,7 +90,7 @@ fn parses_local_binding_pointer_patterns() {
         r#"
 fn main(ptr: &i32, mut_ptr: &mut i32) {
     let &x = ptr;
-    var &mut y: i32 = mut_ptr;
+    let &mut y: i32 = mut_ptr;
 }
 "#,
     );
@@ -96,13 +102,36 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
     let StmtKind::Binding(first) = &body.stmts[0].kind else {
         panic!("expected binding");
     };
-    assert_eq!(first.name, "x");
-    assert_eq!(first.pattern_kind, BindingPatternKind::Pointer);
+    assert_eq!(bind_pattern_name(&first.pattern), Some("x"));
+    assert!(matches!(first.pattern.kind, PatternKind::Pointer(_)));
     let StmtKind::Binding(second) = &body.stmts[1].kind else {
         panic!("expected binding");
     };
-    assert_eq!(second.name, "y");
-    assert_eq!(second.pattern_kind, BindingPatternKind::MutPointer);
+    assert_eq!(bind_pattern_name(&second.pattern), Some("y"));
+    assert!(matches!(second.pattern.kind, PatternKind::MutPointer(_)));
+}
+
+#[test]
+fn parses_local_comptime_mut_binding() {
+    let (module, errors) = parse_module(
+        r#"
+comptime fn width() usize {
+    comptime mut value: usize = 1usize;
+    value
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    assert!(binding.is_comptime);
+    assert!(binding.is_mutable);
+    assert_eq!(bind_pattern_name(&binding.pattern), Some("value"));
 }
 
 #[test]
@@ -201,18 +230,18 @@ fn parenthesized_if_can_still_be_binary(flag: bool, mask: bool) bool {
 }
 
 #[test]
-fn rejects_var_in_for_in_binding() {
+fn rejects_let_keyword_in_for_in_binding() {
     let (_module, errors) = parse_module(
         r#"
 fn main() {
-    for var i in 0..10 {}
+    for let mut i in 0..10 {}
 }
 "#,
     );
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("do not use `let` or `var`")),
+            .any(|error| error.message.contains("expected binding pattern")),
         "{errors:?}"
     );
 }
@@ -248,7 +277,7 @@ fn main(flag: bool) {
         cleanup();
     };
     defer {
-        var state = 1;
+        let mut state = 1;
         switch state {
             0 => cleanup(),
             _ => cleanup(),
@@ -335,7 +364,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     } else err! {
         err
     };
-    let b = if var x = value {
+    let b = if let mut x = value {
         x
     } else {
         0
@@ -365,7 +394,6 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     else {
         panic!("expected if-pattern expression");
     };
-    assert_eq!(if_pattern.binding_mode, PatternBindingMode::Let);
     assert_eq!(if_pattern.arms.len(), 2);
     assert!(matches!(
         &if_pattern.arms[0].pattern.kind,
@@ -385,10 +413,13 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     else {
         panic!("expected if-pattern expression");
     };
-    assert_eq!(if_pattern.binding_mode, PatternBindingMode::Var);
     assert!(matches!(
         &if_pattern.arms[0].pattern.kind,
-        PatternKind::Bind { name, .. } if name == "x"
+        PatternKind::Bind {
+            name,
+            is_mutable: true,
+            ..
+        } if name == "x"
     ));
     assert!(if_pattern.else_branch.is_some());
 

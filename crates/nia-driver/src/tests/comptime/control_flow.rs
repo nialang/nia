@@ -15,10 +15,10 @@ comptime fn width() usize {
     return 6;
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -44,10 +44,10 @@ comptime fn width(flag: bool) usize {
     return 7;
 }
 
-comptime let n: usize = width(true);
+comptime n: usize = width(true);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -70,7 +70,7 @@ comptime fn width() usize {
     return 2usize;
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -98,7 +98,7 @@ comptime fn width() usize {
     return 2usize;
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 "#,
     );
 
@@ -123,8 +123,8 @@ comptime fn width(flag: bool) usize {
     if flag {
         return 4usize;
     }
-    var total: usize = 0;
-    var value: usize = 0;
+    let mut total: usize = 0;
+    let mut value: usize = 0;
     while value < 4usize {
         if value == 2usize {
             value += 1;
@@ -139,10 +139,10 @@ comptime fn width(flag: bool) usize {
     total
 }
 
-comptime let n: usize = width(false);
+comptime n: usize = width(false);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -159,7 +159,7 @@ fn comptime_function_mutable_locals_drive_loop_array_lengths() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var i: usize = 0;
+    let mut i: usize = 0;
     while true {
         if i == 6 {
             break;
@@ -169,10 +169,10 @@ comptime fn width() usize {
     i
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -189,8 +189,8 @@ fn comptime_function_integer_comparisons_drive_control_flow() {
         &root.join("main.nia"),
         r#"
 comptime fn width(limit: usize) usize {
-    var i: usize = 0;
-    var total: usize = 0;
+    let mut i: usize = 0;
+    let mut total: usize = 0;
     while i < limit {
         if i <= 1 {
             total += 1;
@@ -206,10 +206,10 @@ comptime fn width(limit: usize) usize {
     total
 }
 
-comptime let n: usize = width(6);
+comptime n: usize = width(6);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -226,16 +226,16 @@ fn comptime_function_supports_plain_local_assignment() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    var i: usize = 2;
+    let mut i: usize = 2;
     i = 5;
     i *= 2;
     i
 }
 
-comptime let n: usize = width();
+comptime n: usize = width();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,

@@ -65,7 +65,7 @@ extend FileWriter {
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) void {
-        var index = 0usize;
+        let mut index = 0usize;
         while index < bytes.len() {
             self.buffer[self.len + index] = bytes[index];
             index += 1usize;
@@ -108,7 +108,7 @@ extend FileWriter : Writer {
             if n == self.len {
                 self.len = 0;
             } else {
-                var index = n;
+                let mut index = n;
                 while index < self.len {
                     self.buffer[index - n] = self.buffer[index];
                     index += 1usize;
@@ -154,7 +154,7 @@ extend FileReader {
     }
 
     fn read_buffered(&mut self, bytes: &mut [u8]) usize {
-        var count = bytes.len();
+        let mut count = bytes.len();
         if count > self.len() {
             count = self.len();
         }

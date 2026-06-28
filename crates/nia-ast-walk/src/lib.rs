@@ -418,7 +418,9 @@ fn visit_switch_pattern<'ast, V: Visitor<'ast> + ?Sized>(
 fn visit_pattern<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pattern: &'ast Pattern) {
     match &pattern.kind {
         PatternKind::Wildcard | PatternKind::Bind { .. } | PatternKind::OptionalNull => {}
-        PatternKind::OptionalSome(pattern)
+        PatternKind::Pointer(pattern)
+        | PatternKind::MutPointer(pattern)
+        | PatternKind::OptionalSome(pattern)
         | PatternKind::ErrorOk(pattern)
         | PatternKind::ErrorErr(pattern) => visit_pattern(visitor, pattern),
         PatternKind::Expr(pattern) => visitor.visit_expr(pattern),

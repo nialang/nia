@@ -5,7 +5,7 @@ use super::*;
 fn o2_skips_lowering_unused_private_functions() {
     let source = r#"
 fn used(value: i32) i32 {
-    var out = value;
+    let mut out = value;
     out
 }
 
@@ -241,12 +241,12 @@ fn main() i32 {
 fn o2_preserves_transitively_used_private_functions() {
     let source = r#"
 fn leaf(value: i32) i32 {
-    var out = value;
+    let mut out = value;
     out
 }
 
 fn middle() i32 {
-    var out = leaf(1);
+    let mut out = leaf(1);
     out
 }
 
@@ -372,7 +372,7 @@ fn main() i32 {
 fn o2_preserves_used_private_function_instances() {
     let source = r#"
 fn id[T](value: T) T {
-    var out = value;
+    let mut out = value;
     out
 }
 
@@ -399,7 +399,7 @@ fn main() i32 {
 fn exact_function_instance_keys_are_deduplicated() {
     let source = r#"
 fn id[T](value: T) T {
-    var out = value;
+    let mut out = value;
     out
 }
 
@@ -427,12 +427,12 @@ fn main() i32 {
 fn o2_preserves_transitively_used_private_function_instances() {
     let source = r#"
 fn id[T](value: T) T {
-    var out = value;
+    let mut out = value;
     out
 }
 
 fn wrapper[T](value: T) T {
-    var out = id[T](value);
+    let mut out = id[T](value);
     out
 }
 

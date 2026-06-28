@@ -19,16 +19,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var exact: std::ArrayList[i32];
+    let mut exact: std::ArrayList[i32];
     if let !value = std::ArrayList[i32]::init_capacity(page, 3) { exact = value; } else error! { return (1 as process::ExitCode)!; }
     if exact.len() != 0 or exact.capacity() != 3 {
         return (2 as process::ExitCode)!;
     }
     if let !ok = exact.deinit(page) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
 
-    var ops = std::ArrayList[i32]::init();
+    let mut ops = std::ArrayList[i32]::init();
     if let !ok = ops.push(page, 1) { _ = ok; } else error! { return (26 as process::ExitCode)!; }
     if let !ok = ops.push(page, 3) { _ = ok; } else error! { return (27 as process::ExitCode)!; }
     if let !ok = ops.insert(page, 1, 2) { _ = ok; } else error! { return (28 as process::ExitCode)!; }
@@ -54,7 +54,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if let !ok = ops.deinit(page) { _ = ok; } else error! { return (37 as process::ExitCode)!; }
 
-    var alias = std::ArrayList[i32]::init();
+    let mut alias = std::ArrayList[i32]::init();
     if let !ok = alias.reserve_exact(page, 2) { _ = ok; } else error! { return (38 as process::ExitCode)!; }
     if let !ok = alias.push(page, 1) { _ = ok; } else error! { return (39 as process::ExitCode)!; }
     if let !ok = alias.push(page, 2) { _ = ok; } else error! { return (40 as process::ExitCode)!; }
@@ -70,7 +70,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if let !ok = alias.deinit(page) { _ = ok; } else error! { return (45 as process::ExitCode)!; }
 
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return (4 as process::ExitCode)!;
     }
@@ -82,7 +82,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.capacity() < 5 {
         return (8 as process::ExitCode)!;
     }
-    var index = 0;
+    let mut index = 0;
     while index < 6 {
         if let !ok = list.push(page, index * 10) { _ = ok; } else error! { return (9 as process::ExitCode)!; }
         index += 1;
@@ -105,8 +105,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
             } } else null { return (69 as process::ExitCode)!; }
     if let ?value = list.get(6) { _ = value;
             return (70 as process::ExitCode)!; } else null { }
-    if var ?value = list.get_mut(4) { value.* = 44; } else null { return (71 as process::ExitCode)!; }
-    if var ?value = list.last_mut() { value.* = 55; } else null { return (72 as process::ExitCode)!; }
+    if let mut ?value = list.get_mut(4) { value.* = 44; } else null { return (71 as process::ExitCode)!; }
+    if let mut ?value = list.last_mut() { value.* = 55; } else null { return (72 as process::ExitCode)!; }
     let expected_after_accessors: [6]i32 = [0, 10, 20, 30, 44, 55];
     if not mem::equal[i32](list.as_slice(), &expected_after_accessors[..]) {
         return (73 as process::ExitCode)!;
@@ -118,18 +118,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (13 as process::ExitCode)!;
     }
 
-    if var !slot = list.add_one(page) { slot.* = 90; } else error! { return (14 as process::ExitCode)!; }
+    if let mut !slot = list.add_one(page) { slot.* = 90; } else error! { return (14 as process::ExitCode)!; }
     if list.len() != 10 or list.as_slice()[9] != 90 {
         return (15 as process::ExitCode)!;
     }
 
-    if var !slots = list.add_many_as_slice(page, 2) { slots[0] = 100;
+    if let mut !slots = list.add_many_as_slice(page, 2) { slots[0] = 100;
             slots[1] = 110; } else error! { return (16 as process::ExitCode)!; }
     if list.len() != 12 or list.as_slice()[11] != 110 {
         return (17 as process::ExitCode)!;
     }
 
-    if var !slots = list.add_many_at(page, 2, 2) { slots[0] = 21;
+    if let mut !slots = list.add_many_at(page, 2, 2) { slots[0] = 21;
             slots[1] = 22; } else error! { return (46 as process::ExitCode)!; }
     if list.len() != 14 or list.as_slice()[2] != 21 or list.as_slice()[3] != 22 or list.as_slice()[4] != 20 {
         return (47 as process::ExitCode)!;
@@ -144,7 +144,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.len() != 18 {
         return (50 as process::ExitCode)!;
     }
-    var unused = list.unused_capacity_slice();
+    let mut unused = list.unused_capacity_slice();
     if unused.len() < 2 {
         return (51 as process::ExitCode)!;
     }
@@ -203,7 +203,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if list.len() != 11 {
         return (22 as process::ExitCode)!;
     }
-    var mutable_items = list.as_mut_slice();
+    let mut mutable_items = list.as_mut_slice();
     mutable_items[2] = 77;
     if list.as_slice()[2] != 77 {
         return (23 as process::ExitCode)!;
@@ -251,9 +251,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     if let !ok = list.push(page, 10) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if let !ok = list.push(page, 20) { _ = ok; } else error! { return (2 as process::ExitCode)!; }
     if let !ok = list.shrink_to_capacity(page, 0) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
@@ -306,16 +306,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     let page = &mut allocator;
 
-    var source = std::ArrayList[i32]::init();
+    let mut source = std::ArrayList[i32]::init();
     if let !ok = source.push(page, 1) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if let !ok = source.push(page, 2) { _ = ok; } else error! { return (2 as process::ExitCode)!; }
 
-    var cloned: std::ArrayList[i32];
+    let mut cloned: std::ArrayList[i32];
     if let !value = source.clone(page) { cloned = value; } else error! { return (3 as process::ExitCode)!; }
-    var source_items = source.as_mut_slice();
+    let mut source_items = source.as_mut_slice();
     source_items[0] = 9;
     let expected_source: [2]i32 = [9, 2];
     let expected_clone: [2]i32 = [1, 2];
@@ -326,7 +326,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (5 as process::ExitCode)!;
     }
 
-    var owned: &mut [i32];
+    let mut owned: &mut [i32];
     if let !value = source.into_owned_slice(page) { owned = value; } else error! { return (6 as process::ExitCode)!; }
     if source.len() != 0 or source.capacity() != 0 {
         return (7 as process::ExitCode)!;
@@ -336,12 +336,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if let !ok = page.free_slice[i32](owned) { _ = ok; } else error! { return (9 as process::ExitCode)!; }
 
-    var external: &mut [i32];
+    let mut external: &mut [i32];
     if let !items = page.alloc_slice[i32](3) { external = items; } else error! { return (10 as process::ExitCode)!; }
     external[0] = 4;
     external[1] = 5;
     external[2] = 6;
-    var adopted = std::ArrayList[i32]::from_owned_slice(external);
+    let mut adopted = std::ArrayList[i32]::from_owned_slice(external);
     let expected_adopted: [3]i32 = [4, 5, 6];
     if adopted.capacity() != 3 or not mem::equal[i32](adopted.as_slice(), &expected_adopted[..]) {
         return (11 as process::ExitCode)!;
@@ -388,9 +388,9 @@ struct Marker {}
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     let page = &mut allocator;
-    var list = std::ArrayList[Marker]::init();
+    let mut list = std::ArrayList[Marker]::init();
     if let !ok = list.reserve(page, 4) { _ = ok; } else error! { return (1 as process::ExitCode)!; }
     if list.capacity() != usize::MAX {
         return (2 as process::ExitCode)!;
@@ -451,10 +451,10 @@ fn expect_invalid(result: mem::Error!void) process::ExitCode!void {
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::PageAllocator::init();
+    let mut allocator = mem::PageAllocator::init();
     let page = &mut allocator;
 
-    var list = std::ArrayList[i32]::init();
+    let mut list = std::ArrayList[i32]::init();
     defer list.deinit(page).exit().?;
 
     let initial: [8]i32 = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -503,7 +503,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (7 as process::ExitCode)!;
     }
 
-    var owned = list.to_owned_slice(page).exit().?;
+    let mut owned = list.to_owned_slice(page).exit().?;
     if not mem::equal[i32](owned, list.as_slice()) {
         return (8 as process::ExitCode)!;
     }
@@ -522,9 +522,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (10 as process::ExitCode)!;
     }
 
-    var zero = std::ArrayList[void]::init();
+    let mut zero = std::ArrayList[void]::init();
     zero.resize(page, 4).exit().?;
-    var zero_owned = zero.to_owned_slice(page).exit().?;
+    let mut zero_owned = zero.to_owned_slice(page).exit().?;
     if zero_owned.len() != 4 {
         return (11 as process::ExitCode)!;
     }

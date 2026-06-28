@@ -40,6 +40,7 @@ pub(super) struct TraitMethodCandidate {
     pub(super) trait_args: Vec<InternedTyId>,
     pub(super) signature: FunctionSignature,
     pub(super) has_default: bool,
+    pub(super) is_assumed: bool,
 }
 
 pub(super) struct DynamicTraitMethodCandidate {
@@ -81,22 +82,20 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates_searched = candidates.is_empty();
-        let trait_candidates = if trait_candidates_searched {
-            self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+        let trait_candidates_searched = true;
+        let trait_candidates = self
+            .profile_stage("body_check.profile.method.trait_candidates", |this| {
                 this.trait_method_candidates_for_receiver(receiver_ty, name)
+            });
+        let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
+        let dynamic_candidates = dynamic_receiver_ty
+            .map(|object_ty| {
+                self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
+                    this.dynamic_trait_method_candidates_for_receiver(object_ty, name)
+                })
             })
-        } else {
-            Vec::new()
-        };
-        let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
-            self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
-                this.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
-            })
-        } else {
-            Vec::new()
-        };
-        let mut call_receiver_ty = receiver_ty;
+            .unwrap_or_default();
+        let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
             BuiltinTraitMethod::from_name(name)?;
             call_receiver_ty = self
@@ -137,22 +136,20 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates_searched = candidates.is_empty();
-        let trait_candidates = if trait_candidates_searched {
-            self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+        let trait_candidates_searched = true;
+        let trait_candidates = self
+            .profile_stage("body_check.profile.method.trait_candidates", |this| {
                 this.trait_method_candidates_for_receiver(receiver_ty, name)
+            });
+        let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
+        let dynamic_candidates = dynamic_receiver_ty
+            .map(|object_ty| {
+                self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
+                    this.dynamic_trait_method_candidates_for_receiver(object_ty, name)
+                })
             })
-        } else {
-            Vec::new()
-        };
-        let dynamic_candidates = if candidates.is_empty() && trait_candidates.is_empty() {
-            self.profile_stage("body_check.profile.method.dynamic_candidates", |this| {
-                this.dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
-            })
-        } else {
-            Vec::new()
-        };
-        let mut call_receiver_ty = receiver_ty;
+            .unwrap_or_default();
+        let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
             BuiltinTraitMethod::from_name(name)?;
             call_receiver_ty = self
@@ -199,14 +196,23 @@ impl<'a> BodyChecker<'a> {
         } else {
             trait_candidates
         };
+        let (assumed_trait_candidates, visible_trait_candidates): (Vec<_>, Vec<_>) =
+            trait_candidates
+                .into_iter()
+                .partition(|candidate| candidate.is_assumed);
         if !dynamic_candidates.is_empty() {
             return self.profile_stage("body_check.profile.method.dynamic_call", |this| {
                 this.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates)
             });
         }
-        if viable_candidates.is_empty() && !trait_candidates.is_empty() {
+        if !assumed_trait_candidates.is_empty() {
             return self.profile_stage("body_check.profile.method.trait_call", |this| {
-                this.check_trait_method_call_with_receiver_ty(call, trait_candidates)
+                this.check_trait_method_call_with_receiver_ty(call, assumed_trait_candidates)
+            });
+        }
+        if viable_candidates.is_empty() && !visible_trait_candidates.is_empty() {
+            return self.profile_stage("body_check.profile.method.trait_call", |this| {
+                this.check_trait_method_call_with_receiver_ty(call, visible_trait_candidates)
             });
         }
         if viable_candidates.is_empty()
@@ -370,6 +376,22 @@ impl<'a> BodyChecker<'a> {
             Some(this.normalize_aliases_in_type(return_type))
         })
     }
+
+    fn dynamic_trait_object_receiver_ty(
+        &mut self,
+        receiver_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        match self.interner.get(receiver_ty).cloned() {
+            Some(TyKind::TraitObject { .. }) => Some(receiver_ty),
+            Some(TyKind::Pointer { elem, .. }) => {
+                let elem = self.normalization.normalize(elem);
+                matches!(self.interner.get(elem), Some(TyKind::TraitObject { .. })).then_some(elem)
+            }
+            _ => None,
+        }
+    }
+
     fn builtin_place_method_receiver_coercion(
         &mut self,
         receiver: &Expr,

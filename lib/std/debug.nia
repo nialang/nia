@@ -2,9 +2,9 @@ using pkg::fmt;
 using pkg::io;
 
 pub fn print(template: &[char], args: &[&fmt::Format]) void {
-    var runtime_io = io::BlockingIo::init();
-    var buffer: [512]u8 = [_]u8[0; 512];
-    var stderr = io::FileWriter::stderr(&mut runtime_io, &mut buffer);
+    let mut runtime_io = io::BlockingIo::init();
+    let mut buffer: [512]u8 = [_]u8[0; 512];
+    let mut stderr = io::FileWriter::stderr(&mut runtime_io, &mut buffer);
 
     if let !ok = stderr.print(template, args) {
         _ = ok;

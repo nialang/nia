@@ -30,8 +30,8 @@ fn emits_short_circuit_logical_operators() {
         &main,
         r#"
 fn main(a: bool, b: bool) i32 {
-    var x = a and b;
-    var y = a or b;
+    let mut x = a and b;
+    let mut y = a or b;
     if x or y { 1 } else { 0 }
 }
 "#,
@@ -61,8 +61,8 @@ fn emits_for_break_and_continue() {
             "{COUNTER_ITERATOR}\n{}",
             r#"
 fn main() i32 {
-    var sum = 0;
-    var iter = Counter { current: 0, end: 10 };
+    let mut sum = 0;
+    let mut iter = Counter { current: 0, end: 10 };
     for i in iter {
         if i == 3 {
             continue;
@@ -101,7 +101,7 @@ fn emits_for_over_range_value() {
 using std;
 
 fn main() i32 {
-    var sum = 0;
+    let mut sum = 0;
     for i in std::range(1usize..4usize) {
         sum += i as i32;
     }
@@ -132,8 +132,8 @@ fn emits_for_over_explicit_iterator_value() {
             "{COUNTER_ITERATOR}\n{}",
             r#"
 fn main() i32 {
-    var iter = Counter { current: 1, end: 4 };
-    var sum = 0;
+    let mut iter = Counter { current: 1, end: 4 };
+    let mut sum = 0;
     for i in iter {
         sum += i;
     }
@@ -187,8 +187,8 @@ extend Counter : Iterator {
 }
 
 fn main() i32 {
-    var iter = Counter { current: 1, end: 4 };
-    var sum = 0;
+    let mut iter = Counter { current: 1, end: 4 };
+    let mut sum = 0;
     for result in iter {
         let value = if let !item = result {
             item
@@ -381,19 +381,19 @@ module iter;
 using entry::iter;
 
 fn main() i32 {
-    var total = 0;
+    let mut total = 0;
 
-    var struct_iter = iter::StructIter { index: 0 };
+    let mut struct_iter = iter::StructIter { index: 0 };
     for item in struct_iter {
         total += item.value;
     }
 
-    var array_iter = iter::ArrayIter { index: 0 };
+    let mut array_iter = iter::ArrayIter { index: 0 };
     for item in array_iter {
         total += item[0] + item[1];
     }
 
-    var optional_iter = iter::OptionalIter { index: 0 };
+    let mut optional_iter = iter::OptionalIter { index: 0 };
     for item in optional_iter {
         if let ?value = item {
             total += value.value;
@@ -402,7 +402,7 @@ fn main() i32 {
         }
     }
 
-    var error_iter = iter::ErrorIter { index: 0 };
+    let mut error_iter = iter::ErrorIter { index: 0 };
     for item in error_iter {
         if let !value = item {
             total += value.value;
@@ -411,7 +411,7 @@ fn main() i32 {
         }
     }
 
-    var optional_error_iter = iter::OptionalErrorIter { index: 0 };
+    let mut optional_error_iter = iter::OptionalErrorIter { index: 0 };
     for item in optional_error_iter {
         if let ?result = item {
             if let !value = result {
@@ -424,7 +424,7 @@ fn main() i32 {
         }
     }
 
-    var error_optional_iter = iter::ErrorOptionalIter { index: 0 };
+    let mut error_optional_iter = iter::ErrorOptionalIter { index: 0 };
     for item in error_optional_iter {
         if let !maybe = item {
             if let ?value = maybe {
@@ -437,12 +437,12 @@ fn main() i32 {
         }
     }
 
-    var slice_iter = iter::SliceIter { index: 0, data: [9, 10] };
+    let mut slice_iter = iter::SliceIter { index: 0, data: [9, 10] };
     for item in slice_iter {
         total += item[0] + item[1];
     }
 
-    var generic_iter = iter::GenericIter { index: 0 };
+    let mut generic_iter = iter::GenericIter { index: 0 };
     for item in generic_iter {
         total += item.value.value;
     }
@@ -520,7 +520,7 @@ extern fn fopen(path: & u8, mode: & u8) &void;
 
 fn inspect(path: & u8) i32 {
     let mode = b"rb\0";
-    var file = fopen(path, &(mode.*[0]));
+    let mut file = fopen(path, &(mode.*[0]));
 
     if file as usize == 0 {
         return 1;
@@ -629,7 +629,7 @@ fn break_from_defer() i32 {
 }
 
 fn continue_from_defer() i32 {
-    var i = 0;
+    let mut i = 0;
     loop {
         i += 1;
         defer {
@@ -797,7 +797,7 @@ fn emits_defer_before_loop_break_and_continue() {
 extern fn log(x: i32);
 
 fn main() i32 {
-    var i = 0;
+    let mut i = 0;
     loop {
         defer log(20);
         if i == 0 {

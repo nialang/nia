@@ -32,7 +32,7 @@ fn use_allocator(allocator: &mut Allocator) i32 {
 }
 
 fn main() i32 {
-    var allocator: PageAllocator = { value: 21 };
+    let mut allocator: PageAllocator = { value: 21 };
     use_allocator(&mut allocator)
 }
 "#,
@@ -75,7 +75,7 @@ fn use_allocator(allocator: &mut Allocator) i32 {
 }
 
 fn main() i32 {
-    var allocator: PageAllocator = { value: 21 };
+    let mut allocator: PageAllocator = { value: 21 };
     use_allocator(&mut allocator)
 }
 "#,
@@ -108,15 +108,15 @@ using std::process;
 using build_script;
 
 fn use_allocator(allocator: &mut mem::Allocator) mem::Error!void {
-    var bytes = allocator.alloc_slice[u8](4usize).?;
+    let mut bytes = allocator.alloc_slice[u8](4usize).?;
     allocator.free_slice[u8](bytes).?;
     !{}
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var page_allocator = mem::PageAllocator::init();
-    var allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
+    let mut page_allocator = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page_allocator);
     defer allocator.deinit().ok().exit().?;
     use_allocator(&mut allocator).exit().?;
     if build_script::marker() != 1 {
@@ -176,7 +176,7 @@ fn read(source: &Source) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 41 };
+    let mut counter: Counter = { value: 41 };
     read(&counter)
 }
 "#,
@@ -195,7 +195,7 @@ fn bare_trait_is_still_not_a_value_type() {
 trait Allocator {}
 
 fn main() i32 {
-    var allocator: Allocator;
+    let mut allocator: Allocator;
     0
 }
 "#,
@@ -302,7 +302,7 @@ fn read(source: & Source) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     read(& counter)
 }
 "#,
@@ -346,7 +346,7 @@ fn bump(counter: &mut CounterLike) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 8 };
+    let mut counter: Counter = { value: 8 };
     bump(&mut counter)
 }
 "#,
@@ -660,7 +660,7 @@ extend[E] Formatter[E] {
     }
 
     fn write_byte(&mut self) E!void {
-        var bytes: [1]u8 = [0];
+        let mut bytes: [1]u8 = [0];
         self.write_all(&bytes[..]).?;
         !{}
     }
@@ -717,7 +717,7 @@ fn read(source: & Source[Item = i32]) i32 {
 }
 
 fn main() i32 {
-    var counter: Counter = { value: 42 };
+    let mut counter: Counter = { value: 42 };
     read(& counter)
 }
 "#,
@@ -798,7 +798,7 @@ fn from_child(child: & Child[
 }
 
 fn main() i32 {
-    var both: Both = { value: 41 };
+    let mut both: Both = { value: 41 };
     from_child(& both)
 }
 "#,

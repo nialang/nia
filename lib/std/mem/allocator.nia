@@ -75,18 +75,18 @@ extend Allocator {
 fn dangling_slice[T](len: usize) &mut [T]
 where T: Sized
 {
-    var ptr = @align[T]() as &mut T;
+    let mut ptr = @align[T]() as &mut T;
     &mut ptr[0..len]
 }
 
 extend Block {
     fn copy_prefix_to(&self, to: Block) void {
-        var count = self.size();
+        let mut count = self.size();
         if count > to.size() {
             count = to.size();
         }
         let from_bytes = self.bytes();
-        var to_bytes = to.bytes();
+        let mut to_bytes = to.bytes();
         copy::copy_forwards[u8](&mut to_bytes[0..count], &from_bytes[0..count]);
     }
 }

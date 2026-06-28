@@ -188,10 +188,6 @@ fn pipeline_with_options(
     );
     let mut extensions = VisibleExtensionMethods::default();
     if include_visible_extensions {
-        let impl_id = signatures
-            .trait_impls
-            .first()
-            .map(|signature| signature.impl_id);
         for item in &module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
@@ -200,6 +196,12 @@ fn pipeline_with_options(
                 continue;
             };
             let target_ty = normalization.normalize(target_ty);
+            let Some(impl_signature) = signatures.trait_impls.iter().find(|signature| {
+                signature.generics == extend.generics
+                    && normalization.normalize(signature.target_ty) == target_ty
+            }) else {
+                continue;
+            };
             for method in &extend.methods {
                 let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
                     continue;
@@ -210,11 +212,10 @@ fn pipeline_with_options(
                 if method_def.kind != DefKind::Method {
                     continue;
                 }
-                let Some(impl_id) = impl_id else {
-                    continue;
-                };
+                let mut effective_generics = extend.generics.clone();
+                effective_generics.extend(method_def.generics.iter().cloned());
                 extensions.insert(
-                    impl_id,
+                    impl_signature.impl_id,
                     target_ty,
                     VisibleExtensionMethod {
                         name: method_def.name.clone(),
@@ -222,8 +223,8 @@ fn pipeline_with_options(
                             module_id: ModuleId(0),
                             def_id: method_id,
                         },
-                        impl_id,
-                        effective_generics: extend.generics.clone(),
+                        impl_id: impl_signature.impl_id,
+                        effective_generics,
                         trait_id: None,
                         trait_args: Vec::new(),
                         where_predicates: Vec::new(),

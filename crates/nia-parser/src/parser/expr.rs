@@ -774,7 +774,7 @@ impl Parser {
 
     fn parse_if_expr(&mut self) -> Option<Expr> {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
-        if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
+        if self.at(TokenKind::Let) {
             return self.parse_if_pattern_expr(start);
         }
         let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
@@ -803,12 +803,7 @@ impl Parser {
     }
 
     fn parse_if_pattern_expr(&mut self, start: usize) -> Option<Expr> {
-        let binding_mode = if self.eat(TokenKind::Let).is_some() {
-            PatternBindingMode::Let
-        } else {
-            self.expect(TokenKind::Var, "expected `let` or `var` after `if`")?;
-            PatternBindingMode::Var
-        };
+        self.expect(TokenKind::Let, "expected `let` after `if`")?;
         let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::Eq])?;
         self.expect(TokenKind::Eq, "expected `=` after if pattern")?;
         let target = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
@@ -844,7 +839,6 @@ impl Parser {
         Some(self.make_expr(
             Span::new(start, end),
             ExprKind::IfPattern(Box::new(IfPatternExpr {
-                binding_mode,
                 target,
                 arms,
                 else_branch,

@@ -11,14 +11,14 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = switch 1usize {
+comptime config = switch 1usize {
     1usize => ({width: 4usize}),
     _ => ({width: 8usize}),
 };
-comptime let n: usize = id(config.width);
+comptime n: usize = id(config.width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -38,11 +38,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let configs = [{width: 4usize}, {width: 8usize}];
-comptime let n: usize = id(configs[1].width);
+comptime configs = [{width: 4usize}, {width: 8usize}];
+comptime n: usize = id(configs[1].width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -62,12 +62,12 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let configs = [{width: 4usize}, {width: 8usize}, {width: 16usize}];
-comptime let selected = configs[1..=2];
-comptime let n: usize = id(selected[1].width);
+comptime configs = [{width: 4usize}, {width: 8usize}, {width: 16usize}];
+comptime selected = configs[1..=2];
+comptime n: usize = id(selected[1].width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -87,11 +87,11 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let configs = [{width: 4usize}; 2usize];
-comptime let n: usize = id(configs[1].width);
+comptime configs = [{width: 4usize}; 2usize];
+comptime n: usize = id(configs[1].width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -115,10 +115,10 @@ comptime fn array_len[T](value: T) usize {
     7usize
 }
 
-comptime let n: usize = array_len(id(4usize));
+comptime n: usize = array_len(id(4usize));
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -151,10 +151,10 @@ comptime fn unwrap(value: ?usize) usize {
     }
 }
 
-comptime let n: usize = unwrap(id(some(7usize)));
+comptime n: usize = unwrap(id(some(7usize)));
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -178,10 +178,10 @@ comptime fn use_try(value: ?usize) usize {
     id(value.?)
 }
 
-comptime let n: usize = use_try(?7usize);
+comptime n: usize = use_try(?7usize);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -206,15 +206,15 @@ comptime fn use_try(value: usize!usize) usize!usize {
     !id(value.?)
 }
 
-comptime let got: usize!usize = use_try(!7usize);
-comptime let n: usize = if let !payload = got {
+comptime got: usize!usize = use_try(!7usize);
+comptime n: usize = if let !payload = got {
     payload
 } else err! {
     err
 };
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -234,12 +234,12 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config = {target: {pointer_width: 64usize}};
-comptime let bits: usize = id(config.target.pointer_width);
-comptime let n: usize = bits / 8usize;
+comptime config = {target: {pointer_width: 64usize}};
+comptime bits: usize = id(config.target.pointer_width);
+comptime n: usize = bits / 8usize;
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -259,12 +259,12 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let builtin = {target: {pointer_width: 64usize}};
-comptime let bits: usize = id(builtin.target.pointer_width);
-comptime let n: usize = bits / 8usize;
+comptime builtin = {target: {pointer_width: 64usize}};
+comptime bits: usize = id(builtin.target.pointer_width);
+comptime n: usize = bits / 8usize;
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -292,10 +292,10 @@ comptime fn unwrap(value: ?usize) usize {
     }
 }
 
-comptime let n: usize = unwrap(id(?7usize));
+comptime n: usize = unwrap(id(?7usize));
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -325,10 +325,10 @@ comptime fn unwrap(value: usize!usize) usize {
     }
 }
 
-comptime let n: usize = unwrap(id(!7usize));
+comptime n: usize = unwrap(id(!7usize));
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -358,10 +358,10 @@ comptime fn unwrap(value: usize!usize) usize {
     }
 }
 
-comptime let n: usize = unwrap(id(3usize!));
+comptime n: usize = unwrap(id(3usize!));
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -385,12 +385,12 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime let config: Config = id(Config{widths: [2, 4, 8]});
-comptime let widths: [3]usize = id([3]usize[2, 4, 8]);
-comptime let width: usize = config.widths[1] + widths[0];
+comptime config: Config = id(Config{widths: [2, 4, 8]});
+comptime widths: [3]usize = id([3]usize[2, 4, 8]);
+comptime width: usize = config.widths[1] + widths[0];
 
 fn main() i32 {
-    var values: [width]i32 = [0; width];
+    let mut values: [width]i32 = [0; width];
     values.len() as i32
 }
 "#,
@@ -409,11 +409,11 @@ fn imported_generic_comptime_function_infers_type_arg_from_typed_value() {
 module identity;
 using entry::identity;
 
-comptime let width: usize = 4;
-comptime let n: usize = identity::id(width);
+comptime width: usize = 4;
+comptime n: usize = identity::id(width);
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -441,10 +441,10 @@ comptime fn zero[T]() usize {
     0
 }
 
-comptime let n: usize = zero();
+comptime n: usize = zero();
 
 fn main() i32 {
-    var values: [n]i32 = [0; n];
+    let mut values: [n]i32 = [0; n];
     values.len() as i32
 }
 "#,
@@ -476,10 +476,10 @@ comptime fn size_of[T]() usize {
     @size[T]()
 }
 
-comptime let n: usize = size_of[Pair]();
+comptime n: usize = size_of[Pair]();
 
 fn main() i32 {
-    var bytes: [n]u8 = [0; n];
+    let mut bytes: [n]u8 = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -504,10 +504,10 @@ struct Pair {
     b: i32,
 }
 
-comptime let n: usize = layout::size_of[Pair]();
+comptime n: usize = layout::size_of[Pair]();
 
 fn main() i32 {
-    var bytes: [n]u8 = [0; n];
+    let mut bytes: [n]u8 = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -536,7 +536,7 @@ pub struct Pair {
     b: i32,
 }
 
-pub comptime let pair_size: usize = @size[Pair]();
+pub comptime pair_size: usize = @size[Pair]();
 "#,
     );
     write(
@@ -545,10 +545,10 @@ pub comptime let pair_size: usize = @size[Pair]();
 module config;
 using entry::config;
 
-comptime let n: usize = config::pair_size;
+comptime n: usize = config::pair_size;
 
 fn main() i32 {
-    var bytes: [n]u8 = [0; n];
+    let mut bytes: [n]u8 = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -564,7 +564,7 @@ fn layout_builtin_uses_imported_comptime_array_lengths() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime let N: usize = 4usize;
+pub comptime N: usize = 4usize;
 
 pub struct Packet {
     bytes: [N]u8,
@@ -577,10 +577,10 @@ pub struct Packet {
 module config;
 using entry::config;
 
-comptime let n: usize = @size[config::Packet]();
+comptime n: usize = @size[config::Packet]();
 
 fn main() i32 {
-    var bytes: [n]u8 = [0; n];
+    let mut bytes: [n]u8 = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -606,8 +606,8 @@ comptime fn size_of[T]() usize {
 }
 
 fn main() i32 {
-    comptime let n: usize = size_of[Pair]();
-    var bytes: [n]u8 = [0; n];
+    comptime n: usize = size_of[Pair]();
+    let mut bytes: [n]u8 = [0; n];
     bytes.len() as i32
 }
 "#,
@@ -623,7 +623,7 @@ fn imported_struct_field_array_length_accepts_literal_repeat_count() {
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime let N: usize = 4;
+pub comptime N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -654,7 +654,7 @@ fn make() Boxed {
 }
 
 fn main() i32 {
-    var x = make();
+    let mut x = make();
     x.items[0].value as i32
 }
 "#,
@@ -670,7 +670,7 @@ fn imported_struct_field_array_length_accepts_imported_repeat_count() {
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime let N: usize = 4;
+pub comptime N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -701,7 +701,7 @@ fn make() Boxed {
 }
 
 fn main() i32 {
-    var x = make();
+    let mut x = make();
     x.items[0].value as i32
 }
 "#,

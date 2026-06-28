@@ -93,7 +93,7 @@ extend Args {
 
 extend ArgsIter {
     pub fn init(args: Args, index: usize) ArgsIter {
-        var start = index;
+        let mut start = index;
         if start > args.len() {
             start = args.len();
         }

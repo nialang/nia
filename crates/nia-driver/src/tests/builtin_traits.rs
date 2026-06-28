@@ -96,11 +96,11 @@ extend Number : Add[Number] {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
-    var three = one + two;
-    var seven = three.add({ value: 4 });
-    var nine = [Number]::add(seven, { value: 2 });
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
+    let mut three = one + two;
+    let mut seven = three.add({ value: 4 });
+    let mut nine = [Number]::add(seven, { value: 2 });
     nine.value
 }
 "#,
@@ -127,8 +127,8 @@ extend Number {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
     one.add(two).value
 }
 "#,
@@ -149,9 +149,9 @@ struct Number {
 }
 
 fn main() i32 {
-    var one: Number = { value: 1 };
-    var two: Number = { value: 2 };
-    var three = one + two;
+    let mut one: Number = { value: 1 };
+    let mut two: Number = { value: 2 };
+    let mut three = one + two;
     three.value
 }
 "#,
@@ -236,8 +236,8 @@ where T: BitNot {
 }
 
 fn main() i32 {
-    var a: i32 = neg[i32](1);
-    var b: i32 = invert[i32](0);
+    let mut a: i32 = neg[i32](1);
+    let mut b: i32 = invert[i32](0);
     a + b
 }
 "#,
@@ -427,13 +427,13 @@ where S: Slice[..] {
 }
 
 fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
-    var x = read_ptr[&mut i32](ptr);
+    let mut x = read_ptr[&mut i32](ptr);
     write_ptr[&mut i32](ptr, x);
-    var y = read_index[& [i32]](ro, 0);
+    let mut y = read_index[& [i32]](ro, 0);
     write_index[&mut [i32]](rw, 0, y);
     write_index_i32[&mut [i32]](rw, 0, y);
-    var a = slice_read[& [i32]](ro);
-    var b = slice_mut[&mut [i32]](rw);
+    let mut a = slice_read[& [i32]](ro);
+    let mut b = slice_mut[&mut [i32]](rw);
     a.len() as i32 + b.len() as i32 + x + y
 }
 "##,
@@ -451,19 +451,19 @@ fn builtin_len_method_and_get_ptr_traits_model_arrays_and_slices() {
         r##"
 fn ptr_read_value[S](slice: S) [S as GetPtrRead]::Target
 where S: GetPtrRead {
-    var ptr = slice.get_ptr_read();
+    let mut ptr = slice.get_ptr_read();
     ptr.*
 }
 
 fn ptr_value[S](slice: S) [S as GetPtr]::Target
 where S: GetPtr {
-    var ptr = slice.get_ptr();
+    let mut ptr = slice.get_ptr();
     ptr.*
 }
 
 fn main(slice_read: & [usize], slice_mut: &mut [usize]) usize {
-    var array: [4]i32 = [1, 2, 3, 4];
-    var literal_ptr = b"nia\0".get_ptr_read();
+    let mut array: [4]i32 = [1, 2, 3, 4];
+    let mut literal_ptr = b"nia\0".get_ptr_read();
     array.len()
         + slice_read.len()
         + slice_mut.len()
@@ -485,7 +485,7 @@ fn builtin_get_ptr_traits_do_not_apply_to_arrays() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    var array: [4]i32 = [1, 2, 3, 4];
+    let mut array: [4]i32 = [1, 2, 3, 4];
     array.get_ptr_read().*
 }
 "#,
@@ -610,10 +610,10 @@ where C: Index[usize] {
 }
 
 fn main() i32 {
-    var cell: Cell = { value: 1 };
-    var first = read_deref[Cell](cell);
+    let mut cell: Cell = { value: 1 };
+    let mut first = read_deref[Cell](cell);
     write_deref[Cell](cell, 3);
-    var second = read_index[Cell](cell);
+    let mut second = read_index[Cell](cell);
     write_index[Cell](cell, 5);
     first + second + cell.value
 }
@@ -731,7 +731,7 @@ fn builtin_slice_traits_allow_user_container_impls() {
         r#"
 struct Cell {}
 
-var backing: [3]i32 = [1, 2, 3];
+let mut backing: [3]i32 = [1, 2, 3];
 
 extend Cell : SliceRead[..] {
     type Output = & [i32];
@@ -747,7 +747,7 @@ where T: SliceRead[..] {
 }
 
 fn main(cell: Cell) i32 {
-    var part = take(cell);
+    let mut part = take(cell);
     part.len() as i32
 }
 "#,
@@ -814,7 +814,7 @@ where T: Len {
 }
 
 fn main(slice: & [usize]) usize {
-    var array = [1usize, 2usize, 3usize, 4usize];
+    let mut array = [1usize, 2usize, 3usize, 4usize];
     len_of(array) + associated_len_of(slice)
 }
 "#,
@@ -902,8 +902,8 @@ fn builtin_slice_ranges_infer_usize_bounds() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    var items: [4]i32 = [1, 2, 3, 4];
-    var part = & items[0..2];
+    let mut items: [4]i32 = [1, 2, 3, 4];
+    let mut part = & items[0..2];
     part.len() as i32
 }
 "#,
@@ -920,9 +920,9 @@ fn builtin_slice_ranges_require_usize_bounds() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    var items: [4]i32 = [1, 2, 3, 4];
-    var end: i32 = 2;
-    var part = & items[0..end];
+    let mut items: [4]i32 = [1, 2, 3, 4];
+    let mut end: i32 = 2;
+    let mut part = & items[0..end];
     part.len() as i32
 }
 "#,
@@ -946,7 +946,7 @@ fn range_expressions_are_runtime_values() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    var range: usize..usize = 0..2;
+    let mut range: usize..usize = 0..2;
     0
 }
 "#,

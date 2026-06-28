@@ -212,12 +212,20 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
     assert!(body_block.ops.iter().any(|op| {
         matches!(
             op,
-            FunctionOp::Binding(binding)
-                if matches!(
-                    binding.value.as_ref().map(|value| &value.kind),
-                    Some(FunctionExprKind::TaggedUnionPayload { .. })
-                )
+            FunctionOp::StoreLocal { local_id, value, .. }
+                if *local_id == LocalId(0)
+                    && matches!(
+                        value.kind,
+                        FunctionExprKind::TaggedUnionPayload { .. }
+                    )
         )
+    }));
+    assert!(body_block.ops.iter().all(|op| match op {
+        FunctionOp::Binding(binding) => !matches!(
+            binding.value.as_ref().map(|value| &value.kind),
+            Some(FunctionExprKind::TaggedUnionPayload { .. })
+        ),
+        _ => true,
     }));
     let continue_block = function_body
         .blocks
@@ -258,13 +266,16 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
         stmts: vec![TypedStmt {
             span,
             kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
-                binding: Some(TypedForBinding {
-                    local_id: LocalId(0),
-                    name: "i".to_string(),
-                }),
-                pattern_kind: nia_ast::BindingPatternKind::Value,
+                pattern: TypedPattern {
+                    ty: item_ty,
+                    span,
+                    kind: TypedPatternKind::Bind {
+                        local_id: LocalId(0),
+                        name: "i".to_string(),
+                    },
+                },
                 item_ty,
-                binding_ty: item_ty,
+                iter_self_ty: item_ty,
                 iter: TypedExpr {
                     span,
                     ty: item_ty,

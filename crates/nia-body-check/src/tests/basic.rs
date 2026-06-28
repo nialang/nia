@@ -6,7 +6,7 @@ fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"
 fn add(a: i32, b: i32) i32 {
-    var sum: i32 = a + b;
+    let mut sum: i32 = a + b;
     sum
 }
 "#,
@@ -24,7 +24,7 @@ union Bits[T] {
 }
 
 fn main() i32 {
-    var bits: Bits[i32] = { value: 10 };
+    let mut bits: Bits[i32] = { value: 10 };
     bits.value
 }
 "#,
@@ -38,7 +38,7 @@ union Bits {
 }
 
 fn main() i32 {
-    var bits: Bits = {};
+    let mut bits: Bits = {};
     0
 }
 "#,
@@ -60,7 +60,7 @@ union Bits {
 }
 
 fn main() i32 {
-    var bits: Bits = { i: 1, f: 2.0 };
+    let mut bits: Bits = { i: 1, f: 2.0 };
     0
 }
 "#,
@@ -85,9 +85,9 @@ fn take_void(p: &void) {}
 fn take_read_void(p: &void) {}
 
 fn main() {
-    var unit: void = {};
-    var empty: Empty = {};
-    var value: i32 = 1;
+    let mut unit: void = {};
+    let mut empty: Empty = {};
+    let mut value: i32 = 1;
     take_void(&value as &void);
     take_read_void(&value as &void);
     unit
@@ -99,8 +99,8 @@ fn main() {
     let bad_implicit = pipeline(
         r#"
 fn main() {
-    var value: i32 = 1;
-    var ptr: &void = &value;
+    let mut value: i32 = 1;
+    let mut ptr: &void = &value;
 }
 "#,
     );
@@ -116,8 +116,8 @@ fn main() {
     let bad_deref = pipeline(
         r#"
 fn main() i32 {
-    var value: i32 = 1;
-    var ptr: &void = &value as &void;
+    let mut value: i32 = 1;
+    let mut ptr: &void = &value as &void;
     ptr.*
 }
 "#,
@@ -178,7 +178,7 @@ fn accepts_explicit_return_without_tail_expression() {
 extern fn printf(fmt: &u8, ...);
 
 fn main() i32 {
-    var hello = b"hello, world!\n\0";
+    let mut hello = b"hello, world!\n\0";
     printf(&(hello.*[0]));
     return 0;
 }
@@ -192,7 +192,7 @@ fn reports_mismatched_return_and_binding_types() {
     let checked = pipeline(
         r#"
 fn bad(flag: bool) i32 {
-    var x: bool = 1;
+    let mut x: bool = 1;
     flag
 }
 "#,
@@ -232,7 +232,7 @@ fn fail(error: i32) i32!i32 {
 }
 
 fn use_error(value: i32!i32) i32!i32 {
-    var unwrapped = value.?;
+    let mut unwrapped = value.?;
     !unwrapped
 }
 "#,
@@ -246,8 +246,8 @@ fn rejects_error_union_construction_without_expected_type() {
     let checked = pipeline(
         r#"
 fn bad() i32 {
-    var a = !10i32;
-    var b = 20i32!;
+    let mut a = !10i32;
+    let mut b = 20i32!;
     a + b
 }
 "#,

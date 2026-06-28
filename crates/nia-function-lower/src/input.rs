@@ -283,7 +283,9 @@ impl BodyInputValidator {
 
     fn validate_pattern(&self, pattern: &TypedPattern) -> Result<(), FunctionLoweringDiagnostic> {
         match &pattern.kind {
-            TypedPatternKind::OptionalSome(inner)
+            TypedPatternKind::Pointer(inner)
+            | TypedPatternKind::MutPointer(inner)
+            | TypedPatternKind::OptionalSome(inner)
             | TypedPatternKind::ErrorOk(inner)
             | TypedPatternKind::ErrorErr(inner) => self.validate_pattern(inner),
             TypedPatternKind::Expr(expr) => self.validate_value_expr(expr),

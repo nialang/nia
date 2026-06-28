@@ -4,17 +4,17 @@ using pkg::os::linux::types;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, Pipe, SeekWhence};
 
-comptime let linux_dirent64_reclen_offset: usize = 16usize;
-comptime let linux_dirent64_type_offset: usize = 18usize;
-comptime let linux_dirent64_name_offset: usize = 19usize;
-comptime let dirent_type_unknown: u8 = 0u8;
-comptime let dirent_type_fifo: u8 = 1u8;
-comptime let dirent_type_chr: u8 = 2u8;
-comptime let dirent_type_dir: u8 = 4u8;
-comptime let dirent_type_blk: u8 = 6u8;
-comptime let dirent_type_reg: u8 = 8u8;
-comptime let dirent_type_lnk: u8 = 10u8;
-comptime let dirent_type_sock: u8 = 12u8;
+comptime linux_dirent64_reclen_offset: usize = 16usize;
+comptime linux_dirent64_type_offset: usize = 18usize;
+comptime linux_dirent64_name_offset: usize = 19usize;
+comptime dirent_type_unknown: u8 = 0u8;
+comptime dirent_type_fifo: u8 = 1u8;
+comptime dirent_type_chr: u8 = 2u8;
+comptime dirent_type_dir: u8 = 4u8;
+comptime dirent_type_blk: u8 = 6u8;
+comptime dirent_type_reg: u8 = 8u8;
+comptime dirent_type_lnk: u8 = 10u8;
+comptime dirent_type_sock: u8 = 12u8;
 
 extend FileDescriptor {
     pub fn write_some(&self, bytes: &[u8]) Errno!usize {
@@ -123,7 +123,7 @@ pub fn cwd() FileDescriptor {
 }
 
 pub fn pipe_close_on_exec() Errno!Pipe {
-    var fds: [2]i32 = [0, 0];
+    let mut fds: [2]i32 = [0, 0];
     let ret = syscall::syscall2(
         syscall::pipe2,
         &mut fds[0] as usize,
@@ -148,7 +148,7 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        var len = ret as usize;
+        let mut len = ret as usize;
         if len > buffer.len() {
             return Errno::TooLong!;
         }
@@ -168,7 +168,7 @@ pub fn open_at(
     exclusive: bool,
     permissions: u32,
 ) Errno!FileDescriptor {
-    var flags = mode as i32;
+    let mut flags = mode as i32;
     if create {
         flags = flags + types::open_create;
     }
@@ -194,7 +194,7 @@ pub fn open_at(
 }
 
 pub fn open_dir_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileDescriptor {
-    var flags = (OpenMode::ReadOnly as i32) + types::open_directory + types::open_close_on_exec;
+    let mut flags = (OpenMode::ReadOnly as i32) + types::open_directory + types::open_close_on_exec;
     if not follow_symlinks {
         flags = flags + types::open_no_follow;
     }
@@ -319,7 +319,7 @@ fn dirent_reclen(buffer: &[u8], offset: usize) usize {
 fn dirent_name_len(buffer: &[u8], offset: usize, reclen: usize) usize {
     let start = offset + linux_dirent64_name_offset;
     let end = offset + reclen;
-    var len = 0usize;
+    let mut len = 0usize;
     while start + len < end and buffer[start + len] != 0u8 {
         len += 1usize;
     }

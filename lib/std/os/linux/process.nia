@@ -20,9 +20,9 @@ pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
 }
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    var stdin_pipe = SpawnPipe::closed();
-    var stdout_pipe = SpawnPipe::closed();
-    var stderr_pipe = SpawnPipe::closed();
+    let mut stdin_pipe = SpawnPipe::closed();
+    let mut stdout_pipe = SpawnPipe::closed();
+    let mut stderr_pipe = SpawnPipe::closed();
     defer stdin_pipe.close_all();
     defer stdout_pipe.close_all();
     defer stderr_pipe.close_all();
@@ -35,7 +35,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
     if options.stderr() == StdIo::Pipe {
         stderr_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
-    var error_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+    let mut error_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     defer error_pipe.close_all();
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
@@ -93,16 +93,16 @@ fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) void {
 }
 
 fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) void {
-    var record = SpawnErrorRecord::init(stage, errno);
-    var bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
+    let mut record = SpawnErrorRecord::init(stage, errno);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
     _ = fd.write_some(bytes);
 }
 
 fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?SpawnError {
     defer _ = fd.close();
-    var record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
-    var bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
-    var read_len = 0usize;
+    let mut record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
+    let mut read_len = 0usize;
     while read_len < bytes.len() {
         let amount = fd.read_some(&mut bytes[read_len..]).as_spawn_setup_error().?;
         if amount == 0usize {
@@ -118,7 +118,7 @@ fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?Spaw
 }
 
 fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &mut SpawnPipe, stderr_pipe: &mut SpawnPipe) Errno!void {
-    var dev_null: ?types::FileDescriptor = null;
+    let mut dev_null: ?types::FileDescriptor = null;
     if options.stdin() == StdIo::Ignore {
         let fd = open_dev_null().?;
         dev_null = ?fd;
@@ -200,7 +200,7 @@ pub fn wait(pid: ProcessId) Errno!WaitStatus {
 }
 
 pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
-    var status: i32 = 0;
+    let mut status: i32 = 0;
     let ret = wait4(pid, &mut status, types::wait_no_hang);
     if ret < 0 {
         ret.syscall_error()!
@@ -225,7 +225,7 @@ pub fn kill_with(pid: ProcessId, signal: i32) Errno!void {
 }
 
 fn wait_with_options(pid: ProcessId, options: usize) Errno!WaitStatus {
-    var status: i32 = 0;
+    let mut status: i32 = 0;
     let ret = wait4(pid, &mut status, options);
     if ret < 0 {
         ret.syscall_error()!

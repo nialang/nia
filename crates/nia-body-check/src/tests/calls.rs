@@ -72,7 +72,7 @@ fn id[T](value: T) T { value }
 fn pair[T](left: T, right: T) T { left }
 
 fn main(flag: bool) i32 {
-    var x: i32 = id[i32](1);
+    let mut x: i32 = id[i32](1);
     _ = id[i32](flag);
     _ = id[i32, bool](1);
     _ = pair[bool](true, false);
@@ -106,12 +106,12 @@ fn disambiguates_bracket_suffix_between_index_and_generic_instantiation() {
 fn id[T](value: T) T { value }
 
 fn main() i32 {
-    var xs: [3]i32 = [10, 20, 30];
-    var i32: usize = 1;
-    var indexed = xs[i32];
-    var called: i32 = id[i32](indexed);
-    var ptr = & id[i32];
-    var bad_value = id[i32];
+    let mut xs: [3]i32 = [10, 20, 30];
+    let mut i32: usize = 1;
+    let mut indexed = xs[i32];
+    let mut called: i32 = id[i32](indexed);
+    let mut ptr = & id[i32];
+    let mut bad_value = id[i32];
     indexed + ptr(1) + called
 }
 "#,
@@ -152,11 +152,11 @@ extend[T] Box[T] {
 fn id[T](value: T) T { value }
 
 fn main() i32 {
-    var xs: [3]i32 = [10, 20, 30];
-    var i32: usize = 1;
-    var indexed = xs[i32];
-    var called: i32 = id[i32](indexed);
-    var boxed = Box[i32]::make(called);
+    let mut xs: [3]i32 = [10, 20, 30];
+    let mut i32: usize = 1;
+    let mut indexed = xs[i32];
+    let mut called: i32 = id[i32](indexed);
+    let mut boxed = Box[i32]::make(called);
     indexed + boxed.value
 }
 "#,
@@ -309,7 +309,7 @@ fn checks_atomic_builtin_ordering_rules() {
     let checked = pipeline(
         r#"
 fn main() void {
-    var value = 0i32;
+    let mut value = 0i32;
     _ = @atomic_load[i32](&value, 3usize);
     @atomic_store[i32](&mut value, 1i32, 2usize);
     _ = @cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
@@ -361,9 +361,9 @@ struct Point {
 }
 
 fn main() void {
-    var point: Point = { x: 1 };
+    let mut point: Point = { x: 1 };
     _ = @atomic_load[Point](&point, 1usize);
-    var pair = [1i32, 2i32];
+    let mut pair = [1i32, 2i32];
     _ = @atomic_rmw[[2]i32](&mut pair, 1usize, [3i32, 4i32], 1usize);
 }
 "#,

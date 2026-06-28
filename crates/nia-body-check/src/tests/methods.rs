@@ -130,7 +130,7 @@ fn checks_assignment_targets_and_let_bindings() {
     let checked = pipeline(
         r#"
 let global_let: i32 = 1;
-var global_mut: i32 = 0;
+let mut global_mut: i32 = 0;
 
 struct Cell {
     value: i32,
@@ -138,7 +138,7 @@ struct Cell {
 
 fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell, write_cell: &mut Cell) i32 {
     let local_let = 1;
-    var local_mut = 1;
+    let mut local_mut = 1;
     local_mut = 2;
     param = 3;
     _ += 1;
@@ -206,9 +206,9 @@ extend[T] Box[T] {
 }
 
 fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
-    var box: Box[i32] = { value: 1 };
-    var x: i32 = box.get();
-    var y: i32 = ro.get();
+    let mut box: Box[i32] = { value: 1 };
+    let mut x: i32 = box.get();
+    let mut y: i32 = ro.get();
     rw.set(2);
     ro.set(3);
     box.set(true);
@@ -363,14 +363,14 @@ extend Point {
 }
 
 fn main() {
-    var p: Point;
+    let mut p: Point;
     p.init();
     defer p.deinit();
     let origin: Point;
     _ = origin.inspect();
     let n: i32;
-    var copied: i32 = n;
-    var borrowed: & i32 = & n;
+    let mut copied: i32 = n;
+    let mut borrowed: & i32 = & n;
     _ = copied;
     _ = borrowed;
 }
@@ -439,10 +439,10 @@ extend[T] Box[T] {
 }
 
 fn main(flag: bool) i32 {
-    var box: Box[i32] = { value: 1 };
-    var x: i32 = box.replace[i32](2);
-    var y: bool = box.replace[bool](flag);
-    var z: i32 = box.get();
+    let mut box: Box[i32] = { value: 1 };
+    let mut x: i32 = box.replace[i32](2);
+    let mut y: bool = box.replace[bool](flag);
+    let mut z: i32 = box.get();
     _ = box.replace[i32](flag);
     _ = box.replace();
     _ = box.get[i32]();
@@ -510,10 +510,10 @@ extend[T] EmptyBox[T] {
 }
 
 fn main() i32 {
-    var box: Box[i32] = { value: 1 };
-    var a: usize = box.replace(1);
-    var b: usize = Box[i32]::make(1);
-    var c: EmptyBox[i32] = EmptyBox::empty();
+    let mut box: Box[i32] = { value: 1 };
+    let mut a: usize = box.replace(1);
+    let mut b: usize = Box[i32]::make(1);
+    let mut c: EmptyBox[i32] = EmptyBox::empty();
     _ = c;
     a as i32 + b as i32
 }
@@ -554,7 +554,7 @@ where H: Writer
 }
 
 fn main() void {
-    var hasher = H::init();
+    let mut hasher = H::init();
     (7u32).hash(&mut hasher);
 }
 "#,
@@ -579,7 +579,7 @@ fn checks_function_pointer_calls() {
     let checked = pipeline(
         r#"
 fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) void, flag: bool) i64 {
-    var x: i64 = cb(1, flag);
+    let mut x: i64 = cb(1, flag);
     _ = cb(flag, flag);
     _ = cb(1);
     variadic(flag, 1);
@@ -634,10 +634,10 @@ extend Point {
 }
 
 fn main() i32 {
-    var make: &fn(i32) Point = & Point::new;
-    var get: &fn(& Point) i32 = & Point::get;
-    var set: &fn(&Point, i32) void = & Point::set;
-    var p = make(1);
+    let make: &fn(i32) Point = & Point::new;
+    let get: &fn(& Point) i32 = & Point::get;
+    let set: &fn(&Point, i32) void = & Point::set;
+    let mut p = make(1);
     set(&p, 2);
     get(& p)
 }
@@ -665,9 +665,9 @@ extend[T] Box[T] {
 }
 
 fn main(flag: bool) i32 {
-    var make: &fn(i32) Box[i32] = & Box[i32]::make;
-    var replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace[bool];
-    var b = make(1);
+    let make: &fn(i32) Box[i32] = & Box[i32]::make;
+    let replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace[bool];
+    let mut b = make(1);
     if replace(& b, flag) { b.value } else { 0 }
 }
 "#,
@@ -696,8 +696,8 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var is_null: &fn(&u8) bool = & [&u8]::is_null;
-    var zero: &fn() usize = & [&u8]::zero;
+    let is_null: &fn(&u8) bool = & [&u8]::is_null;
+    let zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
@@ -718,7 +718,7 @@ extend &&&&&& &&i32 {
 }
 
 fn main(ptr: &&&&&& &&i32) bool {
-    var is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+    let is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
     is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
@@ -745,8 +745,8 @@ extend[T] Box[T] {
 }
 
 fn main() {
-    var make: &fn(i32) Box[i32] = & Box::make;
-    var bad_replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace;
+    let make: &fn(i32) Box[i32] = & Box::make;
+    let bad_replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace;
 }
 "#,
     );
@@ -785,8 +785,8 @@ extend Point {
 }
 
 fn main(flag: bool) i32 {
-    var p = Point::new(1);
-    var value: i32 = Point::get(&p);
+    let mut p = Point::new(1);
+    let mut value: i32 = Point::get(&p);
     _ = Point::new(flag);
     _ = Point::new();
     _ = Point::get();
@@ -957,7 +957,7 @@ extend[T] Box[T] {
 }
 
 fn main(flag: bool) i32 {
-    var a: Box[i32] = Box[i32]::make(1);
+    let mut a: Box[i32] = Box[i32]::make(1);
     _ = Box[i32]::make(flag);
     _ = Box[i32, bool]::make(1);
     _ = Box::empty();
@@ -999,7 +999,7 @@ extend[T] box[T] {
 }
 
 fn main() i32 {
-    var a: box[i32] = box[i32]::make(1);
+    let mut a: box[i32] = box[i32]::make(1);
     a.value
 }
 "#,

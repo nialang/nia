@@ -17,7 +17,7 @@ fn set(items: &mut [Item], index: usize, state: i32) void {
 }
 
 fn main() i32 {
-    var items: [2]Item = [
+    let mut items: [2]Item = [
         { state: 1 },
         { state: 2 },
     ];
@@ -180,8 +180,8 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [0]u8 = [];
-    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
+    let mut buffer: [0]u8 = [];
+    let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     if let !ok = stdout.write_all(b"nia\n") {
         _ = ok;
     } else error! {
@@ -223,10 +223,10 @@ using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var buffer: [64]u8 = [0; 64];
-    var raw_buffer: [0]u8 = [];
-    var raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
-    var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
+    let mut buffer: [64]u8 = [0; 64];
+    let mut raw_buffer: [0]u8 = [];
+    let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
+    let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     if let !ok = stdout.write_all(b"nia\n") {
         _ = ok;
     } else error! {
@@ -306,8 +306,8 @@ extend Z {
 }
 
 fn main() i32 {
-    var z = Z::init();
-    var layout: Layout;
+    let mut z = Z::init();
+    let mut layout: Layout;
     if let !value = Layout::init(7, 1) {
         layout = value;
     } else error! {
@@ -349,10 +349,10 @@ fn first(xs: & [i32]) i32 {
 }
 
 fn main() i32 {
-    var xs: [4]i32 = [1, 2, 3, 4];
-    var s = & xs[1..=2];
-    var p = s.get_ptr_read();
-    var single = & p[..];
+    let mut xs: [4]i32 = [1, 2, 3, 4];
+    let mut s = & xs[1..=2];
+    let mut p = s.get_ptr_read();
+    let mut single = & p[..];
     first(s) + s.len() as i32 + single.len() as i32
 }
 "#,
@@ -387,10 +387,10 @@ fn write_ptr(xs: &mut [u8]) &mut u8 {
 }
 
 fn main() usize {
-    var ro: [2]u8 = [1, 2];
-    var rw: [2]u8 = [3, 4];
-    var read = read_ptr(&ro[..]);
-    var write = write_ptr(&mut rw[..]);
+    let mut ro: [2]u8 = [1, 2];
+    let mut rw: [2]u8 = [3, 4];
+    let mut read = read_ptr(&ro[..]);
+    let mut write = write_ptr(&mut rw[..]);
     read.* as usize + write.* as usize
 }
 "#,
@@ -425,9 +425,9 @@ fn overwrite(xs: &mut [i32]) i32 {
 }
 
 fn main() i32 {
-    var xs: [3]i32 = [1, 2, 3];
-    var borrow = & xs[..];
-    var literal: & [i32] = &[4, 5, 6];
+    let mut xs: [3]i32 = [1, 2, 3];
+    let mut borrow = & xs[..];
+    let mut literal: & [i32] = &[4, 5, 6];
     let bytes = b"hi";
     first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(bytes) + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
@@ -454,8 +454,8 @@ fn emits_zero_length_array_slice_without_indexing_empty_storage() {
         &main,
         r#"
 fn main() usize {
-    var bytes: [0]u8 = [];
-    var slice = &mut bytes[..];
+    let mut bytes: [0]u8 = [];
+    let mut slice = &mut bytes[..];
     slice.len()
 }
 "#,
@@ -519,8 +519,8 @@ fn read(ptr: & i32) i32 {
 }
 
 fn main(i: usize) i32 {
-    var pair: Pair = { a: 10, b: 20 };
-    var xs: [2]i32 = [30, 40];
+    let mut pair: Pair = { a: 10, b: 20 };
+    let mut xs: [2]i32 = [30, 40];
     read(& pair.b) + read(& xs[i])
 }
 "#,
@@ -553,15 +553,15 @@ fn first(ptr: &mut u8) i32 {
 }
 
 fn main() i32 {
-    var mutable: [8]u8 = b"mutable\0".*;
+    let mut mutable: [8]u8 = b"mutable\0".*;
     let hello = b"hello\0";
     let world = b"world\0";
     let multiline = (
         b\\multi
         \\line
     );
-    var direct: & u8 = &(hello.*[0]);
-    var writable: &mut u8 = &mut mutable[0];
+    let mut direct: & u8 = &(hello.*[0]);
+    let mut writable: &mut u8 = &mut mutable[0];
     _ = puts(&(world.*[0]));
     _ = puts(&(multiline.*[0]));
     first(writable) + direct.* as i32

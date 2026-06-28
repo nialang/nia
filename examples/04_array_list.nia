@@ -8,14 +8,14 @@ using process::{Init, ExitCode};
 fn run(init: Init) mem::Error!void {
     _ = init;
 
-    var storage: [256]u8 = [_]u8[0; 256];
+    let mut storage: [256]u8 = [_]u8[0; 256];
     // FixedBufferAllocator never touches the OS; allocation fails when this
     // local byte array runs out of space.
-    var fixed = mem::FixedBufferAllocator::init(&mut storage);
+    let mut fixed = mem::FixedBufferAllocator::init(&mut storage);
     // &mut fixed is the allocator handle. Bind it once so every container
     // operation uses the same pointer.
     let allocator = &mut fixed;
-    var values = std::ArrayList[i32]::init();
+    let mut values = std::ArrayList[i32]::init();
     // Containers do not own an allocator. Deinitialize with the same allocator
     // that provided their backing storage.
     defer values.deinit(allocator).?;
@@ -24,13 +24,13 @@ fn run(init: Init) mem::Error!void {
     values.push(allocator, 20).?;
     values.push(allocator, 30).?;
 
-    var total = 0;
+    let mut total = 0;
     for &item in values.iter() {
         total += item;
     }
 
-    var len = values.len();
-    var capacity = values.capacity();
+    let mut len = values.len();
+    let mut capacity = values.capacity();
 
     debug::print(
         "array_list len={} capacity={} values={} total={}\n",

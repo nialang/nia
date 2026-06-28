@@ -8,7 +8,7 @@ fn rejects_bare_global_as_pointer_initializer() {
     std::fs::write(
         &main,
         r#"
-var target: i32 = 1;
+let mut target: i32 = 1;
 let p: &i32 = target;
 
 fn main() i32 {
@@ -37,7 +37,7 @@ fn emits_inline_asm_inputs_outputs_and_clobbers() {
         &main,
         r#"
 fn main() i32 {
-    var value: i64 = 0;
+    let mut value: i64 = 0;
     @asm({
         code:
             b\\mov rax, rax
@@ -136,7 +136,7 @@ union Bits {
 }
 
 fn main() i32 {
-    var bits: Bits = { i: 42 };
+    let mut bits: Bits = { i: 42 };
     bits.i
 }
 "#,
@@ -161,11 +161,11 @@ fn emits_comptime_values_without_runtime_storage() {
     std::fs::write(
         &main,
         r#"
-comptime let answer: i32 = 40 + 2;
+comptime answer: i32 = 40 + 2;
 let saved: i32 = answer;
 
 fn main() i32 {
-    comptime let local: i32 = answer;
+    comptime local: i32 = answer;
     local
 }
 "#,
@@ -191,17 +191,17 @@ fn emits_runtime_storage_for_comptime_string_values() {
     std::fs::write(
         &main,
         r#"
-comptime let bytes = b"paw\0";
-comptime let text = "nia";
+comptime bytes = b"paw\0";
+comptime text = "nia";
 
 fn first_byte(xs: &[u8]) i32 {
     xs[0] as i32
 }
 
 fn main() i32 {
-    var byte_ptr: &u8 = &bytes.*[1];
-    var byte_slice: &[u8] = bytes;
-    var char_slice: &[char] = text;
+    let mut byte_ptr: &u8 = &bytes.*[1];
+    let mut byte_slice: &[u8] = bytes;
+    let mut char_slice: &[char] = text;
     first_byte(bytes) + byte_ptr.* as i32 + byte_slice.len() as i32 + char_slice.len() as i32
 }
 "#,
@@ -230,7 +230,7 @@ module config;
 using entry::config;
 
 fn main() i32 {
-    var values: [config::width]i32 = [1, 2, 3, 4];
+    let mut values: [config::width]i32 = [1, 2, 3, 4];
     values[3]
 }
 "#,
@@ -239,7 +239,7 @@ fn main() i32 {
     std::fs::write(
         root.join("config.nia"),
         r#"
-pub comptime let width: usize = 4;
+pub comptime width: usize = 4;
 "#,
     )
     .expect("write config source");
@@ -258,7 +258,7 @@ fn emits_imported_struct_array_field_repeat_literals() {
     std::fs::write(
         root.join("defs.nia"),
         r#"
-pub comptime let N: usize = 4;
+pub comptime N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -296,8 +296,8 @@ fn imported_count() Boxed {
 }
 
 fn main() i32 {
-    var a = literal_count();
-    var b = imported_count();
+    let mut a = literal_count();
+    let mut b = imported_count();
     a.items[0].value as i32 + b.items[0].value as i32
 }
 "#,
@@ -331,7 +331,7 @@ fn take(box: Boxed[u8]) u8 {
 }
 
 fn main() u8 {
-    var box: Boxed[u8] = { values: [1, 2, 3] };
+    let mut box: Boxed[u8] = { values: [1, 2, 3] };
     take(box)
 }
 "#,
@@ -340,7 +340,7 @@ fn main() u8 {
     std::fs::write(
         root.join("defs.nia"),
         r#"
-pub comptime let N: usize = 3;
+pub comptime N: usize = 3;
 
 pub struct Boxed[T] {
     values: [N]T,
@@ -363,10 +363,10 @@ fn emits_large_array_repeat_count_from_comptime_binding() {
     std::fs::write(
         &main,
         r#"
-comptime let N: usize = 16;
+comptime N: usize = 16;
 
 fn main() i32 {
-    var buffer: [N]u8 = [0u8; N];
+    let mut buffer: [N]u8 = [0u8; N];
     0
 }
 "#,

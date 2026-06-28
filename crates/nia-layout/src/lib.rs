@@ -1557,7 +1557,7 @@ struct Mixed {
         let (module, errors) = parse_module(
             r#"
 fn main() {
-    var xs: [_]u8 = [1, 2];
+    let mut xs: [_]u8 = [1, 2];
 }
 "#,
         );

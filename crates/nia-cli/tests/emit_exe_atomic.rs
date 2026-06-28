@@ -19,7 +19,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var value = std::Atomic[usize]::init(1usize);
+    let mut value = std::Atomic[usize]::init(1usize);
     let old = value.fetch_add_monotonic(2usize);
     let now = value.load_acquire();
     if old != 1usize or now != 3usize {
