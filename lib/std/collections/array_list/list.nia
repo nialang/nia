@@ -134,22 +134,22 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](len).?;
-        if let ?block = allocator.remap(old_block, layout) {
+        if ?block = allocator.remap(old_block, layout) {
             self.items = raw::dangling_slice[T](0);
             self.capacity = 0;
             return !raw::block_items[T](block, len);
-        } else null {
+        } or null {
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, len);
         mem::copy_forwards[T](new_items, self.as_slice());
-        if let !ok = allocator.free(old_block) {
+        if !ok = allocator.free(old_block) {
             _ = ok;
-        } else err! {
-            if let !ok = allocator.free(new_block) {
+        } or err! {
+            if !ok = allocator.free(new_block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return err!;
         }
         self.items = raw::dangling_slice[T](0);
@@ -236,9 +236,9 @@ where T: Sized
         if start > len {
             return mem::Error::Invalid!;
         }
-        let end = if let ?value = start.checked_add(count) {
+        let end = if ?value = start.checked_add(count) {
             value
-        } else null {
+        } or null {
             return mem::Error::Invalid!;
         };
         if end > len {
@@ -271,12 +271,12 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, values);
-            if let !ok = self.insert_stable_slice(allocator, index, copy) {
+            if !ok = self.insert_stable_slice(allocator, index, copy) {
                 _ = ok;
-            } else err! {
-                if let !ok = allocator.free(copy_block) {
+            } or err! {
+                if !ok = allocator.free(copy_block) {
                     _ = ok;
-                } else error! {}
+                } or error! {}
                 return err!;
             }
             allocator.free(copy_block).?;
@@ -296,9 +296,9 @@ where T: Sized
         if start > self.len() {
             return mem::Error::Invalid!;
         }
-        let end = if let ?value = start.checked_add(count) {
+        let end = if ?value = start.checked_add(count) {
             value
-        } else null {
+        } or null {
             return mem::Error::Invalid!;
         };
         if end > self.len() {
@@ -310,12 +310,12 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, values);
-            if let !ok = self.replace_range_stable(allocator, start, count, copy) {
+            if !ok = self.replace_range_stable(allocator, start, count, copy) {
                 _ = ok;
-            } else err! {
-                if let !ok = allocator.free(copy_block) {
+            } or err! {
+                if !ok = allocator.free(copy_block) {
                     _ = ok;
-                } else error! {}
+                } or error! {}
                 return err!;
             }
             allocator.free(copy_block).?;
@@ -365,9 +365,9 @@ where T: Sized
         }
 
         let added = replacement_len - count;
-        let new_len = if let ?value = len.checked_add(added) {
+        let new_len = if ?value = len.checked_add(added) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
         self.ensure_total_capacity(allocator, new_len).?;
@@ -386,9 +386,9 @@ where T: Sized
 
     pub fn reserve_exact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = if let ?value = len.checked_add(additional) {
+        let needed = if ?value = len.checked_add(additional) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
         self.ensure_total_capacity_precise(allocator, needed)
@@ -396,9 +396,9 @@ where T: Sized
 
     pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = if let ?value = len.checked_add(additional) {
+        let needed = if ?value = len.checked_add(additional) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
         self.ensure_total_capacity(allocator, needed)
@@ -426,12 +426,12 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             let mut copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, items);
-            if let !ok = self.append_stable_slice(allocator, copy) {
+            if !ok = self.append_stable_slice(allocator, copy) {
                 _ = ok;
-            } else err! {
-                if let !ok = allocator.free(copy_block) {
+            } or err! {
+                if !ok = allocator.free(copy_block) {
                     _ = ok;
-                } else error! {}
+                } or error! {}
                 return err!;
             }
             allocator.free(copy_block).?;
@@ -473,9 +473,9 @@ where T: Sized
 
     pub fn add_many_as_slice(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let old_len = self.len();
-        let new_len = if let ?value = old_len.checked_add(count) {
+        let new_len = if ?value = old_len.checked_add(count) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
         self.resize(allocator, new_len).?;
@@ -485,9 +485,9 @@ where T: Sized
 
     pub fn add_many_as_slice_assume_capacity(&mut self, count: usize) &mut [T] {
         let old_len = self.len();
-        let new_len = if let ?value = old_len.checked_add(count) {
+        let new_len = if ?value = old_len.checked_add(count) {
             value
-        } else null {
+        } or null {
             @trap()
         };
         if new_len > self.capacity() {
@@ -502,9 +502,9 @@ where T: Sized
         if index > self.len() {
             return mem::Error::Invalid!;
         }
-        let new_len = if let ?value = self.len().checked_add(count) {
+        let new_len = if ?value = self.len().checked_add(count) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
         if self.capacity() < new_len {
@@ -519,9 +519,9 @@ where T: Sized
         if index > len {
             @trap()
         }
-        let new_len = if let ?value = len.checked_add(count) {
+        let new_len = if ?value = len.checked_add(count) {
             value
-        } else null {
+        } or null {
             @trap()
         };
         if new_len > self.capacity() {
@@ -583,21 +583,21 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](new_capacity).?;
-        if let ?block = allocator.remap(old_block, layout) {
+        if ?block = allocator.remap(old_block, layout) {
             self.set_allocated_block(block, new_capacity);
             return !{};
-        } else null {
+        } or null {
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, new_capacity);
         mem::copy_forwards[T](&mut new_items[0..self.len()], self.as_slice());
-        if let !ok = allocator.free(old_block) {
+        if !ok = allocator.free(old_block) {
             _ = ok;
-        } else err! {
-            if let !ok = allocator.free(new_block) {
+        } or err! {
+            if !ok = allocator.free(new_block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return err!;
         }
         self.set_allocated_block(new_block, new_capacity);
@@ -629,14 +629,14 @@ where T: Sized
             init_capacity = 1usize;
         }
         let half = needed / 2usize;
-        let extra = if let ?value = half.checked_add(init_capacity) {
+        let extra = if ?value = half.checked_add(init_capacity) {
             value
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
-        if let ?capacity = needed.checked_add(extra) {
+        if ?capacity = needed.checked_add(extra) {
             !capacity
-        } else null {
+        } or null {
             mem::Error::OutOfMemory!
         }
     }
@@ -648,21 +648,21 @@ where T: Sized
         }
         let old_block = self.allocated_block().?;
         let layout = mem::Layout::array[T](capacity).?;
-        if let ?block = allocator.remap(old_block, layout) {
+        if ?block = allocator.remap(old_block, layout) {
             self.set_allocated_block(block, capacity);
             return !{};
-        } else null {
+        } or null {
         }
 
         let new_block = allocator.alloc(layout).?;
         let mut new_items = raw::block_items[T](new_block, capacity);
         mem::copy_forwards[T](new_items, self.as_slice());
-        if let !ok = allocator.free(old_block) {
+        if !ok = allocator.free(old_block) {
             _ = ok;
-        } else err! {
-            if let !ok = allocator.free(new_block) {
+        } or err! {
+            if !ok = allocator.free(new_block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return err!;
         }
         self.set_allocated_block(new_block, capacity);
@@ -707,14 +707,14 @@ where T: Sized
         }
 
         let byte_offset = ptr - base;
-        let alloc_bytes = if let ?value = self.capacity.checked_mul(item_size) {
+        let alloc_bytes = if ?value = self.capacity.checked_mul(item_size) {
             value
-        } else null {
+        } or null {
             return false;
         };
-        let item_bytes = if let ?value = items.len().checked_mul(item_size) {
+        let item_bytes = if ?value = items.len().checked_mul(item_size) {
             value
-        } else null {
+        } or null {
             return false;
         };
         if byte_offset > alloc_bytes {

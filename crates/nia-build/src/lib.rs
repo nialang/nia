@@ -353,9 +353,9 @@ fn path_arg(
     index: usize,
     storage: &mut collections::ArrayList[char],
 ) build::Error!fs::PathView {
-    let arg = if let ?value = init.args().get(index) {
+    let arg = if ?value = init.args().get(index) {
         value
-    } else null {
+    } or null {
         return build::Error::Internal!;
     };
     fs::PathView::from_utf8_into(allocator, arg.bytes(), storage).as_build_error()

@@ -28,9 +28,9 @@ fn to_b(error: A) B {
 
 extend[T] A!T {
     fn as_b(self) B!T {
-        if let !value = self {
+        if !value = self {
             !value
-        } else err! {
+        } or err! {
             to_b(err)!
         }
     }
@@ -41,9 +41,9 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    if let !value = fail().as_b() {
+    if !value = fail().as_b() {
         value
-    } else err! {
+    } or err! {
         err as i32
     }
 }
@@ -152,9 +152,9 @@ extend[T, Source] Source!T
 where Source: IntoB
 {
     fn as_b(self) B!T {
-        if let !value = self {
+        if !value = self {
             !value
-        } else err! {
+        } or err! {
             err.into_b()!
         }
     }
@@ -165,9 +165,9 @@ fn fail() A!i32 {
 }
 
 fn main() i32 {
-    if let !value = fail().as_b() {
+    if !value = fail().as_b() {
         value
-    } else err! {
+    } or err! {
         err as i32
     }
 }
@@ -211,9 +211,9 @@ extend[T, Source, Target] Source!T
 where Source: Convert[Target]
 {
     fn convert_error(self) Target!T {
-        if let !value = self {
+        if !value = self {
             !value
-        } else err! {
+        } or err! {
             err.convert()!
         }
     }
@@ -228,9 +228,9 @@ fn wrap() B!i32 {
 }
 
 fn main() i32 {
-    if let !value = wrap() {
+    if !value = wrap() {
         value
-    } else err! {
+    } or err! {
         err as i32
     }
 }

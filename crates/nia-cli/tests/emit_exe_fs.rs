@@ -85,9 +85,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut buffer: [4096]u8 = [0; 4096];
-    let cwd = if let !value = fs::getcwd(&mut buffer[..]) {
+    let cwd = if !value = fs::getcwd(&mut buffer[..]) {
         value
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     };
     if cwd.len() == 0usize {
@@ -141,57 +141,57 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init("data.txt");
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
     let mut file: fs::File;
-    if let !value = cwd.create_file(path, fs::CreateOptions::read_write()) {
+    if !value = cwd.create_file(path, fs::CreateOptions::read_write()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     let mut write_buffer: [64]u8 = [0; 64];
     let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    if let !ok = writer.write_all(b"nia fs") {
+    if !ok = writer.write_all(b"nia fs") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = writer.flush() {
+    if !ok = writer.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
 
     let mut opened: fs::File;
-    if let !value = cwd.open_file(path, fs::OpenOptions::read_only()) {
+    if !value = cwd.open_file(path, fs::OpenOptions::read_only()) {
         opened = value;
-    } else error! {
+    } or error! {
         return (5 as process::ExitCode)!;
     }
     let mut read_buffer: [64]u8 = [0; 64];
     let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
     let mut bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
-    if let !ok = reader.read_exact(&mut bytes[..]) {
+    if !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (6 as process::ExitCode)!;
     }
-    if let !ok = opened.close() {
+    if !ok = opened.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
     let mut expected: &[u8] = b"nia fs";
@@ -248,46 +248,46 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init("data.txt");
     let mut file: fs::File;
-    if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
+    if !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     let mut write_buffer: [16]u8 = [0; 16];
     let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    if let !ok = writer.write_all(b"open close") {
+    if !ok = writer.write_all(b"open close") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = writer.flush() {
+    if !ok = writer.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
 
     let mut opened: fs::File;
-    if let !value = fs::File::open(path, fs::OpenOptions::read_only()) {
+    if !value = fs::File::open(path, fs::OpenOptions::read_only()) {
         opened = value;
-    } else error! {
+    } or error! {
         return (5 as process::ExitCode)!;
     }
     let mut read_buffer: [16]u8 = [0; 16];
     let mut reader = opened.reader(init.io(), &mut read_buffer[..]).exit().?;
     let mut bytes: [10]u8 = [0; 10];
-    if let !ok = reader.read_exact(&mut bytes[..]) {
+    if !ok = reader.read_exact(&mut bytes[..]) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (6 as process::ExitCode)!;
     }
-    if let !ok = opened.close() {
+    if !ok = opened.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
     let mut expected: &[u8] = b"open close";
@@ -340,37 +340,37 @@ using std::fs;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    let mut file = if let !value = fs::File::create(fs::PathView::init("data.txt"), fs::CreateOptions::init()) {
+    let mut file = if !value = fs::File::create(fs::PathView::init("data.txt"), fs::CreateOptions::init()) {
         value
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     };
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !handle = file.borrow_handle() {
+    if !handle = file.borrow_handle() {
         _ = handle;
         return (3 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (4 as process::ExitCode)!;
         }
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
         return (5 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (6 as process::ExitCode)!;
         }
     }
     let mut buffer: [8]u8 = [0; 8];
-    if let !writer = file.writer(init.io(), &mut buffer[..]) {
+    if !writer = file.writer(init.io(), &mut buffer[..]) {
         _ = writer;
         return (7 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (8 as process::ExitCode)!;
         }
@@ -413,36 +413,36 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    let mut cwd = if let !value = fs::Dir::cwd() {
+    let mut cwd = if !value = fs::Dir::cwd() {
         value
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     };
-    if let !ok = cwd.close() {
+    if !ok = cwd.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !handle = cwd.borrow_handle() {
+    if !handle = cwd.borrow_handle() {
         _ = handle;
         return (3 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (4 as process::ExitCode)!;
         }
     }
-    if let !ok = cwd.close() {
+    if !ok = cwd.close() {
         _ = ok;
         return (5 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (6 as process::ExitCode)!;
         }
     }
-    if let !file = cwd.create_file(fs::PathView::init("bad.txt"), fs::CreateOptions::init()) {
+    if !file = cwd.create_file(fs::PathView::init("bad.txt"), fs::CreateOptions::init()) {
         _ = file;
         return (7 as process::ExitCode)!;
-    } else error! {
+    } or error! {
         if error != fs::Error::BadFd {
             return (8 as process::ExitCode)!;
         }
@@ -488,102 +488,102 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init("data.txt");
     let mut file: fs::File;
-    if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
+    if !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
 
     let mut write_buffer: [16]u8 = [0; 16];
     let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    if let !ok = writer.write_all(b"abcdef") {
+    if !ok = writer.write_all(b"abcdef") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = writer.flush() {
+    if !ok = writer.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
 
-    if let !value = file.len() {
+    if !value = file.len() {
         if value != 6u64 {
             return (4 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (5 as process::ExitCode)!;
     }
-    if let !value = file.seek_by(0) {
+    if !value = file.seek_by(0) {
         if value != 6u64 {
             return (6 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
-    if let !value = file.seek_to(2u64) {
+    if !value = file.seek_to(2u64) {
         if value != 2u64 {
             return (8 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (9 as process::ExitCode)!;
     }
-    if let !value = file.seek_by(1i64) {
+    if !value = file.seek_by(1i64) {
         if value != 3u64 {
             return (10 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (11 as process::ExitCode)!;
     }
-    if let !value = file.seek_from_end(-2i64) {
+    if !value = file.seek_from_end(-2i64) {
         if value != 4u64 {
             return (12 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (13 as process::ExitCode)!;
     }
 
-    if let !ok = file.truncate(4u64) {
+    if !ok = file.truncate(4u64) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (14 as process::ExitCode)!;
     }
-    if let !value = file.seek_to(9223372036854775808u64) {
+    if !value = file.seek_to(9223372036854775808u64) {
         _ = value;
         return (20 as process::ExitCode)!;
-    } else err! {
+    } or err! {
         if err != fs::Error::OutOfRange {
             return (21 as process::ExitCode)!;
         }
     }
-    if let !ok = file.truncate(9223372036854775808u64) {
+    if !ok = file.truncate(9223372036854775808u64) {
         _ = ok;
         return (22 as process::ExitCode)!;
-    } else err! {
+    } or err! {
         if err != fs::Error::OutOfRange {
             return (23 as process::ExitCode)!;
         }
     }
-    if let !value = file.len() {
+    if !value = file.len() {
         if value != 4u64 {
             return (15 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (16 as process::ExitCode)!;
     }
-    if let !ok = file.sync_data() {
+    if !ok = file.sync_data() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (17 as process::ExitCode)!;
     }
-    if let !ok = file.sync() {
+    if !ok = file.sync() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (18 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (19 as process::ExitCode)!;
     }
     !{}
@@ -628,77 +628,77 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init("data.txt");
     let mut file: fs::File;
-    if let !value = fs::File::create(path, fs::CreateOptions::read_write()) {
+    if !value = fs::File::create(path, fs::CreateOptions::read_write()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
 
     let mut write_buffer: [16]u8 = [0; 16];
     let mut writer = file.writer(init.io(), &mut write_buffer[..]).exit().?;
-    if let !ok = writer.write_all(b"metadata") {
+    if !ok = writer.write_all(b"metadata") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = writer.flush() {
+    if !ok = writer.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
 
-    if let !metadata = file.metadata() {
+    if !metadata = file.metadata() {
         if metadata.kind() != fs::FileKind::File {
             return (4 as process::ExitCode)!;
         }
         if metadata.size() != 8u64 {
             return (5 as process::ExitCode)!;
         }
-        if let ?value = metadata.link_count() {
+        if ?value = metadata.link_count() {
             if value == 0u32 {
                 return (6 as process::ExitCode)!;
             }
-        } else null {}
+        } or null {}
         if metadata.preferred_block_size() == 0u32 {
             return (7 as process::ExitCode)!;
         }
-    } else error! {
+    } or error! {
         return (8 as process::ExitCode)!;
     }
 
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (9 as process::ExitCode)!;
     }
-    if let !metadata = cwd.metadata(path, fs::MetadataOptions::init()) {
+    if !metadata = cwd.metadata(path, fs::MetadataOptions::init()) {
         if metadata.kind() != fs::FileKind::File {
             return (10 as process::ExitCode)!;
         }
         if metadata.size() != 8u64 {
             return (11 as process::ExitCode)!;
         }
-        if let ?time = metadata.accessed() {
+        if ?time = metadata.accessed() {
             _ = time.seconds();
             _ = time.nanos();
-        } else null {}
+        } or null {}
         _ = metadata.modified().seconds();
-        if let ?time = metadata.status_changed() {
+        if ?time = metadata.status_changed() {
             _ = time.nanos();
-        } else null {}
-    } else error! {
+        } or null {}
+    } or error! {
         return (12 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.close() {
+    if !ok = cwd.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (13 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (14 as process::ExitCode)!;
     }
     !{}
@@ -797,37 +797,37 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut path = fs::PathView::init("nia-λ.txt");
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
     let mut file: fs::File;
-    if let !value = cwd.create_file(path, fs::CreateOptions::init()) {
+    if !value = cwd.create_file(path, fs::CreateOptions::init()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     let mut buffer: [64]u8 = [0; 64];
     let mut writer = file.writer(init.io(), &mut buffer[..]).exit().?;
-    if let !ok = writer.write_all(b"ok") {
+    if !ok = writer.write_all(b"ok") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = writer.flush() {
+    if !ok = writer.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
     !{}
@@ -872,20 +872,20 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut path = fs::PathView::init("bad\0path");
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
-    if let !file = cwd.open_file(path, fs::OpenOptions::read_only()) {
+    if !file = cwd.open_file(path, fs::OpenOptions::read_only()) {
         _ = file;
         return (1 as process::ExitCode)!;
-    } else err! {
+    } or err! {
         if err == fs::Error::Invalid {
             !{}
         } else {
@@ -932,42 +932,42 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
     let mut file: fs::File;
-    if let !value = cwd.create_file(fs::PathView::init("delete-me.txt"), fs::CreateOptions::init()) {
+    if !value = cwd.create_file(fs::PathView::init("delete-me.txt"), fs::CreateOptions::init()) {
         file = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::PathView::init("delete-me.txt")) {
+    if !ok = cwd.delete_file(fs::PathView::init("delete-me.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !file = cwd.open_file(fs::PathView::init("delete-me.txt"), fs::OpenOptions::read_only()) {
+    if !file = cwd.open_file(fs::PathView::init("delete-me.txt"), fs::OpenOptions::read_only()) {
         _ = file;
         return (4 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
 
-    if let !ok = cwd.delete_file(fs::PathView::init("bad\0path")) {
+    if !ok = cwd.delete_file(fs::PathView::init("bad\0path")) {
         _ = ok;
         return (5 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
     !{}
 }
@@ -1013,79 +1013,79 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
 
-    if let !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
+    if !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
 
     let mut file: fs::File;
-    if let !value = cwd.create_file(fs::PathView::init("old-name.txt"), fs::CreateOptions::init()) {
+    if !value = cwd.create_file(fs::PathView::init("old-name.txt"), fs::CreateOptions::init()) {
         file = value;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.rename(fs::PathView::init("old-name.txt"), fs::PathView::init("subdir/new-name.txt")) {
+    if !ok = cwd.rename(fs::PathView::init("old-name.txt"), fs::PathView::init("subdir/new-name.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
 
-    if let !value = cwd.open_file(fs::PathView::init("old-name.txt"), fs::OpenOptions::read_only()) {
+    if !value = cwd.open_file(fs::PathView::init("old-name.txt"), fs::OpenOptions::read_only()) {
         _ = value;
         return (5 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
 
-    if let !value = cwd.open_file(fs::PathView::init("subdir/new-name.txt"), fs::OpenOptions::read_only()) {
+    if !value = cwd.open_file(fs::PathView::init("subdir/new-name.txt"), fs::OpenOptions::read_only()) {
         file = value;
-    } else error! {
+    } or error! {
         return (6 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
+    if !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
         return (8 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
 
-    if let !ok = cwd.delete_file(fs::PathView::init("subdir/new-name.txt")) {
+    if !ok = cwd.delete_file(fs::PathView::init("subdir/new-name.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (9 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
+    if !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (10 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.create_dir(fs::PathView::init("bad\0path"), fs::CreateDirOptions::init()) {
+    if !ok = cwd.create_dir(fs::PathView::init("bad\0path"), fs::CreateDirOptions::init()) {
         _ = ok;
         return (11 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
     !{}
 }
@@ -1131,72 +1131,72 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (90 as process::ExitCode)!;
     }
     defer {
-        if let !ok = cwd.close() {
+        if !ok = cwd.close() {
             _ = ok;
-        } else error! {}
+        } or error! {}
     };
-    if let !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
+    if !ok = cwd.create_dir(fs::PathView::init("subdir"), fs::CreateDirOptions::init()) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
 
     let mut subdir: fs::Dir;
-    if let !value = cwd.open_dir(fs::PathView::init("subdir"), fs::OpenDirOptions::init()) {
+    if !value = cwd.open_dir(fs::PathView::init("subdir"), fs::OpenDirOptions::init()) {
         subdir = value;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
 
     let mut file: fs::File;
-    if let !value = subdir.create_file(fs::PathView::init("inside.txt"), fs::CreateOptions::init()) {
+    if !value = subdir.create_file(fs::PathView::init("inside.txt"), fs::CreateOptions::init()) {
         file = value;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
 
-    if let !value = subdir.open_file(fs::PathView::init("inside.txt"), fs::OpenOptions::read_only()) {
+    if !value = subdir.open_file(fs::PathView::init("inside.txt"), fs::OpenOptions::read_only()) {
         file = value;
-    } else error! {
+    } or error! {
         return (5 as process::ExitCode)!;
     }
-    if let !ok = file.close() {
+    if !ok = file.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (6 as process::ExitCode)!;
     }
 
-    if let !ok = subdir.close() {
+    if !ok = subdir.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
 
-    if let !value = cwd.open_dir(fs::PathView::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
+    if !value = cwd.open_dir(fs::PathView::init("subdir/inside.txt"), fs::OpenDirOptions::init()) {
         _ = value;
         return (8 as process::ExitCode)!;
-    } else error! {
+    } or error! {
     }
 
-    if let !ok = cwd.delete_file(fs::PathView::init("subdir/inside.txt")) {
+    if !ok = cwd.delete_file(fs::PathView::init("subdir/inside.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (9 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
+    if !ok = cwd.delete_dir(fs::PathView::init("subdir")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (10 as process::ExitCode)!;
     }
     !{}
@@ -1245,54 +1245,54 @@ fn bytes_equal(left: &[u8], right: &[u8]) bool {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut cwd: fs::Dir;
-    if let !value = fs::Dir::cwd() {
+    if !value = fs::Dir::cwd() {
         cwd = value;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
 
-    if let !ok = cwd.create_dir(fs::PathView::init("entries"), fs::CreateDirOptions::init()) {
+    if !ok = cwd.create_dir(fs::PathView::init("entries"), fs::CreateDirOptions::init()) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
 
     let mut first: fs::File;
-    if let !value = cwd.create_file(fs::PathView::init("entries/alpha.txt"), fs::CreateOptions::init()) {
+    if !value = cwd.create_file(fs::PathView::init("entries/alpha.txt"), fs::CreateOptions::init()) {
         first = value;
-    } else error! {
+    } or error! {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = first.close() {
+    if !ok = first.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (4 as process::ExitCode)!;
     }
 
     let mut second: fs::File;
-    if let !value = cwd.create_file(fs::PathView::init("entries/beta.txt"), fs::CreateOptions::init()) {
+    if !value = cwd.create_file(fs::PathView::init("entries/beta.txt"), fs::CreateOptions::init()) {
         second = value;
-    } else error! {
+    } or error! {
         return (5 as process::ExitCode)!;
     }
-    if let !ok = second.close() {
+    if !ok = second.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (6 as process::ExitCode)!;
     }
 
     let mut dir: fs::Dir;
-    if let !value = cwd.open_dir(fs::PathView::init("entries"), fs::OpenDirOptions::init()) {
+    if !value = cwd.open_dir(fs::PathView::init("entries"), fs::OpenDirOptions::init()) {
         dir = value;
-    } else error! {
+    } or error! {
         return (7 as process::ExitCode)!;
     }
 
     let mut buffer: [1024]u8 = [0; 1024];
     let mut iter: fs::DirIterator;
-    if let !value = dir.entries(&mut buffer[..]) {
+    if !value = dir.entries(&mut buffer[..]) {
         iter = value;
-    } else error! {
+    } or error! {
         return (8 as process::ExitCode)!;
     }
 
@@ -1300,9 +1300,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut saw_beta = false;
     let mut count = 0usize;
     for result in iter {
-        let value = if let !entry = result {
+        let value = if !entry = result {
             entry
-        } else error! {
+        } or error! {
             return (10 as process::ExitCode)!;
         };
         if not value.is_dot() and not value.is_dot_dot() {
@@ -1325,29 +1325,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (12 as process::ExitCode)!;
     }
 
-    if let !ok = dir.close() {
+    if !ok = dir.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (13 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::PathView::init("entries/alpha.txt")) {
+    if !ok = cwd.delete_file(fs::PathView::init("entries/alpha.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (14 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_file(fs::PathView::init("entries/beta.txt")) {
+    if !ok = cwd.delete_file(fs::PathView::init("entries/beta.txt")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (15 as process::ExitCode)!;
     }
-    if let !ok = cwd.delete_dir(fs::PathView::init("entries")) {
+    if !ok = cwd.delete_dir(fs::PathView::init("entries")) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (16 as process::ExitCode)!;
     }
-    if let !ok = cwd.close() {
+    if !ok = cwd.close() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (17 as process::ExitCode)!;
     }
     !{}

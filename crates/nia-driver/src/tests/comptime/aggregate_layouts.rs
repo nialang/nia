@@ -144,9 +144,9 @@ comptime fn some[T](value: T) ?T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    if let ?payload = value {
+    if ?payload = value {
         payload
-    } else null {
+    } or null {
         0usize
     }
 }
@@ -207,9 +207,9 @@ comptime fn use_try(value: usize!usize) usize!usize {
 }
 
 comptime got: usize!usize = use_try(!7usize);
-comptime n: usize = if let !payload = got {
+comptime n: usize = if !payload = got {
     payload
-} else err! {
+} or err! {
     err
 };
 
@@ -285,9 +285,9 @@ comptime fn id[T](value: T) T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    if let ?payload = value {
+    if ?payload = value {
         payload
-    } else null {
+    } or null {
         0usize
     }
 }
@@ -318,9 +318,9 @@ comptime fn id[T](value: usize!T) usize!T {
 }
 
 comptime fn unwrap(value: usize!usize) usize {
-    if let !payload = value {
+    if !payload = value {
         payload
-    } else err! {
+    } or err! {
         err
     }
 }
@@ -351,9 +351,9 @@ comptime fn id[T](value: T!usize) T!usize {
 }
 
 comptime fn unwrap(value: usize!usize) usize {
-    if let !payload = value {
+    if !payload = value {
         payload
-    } else err! {
+    } or err! {
         err
     }
 }

@@ -89,17 +89,17 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     while parsing_flags and index < template.len() {
         let ch = template[index];
         if index + 1usize < template.len() {
-            if let ?parsed_alignment = parse_alignment(template[index + 1usize]) {
+            if ?parsed_alignment = parse_alignment(template[index + 1usize]) {
                 fill = ch;
                 alignment = parsed_alignment;
                 index += 2usize;
                 continue;
             }
         }
-        if let ?parsed_alignment = parse_alignment(ch) {
+        if ?parsed_alignment = parse_alignment(ch) {
             alignment = parsed_alignment;
             index += 1usize;
-        } else null {
+        } or null {
             if ch == '0' {
                     fill = '0';
                     alignment = core::FormatAlignment::Right;
@@ -123,9 +123,9 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
         index += 2usize;
     } else {
         while index < template.len() {
-            let digit = if let ?digit = digit_value(template[index]) {
+            let digit = if ?digit = digit_value(template[index]) {
                 digit
-            } else null {
+            } or null {
                 break;
             };
             width = width * 10usize + digit;
@@ -144,9 +144,9 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
             let mut parsed_precision = 0usize;
             let mut has_digit = false;
             while index < template.len() {
-                let digit = if let ?digit = digit_value(template[index]) {
+                let digit = if ?digit = digit_value(template[index]) {
                     digit
-                } else null {
+                } or null {
                     break;
                 };
                 parsed_precision = parsed_precision * 10usize + digit;
@@ -162,7 +162,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
 
     let mut presentation = core::FormatPresentation::Display;
     if index < template.len() {
-        if let ?parsed = parse_presentation(template[index]) {
+        if ?parsed = parse_presentation(template[index]) {
             presentation = parsed;
             index += 1usize;
         }
@@ -190,9 +190,9 @@ fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize, checked_args: b
     if arg_index.* >= args.len() {
         return core::Error::InvalidTemplate!;
     }
-    let value = if let ?value = args[arg_index.*].format_usize_arg() {
+    let value = if ?value = args[arg_index.*].format_usize_arg() {
         value
-    } else null {
+    } or null {
         return core::Error::InvalidTemplate!;
     };
     arg_index.* += 1usize;

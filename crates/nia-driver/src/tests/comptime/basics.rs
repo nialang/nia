@@ -277,9 +277,9 @@ fn comptime_function_if_pattern_optional_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 comptime fn unwrap(value: ?usize) usize {
-    if let ?payload = value {
+    if ?payload = value {
         payload
-    } else null {
+    } or null {
         1
     }
 }
@@ -305,9 +305,9 @@ fn comptime_function_if_pattern_error_payload_drives_array_lengths() {
         &root.join("main.nia"),
         r#"
 comptime fn unwrap(value: usize!usize) usize {
-    if let !payload = value {
+    if !payload = value {
         payload
-    } else err! {
+    } or err! {
         err
     }
 }
@@ -589,14 +589,14 @@ comptime fn add_one(value: ?usize) ?usize {
 
 comptime some: ?usize = add_one(?7usize);
 comptime none: ?usize = add_one(null);
-comptime width: usize = if let ?payload = some {
+comptime width: usize = if ?payload = some {
     payload
-} else null {
+} or null {
     1
 };
-comptime fallback: usize = if let ?payload = none {
+comptime fallback: usize = if ?payload = none {
     payload
-} else null {
+} or null {
     2
 };
 
@@ -623,14 +623,14 @@ comptime fn add_one(value: usize!usize) usize!usize {
 
 comptime ok: usize!usize = add_one(!7usize);
 comptime err: usize!usize = add_one(3usize!);
-comptime width: usize = if let !payload = ok {
+comptime width: usize = if !payload = ok {
     payload
-} else err! {
+} or err! {
     0
 };
-comptime fallback: usize = if let !payload = err {
+comptime fallback: usize = if !payload = err {
     payload
-} else err_payload! {
+} or err_payload! {
     2
 };
 

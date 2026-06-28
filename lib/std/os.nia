@@ -255,9 +255,9 @@ pub fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub fn try_wait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::try_wait(pid.platform()).as_os_error().?;
-    if let ?value = status {
+    if ?value = status {
         !(?WaitStatus::from_platform(value))
-    } else null {
+    } or null {
         !null
     }
 }
@@ -406,9 +406,9 @@ extend platform::Timestamp {
 extend platform::FileMetadata {
     fn as_os_metadata(&self) FileMetadata {
         let mut accessed: ?Timestamp = null;
-        if let ?value = self.atime() {
+        if ?value = self.atime() {
             accessed = ?value.as_os_timestamp();
-        } else null {}
+        } or null {}
         FileMetadata::init(
             self.kind().as_os_file_kind(),
             ?self.inode(),
@@ -468,9 +468,9 @@ extend DirectoryReader {
         }
         if self.start >= self.end {
             self.start = 0;
-            if let !value = self.handle.read_dir_entries(self.buffer) {
+            if !value = self.handle.read_dir_entries(self.buffer) {
                 self.end = value;
-            } else err! {
+            } or err! {
                 return ?(err!);
             }
             if self.end == 0 {
@@ -479,14 +479,14 @@ extend DirectoryReader {
             }
         }
 
-        let entry = if let ?value = platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+        let entry = if ?value = platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
             value.as_os_directory_entry()
-        } else null {
+        } or null {
             return ?(Error::Invalid!);
         };
-        self.start = if let ?value = platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+        self.start = if ?value = platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
             value
-        } else null {
+        } or null {
             return ?(Error::Invalid!);
         };
         ?(!entry)
@@ -688,25 +688,25 @@ extend SpawnResult {
     }
 
     pub fn stdin(&self) ?FileHandle {
-        if let ?handle = self.platform().stdin() {
+        if ?handle = self.platform().stdin() {
             ?FileHandle::from_platform(handle)
-        } else null {
+        } or null {
             null
         }
     }
 
     pub fn stdout(&self) ?FileHandle {
-        if let ?handle = self.platform().stdout() {
+        if ?handle = self.platform().stdout() {
             ?FileHandle::from_platform(handle)
-        } else null {
+        } or null {
             null
         }
     }
 
     pub fn stderr(&self) ?FileHandle {
-        if let ?handle = self.platform().stderr() {
+        if ?handle = self.platform().stderr() {
             ?FileHandle::from_platform(handle)
-        } else null {
+        } or null {
             null
         }
     }

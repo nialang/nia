@@ -171,9 +171,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if let !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(b"nia\n") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     !{}
@@ -202,14 +202,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if let !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(b"nia\n") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
-    if let !ok = stdout.flush() {
+    if !ok = stdout.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
     !{}
@@ -234,9 +234,9 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
-    if let !ok = file.write_all(b"nia\n") {
+    if !ok = file.write_all(b"nia\n") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     !{}
@@ -276,9 +276,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [64]u8 = [0; 64];
     let mut reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
     let mut bytes: [1]u8 = [0];
-    if let !ok = reader.read(&mut bytes[..]) {
+    if !ok = reader.read(&mut bytes[..]) {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     !{}
@@ -992,9 +992,9 @@ fn std_facade_type_can_be_imported_directly() {
 using std::CStringView;
 
 fn main() void {
-    if let ?text = CStringView::from_bytes(b"nia\0") {
+    if ?text = CStringView::from_bytes(b"nia\0") {
         _ = text;
-    } else null {}
+    } or null {}
 }
 "#,
     );
@@ -1010,9 +1010,9 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    if let ?text = std::CStringView::from_bytes(b"nia\0") {
+    if ?text = std::CStringView::from_bytes(b"nia\0") {
         _ = text;
-    } else null {}
+    } or null {}
 }
 "#,
     );
@@ -1521,9 +1521,9 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.current;
-            self.current = if let ?next = self.current.next() {
+            self.current = if ?next = self.current.next() {
                 next
-            } else null {
+            } or null {
                 self.end
             };
             ?value

@@ -88,9 +88,9 @@ fn imported_range() i32 {
 }
 
 fn value(input: ?S) ?i32 {
-    if let ?range = input {
+    if ?range = input {
         ?range.start
-    } else null {
+    } or null {
         null
     }
 }
@@ -494,29 +494,29 @@ fn checks_recursive_optional_error_union_patterns_and_if_patterns() {
     let checked = pipeline(
         r#"
 fn unwrap_result(result: i32!i32) i32 {
-    if let !value = result {
+    if !value = result {
         value
-    } else err! {
+    } or err! {
         err
     }
 }
 
 fn unwrap_nested(value: ?(i32!i32)) i32 {
-    if let ?!ok = value {
+    if ?!ok = value {
         ok
-    } else ?err! {
+    } or ?err! {
         err
-    } else null {
+    } or null {
         0
     }
 }
 
 fn match_error_literal(value: ?(i32!i32)) i32 {
-    if let ?5! = value {
+    if ?5! = value {
         5
-    } else ?!ok {
+    } or ?!ok {
         ok
-    } else null {
+    } or null {
         0
     } else {
         9
@@ -524,7 +524,7 @@ fn match_error_literal(value: ?(i32!i32)) i32 {
 }
 
 fn bind_plain(value: i32) i32 {
-    if let mut current = value {
+    if mut current = value {
         current += 1;
         current
     }
@@ -535,23 +535,23 @@ fn bind_plain(value: i32) i32 {
 }
 
 #[test]
-fn checks_if_pattern_let_and_let_mut_binding_mutability() {
+fn checks_if_pattern_binding_mutability() {
     let checked = pipeline(
         r#"
 fn mutable(value: ?i32) i32 {
-    if let mut ?current = value {
+    if mut ?current = value {
         current += 1;
         current
-    } else null {
+    } or null {
         0
     }
 }
 
 fn immutable(value: ?i32) i32 {
-    if let ?current = value {
+    if ?current = value {
         current += 1;
         current
-    } else null {
+    } or null {
         0
     }
 }

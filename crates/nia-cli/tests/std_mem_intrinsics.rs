@@ -18,33 +18,33 @@ using std::process;
 
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
-    if let !items = allocator.alloc_slice[i32](0) { if items.len() != 0 {
+    if !items = allocator.alloc_slice[i32](0) { if items.len() != 0 {
                 return (2 as process::ExitCode)!;
             }
-            if let !ok = allocator.free_slice[i32](items) { _ = ok; } else error! { return (3 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
+            if !ok = allocator.free_slice[i32](items) { _ = ok; } or error! { return (3 as process::ExitCode)!; } } or error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
-    if let !items = allocator.alloc_slice[void](4) { if items.len() != 4 {
+    if !items = allocator.alloc_slice[void](4) { if items.len() != 4 {
                 return (2 as process::ExitCode)!;
             }
-            if let !ok = allocator.free_slice[void](items) { _ = ok; } else error! { return (3 as process::ExitCode)!; } } else error! { return (1 as process::ExitCode)!; }
+            if !ok = allocator.free_slice[void](items) { _ = ok; } or error! { return (3 as process::ExitCode)!; } } or error! { return (1 as process::ExitCode)!; }
     !{}
 }
 
 fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!void {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
-    if let !value = mem::Layout::array[void](8) { layout = value; } else error! { return (1 as process::ExitCode)!; }
+    if !value = mem::Layout::array[void](8) { layout = value; } or error! { return (1 as process::ExitCode)!; }
     let mut block: mem::Block;
-    if let !value = allocator.alloc(layout) { block = value; } else error! { return (2 as process::ExitCode)!; }
+    if !value = allocator.alloc(layout) { block = value; } or error! { return (2 as process::ExitCode)!; }
     let mut items = block.as_slice[void]();
     if items.len() != 0 {
         return (3 as process::ExitCode)!;
     }
-    if let !ok = allocator.free(block) { _ = ok; } else error! { return (4 as process::ExitCode)!; }
+    if !ok = allocator.free(block) { _ = ok; } or error! { return (4 as process::ExitCode)!; }
     !{}
 }
 

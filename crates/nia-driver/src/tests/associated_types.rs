@@ -115,9 +115,9 @@ where R: Reader
 fn main() i32 {
     let mut source: Source = {};
     let mut limit: Limit[Source] = { reader: &source };
-    if let !n = limit.read() {
+    if !n = limit.read() {
         n as i32
-    } else error! {
+    } or error! {
         1
     }
 }
@@ -775,9 +775,9 @@ extend Device : Reader {
 
 fn main() i32 {
     let mut device: Device = {};
-    if let !value = device.read() {
+    if !value = device.read() {
         value
-    } else error! {
+    } or error! {
         0
     }
 }

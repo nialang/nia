@@ -244,9 +244,9 @@ comptime fn sample_os() ?[5]char {
     ?"linux".*
 }
 
-comptime n: usize = if let ?os = sample_os() {
+comptime n: usize = if ?os = sample_os() {
     os.len()
-} else null {
+} or null {
     0usize
 };
 
@@ -268,9 +268,9 @@ fn comptime_optional_constructor_projects_char_array_payload() {
         &root.join("main.nia"),
         r#"
 comptime os = ?"linux".*;
-comptime n: usize = if let ?payload = os {
+comptime n: usize = if ?payload = os {
     payload.len()
-} else null {
+} or null {
     0usize
 };
 

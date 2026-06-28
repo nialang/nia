@@ -1303,9 +1303,9 @@ struct S {
 }
 
 fn value(input: ?S) ?i32 {
-    if let ?range = input {
+    if ?range = input {
         ?range.start
-    } else null {
+    } or null {
         null
     }
 }

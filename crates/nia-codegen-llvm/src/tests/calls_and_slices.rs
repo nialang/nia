@@ -182,9 +182,9 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if let !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(b"nia\n") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
     !{}
@@ -227,14 +227,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if let !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(b"nia\n") {
         _ = ok;
-    } else error! {
+    } or error! {
         return (1 as process::ExitCode)!;
     }
-    if let !ok = stdout.flush() {
+    if !ok = stdout.flush() {
         _ = ok;
-    } else error! {
+    } or error! {
         return (2 as process::ExitCode)!;
     }
     !{}
@@ -308,18 +308,18 @@ extend Z {
 fn main() i32 {
     let mut z = Z::init();
     let mut layout: Layout;
-    if let !value = Layout::init(7, 1) {
+    if !value = Layout::init(7, 1) {
         layout = value;
-    } else error! {
+    } or error! {
         return 1;
     }
-    if let !maybe = z.alloc(layout) {
-        if let ?value = maybe {
+    if !maybe = z.alloc(layout) {
+        if ?value = maybe {
             return value.len() as i32;
-        } else null {
+        } or null {
             return 2;
         }
-    } else error! {
+    } or error! {
         return 3;
     }
 }

@@ -121,9 +121,9 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
     if not is_valid_utf8_scalar_for_width(code, width) {
         return null;
     }
-    if let ?ch = code.to_char() {
+    if ?ch = code.to_char() {
         ?Utf8Decode::init(ch, width)
-    } else null {
+    } or null {
         null
     }
 }

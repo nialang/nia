@@ -245,10 +245,10 @@ fn ok() Error!void {
 }
 
 fn main() i32 {
-    if let !value = ok() {
+    if !value = ok() {
         _ = value;
         0
-    } else error! {
+    } or error! {
         1
     }
 }

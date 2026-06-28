@@ -203,9 +203,9 @@ comptime fn id[T](value: ?T) ?T {
 }
 
 comptime fn unwrap(value: ?usize) usize {
-    if let ?payload = value {
+    if ?payload = value {
         payload
-    } else null {
+    } or null {
         1usize
     }
 }
@@ -351,9 +351,9 @@ comptime fn id[T](value: T) T {
 }
 
 comptime value: ?usize = ?8usize;
-comptime n: usize = if let ?payload = value {
+comptime n: usize = if ?payload = value {
     id(payload)
-} else null {
+} or null {
     1usize
 };
 
@@ -379,9 +379,9 @@ comptime fn id[T](value: T) T {
 }
 
 comptime value: usize!usize = !8usize;
-comptime n: usize = if let !payload = value {
+comptime n: usize = if !payload = value {
     id(payload)
-} else err! {
+} or err! {
     id(err)
 };
 
@@ -474,9 +474,9 @@ fn generic_comptime_function_infers_type_arg_from_contextual_array_literal() {
         &root.join("main.nia"),
         r#"
 comptime fn first_some[T](values: [2]?T) T {
-    if let ?payload = values[0] {
+    if ?payload = values[0] {
         payload
-    } else null {
+    } or null {
         values[1].?
     }
 }
@@ -534,9 +534,9 @@ struct Slot[T] {
 }
 
 comptime fn pick[T](slot: Slot[T]) T {
-    if let ?payload = slot.primary {
+    if ?payload = slot.primary {
         payload
-    } else null {
+    } or null {
         slot.fallback.?
     }
 }

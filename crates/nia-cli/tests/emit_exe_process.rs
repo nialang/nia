@@ -18,22 +18,22 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/true\0";
     let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    let mut child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut child = if !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
         value
-    } else error! {
+    } or error! {
         return process::exit(1)!;
     };
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if not term.exited_success() {
         return process::exit(3)!;
     }
-    let code = if let ?value = term.exit_code() {
+    let code = if ?value = term.exit_code() {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     if code != 0 {
@@ -75,22 +75,22 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/false\0";
     let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    let mut child = if let !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut child = if !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
         value
-    } else error! {
+    } or error! {
         return process::exit(1)!;
     };
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if term.exited_success() {
         return process::exit(3)!;
     }
-    let code = if let ?value = term.exit_code() {
+    let code = if ?value = term.exit_code() {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     if code != 1 {
@@ -132,16 +132,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
-    let term = if let !value = command.run() {
+    let term = if !value = command.run() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if not term.exited_success() {
@@ -184,18 +184,18 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/echo\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let message = b"ignored-output\0";
     let mut argv: [3]&u8 = [path.raw_ptr(), &message.*[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
-    let term = if let !value = command.run() {
+    let term = if !value = command.run() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if not term.exited_success() {
@@ -243,9 +243,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
@@ -253,9 +253,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    let term = if let !value = command.run() {
+    let term = if !value = command.run() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if not term.exited_success() {
@@ -304,9 +304,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
@@ -316,9 +316,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     command.set_stdin(process::StdIo::Ignore).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    let term = if let !value = command.run() {
+    let term = if !value = command.run() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     if not term.exited_success() {
@@ -366,16 +366,16 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
-    let child = if let !value = command.spawn() {
+    let child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         if error == process::Error::SpawnExec {
             return !{};
         } else {
@@ -419,9 +419,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let bad_path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let bad_path = if let ?value = std::CStringView::from_bytes(bad_path_bytes) {
+    let bad_path = if ?value = std::CStringView::from_bytes(bad_path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut bad_argv: [2]&u8 = [bad_path.raw_ptr(), 0usize as &u8];
@@ -431,9 +431,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
         bad.set_stdin(process::StdIo::Pipe).exit().?;
         bad.set_stdout(process::StdIo::Pipe).exit().?;
         bad.set_stderr(process::StdIo::Pipe).exit().?;
-        let child = if let !value = bad.spawn() {
+        let child = if !value = bad.spawn() {
             value
-        } else error! {
+        } or error! {
             if error == process::Error::SpawnExec {
                 index += 1usize;
                 continue;
@@ -446,9 +446,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let good_path_bytes = b"/bin/true\0";
-    let good_path = if let ?value = std::CStringView::from_bytes(good_path_bytes) {
+    let good_path = if ?value = std::CStringView::from_bytes(good_path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     let mut good_argv: [2]&u8 = [good_path.raw_ptr(), 0usize as &u8];
@@ -456,9 +456,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     good.set_stdin(process::StdIo::Ignore).exit().?;
     good.set_stdout(process::StdIo::Ignore).exit().?;
     good.set_stderr(process::StdIo::Ignore).exit().?;
-    let term = if let !value = good.run() {
+    let term = if !value = good.run() {
         value
-    } else error! {
+    } or error! {
         return process::exit(5)!;
     };
     if not term.exited_success() {
@@ -502,9 +502,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
@@ -512,14 +512,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let handle = if let ?value = child.take_stdout() {
+    let handle = if ?value = child.take_stdout() {
         value
-    } else null {
+    } or null {
         return process::exit(3)!;
     };
     let mut read_buffer: [16]u8 = [0; 16];
@@ -527,9 +527,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut output: [11]u8 = [0; 11];
     reader.read_exact(&mut output[..]).exit().?;
     handle.close().exit().?;
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(4)!;
     };
     if not term.exited_success() {
@@ -592,36 +592,36 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let handle = if let ?value = child.take_stdout() {
+    let handle = if ?value = child.take_stdout() {
         value
-    } else null {
+    } or null {
         return process::exit(3)!;
     };
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(4)!;
     };
     if not term.exited_success() {
         return process::exit(5)!;
     }
     let mut byte: [1]u8 = [0];
-    let amount = if let !value = handle.read_some(&mut byte[..]) {
+    let amount = if !value = handle.read_some(&mut byte[..]) {
         value
-    } else error! {
+    } or error! {
         return process::exit(6)!;
     };
     handle.close().exit().?;
@@ -666,24 +666,24 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Pipe).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
 
-    let stdin_handle = if let ?value = child.take_stdin() {
+    let stdin_handle = if ?value = child.take_stdin() {
         value
-    } else null {
+    } or null {
         return process::exit(3)!;
     };
     let mut write_buffer: [16]u8 = [0; 16];
@@ -692,9 +692,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     writer.flush().exit().?;
     stdin_handle.close().exit().?;
 
-    let stdout_handle = if let ?value = child.take_stdout() {
+    let stdout_handle = if ?value = child.take_stdout() {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     let mut read_buffer: [16]u8 = [0; 16];
@@ -703,9 +703,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     reader.read_exact(&mut output[..]).exit().?;
     stdout_handle.close().exit().?;
 
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(5)!;
     };
     if not term.exited_success() {
@@ -757,23 +757,23 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(3)!;
     };
     if not term.exited_success() {
@@ -816,26 +816,26 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let first = if let !value = child.wait() {
+    let first = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(3)!;
     };
-    let second = if let !value = child.wait() {
+    let second = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(4)!;
     };
     if not first.exited_success() or not second.exited_success() {
@@ -878,43 +878,43 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
     let mut spins = 0usize;
     while spins < 100000usize {
-        let maybe = if let !value = child.try_wait() {
+        let maybe = if !value = child.try_wait() {
             value
-        } else error! {
+        } or error! {
             return process::exit(3)!;
         };
-        if let ?term = maybe {
+        if ?term = maybe {
             if not term.exited_success() {
                 return process::exit(4)!;
             }
-            let again = if let !value = child.try_wait() {
+            let again = if !value = child.try_wait() {
                 value
-            } else error! {
+            } or error! {
                 return process::exit(5)!;
             };
-            if let ?cached = again {
+            if ?cached = again {
                 if not cached.exited_success() {
                     return process::exit(6)!;
                 }
-            } else null {
+            } or null {
                 return process::exit(7)!;
             }
             return !{};
-        } else null {}
+        } or null {}
         spins += 1usize;
     }
     return process::exit(8)!;
@@ -953,33 +953,33 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Pipe).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let first = if let !value = child.try_wait() {
+    let first = if !value = child.try_wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(3)!;
     };
-    if let ?term = first {
+    if ?term = first {
         _ = term;
         return process::exit(4)!;
-    } else null {}
+    } or null {}
     child.close_stdin().exit().?;
-    let term = if let !value = child.wait() {
+    let term = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(5)!;
     };
     if not term.exited_success() {
@@ -1022,9 +1022,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
@@ -1033,32 +1033,32 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let term = if let !value = child.kill() {
+    let term = if !value = child.kill() {
         value
-    } else error! {
+    } or error! {
         return process::exit(3)!;
     };
-    let signal = if let ?value = term.signal_code() {
+    let signal = if ?value = term.signal_code() {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     if signal != 15 {
         return process::exit(5)!;
     }
-    let cached = if let !value = child.wait() {
+    let cached = if !value = child.wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(6)!;
     };
-    let cached_signal = if let ?value = cached.signal_code() {
+    let cached_signal = if ?value = cached.signal_code() {
         value
-    } else null {
+    } or null {
         return process::exit(7)!;
     };
     if cached_signal != 15 {
@@ -1100,9 +1100,9 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
@@ -1111,39 +1111,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
-    let mut child = if let !value = command.spawn() {
+    let mut child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         return process::exit(2)!;
     };
-    let term = if let !value = child.kill_with(process::Signal::Kill) {
+    let term = if !value = child.kill_with(process::Signal::Kill) {
         value
-    } else error! {
+    } or error! {
         return process::exit(3)!;
     };
-    let signal = if let ?value = term.signal_code() {
+    let signal = if ?value = term.signal_code() {
         value
-    } else null {
+    } or null {
         return process::exit(4)!;
     };
     if signal != 9 {
         return process::exit(5)!;
     }
-    let cached = if let !value = child.try_wait() {
+    let cached = if !value = child.try_wait() {
         value
-    } else error! {
+    } or error! {
         return process::exit(6)!;
     };
-    if let ?cached_term = cached {
-        let cached_signal = if let ?value = cached_term.signal_code() {
+    if ?cached_term = cached {
+        let cached_signal = if ?value = cached_term.signal_code() {
             value
-        } else null {
+        } or null {
             return process::exit(7)!;
         };
         if cached_signal != 9 {
             return process::exit(8)!;
         }
-    } else null {
+    } or null {
         return process::exit(9)!;
     }
     !{}
@@ -1187,15 +1187,15 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {{
     let path_bytes = b"/bin/sh\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {{
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {{
         value
-    }} else null {{
+    }} or null {{
         return process::exit(1)!;
     }};
     let cwd_bytes = b"{cwd_literal}";
-    let cwd = if let ?value = std::CStringView::from_bytes(cwd_bytes) {{
+    let cwd = if ?value = std::CStringView::from_bytes(cwd_bytes) {{
         value
-    }} else null {{
+    }} or null {{
         return process::exit(2)!;
     }};
     let flag = b"-c\0";
@@ -1203,9 +1203,9 @@ pub fn main(init: process::Init) process::ExitCode!void {{
     let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_cwd(cwd);
-    let term = if let !value = command.run() {{
+    let term = if !value = command.run() {{
         value
-    }} else error! {{
+    }} or error! {{
         return process::exit(3)!;
     }};
     if not term.exited_success() {{
@@ -1249,23 +1249,23 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if let ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(1)!;
     };
     let cwd_bytes = b"/definitely/not/a/nia/process-test-cwd\0";
-    let cwd = if let ?value = std::CStringView::from_bytes(cwd_bytes) {
+    let cwd = if ?value = std::CStringView::from_bytes(cwd_bytes) {
         value
-    } else null {
+    } or null {
         return process::exit(2)!;
     };
     let mut argv: [2]&u8 = [path.raw_ptr(), 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_cwd(cwd);
-    let child = if let !value = command.spawn() {
+    let child = if !value = command.spawn() {
         value
-    } else error! {
+    } or error! {
         if error == process::Error::SpawnCwd {
             return !{};
         } else {
@@ -1315,9 +1315,9 @@ pub fn main(init: Init) ExitCode!void {
     let args = init.args();
     let mut paths = args.skip_program();
     while true {
-        let path = if let ?value = paths.next() {
+        let path = if ?value = paths.next() {
             value
-        } else null {
+        } or null {
             break;
         };
         if should_skip(path) {
@@ -1415,9 +1415,9 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut page_allocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut page_allocator;
 
-    let value = if let ?value = std::CStringView::from_bytes(b"nia\0") {
+    let value = if ?value = std::CStringView::from_bytes(b"nia\0") {
         value
-    } else null {
+    } or null {
         return process::exit(3)!;
     };
     if value.len() != 3usize {
@@ -1427,10 +1427,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
         return process::exit(2)!;
     }
-    if let ?invalid = std::CStringView::from_bytes(b"nia") {
+    if ?invalid = std::CStringView::from_bytes(b"nia") {
         _ = invalid;
         return process::exit(4)!;
-    } else null {}
+    } or null {}
     let ptr = b"nia\0".get_ptr_read();
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::exit(5)!;
@@ -1892,7 +1892,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut writer = io::DiscardingWriter::init();
-    if let !ok = writer.write_all(b"nia") { _ = ok; } else error! { return (1 as process::ExitCode)!; }
+    if !ok = writer.write_all(b"nia") { _ = ok; } or error! { return (1 as process::ExitCode)!; }
     if writer.len() != 3 {
         return (2 as process::ExitCode)!;
     }
@@ -1939,21 +1939,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not 4096usize.is_power_of_two() {
         return (2 as process::ExitCode)!;
     }
-    if let ?value = 10usize.checked_add(5usize) { if value != 15usize {
+    if ?value = 10usize.checked_add(5usize) { if value != 15usize {
                 return (3 as process::ExitCode)!;
-            } } else null { return (4 as process::ExitCode)!; }
-    if let ?value = 18446744073709551615usize.checked_add(1usize) { _ = value;
-            return (5 as process::ExitCode)!; } else null { }
-    if let ?value = 12usize.checked_mul(3usize) { if value != 36usize {
+            } } or null { return (4 as process::ExitCode)!; }
+    if ?value = 18446744073709551615usize.checked_add(1usize) { _ = value;
+            return (5 as process::ExitCode)!; } or null { }
+    if ?value = 12usize.checked_mul(3usize) { if value != 36usize {
                 return (6 as process::ExitCode)!;
-            } } else null { return (7 as process::ExitCode)!; }
-    if let ?value = 4611686018427387904usize.checked_mul(4usize) { _ = value;
-            return (8 as process::ExitCode)!; } else null { }
-    if let ?value = 17usize.align_forward(8usize) { if value != 24usize {
+            } } or null { return (7 as process::ExitCode)!; }
+    if ?value = 4611686018427387904usize.checked_mul(4usize) { _ = value;
+            return (8 as process::ExitCode)!; } or null { }
+    if ?value = 17usize.align_forward(8usize) { if value != 24usize {
                 return (9 as process::ExitCode)!;
-            } } else null { return (10 as process::ExitCode)!; }
-    if let ?value = 17usize.align_forward(3usize) { _ = value;
-            return (11 as process::ExitCode)!; } else null { }
+            } } or null { return (10 as process::ExitCode)!; }
+    if ?value = 17usize.align_forward(3usize) { _ = value;
+            return (11 as process::ExitCode)!; } or null { }
     !{}
 }
 "#,
@@ -1998,31 +1998,31 @@ where T: math::CheckedAdd[T, Output = T]
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    if let ?value = add_checked_same[u8](250u8, 5u8) { if value != 255u8 { return process::exit(1)!; } } else null { return process::exit(2)!; }
-    if let ?value = 255u8.checked_add(1u8) { _ = value; return process::exit(3)!; } else null { }
-    if let ?value = 10u16.checked_sub(3u16) { if value != 7u16 { return process::exit(4)!; } } else null { return process::exit(5)!; }
-    if let ?value = 0u16.checked_sub(1u16) { _ = value; return process::exit(6)!; } else null { }
-    if let ?value = 70000u32.checked_mul(60000u32) { if value != 4200000000u32 { return process::exit(7)!; } } else null { return process::exit(8)!; }
-    if let ?value = 0xffffffffu32.checked_mul(2u32) { _ = value; return process::exit(9)!; } else null { }
-    if let ?value = 100u64.checked_div(4u64) { if value != 25u64 { return process::exit(10)!; } } else null { return process::exit(11)!; }
-    if let ?value = 100u64.checked_div(0u64) { _ = value; return process::exit(12)!; } else null { }
-    if let ?value = 100u128.checked_rem(7u128) { if value != 2u128 { return process::exit(13)!; } } else null { return process::exit(14)!; }
-    if let ?value = 100u128.checked_rem(0u128) { _ = value; return process::exit(15)!; } else null { }
-    if let ?value = 9usize.checked_sub(4usize) { if value != 5usize { return process::exit(16)!; } } else null { return process::exit(17)!; }
+    if ?value = add_checked_same[u8](250u8, 5u8) { if value != 255u8 { return process::exit(1)!; } } or null { return process::exit(2)!; }
+    if ?value = 255u8.checked_add(1u8) { _ = value; return process::exit(3)!; } or null { }
+    if ?value = 10u16.checked_sub(3u16) { if value != 7u16 { return process::exit(4)!; } } or null { return process::exit(5)!; }
+    if ?value = 0u16.checked_sub(1u16) { _ = value; return process::exit(6)!; } or null { }
+    if ?value = 70000u32.checked_mul(60000u32) { if value != 4200000000u32 { return process::exit(7)!; } } or null { return process::exit(8)!; }
+    if ?value = 0xffffffffu32.checked_mul(2u32) { _ = value; return process::exit(9)!; } or null { }
+    if ?value = 100u64.checked_div(4u64) { if value != 25u64 { return process::exit(10)!; } } or null { return process::exit(11)!; }
+    if ?value = 100u64.checked_div(0u64) { _ = value; return process::exit(12)!; } or null { }
+    if ?value = 100u128.checked_rem(7u128) { if value != 2u128 { return process::exit(13)!; } } or null { return process::exit(14)!; }
+    if ?value = 100u128.checked_rem(0u128) { _ = value; return process::exit(15)!; } or null { }
+    if ?value = 9usize.checked_sub(4usize) { if value != 5usize { return process::exit(16)!; } } or null { return process::exit(17)!; }
 
-    if let ?value = (-5i8).checked_neg() { if value != 5i8 { return process::exit(18)!; } } else null { return process::exit(19)!; }
-    if let ?value = i8::MIN.checked_neg() { _ = value; return process::exit(20)!; } else null { }
-    if let ?value = (-123i16).checked_abs() { if value != 123i16 { return process::exit(21)!; } } else null { return process::exit(22)!; }
-    if let ?value = i16::MIN.checked_abs() { _ = value; return process::exit(23)!; } else null { }
-    if let ?value = i32::MAX.checked_add(1i32) { _ = value; return process::exit(24)!; } else null { }
-    if let ?value = (-10i32).checked_add(5i32) { if value != -5i32 { return process::exit(25)!; } } else null { return process::exit(26)!; }
-    if let ?value = i64::MIN.checked_sub(1i64) { _ = value; return process::exit(27)!; } else null { }
-    if let ?value = 10i64.checked_sub(-5i64) { if value != 15i64 { return process::exit(28)!; } } else null { return process::exit(29)!; }
-    if let ?value = i128::MIN.checked_mul(-1i128) { _ = value; return process::exit(30)!; } else null { }
-    if let ?value = 12i128.checked_mul(-3i128) { if value != -36i128 { return process::exit(31)!; } } else null { return process::exit(32)!; }
-    if let ?value = isize::MIN.checked_div(-1isize) { _ = value; return process::exit(33)!; } else null { }
-    if let ?value = (-9isize).checked_div(3isize) { if value != -3isize { return process::exit(34)!; } } else null { return process::exit(35)!; }
-    if let ?value = (-9isize).checked_rem(0isize) { _ = value; return process::exit(36)!; } else null { }
+    if ?value = (-5i8).checked_neg() { if value != 5i8 { return process::exit(18)!; } } or null { return process::exit(19)!; }
+    if ?value = i8::MIN.checked_neg() { _ = value; return process::exit(20)!; } or null { }
+    if ?value = (-123i16).checked_abs() { if value != 123i16 { return process::exit(21)!; } } or null { return process::exit(22)!; }
+    if ?value = i16::MIN.checked_abs() { _ = value; return process::exit(23)!; } or null { }
+    if ?value = i32::MAX.checked_add(1i32) { _ = value; return process::exit(24)!; } or null { }
+    if ?value = (-10i32).checked_add(5i32) { if value != -5i32 { return process::exit(25)!; } } or null { return process::exit(26)!; }
+    if ?value = i64::MIN.checked_sub(1i64) { _ = value; return process::exit(27)!; } or null { }
+    if ?value = 10i64.checked_sub(-5i64) { if value != 15i64 { return process::exit(28)!; } } or null { return process::exit(29)!; }
+    if ?value = i128::MIN.checked_mul(-1i128) { _ = value; return process::exit(30)!; } or null { }
+    if ?value = 12i128.checked_mul(-3i128) { if value != -36i128 { return process::exit(31)!; } } or null { return process::exit(32)!; }
+    if ?value = isize::MIN.checked_div(-1isize) { _ = value; return process::exit(33)!; } or null { }
+    if ?value = (-9isize).checked_div(3isize) { if value != -3isize { return process::exit(34)!; } } or null { return process::exit(35)!; }
+    if ?value = (-9isize).checked_rem(0isize) { _ = value; return process::exit(36)!; } or null { }
 
     !{}
 }
@@ -2065,18 +2065,18 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if args.len() != 3 {
         return (1 as process::ExitCode)!;
     }
-    if let ?program = args.program() { if program.is_empty() {
+    if ?program = args.program() { if program.is_empty() {
             return (9 as process::ExitCode)!;
-        } } else null { return (10 as process::ExitCode)!; }
+        } } or null { return (10 as process::ExitCode)!; }
     let mut iter = args.skip_program();
     if iter.remaining() != 2usize {
         return (11 as process::ExitCode)!;
     }
-    let mut first_arg = if let ?value = iter.next() { value } else null { return (2 as process::ExitCode)!; };
+    let mut first_arg = if ?value = iter.next() { value } or null { return (2 as process::ExitCode)!; };
     if iter.remaining() != 1usize {
         return (12 as process::ExitCode)!;
     }
-    let mut second_arg = if let ?value = iter.next() { value } else null { return (3 as process::ExitCode)!; };
+    let mut second_arg = if ?value = iter.next() { value } or null { return (3 as process::ExitCode)!; };
     if iter.remaining() != 0usize {
         return (13 as process::ExitCode)!;
     }
@@ -2087,11 +2087,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
                 return (18 as process::ExitCode)!;
             }
         } else if for_count == 1usize {
-            if let !value = fmt::parse[u16](arg) {
+            if !value = fmt::parse[u16](arg) {
                 if value != 1234u16 {
                     return (19 as process::ExitCode)!;
                 }
-            } else error! {
+            } or error! {
                 return (20 as process::ExitCode)!;
             }
         } else {
@@ -2113,12 +2113,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if second.len() != 4 {
         return (6 as process::ExitCode)!;
     }
-    if let !value = fmt::parse[u16](second_arg) { if value != 1234u16 {
+    if !value = fmt::parse[u16](second_arg) { if value != 1234u16 {
             return (14 as process::ExitCode)!;
-        } } else error! { return (15 as process::ExitCode)!; }
-    if let !value = fmt::parse_radix[u16](second_arg, 16u32) { if value != 0x1234u16 {
+        } } or error! { return (15 as process::ExitCode)!; }
+    if !value = fmt::parse_radix[u16](second_arg, 16u32) { if value != 0x1234u16 {
             return (16 as process::ExitCode)!;
-        } } else error! { return (17 as process::ExitCode)!; }
+        } } or error! { return (17 as process::ExitCode)!; }
     let mut storage: [16]u8 = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
     writer.print("{:_>5.2}", &[&first_arg]).exit().?;
@@ -2126,8 +2126,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return (8 as process::ExitCode)!;
     }
-    if let ?value = iter.next() { _ = value;
-            return (7 as process::ExitCode)!; } else null { }
+    if ?value = iter.next() { _ = value;
+            return (7 as process::ExitCode)!; } or null { }
     !{}
 }
 "#,
@@ -2243,13 +2243,13 @@ fn parse() ParseError!i32 {
 
 extend[T] ParseError!T {
     fn as_app_error(self) AppError!T {
-        if let !value = self { !value } else err! { map_parse_error(err)! }
+        if !value = self { !value } or err! { map_parse_error(err)! }
     }
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    if let !value = parse().as_app_error() { return (value as process::ExitCode)!; } else err! { return (err as i32 as process::ExitCode)!; }
+    if !value = parse().as_app_error() { return (value as process::ExitCode)!; } or err! { return (err as i32 as process::ExitCode)!; }
 }
 "#,
     )
@@ -2346,11 +2346,11 @@ fn next(flag: bool) ?(i32!i32) {
 }
 
 fn classify(value: ?(i32!i32)) i32 {
-    if let ?!ok = value {
+    if ?!ok = value {
         ok
-    } else ?err! {
+    } or ?err! {
         err
-    } else null {
+    } or null {
         0
     }
 }
@@ -2358,11 +2358,11 @@ fn classify(value: ?(i32!i32)) i32 {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut total = 0;
-    if let ?!value = next(true) {
+    if ?!value = next(true) {
         total = value;
-    } else ?err! {
+    } or ?err! {
         total = err + 10;
-    } else null {
+    } or null {
         total = 20;
     }
     if calls != 1 {

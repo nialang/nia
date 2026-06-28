@@ -636,17 +636,17 @@ fn parses_optional_and_error_union_if_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn optional(value: ?i32) i32 {
-    if let ?x = value {
+    if ?x = value {
         x
-    } else null {
+    } or null {
         0
     }
 }
 
 fn error_union(value: i32!i32) i32 {
-    if let !x = value {
+    if !x = value {
         x
-    } else e! {
+    } or e! {
         e
     }
 }

@@ -843,23 +843,23 @@ where T: ToChar {
 }
 
 fn main() i32 {
-    let a = if let ?ch = convert(65u32) {
+    let a = if ?ch = convert(65u32) {
         ch
-    } else null {
+    } or null {
         return 1;
     };
-    let b = if let ?ch = associated_convert(0x10ffffu32) {
+    let b = if ?ch = associated_convert(0x10ffffu32) {
         ch
-    } else null {
+    } or null {
         return 2;
     };
     if a.codepoint() != 65u32 or b.codepoint() != 0x10ffffu32 {
         return 3;
     }
-    if let ?ch = [char]::from_u32(0xd800u32) {
+    if ?ch = [char]::from_u32(0xd800u32) {
         _ = ch;
         return 4;
-    } else null {}
+    } or null {}
     0
 }
 "#,

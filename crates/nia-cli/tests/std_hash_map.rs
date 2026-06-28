@@ -203,7 +203,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut empty: [0]u8 = [];
-    if let !ok = os::random(&mut empty[..]) { _ = ok; } else error! { return (2 as process::ExitCode)!; }
+    if !ok = os::random(&mut empty[..]) { _ = ok; } or error! { return (2 as process::ExitCode)!; }
 
     let mut bytes: [32]u8 = [
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
@@ -211,7 +211,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
         0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
     ];
-    if let !ok = os::random(&mut bytes[..]) { _ = ok; } else error! { return (3 as process::ExitCode)!; }
+    if !ok = os::random(&mut bytes[..]) { _ = ok; } or error! { return (3 as process::ExitCode)!; }
 
     let mut any_nonzero = false;
     let mut i = 0usize;
@@ -446,7 +446,7 @@ fn run(init: process::Init) mem::Error!void {
 
     let mut i = 0;
     while i < 64 {
-        if let !old = map.put(&mut gpa, i, i * 10) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
+        if !old = map.put(&mut gpa, i, i * 10) { if ?value = old { return mem::Error::Invalid!; } or null { }; } or err! { return err!; }
         i += 1;
     }
 
@@ -456,44 +456,44 @@ fn run(init: process::Init) mem::Error!void {
     if not map.contains_key(&42) {
         return mem::Error::Invalid!;
     }
-    if let ?value = map.get(&42) { if value.* != 420 {
+    if ?value = map.get(&42) { if value.* != 420 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
-    if let !old = map.put(&mut gpa, 42, 7) { if let ?value = old { if value != 420 {
+    if !old = map.put(&mut gpa, 42, 7) { if ?value = old { if value != 420 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }; } else err! { return err!; }
-    if let mut ?value = map.get_mut(&42) { value.* = value.* + 1; } else null { return mem::Error::Invalid!; }
-    if let ?value = map.get(&42) { if value.* != 8 {
+            } } or null { return mem::Error::Invalid!; }; } or err! { return err!; }
+    if mut ?value = map.get_mut(&42) { value.* = value.* + 1; } or null { return mem::Error::Invalid!; }
+    if ?value = map.get(&42) { if value.* != 8 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?entry = map.get_entry(&42) { if entry.key().* != 42 or entry.value().* != 8 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?entry = map.get_entry(&42) { if entry.key().* != 42 or entry.value().* != 8 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
-    if let mut ?entry = map.get_entry_mut(&42) { if entry.key().* != 42 or entry.value().* != 8 {
+            } } or null { return mem::Error::Invalid!; }
+    if mut ?entry = map.get_entry_mut(&42) { if entry.key().* != 42 or entry.value().* != 8 {
                 return mem::Error::Invalid!;
             }
-            entry.value_mut().* = 9; } else null { return mem::Error::Invalid!; }
-    if let ?value = map.get(&42) { if value.* != 9 {
+            entry.value_mut().* = 9; } or null { return mem::Error::Invalid!; }
+    if ?value = map.get(&42) { if value.* != 9 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     for value in map.values_mut() {
         value.* = value.* + 1;
     }
-    if let ?value = map.get(&42) { if value.* != 10 {
+    if ?value = map.get(&42) { if value.* != 10 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     for entry in map.iter_mut() {
         if entry.key().* == 42 {
             entry.value_mut().* = entry.value().* + 2;
         }
     }
-    if let ?value = map.get(&42) { if value.* != 12 {
+    if ?value = map.get(&42) { if value.* != 12 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?value = map.remove(&10) { if value != 101 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?value = map.remove(&10) { if value != 101 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     if map.contains_key(&10) or map.len() != 63usize {
         return mem::Error::Invalid!;
     }
@@ -528,38 +528,38 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
 
-    if let ?entry = map.remove_entry(&42) { if entry.key().* != 42 or entry.value().* != 12 {
+    if ?entry = map.remove_entry(&42) { if entry.key().* != 42 or entry.value().* != 12 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
     if map.contains_key(&42) or map.len() != 62usize {
         return mem::Error::Invalid!;
     }
 
-    if let !old = map.put(&mut gpa, 74, 740) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
-    if let ?value = map.get(&74) { if value.* != 740 {
+    if !old = map.put(&mut gpa, 74, 740) { if ?value = old { return mem::Error::Invalid!; } or null { }; } or err! { return err!; }
+    if ?value = map.get(&74) { if value.* != 740 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let !old = map.fetch_put(&mut gpa, 74, 741) { if let ?value = old { if value != 740 {
+        } } or null { return mem::Error::Invalid!; }
+    if !old = map.fetch_put(&mut gpa, 74, 741) { if ?value = old { if value != 740 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }; } else err! { return err!; }
-    if let ?entry = map.fetch_remove(&74) { if entry.key().* != 74 or entry.value().* != 741 {
+            } } or null { return mem::Error::Invalid!; }; } or err! { return err!; }
+    if ?entry = map.fetch_remove(&74) { if entry.key().* != 74 or entry.value().* != 741 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
 
     map.clear();
     if map.len() != 0usize or map.contains_key(&42) {
         return mem::Error::Invalid!;
     }
 
-    if let !inserted = map.put_if_absent(&mut gpa, 5, 50) { if not inserted {
+    if !inserted = map.put_if_absent(&mut gpa, 5, 50) { if not inserted {
             return mem::Error::Invalid!;
-        } } else err! { return err!; }
-    if let !inserted = map.put_if_absent(&mut gpa, 5, 500) { if inserted {
+        } } or err! { return err!; }
+    if !inserted = map.put_if_absent(&mut gpa, 5, 500) { if inserted {
             return mem::Error::Invalid!;
-        } } else err! { return err!; }
-    if let ?value = map.get(&5) { if value.* != 50 {
+        } } or err! { return err!; }
+    if ?value = map.get(&5) { if value.* != 50 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     let mut inserted_entry = map.get_or_put_value(&mut gpa, 6, 60).?;
     if inserted_entry.found_existing() or inserted_entry.key().* != 6 {
         return mem::Error::Invalid!;
@@ -570,9 +570,9 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     existing_entry.value().* = 62;
-    if let ?value = map.get(&6) { if value.* != 62 {
+    if ?value = map.get(&6) { if value.* != 62 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     let mut raw_entry = map.get_or_put(&mut gpa, 8).?;
     if raw_entry.found_existing() {
         return mem::Error::Invalid!;
@@ -583,9 +583,9 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     raw_entry.value().* = 81;
-    if let ?value = map.get(&8) { if value.* != 81 {
+    if ?value = map.get(&8) { if value.* != 81 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     map.clear_and_free(&mut gpa).?;
     if map.len() != 0usize or map.capacity() != 0usize {
         return mem::Error::Invalid!;
@@ -598,7 +598,7 @@ fn run(init: process::Init) mem::Error!void {
     if not set_like.contains_key(&1) or not set_like.contains_key(&2) {
         return mem::Error::Invalid!;
     }
-    if let ?value = set_like.remove(&1) { _ = value; } else null { return mem::Error::Invalid!; }
+    if ?value = set_like.remove(&1) { _ = value; } or null { return mem::Error::Invalid!; }
     if set_like.contains_key(&1) or set_like.len() != 1usize {
         return mem::Error::Invalid!;
     }
@@ -608,19 +608,19 @@ fn run(init: process::Init) mem::Error!void {
         0u64,
     );
     defer unit_keys.deinit(&mut gpa).?;
-    if let !old = unit_keys.put(&mut gpa, {}, 11) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
-    if let !old = unit_keys.put(&mut gpa, {}, 22) { if let ?value = old { if value != 11 {
+    if !old = unit_keys.put(&mut gpa, {}, 11) { if ?value = old { return mem::Error::Invalid!; } or null { }; } or err! { return err!; }
+    if !old = unit_keys.put(&mut gpa, {}, 22) { if ?value = old { if value != 11 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }; } else err! { return err!; }
+            } } or null { return mem::Error::Invalid!; }; } or err! { return err!; }
     if unit_keys.len() != 1usize {
         return mem::Error::Invalid!;
     }
-    if let ?value = unit_keys.get(&{}) { if value.* != 22 {
+    if ?value = unit_keys.get(&{}) { if value.* != 22 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?value = unit_keys.remove(&{}) { if value != 22 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?value = unit_keys.remove(&{}) { if value != 22 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     unit_keys.clear_and_free(&mut gpa).?;
     if unit_keys.len() != 0usize or unit_keys.capacity() != 0usize {
         return mem::Error::Invalid!;
@@ -639,7 +639,7 @@ fn run(init: process::Init) mem::Error!void {
         }
         key = 0;
         while key < 28 {
-            if let ?value = churn.remove(&key) { _ = value; } else null { return mem::Error::Invalid!; }
+            if ?value = churn.remove(&key) { _ = value; } or null { return mem::Error::Invalid!; }
             key += 1;
         }
         round += 1;
@@ -657,9 +657,9 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 100;
     while key < 128 {
-        if let ?value = churn.get(&key) { if value.* != key * 2 {
+        if ?value = churn.get(&key) { if value.* != key * 2 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     churn.clear_retaining_capacity();
@@ -678,9 +678,9 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 56 {
-        if let ?value = tombstones.remove(&key) { if value != key {
+        if ?value = tombstones.remove(&key) { if value != key {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     tombstones.reserve(&mut gpa, 32usize).?;
@@ -697,9 +697,9 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 32 {
-        if let ?value = tombstones.get(&(key + 200)) { if value.* != key * 4 {
+        if ?value = tombstones.get(&(key + 200)) { if value.* != key * 4 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     tombstones.compact(&mut gpa).?;
@@ -708,16 +708,16 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 32 {
-        if let ?value = tombstones.get(&(key + 200)) { if value.* != key * 4 {
+        if ?value = tombstones.get(&(key + 200)) { if value.* != key * 4 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     key = 0;
     while key < 32 {
-        if let ?value = tombstones.remove(&(key + 200)) { if value != key * 4 {
+        if ?value = tombstones.remove(&(key + 200)) { if value != key * 4 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     tombstones.compact(&mut gpa).?;
@@ -725,23 +725,23 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     _ = tombstones.put(&mut gpa, 777, 888).?;
-    if let ?value = tombstones.get(&777) { if value.* != 888 {
+    if ?value = tombstones.get(&777) { if value.* != 888 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     tombstones.shrink_to_fit(&mut gpa).?;
     if tombstones.len() != 1usize or tombstones.capacity() != 7usize {
         return mem::Error::Invalid!;
     }
-    if let ?value = tombstones.get(&777) { if value.* != 888 {
+    if ?value = tombstones.get(&777) { if value.* != 888 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     tombstones.shrink_to_capacity(&mut gpa, 14usize).?;
     if tombstones.len() != 1usize or tombstones.capacity() != 7usize {
         return mem::Error::Invalid!;
     }
-    if let ?value = tombstones.remove(&777) { if value != 888 {
+    if ?value = tombstones.remove(&777) { if value != 888 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     tombstones.shrink_to_fit(&mut gpa).?;
     if tombstones.len() != 0usize or tombstones.capacity() != 0usize {
         return mem::Error::Invalid!;
@@ -761,9 +761,9 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 10 {
-        if let ?value = tombstones.get(&key) { if value.* != key * 11 {
+        if ?value = tombstones.get(&key) { if value.* != key * 11 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
 
@@ -778,8 +778,8 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
     fail_allocator.fail_next_alloc();
-    if let !old = rollback.put(&mut fail_allocator, 99, 990) { _ = old;
-            return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
+    if !old = rollback.put(&mut fail_allocator, 99, 990) { _ = old;
+            return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
         } }
     if rollback.len() != 14usize or rollback.contains_key(&99) {
@@ -788,20 +788,20 @@ fn run(init: process::Init) mem::Error!void {
     fail_allocator.clear_failures();
     key = 0;
     while key < 14 {
-        if let ?value = rollback.get(&key) { if value.* != key * 10 {
+        if ?value = rollback.get(&key) { if value.* != key * 10 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     fail_allocator.fail_next_alloc();
-    if let !cloned = rollback.clone(&mut fail_allocator) { _ = cloned;
-            return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
+    if !cloned = rollback.clone(&mut fail_allocator) { _ = cloned;
+            return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
         } }
     fail_allocator.clear_failures();
     fail_allocator.fail_alloc_at = fail_allocator.alloc_count + 2usize;
-    if let !cloned = rollback.clone(&mut fail_allocator) { _ = cloned;
-            return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
+    if !cloned = rollback.clone(&mut fail_allocator) { _ = cloned;
+            return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
         } }
     if rollback.len() != 14usize or rollback.contains_key(&99) {
@@ -809,16 +809,16 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 14 {
-        if let ?value = rollback.get(&key) { if value.* != key * 10 {
+        if ?value = rollback.get(&key) { if value.* != key * 10 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     fail_allocator.clear_failures();
     _ = rollback.put(&mut fail_allocator, 99, 990).?;
-    if let ?value = rollback.get(&99) { if value.* != 990 {
+    if ?value = rollback.get(&99) { if value.* != 990 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
     let mut rollback_get = std::HashMap[i32, i32]::init_seed(559u64);
     defer rollback_get.deinit(&mut fail_allocator).?;
@@ -829,8 +829,8 @@ fn run(init: process::Init) mem::Error!void {
         key += 1;
     }
     fail_allocator.fail_next_alloc();
-    if let !entry = rollback_get.get_or_put(&mut fail_allocator, 77) { _ = entry;
-            return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
+    if !entry = rollback_get.get_or_put(&mut fail_allocator, 77) { _ = entry;
+            return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
         } }
     if rollback_get.len() != 7usize or rollback_get.contains_key(&77) {
@@ -842,9 +842,9 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     rollback_entry.value().* = 770;
-    if let ?value = rollback_get.get(&77) { if value.* != 770 {
+    if ?value = rollback_get.get(&77) { if value.* != 770 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
     let mut free_fail_storage: [8192]u8 = [0; 8192];
     let mut free_fail_allocator = FailAllocator::init(&mut free_fail_storage);
@@ -858,7 +858,7 @@ fn run(init: process::Init) mem::Error!void {
     }
     let old_free_fail_capacity = free_fail.capacity();
     free_fail_allocator.fail_next_free();
-    if let !ok = free_fail.reserve(&mut free_fail_allocator, 64usize) { return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::Invalid as i32 {
+    if !ok = free_fail.reserve(&mut free_fail_allocator, 64usize) { return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::Invalid as i32 {
             return err!;
         } }
     if free_fail.capacity() <= old_free_fail_capacity or free_fail.len() != 14usize {
@@ -866,14 +866,14 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 14 {
-        if let ?value = free_fail.get(&key) { if value.* != key + 5 {
+        if ?value = free_fail.get(&key) { if value.* != key + 5 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     let free_fail_grown_capacity = free_fail.capacity();
     free_fail_allocator.fail_next_free();
-    if let !ok = free_fail.compact(&mut free_fail_allocator) { return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::Invalid as i32 {
+    if !ok = free_fail.compact(&mut free_fail_allocator) { return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::Invalid as i32 {
             return err!;
         } }
     if free_fail.capacity() != free_fail_grown_capacity or free_fail.len() != 14usize {
@@ -881,14 +881,14 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 14 {
-        if let ?value = free_fail.get(&key) { if value.* != key + 5 {
+        if ?value = free_fail.get(&key) { if value.* != key + 5 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     free_fail_allocator.clear_failures();
     free_fail_allocator.fail_next_free();
-    if let !ok = free_fail.shrink_to_fit(&mut free_fail_allocator) { return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::Invalid as i32 {
+    if !ok = free_fail.shrink_to_fit(&mut free_fail_allocator) { return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::Invalid as i32 {
             return err!;
         } }
     if free_fail.capacity() != 14usize or free_fail.len() != 14usize {
@@ -899,16 +899,16 @@ fn run(init: process::Init) mem::Error!void {
     free_fail.shrink_to_capacity(&mut free_fail_allocator, free_fail.capacity()).?;
     key = 0;
     while key < 14 {
-        if let ?value = free_fail.get(&key) { if value.* != key + 5 {
+        if ?value = free_fail.get(&key) { if value.* != key + 5 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     free_fail_allocator.clear_failures();
     _ = free_fail.put(&mut free_fail_allocator, 90, 900).?;
-    if let ?value = free_fail.get(&90) { if value.* != 900 {
+    if ?value = free_fail.get(&90) { if value.* != 900 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
     let mut collisions = std::collections::HashMapWithContext[i32, i32, ConstantHashContext]::init_context_seed(
         ConstantHashContext::init(),
@@ -926,16 +926,16 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 20 {
-        if let ?value = collisions.get(&key) { if value.* != key + 1000 {
+        if ?value = collisions.get(&key) { if value.* != key + 1000 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     key = 0;
     while key < 10 {
-        if let ?value = collisions.remove(&key) { if value != key + 1000 {
+        if ?value = collisions.remove(&key) { if value != key + 1000 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
     key = 100;
@@ -955,9 +955,9 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 100;
     while key < 110 {
-        if let ?value = collisions.get(&key) { if value.* != key + 2000 {
+        if ?value = collisions.get(&key) { if value.* != key + 2000 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
 
@@ -966,23 +966,23 @@ fn run(init: process::Init) mem::Error!void {
         19u64,
     );
     defer modulo.deinit(&mut gpa).?;
-    if let !old = modulo.put(&mut gpa, Key::init(1), 10) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
-    if let !old = modulo.put(&mut gpa, Key::init(6), 60) { if let ?value = old { if value != 10 {
+    if !old = modulo.put(&mut gpa, Key::init(1), 10) { if ?value = old { return mem::Error::Invalid!; } or null { }; } or err! { return err!; }
+    if !old = modulo.put(&mut gpa, Key::init(6), 60) { if ?value = old { if value != 10 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }; } else err! { return err!; }
+            } } or null { return mem::Error::Invalid!; }; } or err! { return err!; }
     if modulo.len() != 1usize {
         return mem::Error::Invalid!;
     }
     let equivalent = Key::init(11);
-    if let ?stored_key = modulo.get_key(&equivalent) { if stored_key.value != 1 {
+    if ?stored_key = modulo.get_key(&equivalent) { if stored_key.value != 1 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?entry = modulo.get_key_value(&equivalent) { if entry.key().*.value != 1 or entry.value().* != 60 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?entry = modulo.get_key_value(&equivalent) { if entry.key().*.value != 1 or entry.value().* != 60 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
-    if let ?value = modulo.get(&equivalent) { if value.* != 60 {
+            } } or null { return mem::Error::Invalid!; }
+    if ?value = modulo.get(&equivalent) { if value.* != 60 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     key = 20;
     while key < 60 {
         _ = modulo.put(&mut gpa, Key::init(key), key * 3).?;
@@ -992,9 +992,9 @@ fn run(init: process::Init) mem::Error!void {
         return mem::Error::Invalid!;
     }
     let replaced = Key::init(46);
-    if let ?value = modulo.get(&replaced) { if value.* != 56 * 3 {
+    if ?value = modulo.get(&replaced) { if value.* != 56 * 3 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
     let mut tail_probe = std::collections::HashMapWithContext[i32, i32, TailHashContext]::init_context_seed(
         TailHashContext::init(15usize),
@@ -1012,29 +1012,29 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 8 {
-        if let ?value = tail_probe.get(&key) { if value.* != key + 100 {
+        if ?value = tail_probe.get(&key) { if value.* != key + 100 {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
-    if let ?value = tail_probe.remove(&0) { if value != 100 {
+    if ?value = tail_probe.remove(&0) { if value != 100 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let !old = tail_probe.put(&mut gpa, 16, 1600) { if let ?value = old { return mem::Error::Invalid!; } else null { }; } else err! { return err!; }
-    if let ?value = tail_probe.get(&16) { if value.* != 1600 {
+        } } or null { return mem::Error::Invalid!; }
+    if !old = tail_probe.put(&mut gpa, 16, 1600) { if ?value = old { return mem::Error::Invalid!; } or null { }; } or err! { return err!; }
+    if ?value = tail_probe.get(&16) { if value.* != 1600 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     tail_probe.clear();
     _ = tail_probe.put(&mut gpa, 0, 700).?;
-    if let ?value = tail_probe.get(&0) { if value.* != 700 {
+    if ?value = tail_probe.get(&0) { if value.* != 700 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
 
     let mut tiny_storage: [16]u8 = [0; 16];
     let mut tiny = mem::FixedBufferAllocator::init(&mut tiny_storage);
     let mut tiny_map = std::HashMap[i32, i32]::init_seed(11u64);
     defer tiny_map.deinit(&mut tiny).?;
-    if let !ok = tiny_map.reserve(&mut tiny, 64usize) { return mem::Error::Invalid!; } else err! { if err as i32 != mem::Error::OutOfMemory as i32 {
+    if !ok = tiny_map.reserve(&mut tiny, 64usize) { return mem::Error::Invalid!; } or err! { if err as i32 != mem::Error::OutOfMemory as i32 {
             return err!;
         } }
 
@@ -1154,11 +1154,11 @@ fn run(init: process::Init) mem::Error!void {
         let op = step % 6;
         if op == 0 {
             let was_present = present[slot];
-            if let !old = model_map.put(&mut gpa, slot, step + 1000) { if let ?value = old { if not was_present or value != expected[slot] {
+            if !old = model_map.put(&mut gpa, slot, step + 1000) { if ?value = old { if not was_present or value != expected[slot] {
                         return mem::Error::Invalid!;
-                    } } else null { if was_present {
+                    } } or null { if was_present {
                         return mem::Error::Invalid!;
-                    } }; } else err! { return err!; }
+                    } }; } or err! { return err!; }
             if not was_present {
                 expected_len += 1usize;
             }
@@ -1166,11 +1166,11 @@ fn run(init: process::Init) mem::Error!void {
             expected[slot] = step + 1000;
         } else if op == 1 {
             let was_present = present[slot];
-            if let ?value = model_map.remove(&slot) { if not was_present or value != expected[slot] {
+            if ?value = model_map.remove(&slot) { if not was_present or value != expected[slot] {
                         return mem::Error::Invalid!;
                     }
                     present[slot] = false;
-                    expected_len -= 1usize; } else null { if was_present {
+                    expected_len -= 1usize; } or null { if was_present {
                     return mem::Error::Invalid!;
                 } }
         } else if op == 2 {
@@ -1190,27 +1190,27 @@ fn run(init: process::Init) mem::Error!void {
             expected[slot] = step + 2000;
         } else if op == 3 {
             let was_present = present[slot];
-            if let !inserted = model_map.put_if_absent(&mut gpa, slot, step + 3000) { if inserted == was_present {
+            if !inserted = model_map.put_if_absent(&mut gpa, slot, step + 3000) { if inserted == was_present {
                         return mem::Error::Invalid!;
                     }
                     if inserted {
                         expected_len += 1usize;
                         present[slot] = true;
                         expected[slot] = step + 3000;
-                    } } else err! { return err!; }
+                    } } or err! { return err!; }
         } else if op == 4 {
-            if let ?value = model_map.get(&slot) { if not present[slot] or value.* != expected[slot] {
+            if ?value = model_map.get(&slot) { if not present[slot] or value.* != expected[slot] {
                     return mem::Error::Invalid!;
-                } } else null { if present[slot] {
+                } } or null { if present[slot] {
                     return mem::Error::Invalid!;
                 } }
         } else {
             let was_present = present[slot];
-            if let !old = model_map.fetch_put(&mut gpa, slot, step + 4000) { if let ?value = old { if not was_present or value != expected[slot] {
+            if !old = model_map.fetch_put(&mut gpa, slot, step + 4000) { if ?value = old { if not was_present or value != expected[slot] {
                         return mem::Error::Invalid!;
-                    } } else null { if was_present {
+                    } } or null { if was_present {
                         return mem::Error::Invalid!;
-                    } }; } else err! { return err!; }
+                    } }; } or err! { return err!; }
             if not was_present {
                 expected_len += 1usize;
             }
@@ -1260,17 +1260,17 @@ fn run(init: process::Init) mem::Error!void {
     }
     key = 0;
     while key < 40 {
-        if let ?value = cloned_model.get(&key) { if not present[key] or value.* != expected[key] {
+        if ?value = cloned_model.get(&key) { if not present[key] or value.* != expected[key] {
                 return mem::Error::Invalid!;
-            } } else null { if present[key] {
+            } } or null { if present[key] {
                 return mem::Error::Invalid!;
             } }
         key += 1;
     }
     _ = model_map.put(&mut gpa, 3, 12345).?;
-    if let ?value = cloned_model.get(&3) { if value.* == 12345 {
+    if ?value = cloned_model.get(&3) { if value.* == 12345 {
             return mem::Error::Invalid!;
-        }; } else null { }
+        }; } or null { }
 
     !{}
 }
@@ -1371,9 +1371,9 @@ fn run(init: process::Init) mem::Error!void {
 
     key = 0;
     while key < 14 {
-        if let ?value = map.remove(&key) { if value != key {
+        if ?value = map.remove(&key) { if value != key {
                 return mem::Error::Invalid!;
-            } } else null { return mem::Error::Invalid!; }
+            } } or null { return mem::Error::Invalid!; }
         key += 1;
     }
 
@@ -1385,12 +1385,12 @@ fn run(init: process::Init) mem::Error!void {
     if map.len() != 2usize {
         return mem::Error::Invalid!;
     }
-    if let ?value = map.get(&100) { if value.* != 1000 {
+    if ?value = map.get(&100) { if value.* != 1000 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?value = map.get(&101) { if value.* != 1010 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?value = map.get(&101) { if value.* != 1010 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     !{}
 }
 
@@ -1441,10 +1441,10 @@ fn run(init: process::Init) mem::Error!void {
     defer map.deinit(&mut page).?;
 
     map.reserve(&mut page, 4usize).?;
-    if let ?old = map.put_assume_capacity(1, 10) { return mem::Error::Invalid!; } else null { }
-    if let ?old = map.put_assume_capacity(1, 11) { if old != 10 {
+    if ?old = map.put_assume_capacity(1, 10) { return mem::Error::Invalid!; } or null { }
+    if ?old = map.put_assume_capacity(1, 11) { if old != 10 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     if map.put_if_absent_assume_capacity(1, 99) {
         return mem::Error::Invalid!;
     }
@@ -1467,15 +1467,15 @@ fn run(init: process::Init) mem::Error!void {
     if map.len() != 3usize {
         return mem::Error::Invalid!;
     }
-    if let ?value = map.get(&1) { if value.* != 12 {
+    if ?value = map.get(&1) { if value.* != 12 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?value = map.get(&2) { if value.* != 20 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?value = map.get(&2) { if value.* != 20 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
-    if let ?value = map.get(&3) { if value.* != 30 {
+        } } or null { return mem::Error::Invalid!; }
+    if ?value = map.get(&3) { if value.* != 30 {
             return mem::Error::Invalid!;
-        } } else null { return mem::Error::Invalid!; }
+        } } or null { return mem::Error::Invalid!; }
     !{}
 }
 

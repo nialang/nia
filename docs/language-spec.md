@@ -869,23 +869,23 @@ fn read(value: i32!i32) i32!i32 {
 Patterns can destructure optional and error-union values:
 
 ```nia
-if let ?x = maybe {
+if ?x = maybe {
     x
-} else null {
+} or null {
     0
 }
 
-if let !x = result {
+if !x = result {
     x
-} else err! {
+} or err! {
     err
 }
 
-if let ?!value = nested {
+if ?!value = nested {
     value
-} else ?err! {
+} or ?err! {
     err
-} else null {
+} or null {
     0
 }
 ```
@@ -1331,26 +1331,26 @@ ranges and overlapping integer patterns are rejected.
 
 `switch` case patterns are value dispatch patterns only: expression patterns,
 integer ranges, and `_`. `switch` does not destructure optional or error-union
-values. Use `if let` or `if let mut` for recursive binding patterns:
+values. Use if-pattern expressions for recursive binding patterns:
 
 ```nia
-if let ?x = value {
+if ?x = value {
     return x;
-} else null {
+} or null {
     return 0;
 }
 
-if let !x = result {
+if !x = result {
     return x;
-} else err! {
+} or err! {
     return err;
 }
 
-if let ?!value = nested {
+if ?!value = nested {
     return value;
-} else ?err! {
+} or ?err! {
     return err;
-} else null {
+} or null {
     return 0;
 }
 ```
@@ -1358,7 +1358,7 @@ if let ?!value = nested {
 `?pattern` matches the payload of a present optional. `!pattern` matches the
 success payload of an error union. `pattern!` matches the error payload of an
 error union. `null` matches the empty optional case. `_` is a catch-all
-optional/error-union pattern in `if let` / `if let mut`; in `switch`, `_` is the
+optional/error-union pattern in if-pattern expressions; in `switch`, `_` is the
 default case. These match patterns may nest across optional and error-union
 layers. Pointer destructuring forms such as `let &value = ptr;` are separate
 local/loop binding syntax, not switch case syntax.
@@ -1573,7 +1573,7 @@ let mut &mut y: i32 = mut_ptr;
 requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
 type after destructuring, not the pointer input type. Pointer-destructuring
 local bindings require an initializer. This syntax is separate from the
-optional/error-union match patterns used by `if let` and `if let mut`, and from the
+optional/error-union match patterns used by if-pattern expressions, and from the
 value/range/default patterns used by `switch`.
 
 ## 7. Statements And Semicolons
@@ -1595,7 +1595,7 @@ Block-shaped control flow used as a standalone statement does not need a trailin
 semicolon. The recommended rule is:
 
 - ordinary expression statements need `;`;
-- `if`, `if let`, `if let mut`, `for`, and `switch` used as standalone statements
+- `if`, if-pattern expressions, `for`, and `switch` used as standalone statements
   do not need `;`;
 - a block tail expression does not use `;`.
 
@@ -1631,25 +1631,24 @@ When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
 
-`if let` and `if let mut` match a value with the binding/destructuring pattern
+An if-pattern expression matches a value with the binding/destructuring pattern
 language:
 
 ```nia
-if let !value = result {
+if !value = result {
     use(value);
-} else err! {
+} or err! {
     return map_error(err)!;
 }
 ```
 
-The first arm writes `if let pattern = expr` or `if let mut pattern = expr`.
-Additional pattern arms write `else pattern { ... }`; they do not repeat `let`
-or `let mut`. A final `else { ... }` block may be used as a fallback. `if let`
-creates immutable pattern bindings, while `if let mut` creates mutable pattern
-bindings. The matched expression is evaluated once and then tested against each
-pattern arm in order.
+The first arm writes `if pattern = expr`; use `mut` inside the pattern when the
+payload binding should be mutable, for example `if mut ?value = maybe { ... }`.
+Additional pattern arms write `or pattern { ... }`. A final `else { ... }`
+block may be used as a fallback. The matched expression is evaluated once and
+then tested against each pattern arm in order.
 
-When all pattern arms cover the matched type, an `if let` or `if let mut` expression
+When all pattern arms cover the matched type, an if-pattern expression
 may produce a value without a final `else` block. Otherwise, omitting the final
 `else` makes the expression type `void`, like an ordinary `if` without `else`.
 

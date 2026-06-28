@@ -173,9 +173,9 @@ extend Dir {
     }
 
     pub fn borrow_handle(&self) Error!os::FileHandle {
-        if let ?handle = self.handle {
+        if ?handle = self.handle {
             !handle
-        } else null {
+        } or null {
             Error::BadFd!
         }
     }
@@ -228,9 +228,9 @@ extend File {
     }
 
     pub fn borrow_handle(&self) Error!os::FileHandle {
-        if let ?handle = self.handle {
+        if ?handle = self.handle {
             !handle
-        } else null {
+        } or null {
             Error::BadFd!
         }
     }

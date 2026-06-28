@@ -125,46 +125,46 @@ where T: ToChar {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    let ascii = if let ?ch = 65u32.to_char() {
+    let ascii = if ?ch = 65u32.to_char() {
         ch
-    } else null {
+    } or null {
         return (1 as process::ExitCode)!;
     };
     if ascii.codepoint() != 65u32 {
         return (2 as process::ExitCode)!;
     }
 
-    let generic_ascii = if let ?ch = generic_to_char(66u32) {
+    let generic_ascii = if ?ch = generic_to_char(66u32) {
         ch
-    } else null {
+    } or null {
         return (10 as process::ExitCode)!;
     };
     if generic_ascii.codepoint() != 66u32 {
         return (11 as process::ExitCode)!;
     }
 
-    let max = if let ?ch = [char]::from_u32(0x10ffffu32) {
+    let max = if ?ch = [char]::from_u32(0x10ffffu32) {
         ch
-    } else null {
+    } or null {
         return (3 as process::ExitCode)!;
     };
     if max.codepoint() != 0x10ffffu32 {
         return (4 as process::ExitCode)!;
     }
 
-    if let ?ch = 0xd800u32.to_char() {
+    if ?ch = 0xd800u32.to_char() {
         _ = ch;
         return (5 as process::ExitCode)!;
-    } else null {}
-    if let ?ch = 0x110000u32.to_char() {
+    } or null {}
+    if ?ch = 0x110000u32.to_char() {
         _ = ch;
         return (6 as process::ExitCode)!;
-    } else null {}
+    } or null {}
 
     let euro_bytes: [3]u8 = [0xe2u8, 0x82u8, 0xacu8];
-    let euro = if let ?decoded = unicode::utf8_decode_first(&euro_bytes) {
+    let euro = if ?decoded = unicode::utf8_decode_first(&euro_bytes) {
         decoded
-    } else null {
+    } or null {
         return (7 as process::ExitCode)!;
     };
     if euro.len() != 3usize or euro.char().codepoint() != 0x20acu32 {
@@ -172,10 +172,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let overlong: [2]u8 = [0xc0u8, 0x80u8];
-    if let ?decoded = unicode::utf8_decode_first(&overlong) {
+    if ?decoded = unicode::utf8_decode_first(&overlong) {
         _ = decoded;
         return (9 as process::ExitCode)!;
-    } else null {}
+    } or null {}
 
     !{}
 }

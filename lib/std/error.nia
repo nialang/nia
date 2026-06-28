@@ -6,9 +6,9 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     pub fn cast_error(self) Target!T {
-        if let !ok = self {
+        if !ok = self {
             !ok
-        } else error! {
+        } or error! {
             error.into_error()!
         }
     }
