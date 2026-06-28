@@ -4,10 +4,10 @@ using pkg::os;
 using pkg::process;
 
 fn call_user_main(init: process::Init) process::ExitCode {
-    if let !ok = entry::main(init) {
+    if !ok = entry::main(init) {
         _ = ok;
         process::ExitCode::Success
-    } else error! {
+    } or error! {
         error
     }
 }

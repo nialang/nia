@@ -252,9 +252,9 @@ fn evaluates_lowered_if_pattern_with_optional_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    if let ?value = ?8 {
+    if ?value = ?8 {
         value
-    } else null {
+    } or null {
         0
     }
 }
@@ -275,9 +275,9 @@ fn evaluates_lowered_if_pattern_with_error_union_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() usize {
-    if let !value = 5! {
+    if !value = 5! {
         value
-    } else error! {
+    } or error! {
         error
     }
 }

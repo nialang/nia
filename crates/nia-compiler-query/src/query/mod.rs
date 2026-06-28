@@ -2955,9 +2955,9 @@ using entry::writer;
 
 fn main() i32 {
     let mut sink = writer::Sink::init();
-    if let !value = sink.write(b"ok") {
+    if !value = sink.write(b"ok") {
         value as i32
-    } else error! {
+    } or error! {
         0
     }
 }
@@ -3296,9 +3296,9 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     fn cast_error(self) Target!T {
-        if let !ok = self {
+        if !ok = self {
             !ok
-        } else error! {
+        } or error! {
             error.into_error()!
         }
     }
@@ -3443,9 +3443,9 @@ extend Source : error::IntoError[Target] {
 
 fn main() i32 {
     let value: Source!i32 = Source { value: 1 }!;
-    if let !ok = value.cast_error() {
+    if !ok = value.cast_error() {
         ok
-    } else error! {
+    } or error! {
         error.value
     }
 }
@@ -3463,9 +3463,9 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     pub fn cast_error(self) Target!T {
-        if let !ok = self {
+        if !ok = self {
             !ok
-        } else error! {
+        } or error! {
             error.into_error()!
         }
     }
@@ -3744,9 +3744,9 @@ extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
     fn cast_error(self) Target!T {
-        if let !ok = self {
+        if !ok = self {
             !ok
-        } else error! {
+        } or error! {
             error.into_error()!
         }
     }
@@ -3776,9 +3776,9 @@ extend Unused : IntoError[Target] {
 
 fn main() i32 {
     let value: Source!i32 = Source { value: 1 }!;
-    if let !ok = value.cast_error() {
+    if !ok = value.cast_error() {
         ok
-    } else error! {
+    } or error! {
         error.value
     }
 }

@@ -35,15 +35,15 @@ extend PageAllocator : Allocator {
         }
 
         let mut old_size: usize;
-        if let !size = os::page_aligned_len(block.size()) {
+        if !size = os::page_aligned_len(block.size()) {
             old_size = size;
-        } else err! {
+        } or err! {
             return false;
         }
         let mut new_size: usize;
-        if let !size = os::page_aligned_len(new_layout.size()) {
+        if !size = os::page_aligned_len(new_layout.size()) {
             new_size = size;
-        } else err! {
+        } or err! {
             return false;
         }
         old_size == new_size

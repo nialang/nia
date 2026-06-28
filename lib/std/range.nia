@@ -46,9 +46,9 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.start;
-            self.start = if let ?next = self.start.forward_checked() {
+            self.start = if ?next = self.start.forward_checked() {
                 next
-            } else null {
+            } or null {
                 self.end
             };
             ?value
@@ -89,9 +89,9 @@ where T: Step + Ord[T] + Eq[T]
         if value == self.end {
             self.done = true;
         } else {
-            self.current = if let ?next = self.current.forward_checked() {
+            self.current = if ?next = self.current.forward_checked() {
                 next
-            } else null {
+            } or null {
                     self.done = true;
                     self.end
             };
@@ -124,9 +124,9 @@ where T: Step
             return null;
         }
         let value = self.current;
-        self.current = if let ?next = self.current.forward_checked() {
+        self.current = if ?next = self.current.forward_checked() {
             next
-        } else null {
+        } or null {
                 self.done = true;
                 self.current
         };

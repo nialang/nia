@@ -112,9 +112,9 @@ pub fn ctrl_allocation_len(capacity: usize) mem::Error!usize {
     if capacity == 0usize {
         return !0usize;
     }
-    if let ?value = capacity.checked_add(group_width - 1usize) {
+    if ?value = capacity.checked_add(group_width - 1usize) {
         !value
-    } else null {
+    } or null {
         mem::Error::OutOfMemory!
     }
 }
@@ -159,14 +159,14 @@ pub fn capacity_to_buckets(capacity: usize) mem::Error!usize {
         return !16usize;
     }
 
-    let multiplied = if let ?value = capacity.checked_mul(8usize) {
+    let multiplied = if ?value = capacity.checked_mul(8usize) {
         value
-    } else null {
+    } or null {
         return mem::Error::OutOfMemory!;
     };
-    let biased = if let ?value = multiplied.checked_add(6usize) {
+    let biased = if ?value = multiplied.checked_add(6usize) {
         value
-    } else null {
+    } or null {
         return mem::Error::OutOfMemory!;
     };
     let adjusted = biased / 7usize;
@@ -184,9 +184,9 @@ pub fn max_usize(left: usize, right: usize) usize {
 pub fn next_power_of_two(value: usize) mem::Error!usize {
     let mut n = 1usize;
     while n < value {
-        n = if let ?next = n.checked_mul(2usize) {
+        n = if ?next = n.checked_mul(2usize) {
             next
-        } else null {
+        } or null {
             return mem::Error::OutOfMemory!;
         };
     }

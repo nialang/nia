@@ -23,9 +23,9 @@ extend DeinitStatus {
 
 extend Error!DeinitStatus {
     pub fn ok(self) Error!void {
-        if let !status = self {
+        if !status = self {
             status.ok()
-        } else err! {
+        } or err! {
             err!
         }
     }
@@ -95,20 +95,20 @@ extend GeneralPurposeAllocator {
         let mut total = 0usize;
         let mut page = self.small_pages;
         while true {
-            if let ?item = page {
+            if ?item = page {
                 total = saturating_add(total, item.block.size());
                 page = item.next;
-            } else null {
+            } or null {
                 break;
             }
         }
 
         let mut large = self.large_allocations;
         while true {
-            if let ?item = large {
+            if ?item = large {
                 total = saturating_add(total, item.backing.size());
                 large = item.next;
-            } else null {
+            } or null {
                 return total;
             }
         }
@@ -119,20 +119,20 @@ extend GeneralPurposeAllocator {
         let mut total = 0usize;
         let mut page = self.small_pages;
         while true {
-            if let ?item = page {
+            if ?item = page {
                 total = saturating_add(total, item.used_bytes);
                 page = item.next;
-            } else null {
+            } or null {
                 break;
             }
         }
 
         let mut large = self.large_allocations;
         while true {
-            if let ?item = large {
+            if ?item = large {
                 total = saturating_add(total, item.user_layout.size());
                 large = item.next;
-            } else null {
+            } or null {
                 return total;
             }
         }
@@ -149,9 +149,9 @@ extend GeneralPurposeAllocator : Allocator {
         if layout.is_empty() {
             return !Block::empty(layout);
         }
-        if let ?slot_size = small_slot_size(layout) {
+        if ?slot_size = small_slot_size(layout) {
             self.alloc_small(layout, slot_size)
-        } else null {
+        } or null {
             self.alloc_large(layout)
         }
     }
@@ -161,37 +161,37 @@ extend GeneralPurposeAllocator : Allocator {
             return new_layout.is_empty();
         }
         let small_page = self.find_small_page(block);
-        if let mut ?page = small_page {
+        if mut ?page = small_page {
             if new_layout.is_empty() {
                 return false;
             }
             if block.align() != new_layout.align() {
                 return false;
             }
-            let mut slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
+            let mut slot = if ?value = small_page_slot_for_ptr(page, block.ptr()) {
                 value
-            } else null {
+            } or null {
                 return false;
             };
             if not small_slot_matches(slot, block) {
                 return false;
             }
-            let new_ptr = if let ?value = small_slot_user_ptr(slot, new_layout.align()) {
+            let new_ptr = if ?value = small_slot_user_ptr(slot, new_layout.align()) {
                 value
-            } else null {
+            } or null {
                 return false;
             };
             if new_ptr as usize != block.ptr() as usize {
                 return false;
             }
-            let slot_end = if let ?value = (slot as usize).checked_add(page.slot_size) {
+            let slot_end = if ?value = (slot as usize).checked_add(page.slot_size) {
                 value
-            } else null {
+            } or null {
                 return false;
             };
-            let block_end = if let ?value = (new_ptr as usize).checked_add(new_layout.size()) {
+            let block_end = if ?value = (new_ptr as usize).checked_add(new_layout.size()) {
                 value
-            } else null {
+            } or null {
                 return false;
             };
             if block_end > slot_end {
@@ -202,10 +202,10 @@ extend GeneralPurposeAllocator : Allocator {
             slot.size = new_layout.size();
             slot.align = new_layout.align();
             return true;
-        } else null {
+        } or null {
             _ = small_page;
         }
-        if let mut ?header = self.find_large_header(block.ptr()) {
+        if mut ?header = self.find_large_header(block.ptr()) {
             if header.user_layout.size() != block.size() or header.user_layout.align() != block.align() {
                 return false;
             }
@@ -217,7 +217,7 @@ extend GeneralPurposeAllocator : Allocator {
             }
             header.user_layout = new_layout;
             true
-        } else null {
+        } or null {
             false
         }
     }
@@ -236,9 +236,9 @@ extend GeneralPurposeAllocator : Allocator {
         if block.is_empty() {
             return !{};
         }
-        if let ?page = self.find_small_page(block) {
+        if ?page = self.find_small_page(block) {
             return self.free_small(page, block);
-        } else null {
+        } or null {
         }
         self.free_large(block)
     }
@@ -246,20 +246,20 @@ extend GeneralPurposeAllocator : Allocator {
 
 extend GeneralPurposeAllocator {
     fn alloc_small(&mut self, layout: Layout, slot_size: usize) Error!Block {
-        let mut page = if let ?item = self.find_page_with_free_slot(slot_size) {
+        let mut page = if ?item = self.find_page_with_free_slot(slot_size) {
             item
-        } else null {
+        } or null {
             self.allocate_small_page(slot_size).?
         };
-        let mut slot = if let ?item = page.free_list {
+        let mut slot = if ?item = page.free_list {
             item
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
         page.free_list = slot.next;
-        let ptr = if let ?value = small_slot_user_ptr(slot, layout.align()) {
+        let ptr = if ?value = small_slot_user_ptr(slot, layout.align()) {
             value
-        } else null {
+        } or null {
             slot.next = page.free_list;
             page.free_list = ?slot;
             return Error::OutOfMemory!;
@@ -275,9 +275,9 @@ extend GeneralPurposeAllocator {
     }
 
     fn free_small(&mut self, page: &mut SmallPage, block: Block) Error!void {
-        let mut slot = if let ?value = small_page_slot_for_ptr(page, block.ptr()) {
+        let mut slot = if ?value = small_page_slot_for_ptr(page, block.ptr()) {
             value
-        } else null {
+        } or null {
             return Error::Invalid!;
         };
         if not small_slot_matches(slot, block) {
@@ -314,29 +314,29 @@ extend GeneralPurposeAllocator {
             next: self.small_pages,
         };
 
-        let payload_base = if let ?value = small_page_payload_base(page) {
+        let payload_base = if ?value = small_page_payload_base(page) {
             value
-        } else null {
-            if let !ok = self.child.free(block) {
+        } or null {
+            if !ok = self.child.free(block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return Error::OutOfMemory!;
         };
         let base = block.ptr() as usize;
         let payload_offset = payload_base - base;
         if payload_offset >= block.size() {
-            if let !ok = self.child.free(block) {
+            if !ok = self.child.free(block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return Error::OutOfMemory!;
         }
 
         let capacity = block.size() - payload_offset;
         let slot_count = capacity / slot_size;
         if slot_count == 0usize {
-            if let !ok = self.child.free(block) {
+            if !ok = self.child.free(block) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return Error::OutOfMemory!;
         }
 
@@ -364,17 +364,17 @@ extend GeneralPurposeAllocator {
         let mut current = self.small_pages;
         let mut previous: ?&mut SmallPage = null;
         while true {
-            if let mut ?item = current {
+            if mut ?item = current {
                 let next = item.next;
                 if item as usize == page as usize {
-                    if let mut ?prev = previous {
+                    if mut ?prev = previous {
                         prev.next = next;
-                    } else null {
+                    } or null {
                         self.small_pages = next;
                     }
-                    if let !ok = self.child.free(item.block) {
+                    if !ok = self.child.free(item.block) {
                         return !ok;
-                    } else err! {
+                    } or err! {
                         item.next = self.small_pages;
                         self.small_pages = ?item;
                         return err!;
@@ -382,7 +382,7 @@ extend GeneralPurposeAllocator {
                 }
                 previous = ?item;
                 current = next;
-            } else null {
+            } or null {
                 return Error::Invalid!;
             }
         }
@@ -391,26 +391,26 @@ extend GeneralPurposeAllocator {
 
     fn alloc_large(&mut self, layout: Layout) Error!Block {
         let header_size = @size[LargeHeader]();
-        let with_header = if let ?value = header_size.checked_add(layout.align()) {
+        let with_header = if ?value = header_size.checked_add(layout.align()) {
             value
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
-        let total_size = if let ?value = with_header.checked_add(layout.size()) {
+        let total_size = if ?value = with_header.checked_add(layout.size()) {
             value
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
         let block_align = max_usize(@align[LargeHeader](), layout.align());
         let backing_layout = Layout::init(total_size, block_align).?;
         let backing = self.child.alloc(backing_layout).?;
         let base = backing.ptr() as usize;
-        let user_addr = if let ?value = (base + header_size).align_forward(layout.align()) {
+        let user_addr = if ?value = (base + header_size).align_forward(layout.align()) {
             value
-        } else null {
-            if let !ok = self.child.free(backing) {
+        } or null {
+            if !ok = self.child.free(backing) {
                 _ = ok;
-            } else error! {}
+            } or error! {}
             return Error::OutOfMemory!;
         };
         let header_addr = user_addr - header_size;
@@ -431,7 +431,7 @@ extend GeneralPurposeAllocator {
         let mut current = self.large_allocations;
         let mut previous: ?&mut LargeHeader = null;
         while true {
-            if let mut ?header = current {
+            if mut ?header = current {
                 let next = header.next;
                 if large_header_user_ptr(header) as usize == block.ptr() as usize {
                     if header.magic != large_magic {
@@ -440,14 +440,14 @@ extend GeneralPurposeAllocator {
                     if header.user_layout.size() != block.size() or header.user_layout.align() != block.align() {
                         return Error::Invalid!;
                     }
-                    if let mut ?prev = previous {
+                    if mut ?prev = previous {
                         prev.next = next;
-                    } else null {
+                    } or null {
                         self.large_allocations = next;
                     }
-                    if let !ok = self.child.free(header.backing) {
+                    if !ok = self.child.free(header.backing) {
                         return !ok;
-                    } else err! {
+                    } or err! {
                         header.next = self.large_allocations;
                         self.large_allocations = ?header;
                         return err!;
@@ -455,7 +455,7 @@ extend GeneralPurposeAllocator {
                 }
                 previous = ?header;
                 current = next;
-            } else null {
+            } or null {
                 return Error::Invalid!;
             }
         }
@@ -465,16 +465,16 @@ extend GeneralPurposeAllocator {
     fn find_page_with_free_slot(&mut self, slot_size: usize) ?&mut SmallPage {
         let mut current = self.small_pages;
         while true {
-            if let ?page = current {
+            if ?page = current {
                 if page.slot_size == slot_size {
-                    if let ?node = page.free_list {
+                    if ?node = page.free_list {
                         _ = node;
                         return ?page;
-                    } else null {
+                    } or null {
                     }
                 }
                 current = page.next;
-            } else null {
+            } or null {
                 return null;
             }
         }
@@ -484,12 +484,12 @@ extend GeneralPurposeAllocator {
     fn find_small_page(&mut self, block: Block) ?&mut SmallPage {
         let mut current = self.small_pages;
         while true {
-            if let ?page = current {
+            if ?page = current {
                 if small_page_contains_ptr(page, block.ptr()) {
                     return ?page;
                 }
                 current = page.next;
-            } else null {
+            } or null {
                 return null;
             }
         }
@@ -499,12 +499,12 @@ extend GeneralPurposeAllocator {
     fn find_large_header(&mut self, ptr: &mut u8) ?&mut LargeHeader {
         let mut current = self.large_allocations;
         while true {
-            if let ?header = current {
+            if ?header = current {
                 if large_header_user_ptr(header) as usize == ptr as usize {
                     return ?header;
                 }
                 current = header.next;
-            } else null {
+            } or null {
                 return null;
             }
         }
@@ -517,12 +517,12 @@ extend GeneralPurposeAllocator {
 
         let mut page = small;
         while true {
-            if let mut ?item = page {
+            if mut ?item = page {
                 let next = item.next;
                 item.next = null;
-                if let !ok = self.child.free(item.block) {
+                if !ok = self.child.free(item.block) {
                     _ = ok;
-                } else err! {
+                } or err! {
                     item.next = self.small_pages;
                     self.small_pages = ?item;
                     if not failed {
@@ -531,19 +531,19 @@ extend GeneralPurposeAllocator {
                     }
                 }
                 page = next;
-            } else null {
+            } or null {
                 break;
             }
         }
 
         let mut header = large;
         while true {
-            if let mut ?item = header {
+            if mut ?item = header {
                 let next = item.next;
                 item.next = null;
-                if let !ok = self.child.free(item.backing) {
+                if !ok = self.child.free(item.backing) {
                     _ = ok;
-                } else err! {
+                } or err! {
                     item.next = self.large_allocations;
                     self.large_allocations = ?item;
                     if not failed {
@@ -552,7 +552,7 @@ extend GeneralPurposeAllocator {
                     }
                 }
                 header = next;
-            } else null {
+            } or null {
                 if failed {
                     return first_error!;
                 }
@@ -568,14 +568,14 @@ fn small_slot_size(layout: Layout) ?usize {
         return null;
     }
     let mut slot_size = min_slot_size;
-    let with_header = if let ?value = @size[SmallSlot]().checked_add(layout.align()) {
+    let with_header = if ?value = @size[SmallSlot]().checked_add(layout.align()) {
         value
-    } else null {
+    } or null {
         return null;
     };
-    let needed_size = if let ?value = with_header.checked_add(layout.size()) {
+    let needed_size = if ?value = with_header.checked_add(layout.size()) {
         value
-    } else null {
+    } or null {
         return null;
     };
     let needed = max_usize(needed_size, layout.align());
@@ -591,27 +591,27 @@ fn small_slot_size(layout: Layout) ?usize {
 
 fn small_page_payload_base(page: &mut SmallPage) ?usize {
     let base = page.block.ptr() as usize;
-    let after_header = if let ?value = base.checked_add(@size[SmallPage]()) {
+    let after_header = if ?value = base.checked_add(@size[SmallPage]()) {
         value
-    } else null {
+    } or null {
         return null;
     };
     after_header.align_forward(page.slot_size)
 }
 
 fn small_page_contains_ptr(page: &mut SmallPage, ptr: &mut u8) bool {
-    let payload_base = if let ?value = small_page_payload_base(page) {
+    let payload_base = if ?value = small_page_payload_base(page) {
         value
-    } else null {
+    } or null {
         return false;
     };
     let addr = ptr as usize;
     if addr < payload_base {
         return false;
     }
-    let page_end = if let ?value = payload_base.checked_add(page.slot_count * page.slot_size) {
+    let page_end = if ?value = payload_base.checked_add(page.slot_count * page.slot_size) {
         value
-    } else null {
+    } or null {
         return false;
     };
     addr < page_end
@@ -621,9 +621,9 @@ fn small_page_slot_for_ptr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     if not small_page_contains_ptr(page, ptr) {
         return null;
     }
-    let payload_base = if let ?value = small_page_payload_base(page) {
+    let payload_base = if ?value = small_page_payload_base(page) {
         value
-    } else null {
+    } or null {
         return null;
     };
     let addr = ptr as usize;
@@ -637,14 +637,14 @@ fn small_page_slot_for_ptr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
 }
 
 fn small_slot_user_ptr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
-    let addr = if let ?value = (slot as usize).checked_add(@size[SmallSlot]()) {
+    let addr = if ?value = (slot as usize).checked_add(@size[SmallSlot]()) {
         value
-    } else null {
+    } or null {
         return null;
     };
-    if let ?value = addr.align_forward(align) {
+    if ?value = addr.align_forward(align) {
         ?(value as &mut u8)
-    } else null {
+    } or null {
         null
     }
 }
@@ -656,28 +656,28 @@ fn small_slot_matches(slot: &mut SmallSlot, block: Block) bool {
     if slot.size != block.size() or slot.align != block.align() {
         return false;
     }
-    let ptr = if let ?value = small_slot_user_ptr(slot, slot.align) {
+    let ptr = if ?value = small_slot_user_ptr(slot, slot.align) {
         value
-    } else null {
+    } or null {
         return false;
     };
     ptr as usize == block.ptr() as usize
 }
 
 fn is_null_small_page(page: ?&mut SmallPage) bool {
-    if let ?item = page {
+    if ?item = page {
         _ = item;
         false
-    } else null {
+    } or null {
         true
     }
 }
 
 fn is_null_large_header(header: ?&mut LargeHeader) bool {
-    if let ?item = header {
+    if ?item = header {
         _ = item;
         false
-    } else null {
+    } or null {
         true
     }
 }
@@ -696,9 +696,9 @@ fn max_usize(left: usize, right: usize) usize {
 }
 
 fn saturating_add(left: usize, right: usize) usize {
-    if let ?value = left.checked_add(right) {
+    if ?value = left.checked_add(right) {
         value
-    } else null {
+    } or null {
         usize::MAX
     }
 }

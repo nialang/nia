@@ -180,7 +180,7 @@ fn tail_after_if(bytes: &[u8], start: usize) &[u8] {
 }
 
 fn tail_after_if_let(bytes: &[u8], maybe: ?usize) &[u8] {
-    if let ?start = maybe {
+    if ?start = maybe {
         _ = start;
     }
     &bytes[..]
@@ -359,23 +359,23 @@ fn parses_if_pattern_arms_and_recursive_payload_patterns() {
     let (module, errors) = parse_module(
         r#"
 fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
-    let a = if let !ok = result {
+    let a = if !ok = result {
         ok
-    } else err! {
+    } or err! {
         err
     };
-    let b = if let mut x = value {
+    let b = if mut x = value {
         x
     } else {
         0
     };
-    if let ?5! = nested {
+    if ?5! = nested {
         5
-    } else ?err! {
+    } or ?err! {
         err
-    } else ?!ok {
+    } or ?!ok {
         ok
-    } else null {
+    } or null {
         a + b
     }
 }

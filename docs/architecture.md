@@ -754,8 +754,8 @@ runtime source `switch`: value patterns, integer ranges, and default cases.
 Value-producing arm bodies are typed and unified to one typed comptime value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
 do not invent a switch result type. Recursive optional and error-union payload
-patterns belong to `if let` / `if let mut`; their payload locals are typed from the
-target type while checking those if-pattern arms. The evaluator still performs
+patterns belong to if-pattern expressions; their payload locals are typed from the
+target type while checking those arms. The evaluator still performs
 actual matching; the checker only records the arm and payload types needed for
 comptime generic inference.
 

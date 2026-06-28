@@ -45,25 +45,25 @@ extend Child {
     }
 
     pub fn close_stdin(&mut self) Error!void {
-        if let ?handle = self.take_stdin() {
+        if ?handle = self.take_stdin() {
             handle.close().as_process_error(Error::CloseStdin)
-        } else null {
+        } or null {
             !{}
         }
     }
 
     pub fn close_stdout(&mut self) Error!void {
-        if let ?handle = self.take_stdout() {
+        if ?handle = self.take_stdout() {
             handle.close().as_process_error(Error::CloseStdout)
-        } else null {
+        } or null {
             !{}
         }
     }
 
     pub fn close_stderr(&mut self) Error!void {
-        if let ?handle = self.take_stderr() {
+        if ?handle = self.take_stderr() {
             handle.close().as_process_error(Error::CloseStderr)
-        } else null {
+        } or null {
             !{}
         }
     }
@@ -76,9 +76,9 @@ extend Child {
     }
 
     pub fn wait_raw(&mut self) Error!os::WaitStatus {
-        if let ?status = self.state.status() {
+        if ?status = self.state.status() {
             return !status;
-        } else null {}
+        } or null {}
         let pid = self.state.pid();
         self.close_stdin().?;
         let status = os::wait(pid).as_process_error(Error::Wait).?;
@@ -89,16 +89,16 @@ extend Child {
     }
 
     pub fn try_wait_raw(&mut self) Error! ?os::WaitStatus {
-        if let ?status = self.state.status() {
+        if ?status = self.state.status() {
             return !(?status);
-        } else null {}
+        } or null {}
         let pid = self.state.pid();
         let status = os::try_wait(pid).as_process_error(Error::TryWait).?;
-        if let ?value = status {
+        if ?value = status {
             self.state = ChildState::exited(pid, value);
             self.close_pipes().?;
             !(?value)
-        } else null {
+        } or null {
             !null
         }
     }
@@ -110,9 +110,9 @@ extend Child {
 
     pub fn try_wait(&mut self) Error! ?Term {
         let status = self.try_wait_raw().?;
-        if let ?value = status {
+        if ?value = status {
             !(?Term::from_wait_status(value))
-        } else null {
+        } or null {
             !null
         }
     }
@@ -122,9 +122,9 @@ extend Child {
     }
 
     pub fn kill_with(&mut self, signal: Signal) Error!Term {
-        if let ?status = self.state.status() {
+        if ?status = self.state.status() {
             return !Term::from_wait_status(status);
-        } else null {}
+        } or null {}
         os::kill_with(self.state.pid(), signal as i32).as_process_error(Error::Kill).?;
         self.wait()
     }
@@ -196,9 +196,9 @@ extend os::Error {
 
 extend[T] os::Error!T {
     fn as_process_error(self, context: Error) Error!T {
-        if let !value = self {
+        if !value = self {
             !value
-        } else error! {
+        } or error! {
             error.as_process_error(context)!
         }
     }

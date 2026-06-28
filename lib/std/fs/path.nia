@@ -24,9 +24,9 @@ extend PathView {
         out.clear_retaining_capacity();
         let mut index = 0usize;
         while index < bytes.len() {
-            let decoded = if let ?value = unicode::utf8_decode_first(&bytes[index..]) {
+            let decoded = if ?value = unicode::utf8_decode_first(&bytes[index..]) {
                 value
-            } else null {
+            } or null {
                 return Error::Invalid!;
             };
             out.push(allocator, decoded.char()).as_fs_error().?;

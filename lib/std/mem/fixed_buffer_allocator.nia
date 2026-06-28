@@ -36,18 +36,18 @@ extend FixedBufferAllocator {
             return true;
         }
         let base = self.buffer.get_ptr_read() as usize;
-        let limit = if let ?value = base.checked_add(self.buffer.len()) {
+        let limit = if ?value = base.checked_add(self.buffer.len()) {
             value
-        } else null {
+        } or null {
             return false;
         };
         let addr = block.ptr() as usize;
         if addr < base {
             return false;
         }
-        let end = if let ?value = addr.checked_add(block.size()) {
+        let end = if ?value = addr.checked_add(block.size()) {
             value
-        } else null {
+        } or null {
             return false;
         };
         end <= limit
@@ -58,14 +58,14 @@ extend FixedBufferAllocator {
             return false;
         }
         let base = self.buffer.get_ptr_read() as usize;
-        let cursor = if let ?value = base.checked_add(self.end_index) {
+        let cursor = if ?value = base.checked_add(self.end_index) {
             value
-        } else null {
+        } or null {
             return false;
         };
-        let block_end = if let ?value = (block.ptr() as usize).checked_add(block.size()) {
+        let block_end = if ?value = (block.ptr() as usize).checked_add(block.size()) {
             value
-        } else null {
+        } or null {
             return false;
         };
         block_end == cursor
@@ -79,20 +79,20 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let base = self.buffer.get_ptr() as usize;
-        let current = if let ?value = base.checked_add(self.end_index) {
+        let current = if ?value = base.checked_add(self.end_index) {
             value
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
-        let aligned = if let ?value = current.align_forward(layout.align()) {
+        let aligned = if ?value = current.align_forward(layout.align()) {
             value
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
         let offset = aligned - base;
-        let new_end = if let ?value = offset.checked_add(layout.size()) {
+        let new_end = if ?value = offset.checked_add(layout.size()) {
             value
-        } else null {
+        } or null {
             return Error::OutOfMemory!;
         };
         if new_end > self.buffer.len() {
@@ -122,9 +122,9 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let add = new_layout.size() - block.size();
-        let new_end = if let ?value = self.end_index.checked_add(add) {
+        let new_end = if ?value = self.end_index.checked_add(add) {
             value
-        } else null {
+        } or null {
             return false;
         };
         if new_end > self.buffer.len() {

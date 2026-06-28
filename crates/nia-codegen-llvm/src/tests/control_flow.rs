@@ -190,9 +190,9 @@ fn main() i32 {
     let mut iter = Counter { current: 1, end: 4 };
     let mut sum = 0;
     for result in iter {
-        let value = if let !item = result {
+        let value = if !item = result {
             item
-        } else error! {
+        } or error! {
             return 100;
         };
         sum += value;
@@ -395,44 +395,44 @@ fn main() i32 {
 
     let mut optional_iter = iter::OptionalIter { index: 0 };
     for item in optional_iter {
-        if let ?value = item {
+        if ?value = item {
             total += value.value;
-        } else null {
+        } or null {
             total += 100;
         }
     }
 
     let mut error_iter = iter::ErrorIter { index: 0 };
     for item in error_iter {
-        if let !value = item {
+        if !value = item {
             total += value.value;
-        } else error! {
+        } or error! {
             total += 1000;
         }
     }
 
     let mut optional_error_iter = iter::OptionalErrorIter { index: 0 };
     for item in optional_error_iter {
-        if let ?result = item {
-            if let !value = result {
+        if ?result = item {
+            if !value = result {
                 total += value.value;
-            } else error! {
+            } or error! {
                 total += 1000;
             }
-        } else null {
+        } or null {
             total += 100;
         }
     }
 
     let mut error_optional_iter = iter::ErrorOptionalIter { index: 0 };
     for item in error_optional_iter {
-        if let !maybe = item {
-            if let ?value = maybe {
+        if !maybe = item {
+            if ?value = maybe {
                 total += value.value;
-            } else null {
+            } or null {
                 total += 100;
             }
-        } else error! {
+        } or error! {
             total += 1000;
         }
     }

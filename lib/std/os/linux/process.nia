@@ -42,15 +42,15 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         SpawnError::from_errno(ret.syscall_error())!
     } else if ret == 0 {
         error_pipe.close_read();
-        if let !ok = apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
+        if !ok = apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
             _ = ok;
-        } else error! {
+        } or error! {
             report_spawn_error(&error_pipe, SpawnStage::Stdio, error);
             exit(127);
         }
-        if let !ok = apply_cwd(options) {
+        if !ok = apply_cwd(options) {
             _ = ok;
-        } else error! {
+        } or error! {
             report_spawn_error(&error_pipe, SpawnStage::Cwd, error);
             exit(127);
         }
@@ -64,16 +64,16 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         stderr_pipe.close_write();
         error_pipe.close_write();
         let pid = ProcessId::init(ret as i32);
-        let error_read = if let ?fd = error_pipe.take_read() {
+        let error_read = if ?fd = error_pipe.take_read() {
             fd
-        } else null {
+        } or null {
             _ = wait(pid);
             return SpawnError::Setup!;
         };
-        if let ?spawn_error = read_spawn_error(error_read, pid).? {
+        if ?spawn_error = read_spawn_error(error_read, pid).? {
             _ = wait(pid);
             spawn_error!
-        } else null {
+        } or null {
             !SpawnResult::init(
                 pid,
                 stdin_pipe.take_write(),
@@ -85,9 +85,9 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
 }
 
 fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) void {
-    if let !fd = pipe.write() {
+    if !fd = pipe.write() {
         write_spawn_error(fd, stage, errno);
-    } else error! {
+    } or error! {
         exit(127);
     }
 }
@@ -127,9 +127,9 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
         dup_to(stdin_pipe.read().?, types::FileDescriptor::stdin()).?;
     }
     if options.stdout() == StdIo::Ignore {
-        if let ?fd = dev_null {
+        if ?fd = dev_null {
             dup_to(fd, types::FileDescriptor::stdout()).?;
-        } else null {
+        } or null {
             let fd = open_dev_null().?;
             dev_null = ?fd;
             dup_to(fd, types::FileDescriptor::stdout()).?;
@@ -138,9 +138,9 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
         dup_to(stdout_pipe.write().?, types::FileDescriptor::stdout()).?;
     }
     if options.stderr() == StdIo::Ignore {
-        if let ?fd = dev_null {
+        if ?fd = dev_null {
             dup_to(fd, types::FileDescriptor::stderr()).?;
-        } else null {
+        } or null {
             let fd = open_dev_null().?;
             dev_null = ?fd;
             dup_to(fd, types::FileDescriptor::stderr()).?;
@@ -151,21 +151,21 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
     stdin_pipe.close_all();
     stdout_pipe.close_all();
     stderr_pipe.close_all();
-    if let ?fd = dev_null {
+    if ?fd = dev_null {
         fd.close().?;
-    } else null {}
+    } or null {}
     !{}
 }
 
 fn apply_cwd(options: SpawnOptions) Errno!void {
-    if let ?path = options.cwd() {
+    if ?path = options.cwd() {
         let ret = syscall::syscall1(syscall::chdir, path as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {
             !{}
         }
-    } else null {
+    } or null {
         !{}
     }
 }
@@ -283,17 +283,17 @@ extend SpawnPipe {
     }
 
     fn read(&self) Errno!types::FileDescriptor {
-        if let ?fd = self.read {
+        if ?fd = self.read {
             !fd
-        } else null {
+        } or null {
             Errno::Invalid!
         }
     }
 
     fn write(&self) Errno!types::FileDescriptor {
-        if let ?fd = self.write {
+        if ?fd = self.write {
             !fd
-        } else null {
+        } or null {
             Errno::Invalid!
         }
     }
@@ -311,15 +311,15 @@ extend SpawnPipe {
     }
 
     fn close_read(&mut self) void {
-        if let ?fd = self.take_read() {
+        if ?fd = self.take_read() {
             _ = fd.close();
-        } else null {}
+        } or null {}
     }
 
     fn close_write(&mut self) void {
-        if let ?fd = self.take_write() {
+        if ?fd = self.take_write() {
             _ = fd.close();
-        } else null {}
+        } or null {}
     }
 
     fn close_all(&mut self) void {
@@ -330,9 +330,9 @@ extend SpawnPipe {
 
 extend[T] Errno!T {
     fn as_spawn_setup_error(self) SpawnError!T {
-        if let !value = self {
+        if !value = self {
             !value
-        } else error! {
+        } or error! {
             SpawnError::from_errno(error)!
         }
     }
