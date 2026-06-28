@@ -21,6 +21,10 @@ using types::{
     CustomStep,
     ExecutableHandle,
     ExecutableStep,
+    Module,
+    ModuleHandle,
+    ModuleOptions,
+    ExecutableOptions,
     ExecutableTarget,
     StepPayload,
 };
@@ -51,12 +55,14 @@ extend Build {
             default_step: null,
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
+            modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
         }
     }
 
     pub fn deinit(&mut self) Error!void {
         self.executables.deinit(self.allocator).as_build_error().?;
+        self.modules.deinit(self.allocator).as_build_error().?;
         self.dependencies.deinit(self.allocator).as_build_error().?;
         self.steps.deinit(self.allocator).as_build_error()
     }
@@ -124,39 +130,55 @@ extend Build {
         !{}
     }
 
-    pub fn add_executable(&mut self, name: &[char], source: fs::Path) Error!ExecutableHandle {
-        if not is_valid_target_name(name) {
+    pub fn add_module(&mut self, options: ModuleOptions) Error!ModuleHandle {
+        let handle = ModuleHandle::init(self.modules.len());
+        self.modules.push(
+            self.allocator,
+            Module::init(options),
+        ).as_build_error().?;
+        !handle
+    }
+
+    pub fn add_executable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
+        if not is_valid_target_name(options.name) {
             return Error::InvalidTarget!;
         }
-        if let ?old = self.find_executable(name) {
+        self.validate_module_handle(options.root_module).?;
+        let output_name = executable_output_name(options);
+        if not is_valid_target_name(output_name) {
+            return Error::InvalidTarget!;
+        }
+        if let ?old = self.find_executable(options.name) {
             _ = old;
             return Error::InvalidTarget!;
         } else null {}
         let handle = ExecutableHandle::init(self.executables.len());
         self.executables.push(
             self.allocator,
-            ExecutableTarget::init(name, source),
+            ExecutableTarget::init(options, output_name),
         ).as_build_error().?;
         !handle
     }
 
     fn check_executable(&mut self, handle: ExecutableHandle) Error!void {
         let target = self.executable_target(handle).?;
-        self.check_exe(target.source)
+        let mod_record = self.build_module(target.root_module).?;
+        self.check_exe(mod_record.root_source)
     }
 
     fn emit_executable(&mut self, handle: ExecutableHandle) Error!void {
         let target = self.executable_target(handle).?;
+        let mod_record = self.build_module(target.root_module).?;
         var output_text = collections::ArrayList[char]::init();
         defer output_text.deinit(self.allocator).as_build_error().?;
         let output_path = self.build_dir.join_component_into(
             self.allocator,
-            target.name,
+            target.output_name,
             &mut output_text,
         ).as_build_error().?;
         var output_path_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let output = output_path.encode(&mut output_path_storage[..]).as_build_error().?;
-        self.emit_exe(target.source, output)
+        self.emit_exe(mod_record.root_source, output)
     }
 
     fn check_exe(&mut self, source: fs::Path) Error!void {
@@ -206,6 +228,13 @@ extend Build {
             return Error::InvalidTarget!;
         }
         !self.executables.as_slice()[handle.index()]
+    }
+
+    fn build_module(&self, handle: ModuleHandle) Error!Module {
+        if handle.index() >= self.modules.len() {
+            return Error::InvalidTarget!;
+        }
+        !self.modules.as_slice()[handle.index()]
     }
 
     fn run_toolchain_argv(&mut self, toolchain: fs::EncodedPath, argv: &&u8) Error!void {
@@ -334,6 +363,13 @@ extend Build {
         !{}
     }
 
+    fn validate_module_handle(&self, handle: ModuleHandle) Error!void {
+        if handle.index() >= self.modules.len() {
+            return Error::InvalidTarget!;
+        }
+        !{}
+    }
+
     fn report_unknown_step(&mut self, step: process::Arg) Error!void {
         var buffer: [256]u8 = [_]u8[0; 256];
         var stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
@@ -367,6 +403,16 @@ extend StepHandle {
 
 extend ExecutableHandle {
     fn init(index: usize) ExecutableHandle {
+        { index: index }
+    }
+
+    fn index(&self) usize {
+        self.index
+    }
+}
+
+extend ModuleHandle {
+    fn init(index: usize) ModuleHandle {
         { index: index }
     }
 
@@ -416,9 +462,27 @@ extend Step {
     }
 }
 
+extend Module {
+    pub fn init(options: ModuleOptions) Module {
+        { root_source: options.root_source }
+    }
+}
+
 extend ExecutableTarget {
-    pub fn init(name: &[char], source: fs::Path) ExecutableTarget {
-        { name: name, source: source }
+    pub fn init(options: ExecutableOptions, output_name: &[char]) ExecutableTarget {
+        {
+            name: options.name,
+            root_module: options.root_module,
+            output_name: output_name,
+        }
+    }
+}
+
+fn executable_output_name(options: ExecutableOptions) &[char] {
+    if let ?name = options.output_name {
+        name
+    } else {
+        options.name
     }
 }
 
