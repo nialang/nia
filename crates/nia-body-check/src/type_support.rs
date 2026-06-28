@@ -909,6 +909,8 @@ impl<'a> BodyChecker<'a> {
             method_receiver_kinds: HashMap::new(),
             traits_by_method_name: HashMap::new(),
             trait_impls_by_trait: HashMap::new(),
+            def_trait_obligations_cache: HashMap::new(),
+            trait_obligation_resolution_cache: HashMap::new(),
             program_type_normalizations: std::cell::RefCell::new(
                 self.program_type_normalizations.borrow().clone(),
             ),

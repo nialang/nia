@@ -81,7 +81,8 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates = if candidates.is_empty() {
+        let trait_candidates_searched = candidates.is_empty();
+        let trait_candidates = if trait_candidates_searched {
             self.profile_stage("body_check.profile.method.trait_candidates", |this| {
                 this.trait_method_candidates_for_receiver(receiver_ty, name)
             })
@@ -116,6 +117,7 @@ impl<'a> BodyChecker<'a> {
             candidates,
             trait_candidates,
             dynamic_candidates,
+            trait_candidates_searched,
         )
     }
 
@@ -135,7 +137,8 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates = if candidates.is_empty() {
+        let trait_candidates_searched = candidates.is_empty();
+        let trait_candidates = if trait_candidates_searched {
             self.profile_stage("body_check.profile.method.trait_candidates", |this| {
                 this.trait_method_candidates_for_receiver(receiver_ty, name)
             })
@@ -170,6 +173,7 @@ impl<'a> BodyChecker<'a> {
             candidates,
             trait_candidates,
             dynamic_candidates,
+            trait_candidates_searched,
         )
     }
 
@@ -179,12 +183,16 @@ impl<'a> BodyChecker<'a> {
         candidates: Vec<MethodCandidate>,
         trait_candidates: Vec<TraitMethodCandidate>,
         dynamic_candidates: Vec<DynamicTraitMethodCandidate>,
+        trait_candidates_searched: bool,
     ) -> Option<InternedTyId> {
         let receiver_ty = self.normalize_aliases_in_type(call.receiver_ty);
         let viable_candidates = self.profile_stage("body_check.profile.method.viable", |this| {
             this.viable_method_candidates(&call, &candidates)
         });
-        let trait_candidates = if trait_candidates.is_empty() && viable_candidates.is_empty() {
+        let trait_candidates = if !trait_candidates_searched
+            && trait_candidates.is_empty()
+            && viable_candidates.is_empty()
+        {
             self.profile_stage("body_check.profile.method.trait_candidates", |this| {
                 this.trait_method_candidates_for_receiver(receiver_ty, call.name)
             })
