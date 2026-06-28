@@ -1124,21 +1124,26 @@ logic stays in the Nia build script and can use `std`, including
 `toolchain_executable()` is the `nia` executable that launched the build. The
 toolchain creates the build and cache directories before executing the runner.
 The current `std::build` surface is intentionally small:
-`add_executable(name, path)` records a script-owned executable artifact and
-returns an executable handle. `add_check_executable_step(name, target)` and
+`add_module(ModuleOptions::init(root_source))` records a root source module and
+`add_executable(ExecutableOptions::init(name, root_module))` records a
+script-owned executable artifact. `ModuleOptions::with_optimization`,
+`ExecutableOptions::with_output_name`, and `ExecutableOptions::with_runtime`
+customize those records without exposing raw compiler argv assembly.
+`add_check_executable_step(name, target)` and
 `add_emit_executable_step(name, target)` register graph steps that route that
-artifact through the current toolchain without forcing scripts to construct raw
-process arguments. Emitted executables currently land at `.nia-build/<name>`,
-with target names validated so artifact paths cannot escape the build directory.
+artifact through the current toolchain. Emitted executables currently land at
+`.nia-build/<output-name-or-target-name>`, with target names validated so
+artifact paths cannot escape the build directory.
 `set_default_step(step)` makes the no-argument build entry explicit; the runner
 does not infer a default from step registration order.
 This surface grows the build system through explicit step and artifact APIs
 rather than a Rust-side manifest parser.
 
-PathView construction follows the standard-library convention that `fs::PathView` is a
-borrowed `&[char]` view. Owned path text is supplied by the caller, typically an
-`ArrayList[char]`; `PathView::join_into` appends with a native separator into that
-storage and keeps allocation explicit.
+Path construction follows the standard-library view/buffer convention:
+`std::StringView` and `fs::PathView` are borrowed `&[char]` views, while
+`std::StringBuf` and `fs::PathBuf` own caller-allocated text storage.
+`PathBuf::join` and `PathBuf::join_component` append with a native separator
+and explicit allocator use.
 
 Global module-map options:
 

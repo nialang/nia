@@ -2,6 +2,7 @@ using pkg::collections;
 using pkg::fs;
 using pkg::mem;
 using pkg::process;
+using pkg::string;
 using pkg::build::error;
 
 using error::Error;
@@ -64,7 +65,7 @@ pub union StepPayload {
 }
 
 pub struct Step {
-    name: &[char],
+    name: string::StringView,
     kind: StepKind,
     payload: StepPayload,
     state: StepState,
@@ -86,16 +87,16 @@ pub struct Module {
 }
 
 pub struct ExecutableOptions {
-    name: &[char],
+    name: string::StringView,
     root_module: ModuleHandle,
-    output_name: ?&[char],
+    output_name: ?string::StringView,
     runtime: Runtime,
 }
 
 pub struct ExecutableTarget {
-    name: &[char],
+    name: string::StringView,
     root_module: ModuleHandle,
-    output_name: &[char],
+    output_name: string::StringView,
     runtime: Runtime,
 }
 

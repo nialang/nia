@@ -1,7 +1,13 @@
+using pkg::collections;
 using pkg::fmt;
+using pkg::mem;
 
 pub struct StringView {
     text: &[char],
+}
+
+pub struct StringBuf {
+    text: collections::ArrayList[char],
 }
 
 extend StringView {
@@ -26,6 +32,87 @@ extend StringView {
     }
 }
 
+extend StringBuf {
+    pub fn init() StringBuf {
+        { text: collections::ArrayList[char]::init() }
+    }
+
+    pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!StringBuf {
+        var text = collections::ArrayList[char]::init_capacity(allocator, capacity).?;
+        !StringBuf { text: text }
+    }
+
+    pub fn from_owned_slice(text: &mut [char]) StringBuf {
+        { text: collections::ArrayList[char]::from_owned_slice(text) }
+    }
+
+    pub fn from_slice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!StringBuf {
+        var out = StringBuf::init_capacity(allocator, text.len()).?;
+        out.append(allocator, text).?;
+        !out
+    }
+
+    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.text.deinit(allocator)
+    }
+
+    pub fn view(&self) StringView {
+        StringView::init(self.text.as_slice())
+    }
+
+    pub fn text(&self) &[char] {
+        self.text.as_slice()
+    }
+
+    pub fn as_slice(&self) &[char] {
+        self.text.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) &mut [char] {
+        self.text.as_mut_slice()
+    }
+
+    pub fn len(&self) usize {
+        self.text.len()
+    }
+
+    pub fn capacity(&self) usize {
+        self.text.capacity()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.text.is_empty()
+    }
+
+    pub fn clear(&mut self) void {
+        self.text.clear()
+    }
+
+    pub fn clear_retaining_capacity(&mut self) void {
+        self.text.clear_retaining_capacity()
+    }
+
+    pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+        self.text.ensure_total_capacity(allocator, capacity)
+    }
+
+    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!void {
+        self.text.push(allocator, ch)
+    }
+
+    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!void {
+        self.text.append_slice(allocator, text)
+    }
+
+    pub fn append_view(&mut self, allocator: &mut mem::Allocator, text: StringView) mem::Error!void {
+        self.append(allocator, text.text())
+    }
+
+    pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
+        self.text.into_owned_slice(allocator)
+    }
+}
+
 extend StringView : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
         self.text.format(formatter)
@@ -33,5 +120,15 @@ extend StringView : fmt::Format {
 
     fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
         self.text.format_spec(formatter, spec)
+    }
+}
+
+extend StringBuf : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!void {
+        self.view().format(formatter)
+    }
+
+    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!void {
+        self.view().format_spec(formatter, spec)
     }
 }
