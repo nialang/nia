@@ -17,6 +17,13 @@ impl<'a> BodyChecker<'a> {
         if !matches!(method.kind, DefKind::Method | DefKind::TraitMethod) {
             return None;
         }
+        if let Some(self_nominal) = self.method_owner_type(def_id) {
+            let receiver = signature.params.first()?.receiver?;
+            if let Some(object_ty) = self.method_owner_trait_object_type(def_id) {
+                return Some(self.receiver_ty_for_target(object_ty, receiver));
+            }
+            return Some(self.receiver_ty_for_target(self_nominal, receiver));
+        }
         if method.kind == DefKind::TraitMethod {
             let self_nominal = self
                 .interner
@@ -34,16 +41,18 @@ impl<'a> BodyChecker<'a> {
                 }),
             });
         }
-        let self_nominal = self.method_owner_type(def_id)?;
-        let receiver = signature.params.first()?.receiver?;
-        if let Some(object_ty) = self.method_owner_trait_object_type(def_id) {
-            return Some(self.receiver_ty_for_target(object_ty, receiver));
-        }
-        Some(self.receiver_ty_for_target(self_nominal, receiver))
+        None
     }
 
     pub(crate) fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
         let method_id = self.global_def_id(def_id);
+        self.method_owner_type_by_global(method_id)
+    }
+
+    pub(crate) fn method_owner_type_by_global(
+        &mut self,
+        method_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
         self.extension_methods_by_id
             .get(&method_id)
             .map(|method| method.target_ty)

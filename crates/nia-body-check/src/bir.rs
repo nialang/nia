@@ -119,6 +119,33 @@ impl<'a> BodyChecker<'a> {
             .or(Some(forced_ty))
     }
 
+    fn lower_trait_object_coercion_source_expr(
+        &mut self,
+        expr: &Expr,
+        source_ty: nia_ids::InternedTyId,
+    ) -> TypedExpr {
+        let source_ty = self.normalization.normalize(source_ty);
+        if let Some(TyKind::Pointer { is_readonly, elem }) = self.interner.get(source_ty).cloned()
+            && self
+                .expr_ty(expr)
+                .is_some_and(|actual| self.types_match(elem, actual))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: source_ty,
+                kind: TypedExprKind::Unary {
+                    op: if is_readonly {
+                        UnaryOp::RefReadOnly
+                    } else {
+                        UnaryOp::Ref
+                    },
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(elem))),
+                },
+            };
+        }
+        self.lower_expr_with_ty(expr, Some(source_ty))
+    }
+
     fn numeric_literal_suffix_type(&mut self, expr: &Expr) -> Option<nia_ids::InternedTyId> {
         integer_literal_suffix_ty(expr)
             .map(|primitive| self.primitive(primitive))
@@ -539,7 +566,9 @@ impl<'a> BodyChecker<'a> {
                 span: expr.span,
                 ty: coercion.target_ty,
                 kind: TypedExprKind::TraitObjectCoercion {
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
+                    expr: Box::new(
+                        self.lower_trait_object_coercion_source_expr(expr, coercion.source_ty),
+                    ),
                     target_ty: coercion.target_ty,
                     self_ty: self.trait_object_coercion_self_ty(coercion.source_ty),
                 },
@@ -2046,7 +2075,8 @@ impl<'a> BodyChecker<'a> {
                     .first()
                     .and_then(|param| param.receiver)
                     .and_then(|receiver| {
-                        let self_ty = self.method_self_target_ty(&signature, &substitutions)?;
+                        let self_ty =
+                            self.method_self_target_ty(def_id, &signature, &substitutions)?;
                         let receiver_ty = self.receiver_ty_for_target(self_ty, receiver);
                         self.non_error_ty(receiver_ty)
                     });
@@ -2134,9 +2164,16 @@ impl<'a> BodyChecker<'a> {
 
     fn method_self_target_ty(
         &mut self,
+        def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
         substitutions: &HashMap<String, nia_ids::InternedTyId>,
     ) -> Option<nia_ids::InternedTyId> {
+        if let Some(owner_ty) = self.method_owner_type_by_global(def_id) {
+            let ty = self.substitute_generics(owner_ty, substitutions);
+            let ty = self.normalize_projection(ty);
+            let ty = self.normalize_aliases_in_type(ty);
+            return self.non_error_ty(ty);
+        }
         let ty = signature.params.first()?.ty;
         let ty = self.substitute_generics(ty, substitutions);
         self.non_error_ty(ty)
@@ -2222,6 +2259,7 @@ impl<'a> BodyChecker<'a> {
                     callee,
                     call_args,
                     receiver_kind,
+                    None,
                 )),
             },
             ResolvedCall::TraitMethod {
@@ -2232,20 +2270,34 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 args,
                 receiver_kind,
-            } => TypedCallee::TraitMethod {
-                trait_id,
-                method_id,
-                method_name,
-                self_ty,
-                trait_args,
-                args,
-                receiver_kind,
-                receiver: Box::new(self.lower_method_receiver_expr(
-                    callee,
-                    call_args,
+            } => {
+                let receiver_ty = self
+                    .lowered_call_param_tys(ResolvedCall::TraitMethod {
+                        trait_id,
+                        method_id,
+                        method_name: method_name.clone(),
+                        self_ty,
+                        trait_args: trait_args.clone(),
+                        args: args.clone(),
+                        receiver_kind,
+                    })
+                    .and_then(|tys| tys.first().copied());
+                TypedCallee::TraitMethod {
+                    trait_id,
+                    method_id,
+                    method_name,
+                    self_ty,
+                    trait_args,
+                    args,
                     receiver_kind,
-                )),
-            },
+                    receiver: Box::new(self.lower_method_receiver_expr(
+                        callee,
+                        call_args,
+                        receiver_kind,
+                        receiver_ty,
+                    )),
+                }
+            }
             ResolvedCall::TraitAssociatedFunction {
                 trait_id,
                 method_id,
@@ -2375,17 +2427,38 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         callee: &Expr,
         call_args: &[Expr],
-        _receiver_kind: ReceiverKind,
+        receiver_kind: ReceiverKind,
+        receiver_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
+        let receiver_expr_ty =
+            receiver_ty.map(|ty| self.receiver_expr_ty_for_lowering(ty, receiver_kind));
         if self.callee_has_receiver_lhs(callee)
-            && let Some(receiver) = self.lower_receiver_expr(callee)
+            && let Some(receiver) = self.lower_receiver_expr_with_ty(callee, receiver_expr_ty)
         {
             return receiver;
         }
         if let Some(receiver) = call_args.first() {
-            return self.lower_expr_with_checked_ty(receiver);
+            return self.lower_expr_with_ty(receiver, receiver_expr_ty);
         }
-        self.lower_expr(callee)
+        self.lower_expr_with_ty(callee, receiver_expr_ty)
+    }
+
+    fn receiver_expr_ty_for_lowering(
+        &mut self,
+        receiver_ty: nia_ids::InternedTyId,
+        receiver_kind: ReceiverKind,
+    ) -> nia_ids::InternedTyId {
+        match receiver_kind {
+            ReceiverKind::Value => receiver_ty,
+            ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                match self.interner.get(self.normalization.normalize(receiver_ty)) {
+                    Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => {
+                        *elem
+                    }
+                    _ => receiver_ty,
+                }
+            }
+        }
     }
 
     fn lower_builtin_call_receiver(

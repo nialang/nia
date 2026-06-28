@@ -389,7 +389,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         AbiParam::IndirectReadonly(_) => {
                             llvm_args.push(self.emit_arg_address(expr.span, receiver)?.into())
                         }
-                        AbiParam::Omit => self.emit_effect_expr(receiver)?,
+                        AbiParam::Omit => match receiver_kind {
+                            ReceiverKind::Value => self.emit_effect_expr(receiver)?,
+                            ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                                return Err(self.error(
+                                    expr.span,
+                                    "by-reference method receiver was omitted by ABI classification",
+                                ));
+                            }
+                        },
                     }
                     llvm_args.extend(self.emit_call_args(
                         expr.span,
@@ -579,7 +587,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match receiver_kind {
             ReceiverKind::Value => self.emit_expr(receiver),
             ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
-                if receiver.ty == passing_ty {
+                if receiver.ty == passing_ty
+                    && matches!(
+                        self.module.ty_kind(receiver.ty),
+                        Some(
+                            TyKind::Pointer { .. }
+                                | TyKind::VolatilePointer { .. }
+                                | TyKind::FunctionPointer { .. }
+                                | TyKind::Slice { .. }
+                                | TyKind::TraitObject { .. }
+                        )
+                    )
+                {
                     return self.emit_expr(receiver);
                 }
                 if self.is_fat_receiver_passing_ty(passing_ty) {

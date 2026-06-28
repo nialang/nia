@@ -169,6 +169,70 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
+    pub(crate) fn coerce_method_receiver_to_trait_object(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual_receiver_ty: InternedTyId,
+        receiver_kind: nia_ids::ReceiverKind,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let Some(TyKind::TraitObject {
+            is_readonly: expected_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let source_ty = match receiver_kind {
+            nia_ids::ReceiverKind::Value => return None,
+            nia_ids::ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: actual_receiver_ty,
+            }),
+            nia_ids::ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem: actual_receiver_ty,
+            }),
+        };
+        let source_ty = self.normalization.normalize(source_ty);
+        let (actual_const, self_ty) = match self.interner.get(source_ty).cloned() {
+            Some(TyKind::Pointer { is_readonly, elem }) => (is_readonly, elem),
+            _ => return None,
+        };
+        if !expected_const && actual_const {
+            return None;
+        }
+        if !self.is_object_safe_trait_object(
+            expr.span,
+            trait_id,
+            &trait_args,
+            &associated_type_bindings,
+        ) {
+            return None;
+        }
+        let self_ty = self.normalize_aliases_in_type(self_ty);
+        if !self.trait_object_bindings_match_impl(
+            self_ty,
+            trait_id,
+            &trait_args,
+            &associated_type_bindings,
+        ) {
+            return None;
+        }
+        self.record_trait_object_node_coercion(
+            expr,
+            TraitObjectCoercion {
+                source_ty,
+                target_ty: expected,
+            },
+        );
+        self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
+        Some(expected)
+    }
+
     pub(crate) fn coerce_pointer_array_to_slice_trait_object(
         &mut self,
         expr: &Expr,
