@@ -443,7 +443,7 @@ pub(crate) fn collect_extension_methods(
                 {
                     impl_generics.push("Self".to_string());
                 }
-                extensions.insert(
+                extensions.insert_with_nominal_target(
                     module.module_id,
                     ExtensionMethod {
                         name: method.name.clone(),
@@ -459,6 +459,7 @@ pub(crate) fn collect_extension_methods(
                         where_predicates: where_predicates.clone(),
                         visibility: method.visibility,
                     },
+                    nominal_target_def_id(&module.normalization.interner, target_ty),
                 );
             }
         }
@@ -564,7 +565,7 @@ pub(crate) fn collect_extension_associated_value_index(
                 continue;
             }
             for associated_value in &impl_signature.associated_values {
-                values.insert(
+                values.insert_with_nominal_target(
                     module.module_id,
                     ExtensionAssociatedValue {
                         name: associated_value.name.clone(),
@@ -576,6 +577,7 @@ pub(crate) fn collect_extension_associated_value_index(
                         target_ty,
                         visibility: associated_value.visibility,
                     },
+                    nominal_target_def_id(&module.normalization.interner, target_ty),
                 );
             }
         }
@@ -1994,6 +1996,46 @@ pub(crate) struct VisibleTypeSignatures<'a> {
     pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
 }
 
+struct VisibleExtensionResolverCache<'a> {
+    defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    normalizations: TypeNormalizationResolver<'a>,
+    defs_cache: HashMap<nia_ids::ModuleId, Option<DefCollection>>,
+    normalization_cache: HashMap<nia_ids::ModuleId, Option<TypeNormalization>>,
+}
+
+impl<'a> VisibleExtensionResolverCache<'a> {
+    fn new(
+        defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+        normalizations: TypeNormalizationResolver<'a>,
+    ) -> Self {
+        Self {
+            defs,
+            normalizations,
+            defs_cache: HashMap::new(),
+            normalization_cache: HashMap::new(),
+        }
+    }
+
+    fn defs(&mut self, module_id: nia_ids::ModuleId) -> Option<&DefCollection> {
+        if !self.defs_cache.contains_key(&module_id) {
+            self.defs_cache.insert(module_id, (self.defs)(module_id));
+        }
+        self.defs_cache
+            .get(&module_id)
+            .and_then(|defs| defs.as_ref())
+    }
+
+    fn normalization(&mut self, module_id: nia_ids::ModuleId) -> Option<&TypeNormalization> {
+        if !self.normalization_cache.contains_key(&module_id) {
+            self.normalization_cache
+                .insert(module_id, (self.normalizations)(module_id));
+        }
+        self.normalization_cache
+            .get(&module_id)
+            .and_then(|normalization| normalization.as_ref())
+    }
+}
+
 pub(crate) fn visible_extensions_for_module(
     input: VisibleExtensionsInput<'_>,
 ) -> VisibleExtensionsForModule {
@@ -2010,6 +2052,7 @@ pub(crate) fn visible_extensions_for_module(
         associated_values,
         trait_impls,
     } = input;
+    let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
     let visibility_context = VisibilityClosureContext {
         module_id,
         graph,
@@ -2023,7 +2066,7 @@ pub(crate) fn visible_extensions_for_module(
     };
     let visible_modules = declared_module_closure(&visibility_context);
     let witness_modules = declared_witness_module_closure(&visibility_context);
-    let Some(current_normalization) = normalizations(module_id) else {
+    let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
             interner: TyInterner::default(),
@@ -2034,60 +2077,72 @@ pub(crate) fn visible_extensions_for_module(
     let extension_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
     };
-    for method in extensions.visible_methods(
+    extensions.for_each_visible_method(
         module_id,
         visible_modules.iter().copied(),
         extension_visibility_allows,
-    ) {
-        let Some(method_defs) = defs(method.def_id.module_id) else {
-            continue;
-        };
-        if method_defs.defs.get(method.def_id.def_id).is_none() {
-            continue;
-        }
-        let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
-            witness_modules.contains(&method.def_id.module_id)
-                && trait_id_is_visible(module_id, &witness_modules, trait_id, public_surfaces, defs)
-        });
-        let Some(method_normalization) = normalizations(method.def_id.module_id) else {
-            continue;
-        };
-        let target_ty = method_normalization.normalize(method.target_ty);
-        let target_ty = import_type_into(
-            &mut target_interner,
-            &method_normalization.interner,
-            target_ty,
-        );
-        visible.insert(
-            method.impl_id,
-            target_ty,
-            VisibleExtensionMethod {
-                name: method.name.clone(),
-                def_id: method.def_id,
-                impl_id: method.impl_id,
-                impl_generics: method.impl_generics.clone(),
-                trait_id: method.trait_id,
-                trait_args: method
-                    .trait_args
-                    .iter()
-                    .map(|arg| {
-                        let arg = method_normalization.normalize(*arg);
-                        import_type_into(&mut target_interner, &method_normalization.interner, arg)
-                    })
-                    .collect(),
-                where_predicates: import_where_predicates(
-                    &mut target_interner,
-                    &method_normalization.interner,
-                    &method.where_predicates,
-                ),
-                is_callable: extension_visibility_allows(
-                    method.visibility,
-                    method.def_id.module_id,
-                ),
-                is_trait_witness: trait_is_visible,
-            },
-        );
-    }
+        |method| {
+            if !resolver_cache
+                .defs(method.def_id.module_id)
+                .is_some_and(|defs| defs.defs.get(method.def_id.def_id).is_some())
+            {
+                return;
+            }
+            let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
+                witness_modules.contains(&method.def_id.module_id)
+                    && trait_id_is_visible(
+                        module_id,
+                        &witness_modules,
+                        trait_id,
+                        public_surfaces,
+                        &mut resolver_cache,
+                    )
+            });
+            let Some(method_normalization) = resolver_cache.normalization(method.def_id.module_id)
+            else {
+                return;
+            };
+            let target_ty = method_normalization.normalize(method.target_ty);
+            let target_ty = import_type_into(
+                &mut target_interner,
+                &method_normalization.interner,
+                target_ty,
+            );
+            visible.insert(
+                method.impl_id,
+                target_ty,
+                VisibleExtensionMethod {
+                    name: method.name.clone(),
+                    def_id: method.def_id,
+                    impl_id: method.impl_id,
+                    impl_generics: method.impl_generics.clone(),
+                    trait_id: method.trait_id,
+                    trait_args: method
+                        .trait_args
+                        .iter()
+                        .map(|arg| {
+                            let arg = method_normalization.normalize(*arg);
+                            import_type_into(
+                                &mut target_interner,
+                                &method_normalization.interner,
+                                arg,
+                            )
+                        })
+                        .collect(),
+                    where_predicates: import_where_predicates(
+                        &mut target_interner,
+                        &method_normalization.interner,
+                        &method.where_predicates,
+                    ),
+                    is_callable: extension_visibility_allows(
+                        method.visibility,
+                        method.def_id.module_id,
+                    ),
+                    is_trait_witness: trait_is_visible,
+                },
+            );
+        },
+    );
     for impl_signature in trait_impls {
         if !witness_modules.contains(&impl_signature.module_id) {
             continue;
@@ -2097,40 +2152,42 @@ pub(crate) fn visible_extensions_for_module(
             &witness_modules,
             impl_signature.trait_id,
             public_surfaces,
-            defs,
+            &mut resolver_cache,
         ) {
             visible.insert_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id);
         }
     }
-    for value in associated_values.visible_values(
+    associated_values.for_each_visible_value(
         module_id,
         visible_modules.iter().copied(),
         extension_visibility_allows,
-    ) {
-        let Some(value_defs) = defs(value.def_id.module_id) else {
-            continue;
-        };
-        if value_defs.defs.get(value.def_id.def_id).is_none() {
-            continue;
-        }
-        let Some(value_normalization) = normalizations(value.def_id.module_id) else {
-            continue;
-        };
-        let target_ty = value_normalization.normalize(value.target_ty);
-        let target_ty = import_type_into(
-            &mut target_interner,
-            &value_normalization.interner,
-            target_ty,
-        );
-        visible.insert_associated_value(
-            value.impl_id,
-            target_ty,
-            VisibleExtensionAssociatedValue {
-                name: value.name.clone(),
-                def_id: value.def_id,
-            },
-        );
-    }
+        |value| {
+            if !resolver_cache
+                .defs(value.def_id.module_id)
+                .is_some_and(|defs| defs.defs.get(value.def_id.def_id).is_some())
+            {
+                return;
+            }
+            let Some(value_normalization) = resolver_cache.normalization(value.def_id.module_id)
+            else {
+                return;
+            };
+            let target_ty = value_normalization.normalize(value.target_ty);
+            let target_ty = import_type_into(
+                &mut target_interner,
+                &value_normalization.interner,
+                target_ty,
+            );
+            visible.insert_associated_value(
+                value.impl_id,
+                target_ty,
+                VisibleExtensionAssociatedValue {
+                    name: value.name.clone(),
+                    def_id: value.def_id,
+                },
+            );
+        },
+    );
     VisibleExtensionsForModule {
         methods: visible,
         interner: target_interner,
@@ -2142,7 +2199,7 @@ fn trait_id_is_visible(
     imported_modules: &[nia_ids::ModuleId],
     trait_id: TraitId,
     public_surfaces: &PublicSurfaces,
-    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    resolver_cache: &mut VisibleExtensionResolverCache<'_>,
 ) -> bool {
     let TraitId::Source(trait_id) = trait_id else {
         return true;
@@ -2151,7 +2208,7 @@ fn trait_id_is_visible(
         return true;
     }
     if imported_modules.contains(&trait_id.module_id) {
-        return defs(trait_id.module_id).is_some_and(|defs| {
+        return resolver_cache.defs(trait_id.module_id).is_some_and(|defs| {
             defs.defs
                 .get(trait_id.def_id)
                 .is_some_and(|def| def.visibility == Visibility::Public)
@@ -2308,14 +2365,12 @@ fn public_inherent_extension_providers_for_using_scope(
             context.module_id,
             context.graph,
             type_def_id,
-            context.normalizations,
             context.extensions,
         ));
         providers.extend(public_associated_value_providers_for_nominal(
             context.module_id,
             context.graph,
             type_def_id,
-            context.normalizations,
             context.associated_values,
         ));
     }
@@ -2354,11 +2409,10 @@ fn public_inherent_method_providers_for_nominal(
     module_id: nia_ids::ModuleId,
     graph: &nia_imports::ModuleGraph,
     target_def_id: GlobalDefId,
-    normalizations: TypeNormalizationResolver<'_>,
     extensions: &ExtensionMethods,
 ) -> Vec<nia_ids::ModuleId> {
     let mut providers = Vec::new();
-    for method in extensions.all_methods() {
+    for method in extensions.methods_for_nominal_target(target_def_id) {
         if method.trait_id.is_some()
             || !nia_imports::visibility_allows(
                 method.visibility,
@@ -2369,13 +2423,7 @@ fn public_inherent_method_providers_for_nominal(
         {
             continue;
         }
-        let Some(normalization) = normalizations(method.def_id.module_id) else {
-            continue;
-        };
-        let target_ty = normalization.normalize(method.target_ty);
-        if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
-            providers.push(method.def_id.module_id);
-        }
+        providers.push(method.def_id.module_id);
     }
     providers
 }
@@ -2384,11 +2432,10 @@ fn public_associated_value_providers_for_nominal(
     module_id: nia_ids::ModuleId,
     graph: &nia_imports::ModuleGraph,
     target_def_id: GlobalDefId,
-    normalizations: TypeNormalizationResolver<'_>,
     associated_values: &ExtensionAssociatedValues,
 ) -> Vec<nia_ids::ModuleId> {
     let mut providers = Vec::new();
-    for value in associated_values.all_values() {
+    for value in associated_values.values_for_nominal_target(target_def_id) {
         if !nia_imports::visibility_allows(
             value.visibility,
             graph,
@@ -2397,13 +2444,7 @@ fn public_associated_value_providers_for_nominal(
         ) {
             continue;
         }
-        let Some(normalization) = normalizations(value.def_id.module_id) else {
-            continue;
-        };
-        let target_ty = normalization.normalize(value.target_ty);
-        if nominal_target_def_id(&normalization.interner, target_ty) == Some(target_def_id) {
-            providers.push(value.def_id.module_id);
-        }
+        providers.push(value.def_id.module_id);
     }
     providers
 }

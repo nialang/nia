@@ -34,7 +34,7 @@ use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::TyKind;
+use nia_ty::{ArrayLenTy, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;

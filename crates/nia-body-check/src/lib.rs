@@ -58,6 +58,8 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
 
+use crate::projection_obligations::TraitObligation;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
     pub ir: BodyIr,
@@ -166,6 +168,7 @@ pub enum BodyCheckFilter<'a> {
         functions: &'a HashSet<GlobalDefId>,
         globals: &'a HashSet<GlobalDefId>,
         already_checked_functions: Option<&'a HashSet<GlobalDefId>>,
+        already_checked_globals: Option<&'a HashSet<GlobalDefId>>,
     },
 }
 
@@ -176,6 +179,7 @@ enum ActiveBodyCheckFilter {
         functions: HashSet<GlobalDefId>,
         globals: HashSet<GlobalDefId>,
         already_checked_functions: HashSet<GlobalDefId>,
+        already_checked_globals: HashSet<GlobalDefId>,
     },
 }
 
@@ -187,17 +191,23 @@ impl ActiveBodyCheckFilter {
                 functions: functions.iter().copied().collect(),
                 globals: HashSet::new(),
                 already_checked_functions: HashSet::new(),
+                already_checked_globals: HashSet::new(),
             },
             BodyCheckFilter::ReachableItems {
                 functions,
                 globals,
                 already_checked_functions,
+                already_checked_globals,
             } => Self::ReachableItems {
                 functions: functions.iter().copied().collect(),
                 globals: globals.iter().copied().collect(),
                 already_checked_functions: already_checked_functions
                     .into_iter()
                     .flat_map(|functions| functions.iter().copied())
+                    .collect(),
+                already_checked_globals: already_checked_globals
+                    .into_iter()
+                    .flat_map(|globals| globals.iter().copied())
                     .collect(),
             },
         }
@@ -217,7 +227,11 @@ impl ActiveBodyCheckFilter {
     fn includes_global(&self, def_id: GlobalDefId) -> bool {
         match self {
             Self::All => true,
-            Self::ReachableItems { globals, .. } => globals.contains(&def_id),
+            Self::ReachableItems {
+                globals,
+                already_checked_globals,
+                ..
+            } => globals.contains(&def_id) && !already_checked_globals.contains(&def_id),
         }
     }
 
@@ -744,6 +758,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         method_receiver_kinds: HashMap::new(),
         traits_by_method_name: HashMap::new(),
         trait_impls_by_trait: HashMap::new(),
+        def_trait_obligations_cache: HashMap::new(),
+        trait_obligation_resolution_cache: HashMap::new(),
         program_type_normalizations: RefCell::new(HashMap::new()),
         diagnostics: Vec::new(),
         timing,
@@ -886,6 +902,9 @@ struct BodyChecker<'a> {
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: HashMap<String, Vec<GlobalDefId>>,
     trait_impls_by_trait: HashMap<nia_ty::TraitId, Vec<usize>>,
+    def_trait_obligations_cache: HashMap<DefId, Vec<TraitObligation>>,
+    trait_obligation_resolution_cache:
+        HashMap<TraitObligationResolutionKey, nia_trait_solve::TraitResolution>,
     program_type_normalizations: RefCell<HashMap<ModuleId, TypeNormalization>>,
     diagnostics: Vec<Diagnostic>,
     timing: bool,
@@ -899,6 +918,14 @@ struct BodyChecker<'a> {
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: BodyCheckProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TraitObligationResolutionKey {
+    current_def_id: Option<GlobalDefId>,
+    self_ty: InternedTyId,
+    trait_id: nia_ty::TraitId,
+    trait_args: Vec<InternedTyId>,
 }
 
 #[derive(Default)]

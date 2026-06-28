@@ -12,7 +12,7 @@ use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, Tr
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct TraitObligation {
+pub(crate) struct TraitObligation {
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
@@ -67,6 +67,15 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
     ) -> TraitResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
+        let key = crate::TraitObligationResolutionKey {
+            current_def_id: self.current_def_id,
+            self_ty,
+            trait_id,
+            trait_args: trait_args.clone(),
+        };
+        if let Some(resolution) = self.trait_obligation_resolution_cache.get(&key) {
+            return resolution.clone();
+        }
         let obligations = self.current_trait_obligations();
         let required = TraitObligation {
             self_ty,
@@ -74,7 +83,10 @@ impl<'a> BodyChecker<'a> {
             trait_args,
             associated_type_bindings: Vec::new(),
         };
-        self.resolve_trait_obligation(&obligations, &required)
+        let resolution = self.resolve_trait_obligation(&obligations, &required);
+        self.trait_obligation_resolution_cache
+            .insert(key, resolution.clone());
+        resolution
     }
 
     pub(crate) fn check_function_signature_projection_obligations(
@@ -124,6 +136,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn def_trait_obligations(&mut self, def_id: DefId) -> Vec<TraitObligation> {
+        if let Some(obligations) = self.def_trait_obligations_cache.get(&def_id) {
+            return obligations.clone();
+        }
         let mut obligations = Vec::new();
         self.push_method_owner_trait_obligations(def_id, &mut obligations);
         if let Some(signature) = self.signatures.functions.get(&def_id).cloned() {
@@ -137,6 +152,8 @@ impl<'a> BodyChecker<'a> {
                 );
             }
         }
+        self.def_trait_obligations_cache
+            .insert(def_id, obligations.clone());
         obligations
     }
 
