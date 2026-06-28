@@ -307,7 +307,14 @@ pub fn build(b: &mut build::Build) build::Error!void {
     stdout.print("cache={}\n", &[b.cache_dir().text()]).as_build_error().?;
     stdout.print("toolchain={}\n", &[b.toolchain_executable().text()]).as_build_error().?;
     stdout.flush().as_build_error().?;
-    let app = b.add_executable("app", fs::Path::init("src/main.nia")).?;
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let app = b.add_executable(build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: null,
+    }).?;
     let build_step = b.add_emit_executable_step("build", app).?;
     _ = b.add_check_executable_step("check", app).?;
     b.set_default_step(build_step).?;
@@ -464,7 +471,14 @@ fn verify(b: &mut build::Build) build::Error!void {
 }
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    let app = b.add_executable("app", fs::Path::init("src/main.nia")).?;
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let app = b.add_executable(build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: null,
+    }).?;
     let emit = b.add_emit_executable_step("emit-app", app).?;
     let verify_step = b.add_step("verify", &verify).?;
     b.depend_on(verify_step, emit).?;
@@ -501,6 +515,60 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "verified\n");
     assert!(root.join(".nia-build/app").is_file());
+}
+
+#[test]
+fn build_command_emits_executable_with_configured_output_name() {
+    let root = temp_dir("build_command_emits_executable_with_configured_output_name");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let root_module = b.add_module({
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let app = b.add_executable({
+        name: "app",
+        root_module: root_module,
+        output_name: ?"custom-app",
+    }).?;
+    let emit = b.add_emit_executable_step("emit-app", app).?;
+    b.set_default_step(emit).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+    std::fs::create_dir_all(root.join("src")).expect("create src dir");
+    std::fs::write(
+        root.join("src").join("main.nia"),
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build with configured output name");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.join(".nia-build/custom-app").is_file());
+    assert!(!root.join(".nia-build/app").exists());
 }
 
 #[test]
@@ -623,8 +691,24 @@ using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    _ = b.add_executable("app", fs::Path::init("src/main.nia")).?;
-    _ = b.add_executable("app", fs::Path::init("src/other.nia")).?;
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let other_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/other.nia"),
+    }).?;
+    let app_options = build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: null,
+    };
+    let other_options = build::ExecutableOptions{
+        name: "app",
+        root_module: other_module,
+        output_name: null,
+    };
+    _ = b.add_executable(app_options).?;
+    _ = b.add_executable(other_options).?;
     !{}
 }
 "#,
@@ -653,7 +737,15 @@ using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!void {
-    _ = b.add_executable("../bad", fs::Path::init("src/main.nia")).?;
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let app_options = build::ExecutableOptions{
+        name: "../bad",
+        root_module: root_module,
+        output_name: null,
+    };
+    _ = b.add_executable(app_options).?;
     !{}
 }
 "#,
@@ -671,6 +763,44 @@ pub fn build(b: &mut build::Build) build::Error!void {
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(stderr.contains("exit status: 22"), "{stderr}");
     assert!(!root.join("bad").exists());
+}
+
+#[test]
+fn build_command_rejects_invalid_executable_output_name() {
+    let root = temp_dir("build_command_rejects_invalid_executable_output_name");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!void {
+    let root_module = b.add_module(build::ModuleOptions{
+        root_source: fs::Path::init("src/main.nia"),
+    }).?;
+    let app_options = build::ExecutableOptions{
+        name: "app",
+        root_module: root_module,
+        output_name: ?"nested/bad",
+    };
+    _ = b.add_executable(app_options).?;
+    !{}
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .output_timeout("run nia build invalid executable output name");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("build runner"), "{stderr}");
+    assert!(stderr.contains("exit status: 22"), "{stderr}");
+    assert!(!root.join(".nia-build/nested").exists());
 }
 
 #[test]

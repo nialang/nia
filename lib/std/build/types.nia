@@ -30,6 +30,10 @@ pub struct ExecutableHandle {
     index: usize,
 }
 
+pub struct ModuleHandle {
+    index: usize,
+}
+
 pub struct CustomStep {
     run: StepFn,
 }
@@ -55,9 +59,24 @@ pub struct StepDependency {
     dependency: StepHandle,
 }
 
+pub struct ModuleOptions {
+    root_source: fs::Path,
+}
+
+pub struct Module {
+    root_source: fs::Path,
+}
+
+pub struct ExecutableOptions {
+    name: &[char],
+    root_module: ModuleHandle,
+    output_name: ?&[char],
+}
+
 pub struct ExecutableTarget {
     name: &[char],
-    source: fs::Path,
+    root_module: ModuleHandle,
+    output_name: &[char],
 }
 
 pub struct Build {
@@ -71,5 +90,6 @@ pub struct Build {
     default_step: ?StepHandle,
     steps: collections::ArrayList[Step],
     dependencies: collections::ArrayList[StepDependency],
+    modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
 }

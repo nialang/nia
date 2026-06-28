@@ -103,7 +103,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "Global options such as --timings may appear before or after `build`.",
                 "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
                 "std::build::Build exposes package_root(), build_dir(), cache_dir(), and toolchain_executable() so scripts do not guess toolchain paths.",
-                "std::build::Build::add_executable(name, path) declares executable artifacts; add_check_executable_step(name, target) and add_emit_executable_step(name, target) route them through the current toolchain graph.",
+                "std::build::Build::add_module(options) declares root source modules; add_executable(options) declares executable artifacts that reference those modules.",
                 "std::build::Build::set_default_step(step) selects what `nia build` runs when no step name is passed.",
                 "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
                 "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
