@@ -43,6 +43,28 @@ pub struct ExecutableReachabilityStats {
     pub reachable_bodies: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct IncrementalExecutableReachability {
+    reachability: ExecutableReachability,
+    scanned_functions: HashSet<GlobalDefId>,
+    scanned_globals: HashSet<GlobalDefId>,
+    reachable_traits: ReachableTraitRefs,
+}
+
+impl IncrementalExecutableReachability {
+    pub fn reachability(&self) -> &ExecutableReachability {
+        &self.reachability
+    }
+
+    pub fn replace_reachability(&mut self, reachability: ExecutableReachability) {
+        self.reachability = reachability;
+    }
+
+    pub fn into_reachability(self) -> ExecutableReachability {
+        self.reachability
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct ExecutableRootDefs<'a> {
     pub named_function: &'a dyn Fn(ModuleId, &str) -> Option<GlobalDefId>,
@@ -192,7 +214,129 @@ pub fn compute_executable_reachability_with_seed(
         }
     }
 
-    let stats = ExecutableReachabilityStats {
+    let stats = reachability_stats(&modules_by_id, &reachable_functions);
+
+    ExecutableReachability {
+        modules: reachable_modules,
+        type_modules: reachable_type_modules,
+        functions: reachable_functions,
+        globals: reachable_globals,
+        stats,
+    }
+}
+
+pub fn compute_executable_reachability_incremental(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    graph: &ModuleGraph,
+    root_defs: ExecutableRootDefs<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules: &[ReachableModuleInput<'_>],
+) -> ExecutableReachability {
+    let modules_by_id = modules
+        .iter()
+        .map(|module| (module.module_id, *module))
+        .collect::<HashMap<_, _>>();
+    let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
+    let mut pending_modules = VecDeque::new();
+    for def_id in executable_root_functions(graph, root_defs) {
+        add_reachable_function(
+            def_id,
+            program_signatures,
+            &mut state.reachability.functions,
+            &mut state.reachability.modules,
+            &mut pending_modules,
+        );
+    }
+    add_reachable_module(
+        graph.entry(),
+        &mut state.reachability.modules,
+        &mut pending_modules,
+    );
+
+    loop {
+        let before = incremental_reachability_key(state);
+        let current_reachable_modules = modules_by_id
+            .keys()
+            .copied()
+            .filter(|module_id| state.reachability.modules.contains(module_id))
+            .collect::<HashSet<_>>();
+        for module in modules_by_id
+            .values()
+            .filter(|module| current_reachable_modules.contains(&module.module_id))
+        {
+            let mut pending_modules = VecDeque::new();
+            extend_reachability_from_unscanned_items(
+                state,
+                module,
+                program_signatures,
+                &mut pending_modules,
+            );
+            while let Some(module_id) = pending_modules.pop_front() {
+                if parse_ok_set.contains(&module_id) {
+                    state.reachability.modules.insert(module_id);
+                }
+            }
+        }
+        let current_reachable_modules = modules_by_id
+            .keys()
+            .copied()
+            .filter(|module_id| state.reachability.modules.contains(module_id))
+            .collect::<HashSet<_>>();
+        extend_reachable_traits_from_generic_instances(
+            &modules_by_id,
+            &current_reachable_modules,
+            program_signatures,
+            extension_methods,
+            &state.reachability.functions,
+            &mut state.reachable_traits,
+        );
+        let mut pending_modules = VecDeque::new();
+        extend_reachable_functions_from_traits(
+            program_signatures,
+            extension_methods,
+            trait_impls,
+            &modules_by_id,
+            &mut state.reachable_traits,
+            &state.reachability.modules,
+            &mut state.reachability.functions,
+            &mut pending_modules,
+        );
+        while let Some(module_id) = pending_modules.pop_front() {
+            if parse_ok_set.contains(&module_id) {
+                state.reachability.modules.insert(module_id);
+            }
+        }
+        if before == incremental_reachability_key(state) {
+            break;
+        }
+    }
+
+    state.reachability.stats = reachability_stats(&modules_by_id, &state.reachability.functions);
+    state.reachability.clone()
+}
+
+fn incremental_reachability_key(
+    state: &IncrementalExecutableReachability,
+) -> (usize, usize, usize, usize, usize, usize, usize) {
+    (
+        state.reachability.functions.len(),
+        state.reachability.globals.len(),
+        state.reachability.modules.len(),
+        state.reachability.type_modules.len(),
+        state.reachable_traits.traits.len(),
+        state.reachable_traits.methods.len(),
+        state.reachable_traits.vtables.len(),
+    )
+}
+
+fn reachability_stats(
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    reachable_functions: &HashSet<GlobalDefId>,
+) -> ExecutableReachabilityStats {
+    ExecutableReachabilityStats {
         checked_modules: modules_by_id.len(),
         checked_bodies: modules_by_id
             .values()
@@ -209,15 +353,77 @@ pub fn compute_executable_reachability_with_seed(
                     .count()
             })
             .sum(),
-    };
-
-    ExecutableReachability {
-        modules: reachable_modules,
-        type_modules: reachable_type_modules,
-        functions: reachable_functions,
-        globals: reachable_globals,
-        stats,
     }
+}
+
+fn extend_reachability_from_unscanned_items(
+    state: &mut IncrementalExecutableReachability,
+    module: &ReachableModuleInput<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    pending_modules: &mut VecDeque<ModuleId>,
+) {
+    let new_functions = state
+        .reachability
+        .functions
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| !state.scanned_functions.contains(def_id))
+        .collect::<HashSet<_>>();
+    let new_globals = state
+        .reachability
+        .globals
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| !state.scanned_globals.contains(def_id))
+        .collect::<HashSet<_>>();
+    let present_functions = new_functions
+        .iter()
+        .copied()
+        .filter(|def_id| module.body_ir.function_bodies.contains_key(def_id))
+        .collect::<HashSet<_>>();
+    let present_globals = new_globals
+        .iter()
+        .copied()
+        .filter(|def_id| module.body_ir.global_inits.contains_key(def_id))
+        .collect::<HashSet<_>>();
+    if present_functions.is_empty() && present_globals.is_empty() {
+        return;
+    }
+
+    let refs = typed_body_refs_for_items(module, &present_functions, &present_globals);
+    for def_id in refs.functions {
+        add_reachable_function(
+            def_id,
+            program_signatures,
+            &mut state.reachability.functions,
+            &mut state.reachability.modules,
+            pending_modules,
+        );
+    }
+    for def_id in refs.globals {
+        if state.reachability.globals.insert(def_id) {
+            add_reachable_module(
+                def_id.module_id,
+                &mut state.reachability.modules,
+                pending_modules,
+            );
+        }
+    }
+    state.reachable_traits.extend(refs.traits);
+    collect_reachable_fact_owner_modules_for_items(
+        module,
+        program_signatures,
+        &present_functions,
+        &present_globals,
+        &mut state.reachability.modules,
+        &mut state.reachability.type_modules,
+        pending_modules,
+        &mut state.reachable_traits,
+    );
+    state.scanned_functions.extend(present_functions);
+    state.scanned_globals.extend(present_globals);
 }
 
 pub fn filter_semantic_facts_for_reachable_functions(
@@ -652,15 +858,23 @@ fn typed_body_refs(
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
 ) -> TypedBodyRefs {
+    typed_body_refs_for_items(module, reachable_functions, reachable_globals)
+}
+
+fn typed_body_refs_for_items(
+    module: &ReachableModuleInput<'_>,
+    functions: &HashSet<GlobalDefId>,
+    globals: &HashSet<GlobalDefId>,
+) -> TypedBodyRefs {
     let mut refs = TypedBodyRefs::default();
     for (def_id, body) in &module.body_ir.function_bodies {
-        if reachable_functions.contains(def_id) {
+        if functions.contains(def_id) {
             collect_typed_body_refs(module, body, &mut refs);
             collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
         }
     }
     for (def_id, init) in &module.body_ir.global_inits {
-        if reachable_globals.contains(def_id) {
+        if globals.contains(def_id) {
             collect_static_init_refs(init, &mut refs);
         }
     }
@@ -714,8 +928,10 @@ struct TypedBodyRefs {
 struct ReachableTraitRefs {
     traits: HashSet<TraitId>,
     methods: Vec<ReachableTraitMethod>,
+    raw_method_keys: HashSet<ReachableTraitRawMethodKey>,
     method_keys: HashSet<ReachableTraitMethodKey>,
     vtables: Vec<ReachableTraitVtable>,
+    vtable_keys: HashSet<ReachableTraitVtableKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -729,6 +945,15 @@ struct ReachableTraitMethod {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ReachableTraitRawMethodKey {
+    module_id: ModuleId,
+    trait_id: TraitId,
+    method_name: String,
+    self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ReachableTraitMethodKey {
     trait_id: TraitId,
     method_name: String,
@@ -738,6 +963,14 @@ struct ReachableTraitMethodKey {
 
 #[derive(Debug, Clone)]
 struct ReachableTraitVtable {
+    module_id: ModuleId,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ReachableTraitVtableKey {
     module_id: ModuleId,
     trait_id: TraitId,
     self_ty: InternedTyId,
@@ -796,10 +1029,20 @@ impl ReachableTraitRefs {
         let key_interner = match key_interner {
             Some(interner) => interner,
             None => {
+                let method_name = method_name.into();
+                if !self.raw_method_keys.insert(ReachableTraitRawMethodKey {
+                    module_id,
+                    trait_id,
+                    method_name: method_name.clone(),
+                    self_ty,
+                    trait_args: trait_args.clone(),
+                }) {
+                    return;
+                }
                 return self.methods.push(ReachableTraitMethod {
                     module_id,
                     trait_id,
-                    method_name: method_name.into(),
+                    method_name,
                     self_ty,
                     trait_args,
                     interner,
@@ -843,6 +1086,14 @@ impl ReachableTraitRefs {
         trait_args: Vec<InternedTyId>,
     ) {
         self.traits.insert(trait_id);
+        if !self.vtable_keys.insert(ReachableTraitVtableKey {
+            module_id,
+            trait_id,
+            self_ty,
+            trait_args: trait_args.clone(),
+        }) {
+            return;
+        }
         self.vtables.push(ReachableTraitVtable {
             module_id,
             trait_id,
@@ -2008,8 +2259,30 @@ fn collect_reachable_fact_owner_modules(
     pending_modules: &mut VecDeque<ModuleId>,
     traits: &mut ReachableTraitRefs,
 ) {
+    collect_reachable_fact_owner_modules_for_items(
+        module,
+        program_signatures,
+        reachable_functions,
+        reachable_globals,
+        modules,
+        type_modules,
+        pending_modules,
+        traits,
+    );
+}
+
+fn collect_reachable_fact_owner_modules_for_items(
+    module: &ReachableModuleInput<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    functions: &HashSet<GlobalDefId>,
+    globals: &HashSet<GlobalDefId>,
+    modules: &mut HashSet<ModuleId>,
+    type_modules: &mut HashSet<ModuleId>,
+    pending_modules: &mut VecDeque<ModuleId>,
+    traits: &mut ReachableTraitRefs,
+) {
     let mut type_ids = Vec::new();
-    for def_id in reachable_functions
+    for def_id in functions
         .iter()
         .filter(|def_id| def_id.module_id == module.module_id)
     {
@@ -2025,7 +2298,7 @@ fn collect_reachable_fact_owner_modules(
             &mut type_ids,
         );
     }
-    for def_id in reachable_globals
+    for def_id in globals
         .iter()
         .filter(|def_id| def_id.module_id == module.module_id)
     {
