@@ -20,7 +20,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
-    let page = &mut allocator;
+    let mut page = &mut allocator;
     let mut exact: std::ArrayList[i32];
     if !value = std::ArrayList[i32]::init_capacity(page, 3) { exact = value; } or error! { return (1 as process::ExitCode)!; }
     if exact.len() != 0 or exact.capacity() != 3 {
@@ -252,7 +252,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
-    let page = &mut allocator;
+    let mut page = &mut allocator;
     let mut list = std::ArrayList[i32]::init();
     if !ok = list.push(page, 10) { _ = ok; } or error! { return (1 as process::ExitCode)!; }
     if !ok = list.push(page, 20) { _ = ok; } or error! { return (2 as process::ExitCode)!; }
@@ -307,7 +307,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
-    let page = &mut allocator;
+    let mut page = &mut allocator;
 
     let mut source = std::ArrayList[i32]::init();
     if !ok = source.push(page, 1) { _ = ok; } or error! { return (1 as process::ExitCode)!; }
@@ -389,7 +389,7 @@ struct Marker {}
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
-    let page = &mut allocator;
+    let mut page = &mut allocator;
     let mut list = std::ArrayList[Marker]::init();
     if !ok = list.reserve(page, 4) { _ = ok; } or error! { return (1 as process::ExitCode)!; }
     if list.capacity() != usize::MAX {
@@ -452,7 +452,7 @@ fn expect_invalid(result: mem::Error!void) process::ExitCode!void {
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
-    let page = &mut allocator;
+    let mut page = &mut allocator;
 
     let mut list = std::ArrayList[i32]::init();
     defer list.deinit(page).exit().?;

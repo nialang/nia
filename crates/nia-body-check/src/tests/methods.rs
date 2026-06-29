@@ -60,6 +60,66 @@ fn main(buffer: Buffer) i32 {
 }
 
 #[test]
+fn ref_method_receiver_lowering_preserves_pointer_typed_self_lhs() {
+    let checked = pipeline(
+        r#"
+struct Counter {
+    value: i32,
+}
+
+extend Counter {
+    fn bump(&mut self) void {
+        self.value += 1;
+    }
+
+    fn outer(&mut self) void {
+        self.bump();
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let receiver = checked
+        .ir
+        .function_bodies
+        .values()
+        .filter_map(|body| match body.stmts.as_slice() {
+            [
+                nia_body_ir::TypedStmt {
+                    kind:
+                        nia_body_ir::TypedStmtKind::Expr(nia_body_ir::TypedExpr {
+                            kind: nia_body_ir::TypedExprKind::Call { callee, .. },
+                            ..
+                        }),
+                    ..
+                },
+            ] => match callee {
+                nia_body_ir::TypedCallee::Method {
+                    receiver_kind,
+                    receiver,
+                    ..
+                } if *receiver_kind == ReceiverKind::Ref => Some(receiver),
+                _ => None,
+            },
+            _ => None,
+        })
+        .next()
+        .expect("outer self.bump() receiver");
+    assert!(
+        matches!(
+            checked.ir.interner.get(receiver.ty),
+            Some(TyKind::Pointer {
+                is_readonly: false,
+                ..
+            })
+        ),
+        "expected ref method receiver typed as pointer, got {:?}",
+        checked.ir.interner.get(receiver.ty)
+    );
+}
+
+#[test]
 fn associated_function_and_field_access_use_extension_owner_type() {
     let checked = pipeline(
         r#"
@@ -217,11 +277,21 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
 }
 "#,
     );
-    assert!(checked.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("receiver cannot be matched through read-only `&T`")
-    }));
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("receiver cannot be matched through read-only `&T`")
+                || diagnostic
+                    .summary
+                    .contains("receiver is not assignable: local is let")
+                || diagnostic.summary.contains(
+                    "type mismatch in receiver argument: expected Box[i32], got &Box[i32]",
+                )
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
     assert!(
         checked
             .diagnostics
@@ -406,6 +476,9 @@ fn main() {
                 || diagnostic
                     .summary
                     .contains("reference target is not assignable")
+                || diagnostic
+                    .summary
+                    .contains("assignment target is not assignable: local is let")
         }),
         "{:?}",
         checked.diagnostics

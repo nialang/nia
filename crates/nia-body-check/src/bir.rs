@@ -2251,17 +2251,26 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 args,
                 receiver_kind,
-            } => TypedCallee::Method {
-                def_id,
-                args,
-                receiver_kind,
-                receiver: Box::new(self.lower_method_receiver_expr(
-                    callee,
-                    call_args,
+            } => {
+                let receiver_ty = self
+                    .lowered_call_param_tys(ResolvedCall::Method {
+                        def_id,
+                        args: args.clone(),
+                        receiver_kind,
+                    })
+                    .and_then(|tys| tys.first().copied());
+                TypedCallee::Method {
+                    def_id,
+                    args,
                     receiver_kind,
-                    None,
-                )),
-            },
+                    receiver: Box::new(self.lower_method_receiver_expr(
+                        callee,
+                        call_args,
+                        receiver_kind,
+                        receiver_ty,
+                    )),
+                }
+            }
             ResolvedCall::TraitMethod {
                 trait_id,
                 method_id,
@@ -2431,7 +2440,7 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
         let receiver_expr_ty =
-            receiver_ty.map(|ty| self.receiver_expr_ty_for_lowering(ty, receiver_kind));
+            receiver_ty.map(|ty| self.receiver_expr_ty_for_lowering(callee, ty, receiver_kind));
         if self.callee_has_receiver_lhs(callee)
             && let Some(receiver) = self.lower_receiver_expr_with_ty(callee, receiver_expr_ty)
         {
@@ -2445,12 +2454,19 @@ impl<'a> BodyChecker<'a> {
 
     fn receiver_expr_ty_for_lowering(
         &mut self,
+        callee: &Expr,
         receiver_ty: nia_ids::InternedTyId,
         receiver_kind: ReceiverKind,
     ) -> nia_ids::InternedTyId {
         match receiver_kind {
             ReceiverKind::Value => receiver_ty,
             ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                if let Some(actual_ty) = self.receiver_lhs_expr_ty(callee)
+                    && self
+                        .receiver_expr_already_matches_lowered_receiver_ty(receiver_ty, actual_ty)
+                {
+                    return receiver_ty;
+                }
                 match self.interner.get(self.normalization.normalize(receiver_ty)) {
                     Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => {
                         *elem
@@ -2458,6 +2474,58 @@ impl<'a> BodyChecker<'a> {
                     _ => receiver_ty,
                 }
             }
+        }
+    }
+
+    fn receiver_lhs_expr_ty(&mut self, callee: &Expr) -> Option<nia_ids::InternedTyId> {
+        let field_callee = match &callee.kind {
+            ExprKind::Field { .. } => callee,
+            ExprKind::BracketSuffix {
+                callee: generic_callee,
+                ..
+            } if matches!(
+                self.bracket_suffix_resolution(callee),
+                Some(BracketSuffixResolution::GenericCall)
+            ) =>
+            {
+                generic_callee.as_ref()
+            }
+            _ => return None,
+        };
+        let ExprKind::Field { lhs, .. } = &field_callee.kind else {
+            return None;
+        };
+        self.expr_ty(lhs)
+    }
+
+    fn receiver_expr_already_matches_lowered_receiver_ty(
+        &mut self,
+        receiver_ty: nia_ids::InternedTyId,
+        actual_ty: nia_ids::InternedTyId,
+    ) -> bool {
+        if self.types_match(receiver_ty, actual_ty) {
+            return true;
+        }
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        let actual_ty = self.normalization.normalize(actual_ty);
+        match (
+            self.interner.get(receiver_ty).cloned(),
+            self.interner.get(actual_ty).cloned(),
+        ) {
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                (expected_readonly || !actual_readonly)
+                    && self.types_match(expected_elem, actual_elem)
+            }
+            _ => false,
         }
     }
 
