@@ -8,8 +8,8 @@ fn rejects_bare_global_as_pointer_initializer() {
     std::fs::write(
         &main,
         r#"
-let mut target: i32 = 1;
-let p: &i32 = target;
+static mut target: i32 = 1;
+static p: &i32 = target;
 
 fn main() i32 {
     target
@@ -162,7 +162,7 @@ fn emits_comptime_values_without_runtime_storage() {
         &main,
         r#"
 comptime answer: i32 = 40 + 2;
-let saved: i32 = answer;
+static saved: i32 = answer;
 
 fn main() i32 {
     comptime local: i32 = answer;

@@ -1937,7 +1937,7 @@ fn bad_never_param(x: never) void {}
 fn good_return() void {}
 fn good_never_return() never {}
 
-let mut global_void: void;
+static mut global_void: void;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

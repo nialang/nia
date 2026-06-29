@@ -27,10 +27,10 @@ impl Parser {
                 ItemKind::Union(self.parse_union(true)?)
             } else if self.at(TokenKind::Fn) {
                 ItemKind::Function(self.parse_function(true, false)?)
-            } else if self.at(TokenKind::Let) {
+            } else if self.at(TokenKind::Static) {
                 ItemKind::Binding(self.parse_binding(true)?)
             } else {
-                self.error_here("expected `struct`, `union`, `fn`, or `let` after `extern`");
+                self.error_here("expected `struct`, `union`, `fn`, or `static` after `extern`");
                 return None;
             }
         } else if self.at(TokenKind::Struct) {
@@ -47,8 +47,11 @@ impl Parser {
             ItemKind::TypeAlias(self.parse_type_alias()?)
         } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
             ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
-        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) {
+        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Static) {
             ItemKind::Binding(self.parse_binding(false)?)
+        } else if self.at(TokenKind::Let) {
+            self.error_here("top-level storage declarations use `static`; `let` is local-only");
+            return None;
         } else {
             self.error_here("expected item");
             return None;
@@ -302,13 +305,15 @@ impl Parser {
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             if self.at(TokenKind::Fn) {
                 self.error_here("methods must be declared in an `extend Type { ... }` block");
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
                 continue;
             }
             if let Some(field) = self.parse_field() {
                 fields.push(field);
             } else {
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RBrace, "expected `}` after struct body")?;
@@ -331,13 +336,15 @@ impl Parser {
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             if self.at(TokenKind::Fn) {
                 self.error_here("methods must be declared in an `extend Type { ... }` block");
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
                 continue;
             }
             if let Some(field) = self.parse_field() {
                 fields.push(field);
             } else {
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RBrace, "expected `}` after union body")?;
@@ -373,7 +380,8 @@ impl Parser {
                 }
             } else {
                 self.error_here("expected associated type or method in trait body");
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RBrace, "expected `}` after trait body")?;
@@ -461,10 +469,12 @@ impl Parser {
                 }
             } else if self.at(TokenKind::Let) {
                 self.error_here("extend value members must be declared as `comptime` values");
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
             } else {
                 self.error_here("expected associated type, associated comptime value, or method in extend block");
-                self.recover_to_member_boundary();
+                let checkpoint = self.checkpoint();
+                self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
         self.expect(TokenKind::RBrace, "expected `}` after extend body")?;
@@ -696,7 +706,7 @@ impl Parser {
         Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
     }
 
-    fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
+    pub(super) fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
         let start = self.peek().span.start;
         let is_comptime = if self.eat(TokenKind::Comptime).is_some() {
             if is_extern {
@@ -707,14 +717,17 @@ impl Parser {
         } else {
             false
         };
-        let is_let = if is_comptime && self.eat(TokenKind::Mut).is_some() {
-            false
-        } else if is_comptime && self.at(TokenKind::Ident) {
+        let is_mutable = if is_comptime && self.eat(TokenKind::Mut).is_some() {
             true
-        } else if self.eat(TokenKind::Let).is_some() {
-            self.eat(TokenKind::Mut).is_none()
+        } else if is_comptime && self.at(TokenKind::Ident) {
+            false
+        } else if self.eat(TokenKind::Static).is_some() {
+            self.eat(TokenKind::Mut).is_some()
+        } else if self.at(TokenKind::Let) {
+            self.error_here("top-level storage declarations use `static`; `let` is local-only");
+            return None;
         } else {
-            self.error_here("expected `let` binding");
+            self.error_here("expected `static` binding");
             return None;
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
@@ -754,7 +767,7 @@ impl Parser {
             name,
             ty,
             value,
-            is_let,
+            is_mutable,
             is_comptime,
             is_extern,
             span: Span::new(start, self.previous_end()),

@@ -312,8 +312,8 @@ comptime fn signed(value: usize) i32 {
 comptime narrow_value: usize = narrow(258usize);
 comptime signed_value: i32 = signed(255usize);
 
-let mut narrow_global: i32 = narrow_value as i32;
-let mut signed_global: i32 = signed_value;
+static mut narrow_global: i32 = narrow_value as i32;
+static mut signed_global: i32 = signed_value;
 "#,
     );
 
@@ -362,7 +362,7 @@ comptime n: usize = if scaled > from_int {
     0usize
 };
 
-let mut value: i32 = n as i32;
+static mut value: i32 = n as i32;
 "#,
     );
 
@@ -447,7 +447,7 @@ comptime fn width() usize {
 }
 
 comptime n: usize = width();
-let mut value: i32 = n as i32;
+static mut value: i32 = n as i32;
 "#,
     );
 

@@ -99,6 +99,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::ByteString(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
+        | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::BuiltinValue(_)

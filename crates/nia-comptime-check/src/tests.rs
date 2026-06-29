@@ -132,7 +132,7 @@ comptime width: usize = 4;
 
 fn main() i32 {
 comptime local_width: usize = width;
-let xs: [local_width]i32 = [1, 2, 3, 4];
+static xs: [local_width]i32 = [1, 2, 3, 4];
 xs[0]
 }
 "#,
@@ -258,7 +258,7 @@ fn semantic_comptime_lowering_requires_resolved_function_locals() {
     let (module, errors) = parse_module(
         r#"
 comptime fn add_one(x: usize) usize {
-let y = x + 1;
+static y = x + 1;
 y
 }
 "#,

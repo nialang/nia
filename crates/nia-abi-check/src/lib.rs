@@ -482,7 +482,7 @@ extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair
 extern fn bad_never_return() never;
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
-extern let bad_global: bool;
+extern static bad_global: bool;
 union Bits { i: i32 }
 extern fn bad_union(bits: Bits);
 "#,

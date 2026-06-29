@@ -218,6 +218,11 @@ pub enum FunctionExprKind {
     Null,
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
+    GlobalInstance {
+        def_id: nia_ids::GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
+        args: Vec<InternedTyId>,
+    },
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
@@ -620,6 +625,11 @@ pub struct FunctionPlace {
 pub enum FunctionPlaceBase {
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
+    GlobalInstance {
+        def_id: nia_ids::GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
+        args: Vec<InternedTyId>,
+    },
     Deref(Box<FunctionExpr>),
     Error,
 }

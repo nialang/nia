@@ -264,7 +264,7 @@ pub struct BindingItem {
     pub name: String,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_let: bool,
+    pub is_mutable: bool,
     pub is_comptime: bool,
     pub is_extern: bool,
     pub node_key: VersionedNodeKey,

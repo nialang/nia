@@ -661,7 +661,7 @@ impl<'a> ModuleLowerer<'a> {
         self.instantiate_ty_with_id(ty, substitutions)
     }
 
-    fn instantiate_ty_with_id(
+    pub(crate) fn instantiate_ty_with_id(
         &mut self,
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
@@ -1048,6 +1048,41 @@ impl<'a> ModuleLowerer<'a> {
             .map(|generic| self.type_substitution(substitutions, generic))
             .collect::<Option<Vec<_>>>()
             .map(|args| self.canonicalize_instance_args(&args))
+    }
+
+    pub(super) fn global_instance_args_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        substitutions: TypeSubstitutionId,
+    ) -> Option<(ModuleId, Vec<InternedTyId>)> {
+        let def = self.input.defs.defs.get(def_id.def_id)?;
+        if def.kind != nia_defs::DefKind::Global {
+            return None;
+        }
+        let owner = def.parent?;
+        let owner_def_id = GlobalDefId {
+            module_id: def_id.module_id,
+            def_id: owner,
+        };
+        let owner_def = self.input.defs.defs.get(owner)?;
+        if !matches!(
+            owner_def.kind,
+            nia_defs::DefKind::Function | nia_defs::DefKind::Method
+        ) {
+            return None;
+        }
+        if self.instantiation.function != Some(owner_def_id) {
+            return None;
+        }
+        if self.instantiation.defer_concrete_trait_diagnostics {
+            return None;
+        }
+        let args = self.effective_instance_args_for_def(owner_def_id, substitutions)?;
+        if args.is_empty() {
+            None
+        } else {
+            Some((self.current_arg_module_id(), args))
+        }
     }
 
     fn cache_type_instantiation(

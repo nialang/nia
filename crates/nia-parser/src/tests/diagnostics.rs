@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
+use std::sync::mpsc;
+use std::time::Duration;
 
 #[test]
 fn reports_lexer_errors_through_parser() {
@@ -81,4 +83,105 @@ fn main(ptr: &i32) i32 {
 "#,
     );
     assert!(!errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn parser_makes_progress_on_generated_invalid_inputs() {
+    const TOKENS: &[&str] = &[
+        "let",
+        "static",
+        "mut",
+        "comptime",
+        "extern",
+        "pub",
+        "fn",
+        "struct",
+        "union",
+        "trait",
+        "extend",
+        "enum",
+        "type",
+        "using",
+        "if",
+        "or",
+        "else",
+        "for",
+        "while",
+        "loop",
+        "return",
+        "break",
+        "continue",
+        "defer",
+        "module",
+        "pkg",
+        "self",
+        "Self",
+        "=",
+        ":",
+        ";",
+        ",",
+        ".",
+        "::",
+        "(",
+        ")",
+        "{",
+        "}",
+        "[",
+        "]",
+        "&",
+        "*",
+        "?",
+        "!",
+        "+",
+        "-",
+        "/",
+        "..",
+        "...",
+        "\"unterminated",
+        "\"bad\\q\"",
+        "123",
+        "name",
+    ];
+    const PREFIXES: &[&str] = &[
+        "",
+        "fn anchor() i32 { ",
+        "struct S { ",
+        "extend S { ",
+        "trait T { ",
+        "enum E { ",
+    ];
+    const SUFFIXES: &[&str] = &[
+        "",
+        " fn main() i32 { 0 }",
+        " } fn main() i32 { 0 }",
+        "; fn main() i32 { 0 }",
+    ];
+
+    let mut seed = 0x9E37_79B9u32;
+    let mut cases = Vec::new();
+    for case_index in 0..256 {
+        let mut source = String::new();
+        source.push_str(PREFIXES[case_index % PREFIXES.len()]);
+        let token_count = 4 + (case_index % 18);
+        for _ in 0..token_count {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let token = TOKENS[(seed as usize) % TOKENS.len()];
+            source.push_str(token);
+            source.push(' ');
+        }
+        source.push_str(SUFFIXES[(case_index / PREFIXES.len()) % SUFFIXES.len()]);
+        cases.push(source);
+    }
+
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for source in cases {
+            let _ = parse_module(&source);
+        }
+        sender.send(()).expect("send parser fuzz completion");
+    });
+
+    receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("parser did not make progress on generated invalid inputs");
 }

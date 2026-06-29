@@ -261,6 +261,27 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             self.globals.insert(global.def_id, value);
         }
+        for global in self.program.global_instances_by_def.values().flatten() {
+            let Some(owner) = self.program.module(global.def_id.module_id) else {
+                return Err(self.error(global.span, "missing global instance owner module"));
+            };
+            let ty =
+                self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
+            let value = self
+                .module
+                .add_global(ty, None, &global.symbol)
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            if global.def_id.module_id != self.source.id {
+                value.set_linkage(Linkage::External);
+            }
+            if global.is_let {
+                value.set_constant(true);
+            }
+            self.global_instances.insert(
+                (global.def_id, global.arg_module_id, global.args.clone()),
+                value,
+            );
+        }
         for global in self.program.globals.values() {
             if global.def_id.module_id != self.source.id || global.is_extern {
                 continue;
@@ -289,6 +310,44 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     global.span,
                     format!(
                         "global `{}` initializer type does not match declaration: expected {ty:?}, got {init_ty:?}",
+                        global.name
+                    ),
+                ));
+            }
+            value.set_initializer(&init);
+        }
+        for global in self.program.global_instances_by_def.values().flatten() {
+            if global.def_id.module_id != self.source.id {
+                continue;
+            }
+            let Some(owner) = self.program.module(global.def_id.module_id) else {
+                return Err(self.error(global.span, "missing global instance owner module"));
+            };
+            let ty =
+                self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
+            let Some(value) = self
+                .global_instances
+                .get(&(global.def_id, global.arg_module_id, global.args.clone()))
+                .copied()
+            else {
+                return Err(self.error(global.span, "missing global instance declaration"));
+            };
+            let init = match &global.init {
+                Some(init) => self.static_init_value_in(
+                    global.ty,
+                    init,
+                    global.span,
+                    &owner.interner,
+                    &owner.layouts,
+                )?,
+                None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
+            };
+            let init_ty = init.get_type().map_err(Self::diagnostic_from_llvm_error)?;
+            if init_ty != ty {
+                return Err(self.error(
+                    global.span,
+                    format!(
+                        "global instance `{}` initializer type does not match declaration: expected {ty:?}, got {init_ty:?}",
                         global.name
                     ),
                 ));

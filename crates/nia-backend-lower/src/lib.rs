@@ -20,11 +20,12 @@ mod type_context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use nia_ast::{Expr, Visibility};
+use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility};
 use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule,
-    BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
-    BackendTraitObjectVtableKey, BackendUnion,
+    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
+    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
+    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendUnion,
 };
 use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
@@ -49,7 +50,9 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
 
-use crate::function_refs::{FunctionInstanceKey, FunctionInstanceRef, FunctionRefs};
+use crate::function_refs::{
+    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs, GlobalInstanceKey, GlobalInstanceRef,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLowering {
@@ -232,6 +235,7 @@ pub fn lower_backend_program_with_timings(
     });
     let mut lowered_modules = Vec::new();
     let mut pending_foreign_instances = VecDeque::new();
+    let mut pending_foreign_global_instances = VecDeque::new();
     time_backend_stage(timing, "backend_lower.initial_modules", || {
         for lowerer in &mut lowerers {
             let module = lowerer.lower_module();
@@ -247,6 +251,8 @@ pub fn lower_backend_program_with_timings(
             }
             pending_foreign_instances
                 .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
+            pending_foreign_global_instances
+                .extend(std::mem::take(&mut lowerer.foreign_global_instance_refs));
             diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
             optimization_report.changed_passes.extend(std::mem::take(
                 &mut lowerer.optimization_report.changed_passes,
@@ -265,8 +271,12 @@ pub fn lower_backend_program_with_timings(
         .collect::<VecDeque<_>>();
     let mut queued_foreign_functions = HashSet::new();
     let mut queued_foreign_instances = HashSet::new();
+    let mut queued_foreign_global_instances = HashSet::new();
     time_backend_stage(timing, "backend_lower.foreign_instances", || {
-        while !pending_foreign_functions.is_empty() || !pending_foreign_instances.is_empty() {
+        while !pending_foreign_functions.is_empty()
+            || !pending_foreign_instances.is_empty()
+            || !pending_foreign_global_instances.is_empty()
+        {
             let mut function_batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
             while let Some(function) = pending_foreign_functions.pop_front() {
                 if !queued_foreign_functions.insert(function) {
@@ -290,6 +300,9 @@ pub fn lower_backend_program_with_timings(
                 ));
                 pending_foreign_instances.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_instance_refs,
+                ));
+                pending_foreign_global_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_global_instance_refs,
                 ));
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
@@ -336,6 +349,46 @@ pub fn lower_backend_program_with_timings(
                 ));
                 pending_foreign_instances.extend(std::mem::take(
                     &mut lowerers[owner_index].foreign_function_instance_refs,
+                ));
+                pending_foreign_global_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_global_instance_refs,
+                ));
+                diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
+                optimization_report.changed_passes.extend(std::mem::take(
+                    &mut lowerers[owner_index].optimization_report.changed_passes,
+                ));
+            }
+
+            let mut global_instance_batches =
+                (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+            while let Some(instance) = pending_foreign_global_instances.pop_front() {
+                if !queued_foreign_global_instances.insert(instance.key()) {
+                    continue;
+                }
+                let Some(owner_index) = module_indices.get(&instance.def_id.module_id).copied()
+                else {
+                    continue;
+                };
+                global_instance_batches[owner_index].push(instance);
+            }
+
+            for (owner_index, refs) in global_instance_batches.into_iter().enumerate() {
+                if refs.is_empty() {
+                    continue;
+                }
+                {
+                    let lowerer = &mut lowerers[owner_index];
+                    lowerer
+                        .lower_additional_global_instances(refs, &mut lowered_modules[owner_index]);
+                }
+                pending_foreign_functions.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_refs,
+                ));
+                pending_foreign_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_function_instance_refs,
+                ));
+                pending_foreign_global_instances.extend(std::mem::take(
+                    &mut lowerers[owner_index].foreign_global_instance_refs,
                 ));
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
@@ -436,6 +489,7 @@ pub(crate) struct ModuleLowerer<'a> {
     instantiation: instantiation_context::BackendInstantiationContext<'a>,
     foreign_function_refs: Vec<GlobalDefId>,
     foreign_function_instance_refs: Vec<function_refs::FunctionInstanceRef>,
+    foreign_global_instance_refs: Vec<function_refs::GlobalInstanceRef>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
@@ -538,6 +592,8 @@ struct ReachabilityWorklist {
     queued_functions: HashSet<GlobalDefId>,
     pending_instances: Vec<FunctionInstanceRef>,
     queued_instances: HashSet<FunctionInstanceKey>,
+    pending_global_instances: Vec<GlobalInstanceRef>,
+    queued_global_instances: HashSet<GlobalInstanceKey>,
 }
 
 #[derive(Default)]
@@ -748,12 +804,21 @@ impl ReachabilityWorklist {
             self.enqueue_function(function);
         }
         self.enqueue_instances(refs.instances);
+        self.enqueue_global_instances(refs.global_instances);
     }
 
     fn enqueue_instances(&mut self, refs: impl IntoIterator<Item = FunctionInstanceRef>) {
         for instance in refs {
             if self.queued_instances.insert(instance.key()) {
                 self.pending_instances.push(instance);
+            }
+        }
+    }
+
+    fn enqueue_global_instances(&mut self, refs: impl IntoIterator<Item = GlobalInstanceRef>) {
+        for instance in refs {
+            if self.queued_global_instances.insert(instance.key()) {
+                self.pending_global_instances.push(instance);
             }
         }
     }
@@ -829,6 +894,7 @@ impl<'a> ModuleLowerer<'a> {
             instantiation: instantiation_context::BackendInstantiationContext::default(),
             foreign_function_refs: Vec::new(),
             foreign_function_instance_refs: Vec::new(),
+            foreign_global_instance_refs: Vec::new(),
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
             ),
@@ -883,6 +949,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut union_instances = Vec::new();
         let mut enums = Vec::new();
         let mut globals = Vec::new();
+        let mut global_instances = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
         let mut worklist = ReachabilityWorklist::default();
@@ -938,6 +1005,11 @@ impl<'a> ModuleLowerer<'a> {
                             &method.function,
                             &mut worklist,
                         );
+                        self.lower_function_local_static_globals(
+                            &method.function,
+                            &mut globals,
+                            &mut worklist,
+                        );
                     }
                 }
                 ItemTreeNodeKind::Extend(extend) => {
@@ -945,6 +1017,11 @@ impl<'a> ModuleLowerer<'a> {
                         self.index_function_source(
                             method.function.span,
                             &method.function,
+                            &mut worklist,
+                        );
+                        self.lower_function_local_static_globals(
+                            &method.function,
+                            &mut globals,
                             &mut worklist,
                         );
                     }
@@ -956,32 +1033,18 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemTreeNodeKind::Function(function) => {
                     self.index_function_source(item.span, function, &mut worklist);
+                    self.lower_function_local_static_globals(function, &mut globals, &mut worklist);
                 }
                 ItemTreeNodeKind::Binding(binding) => {
                     if binding.is_comptime {
                         continue;
                     }
-                    let Some(global_def_id) = self
-                        .def_id_for_node(&binding.node_key, DefKind::Global)
-                        .map(|def_id| self.global_def_id(def_id))
-                    else {
-                        continue;
-                    };
-                    if !self.is_backend_global_reachable(global_def_id) {
-                        continue;
-                    }
-                    if let Some(global) = self.lower_global(&binding.node_key, item.span, binding) {
-                        if let Some(init) = &global.init {
-                            let mut refs = FunctionRefs::default();
-                            function_refs::collect_function_refs_from_static_init(
-                                self.input.module_id,
-                                init,
-                                &mut refs,
-                            );
-                            worklist.enqueue_refs(refs);
-                        }
-                        globals.push(global);
-                    }
+                    self.lower_static_global_binding(
+                        item.span,
+                        binding,
+                        &mut globals,
+                        &mut worklist,
+                    );
                 }
                 ItemTreeNodeKind::Module(_)
                 | ItemTreeNodeKind::Using(_)
@@ -1000,6 +1063,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut functions,
             &mut function_templates,
             &mut function_instances,
+            &mut global_instances,
             &mut worklist,
             &mut trait_object_vtables,
         );
@@ -1010,6 +1074,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut functions,
             &mut function_templates,
             &mut function_instances,
+            &mut global_instances,
             &mut trait_object_vtables,
         );
         self.remove_unused_private_functions(
@@ -1057,6 +1122,7 @@ impl<'a> ModuleLowerer<'a> {
             union_instances,
             enums,
             globals,
+            global_instances,
             functions,
             function_instances,
             trait_object_vtables,
@@ -1073,6 +1139,86 @@ impl<'a> ModuleLowerer<'a> {
                     source_def_id: inst.source_def_id,
                 })
                 .collect(),
+        }
+    }
+
+    fn lower_function_local_static_globals(
+        &mut self,
+        function: &nia_ast::FunctionItem,
+        globals: &mut Vec<BackendGlobal>,
+        worklist: &mut ReachabilityWorklist,
+    ) {
+        let Some(body) = &function.body else {
+            return;
+        };
+        if let Some(def_id) = self.def_id_for_node_any_function(&function.node_key) {
+            let global_def_id = self.global_def_id(def_id);
+            let effective_generics = self.effective_generics(global_def_id, &function.generics);
+            if !effective_generics.is_empty() {
+                return;
+            }
+        }
+        self.lower_block_static_globals(body, globals, worklist);
+    }
+
+    fn lower_block_static_globals(
+        &mut self,
+        block: &Block,
+        globals: &mut Vec<BackendGlobal>,
+        worklist: &mut ReachabilityWorklist,
+    ) {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Static(binding) => {
+                    self.lower_static_global_binding(stmt.span, binding, globals, worklist);
+                }
+                StmtKind::ForIn(for_stmt) => {
+                    self.lower_block_static_globals(&for_stmt.body, globals, worklist);
+                }
+                StmtKind::While(while_stmt) => {
+                    self.lower_block_static_globals(&while_stmt.body, globals, worklist);
+                }
+                StmtKind::Loop(loop_stmt) => {
+                    self.lower_block_static_globals(&loop_stmt.body, globals, worklist);
+                }
+                StmtKind::Binding(_)
+                | StmtKind::Using(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Return(_)
+                | StmtKind::Break
+                | StmtKind::Continue
+                | StmtKind::Defer(_) => {}
+            }
+        }
+    }
+
+    fn lower_static_global_binding(
+        &mut self,
+        span: nia_span::Span,
+        binding: &BindingItem,
+        globals: &mut Vec<BackendGlobal>,
+        worklist: &mut ReachabilityWorklist,
+    ) {
+        let Some(global_def_id) = self
+            .def_id_for_node(&binding.node_key, DefKind::Global)
+            .map(|def_id| self.global_def_id(def_id))
+        else {
+            return;
+        };
+        if !self.is_backend_global_reachable(global_def_id) {
+            return;
+        }
+        if let Some(global) = self.lower_global(&binding.node_key, span, binding) {
+            if let Some(init) = &global.init {
+                let mut refs = FunctionRefs::default();
+                function_refs::collect_function_refs_from_static_init(
+                    self.input.module_id,
+                    init,
+                    &mut refs,
+                );
+                worklist.enqueue_refs(refs);
+            }
+            globals.push(global);
         }
     }
 
@@ -1385,6 +1531,16 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(FunctionInstanceKey::from)
                 .collect::<HashSet<_>>(),
+            pending_global_instances: Vec::new(),
+            queued_global_instances: module
+                .global_instances
+                .iter()
+                .map(|instance| GlobalInstanceKey {
+                    def_id: instance.def_id,
+                    arg_module_id: instance.arg_module_id,
+                    args: instance.args.clone(),
+                })
+                .collect::<HashSet<_>>(),
         };
         for def_id in refs {
             worklist.enqueue_function(def_id);
@@ -1394,12 +1550,14 @@ impl<'a> ModuleLowerer<'a> {
             &mut module.functions,
             &mut function_templates,
             &mut module.function_instances,
+            &mut module.global_instances,
             &mut module.trait_object_vtables,
         );
         self.lower_reachable_instances_and_vtables(
             &mut module.functions,
             &mut function_templates,
             &mut module.function_instances,
+            &mut module.global_instances,
             &mut worklist,
             &mut module.trait_object_vtables,
         );
@@ -1420,11 +1578,33 @@ impl<'a> ModuleLowerer<'a> {
         module.interner = self.type_context.interner.clone();
     }
 
+    fn lower_additional_global_instances(
+        &mut self,
+        refs: Vec<GlobalInstanceRef>,
+        module: &mut BackendModule,
+    ) {
+        let additional = self.lower_global_instances_from_refs(refs, &module.global_instances);
+        if additional.is_empty() {
+            return;
+        }
+        module.global_instances.extend(additional);
+        let mut backend_layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut backend_layouts,
+            &module.struct_instances,
+            &module.union_instances,
+        );
+        module.layouts = backend_layouts;
+        module.interner = self.type_context.interner.clone();
+    }
+
     fn lower_reachable_instances_and_vtables(
         &mut self,
         functions: &mut Vec<BackendFunction>,
         function_templates: &mut Vec<BackendFunction>,
         function_instances: &mut Vec<BackendFunctionInstance>,
+        global_instances: &mut Vec<BackendGlobalInstance>,
         worklist: &mut ReachabilityWorklist,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) {
@@ -1454,6 +1634,24 @@ impl<'a> ModuleLowerer<'a> {
                 changed |= !additional.is_empty();
                 function_instances.extend(additional);
             }
+            if !worklist.pending_global_instances.is_empty() {
+                let refs = std::mem::take(&mut worklist.pending_global_instances);
+                let additional =
+                    self.lower_global_instances_from_refs(refs, global_instances.as_slice());
+                for instance in &additional {
+                    if let Some(init) = &instance.init {
+                        let mut refs = FunctionRefs::default();
+                        function_refs::collect_function_refs_from_static_init(
+                            instance.arg_module_id,
+                            init,
+                            &mut refs,
+                        );
+                        worklist.enqueue_refs(refs);
+                    }
+                }
+                changed |= !additional.is_empty();
+                global_instances.extend(additional);
+            }
             changed |= self.collect_new_trait_object_vtables(
                 trait_object_vtables,
                 functions,
@@ -1463,6 +1661,7 @@ impl<'a> ModuleLowerer<'a> {
             if !changed
                 && worklist.pending_functions.is_empty()
                 && worklist.pending_instances.is_empty()
+                && worklist.pending_global_instances.is_empty()
             {
                 break;
             }
@@ -1496,12 +1695,182 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn lower_global_instances_from_refs(
+        &mut self,
+        refs: Vec<GlobalInstanceRef>,
+        existing: &[BackendGlobalInstance],
+    ) -> Vec<BackendGlobalInstance> {
+        let mut instances = Vec::new();
+        let mut seen = existing
+            .iter()
+            .map(|instance| BackendGlobalInstanceKey {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
+                args: self.canonicalize_instance_args(&instance.args),
+            })
+            .collect::<HashSet<_>>();
+        for instance in refs {
+            if instance.def_id.module_id != self.input.module_id {
+                self.foreign_global_instance_refs
+                    .push(self.with_current_arg_interner_global(instance));
+                continue;
+            }
+            let args = self.canonicalize_global_instance_ref_args(&instance);
+            let key = BackendGlobalInstanceKey {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
+                args: args.clone(),
+            };
+            if !seen.insert(key) {
+                continue;
+            }
+            if args.iter().any(|arg| {
+                self.cached_ty_contains_generic_param(*arg)
+                    || self.cached_ty_contains_unresolved_projection(*arg)
+                    || self.cached_ty_contains_error(*arg)
+            }) {
+                continue;
+            }
+            let Some(global) =
+                self.lower_planned_global_instance(instance.def_id, instance.arg_module_id, args)
+            else {
+                continue;
+            };
+            instances.push(global);
+        }
+        instances
+    }
+
+    fn lower_planned_global_instance(
+        &mut self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: Vec<InternedTyId>,
+    ) -> Option<BackendGlobalInstance> {
+        let signature = self.input.signatures.globals.get(&def_id.def_id)?;
+        if signature.is_extern {
+            return None;
+        }
+        let def = self.input.defs.defs.get(def_id.def_id)?;
+        let owner = def.parent?;
+        let owner_def_id = GlobalDefId {
+            module_id: def_id.module_id,
+            def_id: owner,
+        };
+        let owner_generics = if owner_def_id.module_id == self.input.module_id {
+            self.input
+                .signatures
+                .functions
+                .get(&owner)
+                .map(|signature| signature.generics.as_slice())?
+        } else {
+            self.input
+                .program_functions
+                .get(&owner_def_id)
+                .map(|signature| signature.signature.generics.as_slice())?
+        };
+        let effective_generics = self
+            .effective_generics(owner_def_id, owner_generics)
+            .to_vec();
+        let imported_args = args
+            .iter()
+            .map(|arg| self.import_instance_arg_type(*arg))
+            .collect::<Vec<_>>();
+        let substitutions =
+            ModuleLowerer::generic_substitutions(&effective_generics, &imported_args);
+        let substitutions = self.intern_type_substitutions(&substitutions);
+        let ty = self
+            .input
+            .semantic_facts
+            .global_types
+            .get(&def_id)
+            .copied()
+            .or(signature.explicit_type)
+            .map(|ty| self.instantiate_ty_with_id(ty, substitutions))?;
+        let init = self
+            .input
+            .body_ir
+            .global_inits
+            .get(&def_id)
+            .cloned()
+            .map(|init| self.instantiate_static_init(init, substitutions))
+            .map(|init| self.optimize_static_init(def_id, init));
+        Some(BackendGlobalInstance {
+            def_id,
+            name: def.name.clone(),
+            arg_module_id,
+            args: args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
+            ty,
+            is_let: !signature.is_mutable,
+            init,
+            span: def.span,
+        })
+    }
+
+    fn instantiate_static_init(
+        &mut self,
+        init: nia_static_ir::StaticInit,
+        substitutions: TypeSubstitutionId,
+    ) -> nia_static_ir::StaticInit {
+        match init {
+            nia_static_ir::StaticInit::Array(elems) => nia_static_ir::StaticInit::Array(
+                elems
+                    .into_iter()
+                    .map(|elem| self.instantiate_static_init(elem, substitutions))
+                    .collect(),
+            ),
+            nia_static_ir::StaticInit::Repeat { value, count } => {
+                nia_static_ir::StaticInit::Repeat {
+                    value: Box::new(self.instantiate_static_init(*value, substitutions)),
+                    count,
+                }
+            }
+            nia_static_ir::StaticInit::Struct(fields) => nia_static_ir::StaticInit::Struct(
+                fields
+                    .into_iter()
+                    .map(|field| nia_static_ir::StaticFieldInit {
+                        field: field.field,
+                        value: self.instantiate_static_init(field.value, substitutions),
+                    })
+                    .collect(),
+            ),
+            nia_static_ir::StaticInit::AddrOfFunction { function, args } => {
+                nia_static_ir::StaticInit::AddrOfFunction {
+                    function,
+                    args: args
+                        .into_iter()
+                        .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                        .collect(),
+                }
+            }
+            nia_static_ir::StaticInit::StaticArrayPointer {
+                array_ty,
+                array_init,
+            } => nia_static_ir::StaticInit::StaticArrayPointer {
+                array_ty: self.instantiate_ty_with_id(array_ty, substitutions),
+                array_init: Box::new(self.instantiate_static_init(*array_init, substitutions)),
+            },
+            nia_static_ir::StaticInit::Zero
+            | nia_static_ir::StaticInit::Int(_)
+            | nia_static_ir::StaticInit::Float(_)
+            | nia_static_ir::StaticInit::Bool(_)
+            | nia_static_ir::StaticInit::Char(_)
+            | nia_static_ir::StaticInit::Byte(_)
+            | nia_static_ir::StaticInit::Chars(_)
+            | nia_static_ir::StaticInit::Bytes(_)
+            | nia_static_ir::StaticInit::NullPtr
+            | nia_static_ir::StaticInit::AddrOfGlobal { .. } => init,
+        }
+    }
+
     fn lower_additional_reachable_functions_from_instances(&mut self, module: &mut BackendModule) {
         let mut function_templates = Vec::new();
         self.complete_reachable_backend_items(
             &mut module.functions,
             &mut function_templates,
             &mut module.function_instances,
+            &mut module.global_instances,
             &mut module.trait_object_vtables,
         );
         self.extend_struct_instances_from_functions(
@@ -1526,6 +1895,7 @@ impl<'a> ModuleLowerer<'a> {
         functions: &mut Vec<BackendFunction>,
         function_templates: &mut Vec<BackendFunction>,
         function_instances: &mut Vec<BackendFunctionInstance>,
+        global_instances: &mut Vec<BackendGlobalInstance>,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) {
         loop {
@@ -1543,6 +1913,15 @@ impl<'a> ModuleLowerer<'a> {
                     &instance.function_body,
                     &mut refs,
                 );
+            }
+            for instance in global_instances.iter() {
+                if let Some(init) = &instance.init {
+                    function_refs::collect_function_refs_from_static_init(
+                        instance.arg_module_id,
+                        init,
+                        &mut refs,
+                    );
+                }
             }
             for vtable in trait_object_vtables.iter() {
                 for entry in &vtable.entries {
@@ -1576,17 +1955,28 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .map(FunctionInstanceKey::from)
                     .collect::<HashSet<_>>(),
+                pending_global_instances: Vec::new(),
+                queued_global_instances: global_instances
+                    .iter()
+                    .map(|instance| GlobalInstanceKey {
+                        def_id: instance.def_id,
+                        arg_module_id: instance.arg_module_id,
+                        args: instance.args.clone(),
+                    })
+                    .collect::<HashSet<_>>(),
             };
             worklist.enqueue_refs(refs);
             let before = (
                 functions.len(),
                 function_instances.len(),
+                global_instances.len(),
                 trait_object_vtables.len(),
             );
             self.lower_reachable_instances_and_vtables(
                 functions,
                 function_templates,
                 function_instances,
+                global_instances,
                 &mut worklist,
                 trait_object_vtables,
             );
@@ -1594,6 +1984,7 @@ impl<'a> ModuleLowerer<'a> {
                 == (
                     functions.len(),
                     function_instances.len(),
+                    global_instances.len(),
                     trait_object_vtables.len(),
                 )
             {

@@ -22,6 +22,7 @@ fn single_module_program(
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals,
+            global_instances: Vec::new(),
             functions,
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
@@ -55,6 +56,7 @@ fn emits_function_body_from_function_ir_when_available() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -257,7 +259,7 @@ struct Vtable {
 
 fn print_i32(value: &i32) {}
 
-let vtable: Vtable = { print: & print_i32 };
+static vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
     let mut x = 1;
@@ -397,6 +399,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -479,6 +482,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
                 init: None,
                 span,
             }],
+            global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
@@ -547,6 +551,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -614,6 +619,7 @@ fn validates_backend_ir_error_type_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -684,6 +690,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -808,6 +815,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -941,6 +949,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
             trait_object_vtables: vec![BackendTraitObjectVtable {
@@ -1031,6 +1040,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
                 }),
                 span,
             }],
+            global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
@@ -1130,6 +1140,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                 }])),
                 span,
             }],
+            global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
@@ -1195,6 +1206,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                 span,
             }],
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -1277,6 +1289,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),
@@ -1357,6 +1370,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
             union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
+            global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id: ModuleId(0),

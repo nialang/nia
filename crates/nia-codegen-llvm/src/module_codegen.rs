@@ -27,6 +27,7 @@ use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
 type FunctionInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
+type GlobalInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
 type InstanceTypeLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<StructType<'ctx>>>>;
 type FunctionInstanceLookup<'ctx> =
     RefCell<HashMap<FunctionInstanceKey, Option<FunctionValue<'ctx>>>>;
@@ -65,6 +66,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         HashMap<GlobalDefId, Vec<(ModuleId, Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
+    pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     static_array_counter: RefCell<usize>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
@@ -104,6 +106,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
+            global_instances: HashMap::new(),
             static_array_counter: RefCell::new(0),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),

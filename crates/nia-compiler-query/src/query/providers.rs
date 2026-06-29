@@ -3003,6 +3003,14 @@ fn body_local_item_signatures(
     let mut function_signatures = functions.functions;
     function_signatures.extend(extension_functions.functions);
     function_signatures.extend(traits.functions.clone());
+    let mut global_signatures = values.globals;
+    global_signatures.extend(functions.globals);
+    global_signatures.extend(extension_functions.globals);
+    global_signatures.extend(traits.globals);
+    let mut comptime_signatures = values.comptimes;
+    comptime_signatures.extend(functions.comptimes);
+    comptime_signatures.extend(extension_functions.comptimes);
+    comptime_signatures.extend(traits.comptimes);
     let mut diagnostics = functions.diagnostics;
     diagnostics.extend(extension_functions.diagnostics);
     diagnostics.extend(values.diagnostics);
@@ -3016,8 +3024,8 @@ fn body_local_item_signatures(
         trait_impls: traits.trait_impls,
         enums: types.enums,
         type_aliases: types.type_aliases,
-        globals: values.globals,
-        comptimes: values.comptimes,
+        globals: global_signatures,
+        comptimes: comptime_signatures,
         diagnostics,
     }
 }

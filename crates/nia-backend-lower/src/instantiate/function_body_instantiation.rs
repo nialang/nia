@@ -204,7 +204,34 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
                 FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
-                FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
+                FunctionExprKind::Global(def_id) => {
+                    if let Some((arg_module_id, args)) =
+                        self.global_instance_args_for_def(def_id, substitutions)
+                    {
+                        FunctionExprKind::GlobalInstance {
+                            def_id,
+                            arg_module_id,
+                            args,
+                        }
+                    } else {
+                        FunctionExprKind::Global(def_id)
+                    }
+                }
+                FunctionExprKind::GlobalInstance {
+                    def_id,
+                    arg_module_id: _,
+                    args,
+                } => FunctionExprKind::GlobalInstance {
+                    def_id,
+                    arg_module_id: self.current_arg_module_id(),
+                    args: {
+                        let instantiated_args = args
+                            .into_iter()
+                            .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                            .collect::<Vec<_>>();
+                        self.canonicalize_instance_args(&instantiated_args)
+                    },
+                },
                 FunctionExprKind::Function(def_id) => {
                     if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
                         && !args.is_empty()
@@ -1116,7 +1143,34 @@ impl<'a> ModuleLowerer<'a> {
             ty: self.instantiate_ty_with_id(place.ty, substitutions),
             base: match place.base {
                 FunctionPlaceBase::Local(local_id) => FunctionPlaceBase::Local(local_id),
-                FunctionPlaceBase::Global(def_id) => FunctionPlaceBase::Global(def_id),
+                FunctionPlaceBase::Global(def_id) => {
+                    if let Some((arg_module_id, args)) =
+                        self.global_instance_args_for_def(def_id, substitutions)
+                    {
+                        FunctionPlaceBase::GlobalInstance {
+                            def_id,
+                            arg_module_id,
+                            args,
+                        }
+                    } else {
+                        FunctionPlaceBase::Global(def_id)
+                    }
+                }
+                FunctionPlaceBase::GlobalInstance {
+                    def_id,
+                    arg_module_id: _,
+                    args,
+                } => FunctionPlaceBase::GlobalInstance {
+                    def_id,
+                    arg_module_id: self.current_arg_module_id(),
+                    args: {
+                        let instantiated_args = args
+                            .into_iter()
+                            .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                            .collect::<Vec<_>>();
+                        self.canonicalize_instance_args(&instantiated_args)
+                    },
+                },
                 FunctionPlaceBase::Deref(expr) => {
                     FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))
                 }

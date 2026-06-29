@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn lowers_checked_program_shape() {
     let source = r#"
-let hello = b"hello\0";
+static hello = b"hello\0";
 
 struct Point {
     x: i32,
@@ -426,6 +426,48 @@ fn main() i32 {
     assert_eq!(instance.return_type, i32_ty);
     assert_eq!(body.ty, i32_ty);
     assert!(body.locals.iter().all(|local| local.ty == i32_ty));
+}
+
+#[test]
+fn instantiates_generic_local_static_storage_per_function_instance() {
+    let source = r#"
+fn slot[T]() &mut T {
+    static mut item: T;
+    &mut item
+}
+
+fn main() i32 {
+    let mut left = slot[i32]();
+    let mut right = slot[u64]();
+    _ = left;
+    _ = right;
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
+    let u64_ty = module.interner.primitive(nia_ty::PrimitiveTy::U64);
+
+    assert!(
+        module.globals.iter().all(|global| global.name != "item"),
+        "generic local static must not lower as shared ordinary global"
+    );
+    let mut item_instances = module
+        .global_instances
+        .iter()
+        .filter(|global| global.name == "item")
+        .collect::<Vec<_>>();
+    item_instances.sort_by_key(|global| global.symbol.clone());
+
+    assert_eq!(item_instances.len(), 2);
+    assert!(item_instances.iter().any(|global| global.ty == i32_ty));
+    assert!(item_instances.iter().any(|global| global.ty == u64_ty));
+    assert!(
+        item_instances
+            .iter()
+            .all(|global| global.args.len() == 1 && global.arg_module_id == ModuleId(0))
+    );
 }
 
 #[test]

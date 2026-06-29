@@ -439,7 +439,7 @@ struct Vtable {
 
 fn print_i32(value: &i32) {}
 
-let vtable: Vtable = { print: & print_i32 };
+static vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
     let mut x = 1;

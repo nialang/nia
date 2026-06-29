@@ -194,6 +194,13 @@ impl Pruner<'_> {
                     ..stmt
                 }]
             }
+            StmtKind::Static(mut binding) => {
+                binding.value = binding.value.map(|value| self.prune_expr(value));
+                vec![Stmt {
+                    kind: StmtKind::Static(binding),
+                    ..stmt
+                }]
+            }
             StmtKind::Expr(expr) => vec![Stmt {
                 kind: StmtKind::Expr(Box::new(self.prune_expr(*expr))),
                 ..stmt

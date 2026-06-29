@@ -60,7 +60,7 @@ fn codegen_program_emits_llvm_ir_with_each_nia_optimization_level() {
     std::fs::write(
         &main,
         r#"
-let zeroes: [4]i32 = [0; 4];
+static zeroes: [4]i32 = [0; 4];
 
 fn answer() i32 {
     42

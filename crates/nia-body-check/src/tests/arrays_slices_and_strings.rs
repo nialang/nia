@@ -481,7 +481,7 @@ fn main() i32 {
 fn infers_unannotated_array_literal_bindings() {
     let checked = pipeline(
         r#"
-let mut global_xs = [1, 2, 3];
+static mut global_xs = [1, 2, 3];
 
 fn take_triplet(xs: [3]i32) i32 {
     xs[2]
@@ -722,7 +722,7 @@ fn checks_index_and_address_of_array_elements() {
         r#"
 extern fn puts(ptr: &u8) i32;
 
-let hello = b"hello\0";
+static hello = b"hello\0";
 
 fn main(flag: bool) i32 {
     let mut xs: [2]u8 = [1, 2];

@@ -13,12 +13,12 @@ struct Pair {
     y: i32,
 }
 
-let ratio: f64 = 1.5;
-let letter: char = 'A';
-let xs: [3]i32 = [1, 2, 3];
-let ys: [4]u8 = [b'z'; 4];
-let zeroes: [8]i32 = [0; 8];
-let pair: Pair = { x: 10, y: 20 };
+static ratio: f64 = 1.5;
+static letter: char = 'A';
+static xs: [3]i32 = [1, 2, 3];
+static ys: [4]u8 = [b'z'; 4];
+static zeroes: [8]i32 = [0; 8];
+static pair: Pair = { x: 10, y: 20 };
 
 fn main() i32 {
     pair.x + xs[1] + zeroes[0]
@@ -52,10 +52,10 @@ fn emits_static_global_address_initializers() {
     std::fs::write(
         &main,
         r#"
-let mut target: i32 = 1;
-let mut values: [4]i32 = [1, 2, 3, 4];
-let p: &i32 = &target;
-let q: &i32 = &values[1 + 1];
+static mut target: i32 = 1;
+static mut values: [4]i32 = [1, 2, 3, 4];
+static p: &i32 = &target;
+static q: &i32 = &values[1 + 1];
 
 fn main() i32 {
     p.* + q.*
@@ -91,7 +91,7 @@ fn emits_cross_module_function_and_global_references() {
 module math;
 using entry::math;
 
-let imported_ptr: & i32 = & math::base;
+static imported_ptr: & i32 = & math::base;
 
 fn main() i32 {
     math::add(imported_ptr.*, math::base)
@@ -102,7 +102,7 @@ fn main() i32 {
     std::fs::write(
         root.join("math.nia"),
         r#"
-pub let mut base: i32 = 40;
+pub static mut base: i32 = 40;
 
 pub fn add(a: i32, b: i32) i32 {
     a + b

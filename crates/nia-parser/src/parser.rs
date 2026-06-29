@@ -76,7 +76,7 @@ struct BindingParts {
     name: String,
     ty: Option<TypeRef>,
     value: Option<Expr>,
-    is_let: bool,
+    is_mutable: bool,
     is_comptime: bool,
     is_extern: bool,
     span: Span,
@@ -116,7 +116,9 @@ impl Parser {
             if let Some(item) = self.parse_item() {
                 items.push(item);
             } else {
+                let checkpoint = self.checkpoint();
                 self.recover_to_item_boundary();
+                self.ensure_recovery_progress(checkpoint);
             }
         }
         (Module { items }, self.errors, self.origins)
@@ -254,7 +256,7 @@ impl Parser {
             name: parts.name,
             ty: parts.ty,
             value: parts.value,
-            is_let: parts.is_let,
+            is_mutable: parts.is_mutable,
             is_comptime: parts.is_comptime,
             is_extern: parts.is_extern,
             node_key,
@@ -393,6 +395,26 @@ impl Parser {
         self.tokens.bump()
     }
 
+    fn checkpoint(&self) -> usize {
+        self.tokens.checkpoint()
+    }
+
+    fn ensure_recovery_progress(&mut self, checkpoint: usize) {
+        if self.checkpoint() == checkpoint && !self.at(TokenKind::Eof) {
+            self.bump();
+        }
+    }
+
+    pub(super) fn recover_to_stmt_boundary_with_progress(&mut self, checkpoint: usize) {
+        self.recover_to_stmt_boundary();
+        self.ensure_recovery_progress(checkpoint);
+    }
+
+    pub(super) fn recover_to_member_boundary_with_progress(&mut self, checkpoint: usize) {
+        self.recover_to_member_boundary();
+        self.ensure_recovery_progress(checkpoint);
+    }
+
     fn peek(&self) -> &SyntaxToken {
         self.tokens.peek()
     }
@@ -447,12 +469,17 @@ impl Parser {
             if matches!(
                 self.peek().kind,
                 TokenKind::Module
+                    | TokenKind::Using
                     | TokenKind::Extern
                     | TokenKind::Struct
+                    | TokenKind::Union
+                    | TokenKind::Trait
+                    | TokenKind::Extend
                     | TokenKind::Enum
                     | TokenKind::Type
                     | TokenKind::Fn
-                    | TokenKind::Let
+                    | TokenKind::Comptime
+                    | TokenKind::Static
                     | TokenKind::Pub
             ) {
                 return;

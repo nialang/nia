@@ -666,12 +666,46 @@ impl<'a> ModuleLowerer<'a> {
             .collect()
     }
 
-    fn with_current_arg_interner(&self, mut instance: FunctionInstanceRef) -> FunctionInstanceRef {
+    pub(crate) fn canonicalize_global_instance_ref_args(
+        &mut self,
+        instance: &crate::function_refs::GlobalInstanceRef,
+    ) -> Vec<InternedTyId> {
+        instance
+            .args
+            .iter()
+            .copied()
+            .map(|arg| {
+                if let Some(interner) = &instance.arg_interner
+                    && arg.interner_id == interner.interner_id()
+                    && interner.get(arg).is_some()
+                    && (arg.interner_id != self.type_context.interner.interner_id()
+                        || self.type_context.interner.get(arg).is_none())
+                {
+                    let local = self.import_type_from_known_interner(interner, arg);
+                    return self.instantiate_ty(local, &HashMap::new());
+                }
+                self.canonicalize_instance_arg(arg)
+            })
+            .collect()
+    }
+
+    pub(crate) fn with_current_arg_interner(
+        &self,
+        mut instance: FunctionInstanceRef,
+    ) -> FunctionInstanceRef {
         instance.arg_interner = Some(self.type_context.interner.clone());
         instance
     }
 
-    fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
+    pub(crate) fn with_current_arg_interner_global(
+        &self,
+        mut instance: crate::function_refs::GlobalInstanceRef,
+    ) -> crate::function_refs::GlobalInstanceRef {
+        instance.arg_interner = Some(self.type_context.interner.clone());
+        instance
+    }
+
+    pub(crate) fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
         let current_interner = self.type_context.interner.clone();
         contains_generic_param(
             ty,
@@ -685,7 +719,7 @@ impl<'a> ModuleLowerer<'a> {
         )
     }
 
-    fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
+    pub(crate) fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
         let current_interner = self.type_context.interner.clone();
         contains_unresolved_projection(ty, &mut |ty| {
             (ty.interner_id == current_interner.interner_id())
@@ -695,7 +729,7 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn cached_ty_contains_error(&mut self, ty: InternedTyId) -> bool {
+    pub(crate) fn cached_ty_contains_error(&mut self, ty: InternedTyId) -> bool {
         let current_interner = self.type_context.interner.clone();
         contains_error(
             ty,

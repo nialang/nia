@@ -424,6 +424,11 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
+            FunctionExprKind::GlobalInstance { args, .. } => {
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+            }
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
@@ -575,6 +580,11 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
             FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::GlobalInstance { args, .. } => {
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+            }
             FunctionPlaceBase::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
             }
@@ -1028,6 +1038,11 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
+            FunctionExprKind::GlobalInstance { args, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+            }
             FunctionExprKind::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionExprKind::Error")
             }
@@ -1179,6 +1194,11 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_union_instances_expr(expr, seen, out);
             }
             FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::GlobalInstance { args, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+            }
             FunctionPlaceBase::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
             }

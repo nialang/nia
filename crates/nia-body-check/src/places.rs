@@ -178,7 +178,9 @@ impl<'a> BodyChecker<'a> {
         }
         match &expr.kind {
             ExprKind::Ident(_) => match self.local_use(expr) {
-                Some(LocalUse::Local(_)) | Some(LocalUse::ModuleValue) => None,
+                Some(LocalUse::Local(_))
+                | Some(LocalUse::Static(_))
+                | Some(LocalUse::ModuleValue) => None,
                 Some(LocalUse::Module) => Some("module namespace is not a value place"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
                 Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
@@ -254,6 +256,9 @@ impl<'a> BodyChecker<'a> {
                 Some(_) => None,
                 None => Some("local definition is missing"),
             },
+            Some(LocalUse::Static(global_id)) => {
+                self.global_not_assignable_reason_global(global_id)
+            }
             Some(LocalUse::ModuleValue) => {
                 if let Some(global_id) = self.qualified_value(expr) {
                     return self.global_not_assignable_reason_global(global_id);
@@ -277,7 +282,7 @@ impl<'a> BodyChecker<'a> {
         };
         match def.kind {
             DefKind::Global => match self.signatures.globals.get(&def_id) {
-                Some(global) if global.is_let => Some("global is let"),
+                Some(global) if !global.is_mutable => Some("static is immutable"),
                 Some(_) => None,
                 None => Some("global signature is missing"),
             },
@@ -295,7 +300,7 @@ impl<'a> BodyChecker<'a> {
             return self.global_not_assignable_reason(global_id.def_id);
         }
         match self.program_globals.get(&global_id) {
-            Some(global) if global.signature.is_let => Some("global is let"),
+            Some(global) if !global.signature.is_mutable => Some("static is immutable"),
             Some(_) => None,
             None => Some("function item is not assignable"),
         }

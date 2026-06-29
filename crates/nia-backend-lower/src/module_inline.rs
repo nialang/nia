@@ -419,6 +419,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -487,7 +488,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionPlaceBase::Deref(expr) => {
                 self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
             }
-            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Local(_)
+            | FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::GlobalInstance { .. } => {}
             FunctionPlaceBase::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
             }
@@ -900,6 +903,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
+        | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
@@ -988,6 +992,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
+        | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)

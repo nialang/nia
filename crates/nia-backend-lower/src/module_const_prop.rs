@@ -539,6 +539,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
+        | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
@@ -624,7 +625,9 @@ fn propagate_cross_function_constants_in_place(
                 instance_constants,
             );
         }
-        FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+        FunctionPlaceBase::Local(_)
+        | FunctionPlaceBase::Global(_)
+        | FunctionPlaceBase::GlobalInstance { .. } => {}
         FunctionPlaceBase::Error => {
             crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
         }

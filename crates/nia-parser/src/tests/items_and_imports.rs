@@ -32,8 +32,8 @@ extern struct CPoint {
     x: i32,
     y: i32,
 }
-extern let errno: i32;
-extern let mut global_counter: usize;
+extern static errno: i32;
+extern static mut global_counter: usize;
 
 fn main() {
     let mut p: CPoint;
@@ -52,7 +52,7 @@ fn main() {
         matches!(&module.items[2].kind, ItemKind::Struct(item_struct) if item_struct.is_extern)
     );
     assert!(
-        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && binding.is_let && binding.value.is_none())
+        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && !binding.is_mutable && binding.value.is_none())
     );
     assert!(
         matches!(&module.items[4].kind, ItemKind::Binding(binding) if binding.is_extern && binding.value.is_none())
@@ -139,12 +139,12 @@ extern fn start() i32;
 }
 
 #[test]
-fn rejects_extern_binding_without_let() {
+fn rejects_extern_binding_without_static() {
     let (_module, errors) = parse_module("extern errno: i32;");
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, or `let` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, or `static` after `extern`")),
         "{errors:?}"
     );
 }
@@ -173,6 +173,38 @@ fn main() i32 {
             .any(|error| error.message.contains("expected `;` after expression")),
         "{local_errors:?}"
     );
+}
+
+#[test]
+fn rejects_top_level_let_without_stalling_recovery() {
+    let (module, errors) = parse_module("let VALUE = 1; fn main() i32 { 0 }");
+
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("top-level storage declarations use `static`")),
+        "{errors:?}"
+    );
+    assert_eq!(module.items.len(), 1);
+    assert!(matches!(module.items[0].kind, ItemKind::Function(_)));
+}
+
+#[test]
+fn item_recovery_makes_progress_across_invalid_top_level_fragments() {
+    let (module, errors) = parse_module(
+        r#"
+let OLD = 1;
+answer: i32 = 42;
+extern errno: i32;
+static kept: i32 = 1;
+fn main() i32 { kept }
+"#,
+    );
+
+    assert!(errors.len() >= 3, "{errors:?}");
+    assert_eq!(module.items.len(), 2);
+    assert!(matches!(module.items[0].kind, ItemKind::Binding(_)));
+    assert!(matches!(module.items[1].kind, ItemKind::Function(_)));
 }
 
 #[test]
@@ -311,7 +343,7 @@ fn rejects_extern_before_pub_modifier_order() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, or `let` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, or `static` after `extern`")),
         "{errors:?}"
     );
 }
@@ -359,8 +391,8 @@ extend usize {
     assert_eq!(extend.associated_values.len(), 2);
     assert_eq!(extend.associated_values[0].binding.name, "MAX");
     assert!(extend.associated_values[0].binding.is_comptime);
-    assert!(extend.associated_values[0].binding.is_let);
+    assert!(!extend.associated_values[0].binding.is_mutable);
     assert_eq!(extend.associated_values[1].binding.name, "shadow");
     assert!(extend.associated_values[1].binding.is_comptime);
-    assert!(!extend.associated_values[1].binding.is_let);
+    assert!(extend.associated_values[1].binding.is_mutable);
 }

@@ -234,6 +234,14 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
                 visitor.visit_expr(value);
             }
         }
+        StmtKind::Static(binding) => {
+            if let Some(ty) = &binding.ty {
+                visitor.visit_type(ty);
+            }
+            if let Some(value) = &binding.value {
+                visitor.visit_expr(value);
+            }
+        }
         StmtKind::Expr(expr) | StmtKind::Defer(expr) => visitor.visit_expr(expr),
         StmtKind::Using(_) => {}
         StmtKind::Return(value) => {

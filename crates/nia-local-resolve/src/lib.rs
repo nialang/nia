@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Pattern,
-    PatternKind, Stmt, StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind, TypeArg,
+    ArrayLen, BindingItem, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module,
+    Pattern, PatternKind, Stmt, StmtKind, SwitchArmBody, SwitchPattern, SwitchPatternKind, TypeArg,
     TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
@@ -72,6 +72,7 @@ pub enum LocalKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalUse {
     Local(LocalId),
+    Static(nia_ids::GlobalDefId),
     ModuleValue,
     Module,
     TypePrefix,
@@ -209,7 +210,7 @@ struct LocalResolver<'a> {
     node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
-    scopes: Vec<HashMap<String, ScopedLocal>>,
+    scopes: Vec<Scope>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
 
@@ -217,6 +218,18 @@ struct LocalResolver<'a> {
 struct ScopedLocal {
     id: LocalId,
     span: Span,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScopedStatic {
+    id: nia_ids::GlobalDefId,
+    span: Span,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Scope {
+    locals: HashMap<String, ScopedLocal>,
+    statics: HashMap<String, ScopedStatic>,
 }
 
 #[derive(Default)]
@@ -301,6 +314,11 @@ impl LocalDefinitionAllocator {
         match &stmt.kind {
             StmtKind::Binding(binding) => {
                 self.allocate_binding(stmt.span, binding, stmt.node_key.clone())
+            }
+            StmtKind::Static(binding) => {
+                if let Some(value) = &binding.value {
+                    self.allocate_expr(value);
+                }
             }
             StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) | StmtKind::Defer(expr) => {
                 self.allocate_expr(expr);
@@ -632,6 +650,9 @@ impl<'a> LocalResolver<'a> {
             StmtKind::Binding(binding) => {
                 self.resolve_binding(stmt.span, binding, stmt.node_key.clone());
             }
+            StmtKind::Static(binding) => {
+                self.resolve_static(stmt.span, binding);
+            }
             StmtKind::Using(_) => {
                 // Block-scope `using` is handled by a later resolution pass; nothing local to bind.
             }
@@ -686,6 +707,45 @@ impl<'a> LocalResolver<'a> {
             default_kind,
             span,
             "duplicate local binding",
+        );
+    }
+
+    fn resolve_static(&mut self, span: Span, binding: &BindingItem) {
+        if let Some(ty) = &binding.ty {
+            self.resolve_type(ty);
+        }
+        if let Some(value) = &binding.value {
+            self.resolve_expr(value);
+        }
+        let Some(def_id) = self.defs.def_nodes.get(&binding.node_key).filter(|def_id| {
+            self.defs
+                .defs
+                .get(*def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::Global)
+        }) else {
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    codes::LOCAL_RESOLVER_SCOPE,
+                    "local static definition has no global definition id",
+                )
+                .primary(
+                    span,
+                    "local static was not registered by definition collection",
+                )
+                .debug("name", binding.name.clone())
+                .debug("node_key", binding.node_key.clone())
+                .finish(),
+            );
+            return;
+        };
+        self.define_static(
+            &binding.name,
+            nia_ids::GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            },
+            span,
+            "duplicate local static binding",
         );
     }
 
@@ -1022,7 +1082,7 @@ impl<'a> LocalResolver<'a> {
         if matches!(
             self.values.node_names.get(&expr.node_key),
             None | Some(ValueNameResolution::LocalDeferred | ValueNameResolution::External(_))
-        ) && self.lookup(name).is_none()
+        ) && self.lookup_any(name).is_none()
             && (self.defs.module_scope.types.get(name).is_some()
                 || self
                     .values
@@ -1059,7 +1119,7 @@ impl<'a> LocalResolver<'a> {
                 matches!(
                     self.values.node_names.get(&callee.node_key),
                     Some(ValueNameResolution::Def(_))
-                ) || (self.lookup(name).is_none()
+                ) || (self.lookup_any(name).is_none()
                     && (self.defs.module_scope.types.get(name).is_some()
                         || self
                             .values
@@ -1111,7 +1171,7 @@ impl<'a> LocalResolver<'a> {
         let ExprKind::Ident(name) = &expr.kind else {
             return false;
         };
-        self.lookup(name).is_some()
+        self.lookup_local(name).is_some() || self.lookup_static(name).is_some()
     }
 
     fn callee_is_indexable_expr(&self, callee: &Expr) -> bool {
@@ -1122,8 +1182,12 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn resolve_ident(&mut self, name: &str, node_key: VersionedNodeKey) {
-        if let Some(local) = self.lookup(name) {
+        if let Some(local) = self.lookup_local(name) {
             self.record_use(node_key, LocalUse::Local(local.id));
+            return;
+        }
+        if let Some(item) = self.lookup_static(name) {
+            self.record_use(node_key, LocalUse::Static(item.id));
             return;
         }
         match self.values.node_names.get(&node_key).copied() {
@@ -1195,7 +1259,7 @@ impl<'a> LocalResolver<'a> {
             );
             return;
         };
-        if let Some(existing) = scope.get(name) {
+        if let Some(existing) = scope.locals.get(name) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
@@ -1204,22 +1268,82 @@ impl<'a> LocalResolver<'a> {
             let _ = existing.span;
             return;
         }
-        scope.insert(name.to_string(), ScopedLocal { id, span });
+        if let Some(existing) = scope.statics.get(name) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::LOCAL_RESOLUTION,
+                span,
+                format!("{duplicate_message}: `{name}`"),
+            ));
+            let _ = existing.span;
+            return;
+        }
+        scope
+            .locals
+            .insert(name.to_string(), ScopedLocal { id, span });
+    }
+
+    fn define_static(
+        &mut self,
+        name: &str,
+        id: nia_ids::GlobalDefId,
+        span: Span,
+        duplicate_message: &'static str,
+    ) {
+        let Some(scope) = self.scopes.last_mut() else {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                codes::LOCAL_RESOLVER_SCOPE,
+                span,
+                "local static definition reached resolver without an active scope",
+            ));
+            return;
+        };
+        if let Some(existing) = scope.locals.get(name) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::LOCAL_RESOLUTION,
+                span,
+                format!("{duplicate_message}: `{name}`"),
+            ));
+            let _ = existing.span;
+            return;
+        }
+        if let Some(existing) = scope.statics.get(name) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::LOCAL_RESOLUTION,
+                span,
+                format!("{duplicate_message}: `{name}`"),
+            ));
+            let _ = existing.span;
+            return;
+        }
+        scope
+            .statics
+            .insert(name.to_string(), ScopedStatic { id, span });
     }
 
     fn record_use(&mut self, node_key: VersionedNodeKey, use_kind: LocalUse) {
         self.node_uses.insert(node_key, use_kind);
     }
 
-    fn lookup(&self, name: &str) -> Option<ScopedLocal> {
+    fn lookup_local(&self, name: &str) -> Option<ScopedLocal> {
         self.scopes
             .iter()
             .rev()
-            .find_map(|scope| scope.get(name).copied())
+            .find_map(|scope| scope.locals.get(name).copied())
+    }
+
+    fn lookup_static(&self, name: &str) -> Option<ScopedStatic> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.statics.get(name).copied())
+    }
+
+    fn lookup_any(&self, name: &str) -> Option<()> {
+        (self.lookup_local(name).is_some() || self.lookup_static(name).is_some()).then_some(())
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(Scope::default());
     }
 
     fn pop_scope(&mut self) {
@@ -1245,7 +1369,7 @@ mod tests {
     fn resolves_params_and_local_bindings() {
         let (module, errors) = parse_module(
             r#"
-let mut global = 1;
+static mut global = 1;
 
 fn add(a: i32, b: i32) i32 {
     let mut sum = a + b + global;
@@ -1275,7 +1399,7 @@ fn add(a: i32, b: i32) i32 {
     #[test]
     fn lexical_locals_shadow_module_values() {
         let source = r#"
-let mut value = 1;
+static mut value = 1;
 
 fn id(value: i32) i32 {
     value

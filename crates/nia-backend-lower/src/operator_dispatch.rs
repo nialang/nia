@@ -232,6 +232,15 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
+                FunctionExprKind::GlobalInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                } => FunctionExprKind::GlobalInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                },
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
                 FunctionExprKind::FunctionInstance {
                     def_id,
@@ -754,6 +763,15 @@ impl<'a> ModuleLowerer<'a> {
             base: match place.base {
                 FunctionPlaceBase::Local(local_id) => FunctionPlaceBase::Local(local_id),
                 FunctionPlaceBase::Global(def_id) => FunctionPlaceBase::Global(def_id),
+                FunctionPlaceBase::GlobalInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                } => FunctionPlaceBase::GlobalInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                },
                 FunctionPlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.resolve_builtin_operator_calls_in_expr(*expr),
                 )),

@@ -1296,6 +1296,13 @@ fn lower_stmt_with_context(
                 value: lower_expr_internal(value, context)?,
             })
         }
+        nia_ast::StmtKind::Static(_) => {
+            return Err(ComptimeLowerError {
+                span: stmt.span,
+                message: "static declarations are not supported in comptime function bodies"
+                    .to_string(),
+            });
+        }
         nia_ast::StmtKind::Expr(expr) => lower_expr_stmt_with_context(expr, context)?,
         nia_ast::StmtKind::Return(value) => EarlyComptimeStmtKind::Return(
             value

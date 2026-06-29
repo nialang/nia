@@ -70,7 +70,7 @@ fn main() i32 {
 #[test]
 fn o2_does_not_preserve_function_refs_inside_empty_repeat_static_initializers() {
     let source = r#"
-let values: [0]i32 = [1; 0];
+static values: [0]i32 = [1; 0];
 
 fn unused() i32 {
     1
@@ -147,7 +147,7 @@ fn main() i32 {
 #[test]
 fn o2_preserves_function_refs_inside_static_initializers() {
     let source = r#"
-let values: [2]usize = [0, 0];
+static values: [2]usize = [0, 0];
 
 fn kept() i32 {
     1

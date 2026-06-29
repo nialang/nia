@@ -140,8 +140,8 @@ fn main() i32 {
 fn infers_binary_numeric_literals_from_the_other_operand() {
     let checked = pipeline(
         r#"
-let a = 10;
-let ptr = & a;
+static a = 10;
+static ptr = & a;
 
 fn main(x: usize) bool {
     let mut forward = a as usize == 0;
