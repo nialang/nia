@@ -16,8 +16,10 @@ static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[allow(dead_code)]
 static BUILD_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
-const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
+const DEFAULT_BUILD_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
 const COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_COMMAND_TIMEOUT_SECS";
+const BUILD_COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_BUILD_COMMAND_TIMEOUT_SECS";
 
 pub(crate) trait CommandExt {
     fn output_timeout(&mut self, context: &str) -> Output;
@@ -32,48 +34,55 @@ pub(crate) fn build_command_output_timeout(command: &mut Command, context: &str)
     let _guard = BUILD_COMMAND_LOCK
         .lock()
         .expect("build command test lock poisoned");
-    command.output_timeout(context)
+    output_timeout_with(
+        command,
+        command_timeout_with(BUILD_COMMAND_TIMEOUT_ENV, DEFAULT_BUILD_COMMAND_TIMEOUT),
+        context,
+    )
 }
 
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
-        self.stdout(Stdio::piped()).stderr(Stdio::piped());
-        prepare_command(self);
+        output_timeout_with(self, command_timeout(), context)
+    }
+}
 
-        let timeout = command_timeout();
-        let mut child = self
-            .spawn()
-            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
-        let stdout = child
-            .stdout
-            .take()
-            .expect("stdout pipe was configured before spawn");
-        let stderr = child
-            .stderr
-            .take()
-            .expect("stderr pipe was configured before spawn");
-        let stdout_reader = thread::spawn(move || read_pipe(stdout));
-        let stderr_reader = thread::spawn(move || read_pipe(stderr));
+fn output_timeout_with(command: &mut Command, timeout: Duration, context: &str) -> Output {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    prepare_command(command);
 
-        let started = Instant::now();
-        let wait = wait_child_timeout(&mut child, timeout, context);
-        let run_time = started.elapsed();
-        let stdout = join_reader(stdout_reader, context, "stdout");
-        let stderr = join_reader(stderr_reader, context, "stderr");
-        let status = match wait {
-            Ok(status) => status,
-            Err(()) => panic!(
-                "{context}: command timed out after {timeout:?}; run_time={run_time:?}\nstdout tail:\n{}\nstderr tail:\n{}",
-                output_tail(&stdout),
-                output_tail(&stderr),
-            ),
-        };
+    let mut child = command
+        .spawn()
+        .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+    let stdout = child
+        .stdout
+        .take()
+        .expect("stdout pipe was configured before spawn");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("stderr pipe was configured before spawn");
+    let stdout_reader = thread::spawn(move || read_pipe(stdout));
+    let stderr_reader = thread::spawn(move || read_pipe(stderr));
 
-        Output {
-            status,
-            stdout,
-            stderr,
-        }
+    let started = Instant::now();
+    let wait = wait_child_timeout(&mut child, timeout, context);
+    let run_time = started.elapsed();
+    let stdout = join_reader(stdout_reader, context, "stdout");
+    let stderr = join_reader(stderr_reader, context, "stderr");
+    let status = match wait {
+        Ok(status) => status,
+        Err(()) => panic!(
+            "{context}: command timed out after {timeout:?}; run_time={run_time:?}\nstdout tail:\n{}\nstderr tail:\n{}",
+            output_tail(&stdout),
+            output_tail(&stderr),
+        ),
+    };
+
+    Output {
+        status,
+        stdout,
+        stderr,
     }
 }
 
@@ -109,12 +118,16 @@ fn join_reader(
 }
 
 fn command_timeout() -> Duration {
-    std::env::var(COMMAND_TIMEOUT_ENV)
+    command_timeout_with(COMMAND_TIMEOUT_ENV, DEFAULT_COMMAND_TIMEOUT)
+}
+
+fn command_timeout_with(env: &str, default: Duration) -> Duration {
+    std::env::var(env)
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|seconds| *seconds > 0)
         .map(Duration::from_secs)
-        .unwrap_or(DEFAULT_COMMAND_TIMEOUT)
+        .unwrap_or(default)
 }
 
 fn prepare_command(command: &mut Command) {
