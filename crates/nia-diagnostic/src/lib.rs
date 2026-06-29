@@ -954,12 +954,17 @@ mod tests {
 
     #[test]
     fn renders_code_labels_notes_and_help() {
+        let source = "let mut x = 1;\nprint(x);\n";
+        let print_start = source.find("print").expect("print statement");
         let diagnostic = Diagnostic::user_error(codes::PARSE, "expected `;` after binding")
-            .primary(Span::new(11, 16), "statement starts here")
+            .primary(
+                Span::new(print_start, print_start + "print".len()),
+                "statement starts here",
+            )
             .note("parser was recovering after a missing token")
             .help("insert `;` before this statement")
             .finish();
-        let rendered = render_diagnostic("main.nia", "let mut x = 1;\nprint(x);\n", &diagnostic);
+        let rendered = render_diagnostic("main.nia", source, &diagnostic);
         assert!(rendered.contains("error[E0101]: expected `;` after binding"));
         assert!(rendered.contains("--> main.nia:2:1"));
         assert!(rendered.contains("2 | print(x);"));

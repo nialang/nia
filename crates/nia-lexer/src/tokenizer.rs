@@ -724,7 +724,8 @@ mod tests {
                 TokenKind::RParen,
                 TokenKind::Ident,
                 TokenKind::LBrace,
-                TokenKind::Var,
+                TokenKind::Let,
+                TokenKind::Mut,
                 TokenKind::Ident,
                 TokenKind::Eq,
                 TokenKind::Tilde,
@@ -778,11 +779,12 @@ mod tests {
     #[test]
     fn tokenizes_multiline_string_literals() {
         assert_eq!(
-            kinds("\\\\text\nb\\\\bytes\nvar x = 1;"),
+            kinds("\\\\text\nb\\\\bytes\nlet mut x = 1;"),
             vec![
                 TokenKind::String,
                 TokenKind::ByteString,
-                TokenKind::Var,
+                TokenKind::Let,
+                TokenKind::Mut,
                 TokenKind::Ident,
                 TokenKind::Eq,
                 TokenKind::Integer,
