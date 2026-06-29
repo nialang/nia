@@ -5,7 +5,7 @@ use super::common::*;
 fn parses_multiline_string_literal() {
     let (module, errors) = parse_module(
         r#"
-let script =
+static script =
     \\mov rax, 60
     \\syscall
 ;
@@ -24,8 +24,8 @@ let script =
 fn parses_adjacent_quoted_string_literals_as_one_literal() {
     let (module, errors) = parse_module(
         r#"
-let text = "hello" "" ", " "world" "" "!" "\n" "done";
-let bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+static text = "hello" "" ", " "world" "" "!" "\n" "done";
+static bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -49,7 +49,7 @@ let bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
 fn rejects_adjacent_string_literals_with_different_prefixes() {
     let (_module, errors) = parse_module(
         r#"
-let a = "hello" b"world";
+static a = "hello" b"world";
 "#,
     );
     assert_eq!(
@@ -68,7 +68,7 @@ let a = "hello" b"world";
 fn does_not_concatenate_multiline_string_literals() {
     let (_module, errors) = parse_module(
         r#"
-let text =
+static text =
     \\hello
     "world";
 "#,

@@ -1030,14 +1030,14 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-let mut log_total: i32 = 0;
+static mut log_total: i32 = 0;
 
 fn log(value: i32) {
     log_total += value;
 }
 ```
 
-Use top-level `let` rather than `comptime` for data that must have a stable
+Use `static` rather than `comptime` for data that must have a stable
 address, such as data passed across an explicit foreign ABI boundary.
 
 Function pointer type:
@@ -1213,8 +1213,8 @@ internal mangling.
 Extern global bindings declare external symbols:
 
 ```nia
-extern let errno: i32;
-extern let mut global_counter: usize;
+extern static errno: i32;
+extern static mut global_counter: usize;
 ```
 
 Extern functions default to return type `void` when no return type is written.
@@ -1410,29 +1410,30 @@ storage is the programmer's responsibility. `let` only controls binding-level
 assignment and whether a writable pointer may be taken from the binding; it does
 not provide deep immutability and does not prove that the value was initialized.
 
-Top-level uninitialized bindings require explicit types. Non-extern top-level
-uninitialized bindings create static storage initialized to zero. Extern
-top-level uninitialized bindings only declare external symbols.
+`static` declarations require explicit types when they have no initializer.
+Non-extern uninitialized `static` declarations create static storage initialized
+to zero. Extern `static` declarations without initializers only declare external
+symbols.
 
-Top-level `let` creates immutable global static storage. Implementations should
-place it in read-only data where possible:
+Top-level `static` creates immutable global static storage. Implementations
+should place it in read-only data where possible:
 
 ```nia
-let hello: [7]u8 = b"hello\n\0".*;
+static hello: [7]u8 = b"hello\n\0".*;
 ```
 
-Top-level `let` initializers must be expressible as static initialization data.
+Top-level `static` initializers must be expressible as static initialization data.
 They do not execute arbitrary compile-time programs:
 
 ```nia
-let a = 1 + 2;           // allowed: integer static expression
-let hello: [3]u8 = b"hi\0".*; // allowed: byte-array static data
-let p = &hello[0];       // allowed: global static address
-let bad = { 1 + 2 };     // error: block execution is not static data
+static a = 1 + 2;           // allowed: integer static expression
+static hello: [3]u8 = b"hi\0".*; // allowed: byte-array static data
+static p = &hello[0];       // allowed: global static address
+static bad = { 1 + 2 };     // error: block execution is not static data
 ```
 
 Contexts requiring compile-time values, such as non-literal array lengths, read
-`comptime` bindings rather than top-level static `let` storage.
+`comptime` bindings rather than `static` storage.
 
 `comptime` creates a compile-time value binding with no runtime storage and no
 address:
@@ -1486,13 +1487,13 @@ comptime width: usize = p.x + p.y;
 Conditional source selection is expressed with `@[if ...]`, not with
 `comptime`. `comptime` is reserved for compile-time values and functions.
 
-### 5.7 Global Storage
+### 5.7 Static Storage
 
-Top-level value bindings create global static storage. There is no `static`
-keyword.
+Top-level `static` declarations create global static storage. `static mut`
+declares writable global storage.
 
 ```nia
-let mut a = 1;
+static mut a = 1;
 
 fn bump() i32 {
     a = a + 1;
@@ -1500,24 +1501,25 @@ fn bump() i32 {
 }
 ```
 
-Top-level bindings may infer their type or write it explicitly:
+Static declarations may infer their type from an initializer or write it
+explicitly:
 
 ```nia
-let mut hello = "hello\n";
-let mut counter: i32 = 0;
-let banner = b"nia";
+static mut hello = "hello\n";
+static mut counter: i32 = 0;
+static banner = b"nia";
 ```
 
-Non-extern top-level initialized bindings must satisfy static initialization
+Non-extern initialized `static` declarations must satisfy static initialization
 rules. A bare global value does not automatically become an address:
 
 ```nia
-let mut target: i32 = 1;
-let mut p: &i32 = &target; // allowed
-let mut q: &i32 = target;  // error
+static mut target: i32 = 1;
+static mut p: &i32 = &target; // allowed
+static mut q: &i32 = target;  // error
 ```
 
-Top-level bindings are visible inside the same module. Cross-module visibility
+Top-level static declarations are visible inside the same module. Cross-module visibility
 is controlled by the module system.
 
 ## 6. Local Bindings And Assignment
@@ -2972,7 +2974,7 @@ A conforming Nia compiler supports:
 - `switch` and enum exhaustiveness checks;
 - `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.get_ptr_read()`, and `@asm({...})`;
 - explicit `module` declarations, module-map package roots, and `using`;
-- global static storage from top-level `let mut` and `let`;
+- global static storage from top-level `static mut` and `static`;
 - top-level `pub` visibility;
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;

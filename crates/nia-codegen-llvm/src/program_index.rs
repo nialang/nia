@@ -21,6 +21,12 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) enum_variants: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnumVariant>,
     pub(super) enum_variant_infos: HashMap<GlobalDefId, EnumVariantInfo<'a>>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
+    pub(super) global_instances: HashMap<
+        (GlobalDefId, ModuleId),
+        HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendGlobalInstance>,
+    >,
+    pub(super) global_instances_by_def:
+        HashMap<GlobalDefId, Vec<&'a nia_backend_ir::BackendGlobalInstance>>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, &'a BackendFunctionInstance>>,
@@ -63,6 +69,8 @@ impl<'a> ProgramIndex<'a> {
             enum_variants: HashMap::new(),
             enum_variant_infos: HashMap::new(),
             globals: HashMap::new(),
+            global_instances: HashMap::new(),
+            global_instances_by_def: HashMap::new(),
             functions: HashMap::new(),
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
@@ -159,6 +167,18 @@ impl<'a> ProgramIndex<'a> {
             }
             for item in &module.globals {
                 index.globals.insert(item.def_id, item);
+            }
+            for item in &module.global_instances {
+                index
+                    .global_instances
+                    .entry((item.def_id, item.arg_module_id))
+                    .or_default()
+                    .insert(item.args.clone(), item);
+                index
+                    .global_instances_by_def
+                    .entry(item.def_id)
+                    .or_default()
+                    .push(item);
             }
             for item in &module.functions {
                 index.functions.insert(item.def_id, item);
@@ -429,6 +449,7 @@ mod tests {
                     span: Span::default(),
                 }],
                 globals: Vec::new(),
+                global_instances: Vec::new(),
                 functions: Vec::new(),
                 function_instances: vec![function_instance],
                 trait_object_vtables: vec![vtable],

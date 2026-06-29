@@ -139,14 +139,14 @@ impl<'a> ModuleLowerer<'a> {
             def_id: global_def_id,
             name: binding.name.clone(),
             ty,
-            is_let: signature.is_let,
+            is_let: !signature.is_mutable,
             is_extern: signature.is_extern,
             init,
             span,
         })
     }
 
-    fn optimize_static_init(
+    pub(crate) fn optimize_static_init(
         &mut self,
         global: nia_ids::GlobalDefId,
         init: StaticInit,

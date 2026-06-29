@@ -479,6 +479,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -536,7 +537,7 @@ impl<'a> FunctionIrValidator<'a> {
                     "error place escaped into function IR",
                 ));
             }
-            FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Global(_) | FunctionPlaceBase::GlobalInstance { .. } => {}
         }
         for elem in &place.elems {
             match elem {

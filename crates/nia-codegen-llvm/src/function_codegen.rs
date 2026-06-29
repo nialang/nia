@@ -303,6 +303,44 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .build_load(ty, global.as_pointer_value(), "loadglobal")
                         .map_err(|_| self.error(expr.span, "failed to load global"))
                 }),
+            FunctionExprKind::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => self
+                .module
+                .global_instances
+                .get(&(*def_id, *arg_module_id, args.clone()))
+                .copied()
+                .ok_or_else(|| self.error(expr.span, "missing global instance value"))
+                .and_then(|global| {
+                    if self.is_zero_sized(expr.ty) {
+                        return Err(self
+                            .error(expr.span, "zero-sized global instance has no runtime value"));
+                    }
+                    let Some(global_info) = self
+                        .module
+                        .program
+                        .global_instances
+                        .get(&(*def_id, *arg_module_id))
+                        .and_then(|instances| instances.get(args.as_slice()))
+                        .copied()
+                    else {
+                        return Err(self.error(expr.span, "missing global instance metadata"));
+                    };
+                    let Some(owner) = self.module.program.module(def_id.module_id) else {
+                        return Err(self.error(expr.span, "missing global instance owner module"));
+                    };
+                    let ty = self.module.llvm_basic_type_in(
+                        global_info.ty,
+                        expr.span,
+                        &owner.interner,
+                        &owner.layouts,
+                    )?;
+                    self.builder
+                        .build_load(ty, global.as_pointer_value(), "loadglobal.instance")
+                        .map_err(|_| self.error(expr.span, "failed to load global instance"))
+                }),
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(value)) => Ok(self
                 .module
                 .context

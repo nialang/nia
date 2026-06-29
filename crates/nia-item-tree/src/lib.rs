@@ -576,7 +576,7 @@ fn param_decl_eq(lhs: &Param, rhs: &Param) -> bool {
 fn binding_decl_eq(lhs: &BindingItem, rhs: &BindingItem) -> bool {
     lhs.name == rhs.name
         && option_type_ref_decl_eq(lhs.ty.as_ref(), rhs.ty.as_ref())
-        && lhs.is_let == rhs.is_let
+        && lhs.is_mutable == rhs.is_mutable
         && lhs.is_comptime == rhs.is_comptime
         && lhs.is_extern == rhs.is_extern
 }
@@ -755,10 +755,11 @@ fn selected() i32 { 2 }
 
     #[test]
     fn signature_item_sets_track_their_own_declarations() {
-        let (before, before_errors) =
-            parse_module("pub struct S { value: i32 } let VALUE: i32 = 1; fn helper() i32 { 1 }");
+        let (before, before_errors) = parse_module(
+            "pub struct S { value: i32 } static VALUE: i32 = 1; fn helper() i32 { 1 }",
+        );
         let (after, after_errors) =
-            parse_module("pub struct S { value: i32 } let VALUE: i32 = 1; fn helper() u8 { 1 }");
+            parse_module("pub struct S { value: i32 } static VALUE: i32 = 1; fn helper() u8 { 1 }");
         assert!(before_errors.is_empty(), "{before_errors:?}");
         assert!(after_errors.is_empty(), "{after_errors:?}");
 

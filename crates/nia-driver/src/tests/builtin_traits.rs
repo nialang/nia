@@ -731,7 +731,7 @@ fn builtin_slice_traits_allow_user_container_impls() {
         r#"
 struct Cell {}
 
-let mut backing: [3]i32 = [1, 2, 3];
+static mut backing: [3]i32 = [1, 2, 3];
 
 extend Cell : SliceRead[..] {
     type Output = & [i32];

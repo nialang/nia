@@ -243,6 +243,11 @@ impl ComptimeModuleLowerer<'_> {
                     self.collect_expr_locals(value, out);
                 }
             }
+            nia_ast::StmtKind::Static(binding) => {
+                if let Some(value) = &binding.value {
+                    self.collect_expr_locals(value, out);
+                }
+            }
             nia_ast::StmtKind::Expr(expr)
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),

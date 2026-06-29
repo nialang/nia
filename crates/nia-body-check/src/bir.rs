@@ -167,6 +167,7 @@ impl<'a> BodyChecker<'a> {
             .filter(|stmt| {
                 !matches!(&stmt.kind, StmtKind::Using(_))
                     && !matches!(&stmt.kind, StmtKind::Binding(binding) if binding.is_comptime)
+                    && !matches!(&stmt.kind, StmtKind::Static(_))
             })
             .map(|stmt| self.lower_stmt(stmt))
             .collect();
@@ -235,6 +236,11 @@ impl<'a> BodyChecker<'a> {
     fn lower_stmt(&mut self, stmt: &Stmt) -> TypedStmt {
         let kind = match &stmt.kind {
             StmtKind::Using(_) => TypedStmtKind::Expr(TypedExpr {
+                span: stmt.span,
+                ty: self.error(),
+                kind: TypedExprKind::Error,
+            }),
+            StmtKind::Static(_) => TypedStmtKind::Expr(TypedExpr {
                 span: stmt.span,
                 ty: self.error(),
                 kind: TypedExprKind::Error,
@@ -1747,6 +1753,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 TypedExprKind::Local(local)
             }
+            Some(LocalUse::Static(global_id)) => TypedExprKind::Global(global_id),
             Some(LocalUse::ModuleValue) => {
                 if let Some(variant_id) = self.qualified_value(expr)
                     && self.variant_enum(expr).is_some()
@@ -2586,6 +2593,7 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::Local(local)) => PlaceBase::Local(local),
+                Some(LocalUse::Static(global_id)) => PlaceBase::Global(global_id),
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id))
                         if !matches!(

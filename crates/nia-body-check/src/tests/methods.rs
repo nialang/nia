@@ -189,8 +189,8 @@ fn main(pair: Pair[i32, i32]) i32 {
 fn checks_assignment_targets_and_let_bindings() {
     let checked = pipeline(
         r#"
-let global_let: i32 = 1;
-let mut global_mut: i32 = 0;
+static global_let: i32 = 1;
+static mut global_mut: i32 = 0;
 
 struct Cell {
     value: i32,
@@ -224,7 +224,7 @@ fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell,
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("global is let"))
+            .any(|diagnostic| diagnostic.summary.contains("static is immutable"))
     );
     assert_eq!(
         checked

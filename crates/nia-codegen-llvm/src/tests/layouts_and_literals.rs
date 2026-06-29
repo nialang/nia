@@ -14,7 +14,7 @@ struct Mixed {
     c: u8,
 }
 
-let mixed: Mixed = { a: 1, b: 2, c: 3 };
+static mixed: Mixed = { a: 1, b: 2, c: 3 };
 
 fn main() i32 {
     let mut local: Mixed = { a: 4, b: 5, c: 6 };
@@ -532,7 +532,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
     std::fs::write(
         &main,
         r#"
-let bytes: [4]u8 = b"aaaa".*;
+static bytes: [4]u8 = b"aaaa".*;
 
 fn main() i32 {
     bytes[0] as i32
@@ -576,8 +576,8 @@ fn emits_inferred_global_string_family_arrays() {
     std::fs::write(
         &main,
         r#"
-let bytes = b"nia";
-let text = "ok";
+static bytes = b"nia";
+static text = "ok";
 
 fn main() i32 {
     bytes.*[0] as i32
@@ -609,7 +609,7 @@ fn emits_adjacent_string_literal_concatenation() {
         r#"
 extern fn printf(fmt: & u8, ...);
 
-let fmt: [104]u8 = (
+static fmt: [104]u8 = (
     b""
     b"  #  Type      Offset             VirtAddr           FileSiz"
     b""

@@ -108,7 +108,7 @@ fn main() i32 {
 #[test]
 fn optimization_report_lists_enabled_pass_inventory_by_scope() {
     let source = r#"
-let zeroes: [4]i32 = [0; 4];
+static zeroes: [4]i32 = [0; 4];
 
 fn answer() i32 {
     42

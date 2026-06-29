@@ -423,6 +423,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
+            FunctionPlaceBase::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => self
+                .module
+                .global_instances
+                .get(&(*def_id, *arg_module_id, args.clone()))
+                .map(|global| global.as_pointer_value())
+                .ok_or_else(|| self.error(place.span, "missing global instance value"))?,
             FunctionPlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
             FunctionPlaceBase::Error => return Err(self.error(place.span, "invalid place")),
         };
@@ -508,6 +518,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
+            FunctionPlaceBase::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => self
+                .module
+                .program
+                .global_instances
+                .get(&(*def_id, *arg_module_id))
+                .and_then(|instances| instances.get(args.as_slice()))
+                .map(|global| global.ty)
+                .unwrap_or(place.ty),
             FunctionPlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => *elem,
                 _ => place.ty,
@@ -524,6 +546,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             ),
             FunctionPlaceBase::Local(_)
             | FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::GlobalInstance { .. }
             | FunctionPlaceBase::Error => false,
         }
     }

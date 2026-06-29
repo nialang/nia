@@ -1457,7 +1457,7 @@ fn check_can_emit_backend_optimization_report() {
     std::fs::write(
         &main,
         r#"
-let zeroes: [4]i32 = [0; 4];
+static zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     let mut unused = 1;

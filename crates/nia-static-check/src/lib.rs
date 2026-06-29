@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_ast::{ArrayElements, BindingItem, Block, Expr, ExprKind, IndexArg, StmtKind, UnaryOp};
 use nia_comptime_check::{ComptimeKey, ComptimeValues};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
@@ -126,10 +126,48 @@ impl StaticChecker<'_> {
 
     fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
         for item in &item_tree.items {
-            if let ItemTreeNodeKind::Binding(binding) = &item.kind
-                && !binding.is_comptime
-            {
-                self.check_global_binding(item.span, binding);
+            match &item.kind {
+                ItemTreeNodeKind::Binding(binding) if !binding.is_comptime => {
+                    self.check_global_binding(item.span, binding);
+                }
+                ItemTreeNodeKind::Function(function) => {
+                    if let Some(body) = &function.body {
+                        self.check_block_static_bindings(body);
+                    }
+                }
+                ItemTreeNodeKind::Trait(item_trait) => {
+                    for method in &item_trait.methods {
+                        if let Some(body) = &method.function.body {
+                            self.check_block_static_bindings(body);
+                        }
+                    }
+                }
+                ItemTreeNodeKind::Extend(extend) => {
+                    for method in &extend.methods {
+                        if let Some(body) = &method.function.body {
+                            self.check_block_static_bindings(body);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_block_static_bindings(&mut self, block: &Block) {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Static(binding) => self.check_global_binding(stmt.span, binding),
+                StmtKind::ForIn(for_stmt) => self.check_block_static_bindings(&for_stmt.body),
+                StmtKind::While(while_stmt) => self.check_block_static_bindings(&while_stmt.body),
+                StmtKind::Loop(loop_stmt) => self.check_block_static_bindings(&loop_stmt.body),
+                StmtKind::Binding(_)
+                | StmtKind::Using(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Return(_)
+                | StmtKind::Break
+                | StmtKind::Continue
+                | StmtKind::Defer(_) => {}
             }
         }
     }
@@ -203,6 +241,9 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(_)) => Some("local value is not available in global storage"),
+                Some(LocalUse::Static(_)) => {
+                    Some("bare global value is not static data; take its address explicitly")
+                }
                 Some(LocalUse::Module) => Some("module namespace is not static data"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not static data"),
             },
@@ -266,6 +307,7 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(_)) => Some("address target is local storage"),
+                Some(LocalUse::Static(_)) => None,
                 Some(LocalUse::Module) => Some("module namespace has no address"),
                 Some(LocalUse::TypePrefix) => Some("type prefix has no address"),
             },
@@ -747,10 +789,10 @@ mod tests {
             r#"
 fn make() i32 { 1 }
 
-let mut base: i32 = 1;
-let mut bad_block = { 1 };
-let mut bad_call = make();
-let mut bad_bare_ptr: &i32 = base;
+static mut base: i32 = 1;
+static mut bad_block = { 1 };
+static mut bad_call = make();
+static mut bad_bare_ptr: &i32 = base;
 "#,
         );
 
@@ -784,19 +826,19 @@ struct Pair {
     y: i32,
 }
 
-let mut base: i32 = 1 + 2;
-let mut pair: Pair = { x: 1, y: 2 };
-let mut xs: [2]i32 = [1, 2];
-let mut p: &i32 = &base;
-let mut q: &i32 = &pair.x;
-let mut r: &i32 = &xs[1];
+static mut base: i32 = 1 + 2;
+static mut pair: Pair = { x: 1, y: 2 };
+static mut xs: [2]i32 = [1, 2];
+static mut p: &i32 = &base;
+static mut q: &i32 = &pair.x;
+static mut r: &i32 = &xs[1];
 
 struct Vtable {
     print: &fn(&i32)
 }
 
 fn print_i32(value: &i32) {}
-let vtable: Vtable = { print: & print_i32 };
+static vtable: Vtable = { print: & print_i32 };
 "#,
         );
 
@@ -808,7 +850,7 @@ let vtable: Vtable = { print: & print_i32 };
         let checked = check(
             r#"
 comptime base = 20;
-let mut value: i32 = base + 2;
+static mut value: i32 = base + 2;
 "#,
         );
 
@@ -820,7 +862,7 @@ let mut value: i32 = base + 2;
         let checked = check(
             r#"
 comptime n = 3;
-let mut values: [3]i32 = [1; n];
+static mut values: [3]i32 = [1; n];
 "#,
         );
 
@@ -831,8 +873,8 @@ let mut values: [3]i32 = [1; n];
     fn rejects_static_array_repeat_count_from_runtime_global() {
         let checked = check(
             r#"
-let mut n: usize = 3;
-let mut values: [3]i32 = [1; n];
+static mut n: usize = 3;
+static mut values: [3]i32 = [1; n];
 "#,
         );
 
@@ -849,9 +891,9 @@ let mut values: [3]i32 = [1; n];
     fn rejects_non_static_global_address_indexes() {
         let checked = check(
             r#"
-let mut target: [2]i32 = [1, 2];
-let mut idx: i32 = 1;
-let mut bad: &i32 = &target[idx];
+static mut target: [2]i32 = [1, 2];
+static mut idx: i32 = 1;
+static mut bad: &i32 = &target[idx];
 "#,
         );
 
@@ -870,8 +912,8 @@ let mut bad: &i32 = &target[idx];
         let checked = check(
             r#"
 comptime idx = 1;
-let mut target: [2]i32 = [1, 2];
-let mut selected: &i32 = &target[idx];
+static mut target: [2]i32 = [1, 2];
+static mut selected: &i32 = &target[idx];
 "#,
         );
 

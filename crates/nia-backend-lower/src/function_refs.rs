@@ -27,6 +27,32 @@ pub(crate) struct FunctionInstanceKey {
     pub(crate) args: Vec<InternedTyId>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GlobalInstanceRef {
+    pub(crate) def_id: GlobalDefId,
+    pub(crate) arg_module_id: ModuleId,
+    pub(crate) args: Vec<InternedTyId>,
+    pub(crate) arg_interner: Option<TyInterner>,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct GlobalInstanceKey {
+    pub(crate) def_id: GlobalDefId,
+    pub(crate) arg_module_id: ModuleId,
+    pub(crate) args: Vec<InternedTyId>,
+}
+
+impl GlobalInstanceRef {
+    pub(crate) fn key(&self) -> GlobalInstanceKey {
+        GlobalInstanceKey {
+            def_id: self.def_id,
+            arg_module_id: self.arg_module_id,
+            args: self.args.clone(),
+        }
+    }
+}
+
 impl FunctionInstanceRef {
     pub(crate) fn key(&self) -> FunctionInstanceKey {
         FunctionInstanceKey {
@@ -41,6 +67,7 @@ impl FunctionInstanceRef {
 pub(crate) struct FunctionRefs {
     pub(crate) functions: HashSet<GlobalDefId>,
     pub(crate) instances: Vec<FunctionInstanceRef>,
+    pub(crate) global_instances: Vec<GlobalInstanceRef>,
 }
 
 pub(crate) fn collect_function_refs_from_optional_body(
@@ -276,6 +303,17 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Trap => {}
+        FunctionExprKind::GlobalInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => refs.global_instances.push(GlobalInstanceRef {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+            arg_interner: None,
+            span: expr.span,
+        }),
     }
 }
 
@@ -372,6 +410,17 @@ fn collect_function_refs_from_place(
     match &place.base {
         FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(module_id, expr, refs),
         FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+        FunctionPlaceBase::GlobalInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => refs.global_instances.push(GlobalInstanceRef {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+            arg_interner: None,
+            span: place.span,
+        }),
         FunctionPlaceBase::Error => {
             crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
         }

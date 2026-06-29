@@ -28,6 +28,7 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     Binding(Box<BindingStmt>),
+    Static(Box<crate::BindingItem>),
     Using(crate::UsingItem),
     Expr(Box<Expr>),
     Return(Option<Box<Expr>>),

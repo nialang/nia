@@ -286,6 +286,12 @@ impl FlowChecker<'_> {
                 },
                 |value| self.check_expr_flow(value),
             ),
+            StmtKind::Static(binding) => binding.value.as_ref().map_or(
+                Flow {
+                    falls_through: true,
+                },
+                |value| self.check_expr_flow(value),
+            ),
             StmtKind::Expr(expr) => self.check_expr_flow(expr),
             StmtKind::Using(_) => Flow {
                 falls_through: true,

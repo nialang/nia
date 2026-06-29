@@ -1302,7 +1302,7 @@ mod tests {
                 ModuleId(0),
                 "main.nia",
                 r#"
-let zeroes: [4]i32 = [0; 4];
+static zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -2345,7 +2345,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "let mut global: i32 = 1; fn main() i32 { global }",
+            "static mut global: i32 = 1; fn main() i32 { global }",
         )]);
         let db = query_db(loaded);
 
@@ -2388,7 +2388,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 } let mut global: i32 = 1; fn main() i32 { global }",
+            "struct S { value: i32 } static mut global: i32 = 1; fn main() i32 { global }",
         )]);
         let db = query_db(loaded);
 
@@ -2500,7 +2500,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "let VALUE = 1; fn main() i32 { VALUE }",
+            "comptime VALUE = 1; fn main() i32 { VALUE }",
         )]);
         let db = query_db(loaded);
 
@@ -2832,7 +2832,7 @@ extend i32 : ParseFrom[Input] {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "comptime fn value() usize { 1 } let VALUE = value();",
+            "comptime fn value() usize { 1 } comptime VALUE = value();",
         )]);
         let db = query_db(loaded);
 
@@ -2847,7 +2847,7 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn semantic_use_table_query_combines_value_local_and_type_resolution() {
-        let source = "let VALUE = 1; fn main() i32 { let mut local: i32 = VALUE; local }";
+        let source = "static VALUE: i32 = 1; fn main() i32 { let mut local: i32 = VALUE; local }";
         let loaded =
             loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
         let db = query_db(loaded);
@@ -4138,7 +4138,7 @@ fn main() i32!i32 {
             ModuleId(0),
             "main.nia",
             r#"
-let unused = missing_symbol;
+static unused = missing_symbol;
 
 fn main() i32 {
     0
@@ -4377,7 +4377,7 @@ pub fn unused_bad() i32 {
             ModuleId(0),
             "main.nia",
             r#"
-let used: i32 = 1;
+static used: i32 = 1;
 
 fn main() i32 {
     used

@@ -171,6 +171,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -245,7 +246,9 @@ impl<'a> LocalUseCollector<'a> {
                     self.collect_expr(expr);
                 }
             }
-            FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
+            FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::GlobalInstance { .. }
+            | FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             if let FunctionPlaceElem::Index(index) = elem {

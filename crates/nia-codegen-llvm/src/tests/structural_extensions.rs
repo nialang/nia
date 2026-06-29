@@ -323,7 +323,7 @@ extend Point {
     }
 }
 
-let get_ptr: &fn(& Point) i32 = & Point::get;
+static get_ptr: &fn(& Point) i32 = & Point::get;
 
 fn main(p: & Point) i32 {
     get_ptr(p)

@@ -228,6 +228,7 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -311,6 +312,7 @@ impl CompilerBuiltinCollector {
             FunctionPlaceBase::Deref(expr) => self.collect_expr(interner, expr),
             FunctionPlaceBase::Local(_)
             | FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::GlobalInstance { .. }
             | FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {

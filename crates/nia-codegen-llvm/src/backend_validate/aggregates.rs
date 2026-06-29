@@ -133,6 +133,16 @@ impl BackendValidator<'_> {
             nia_function_ir::FunctionPlaceBase::Global(def_id) => {
                 self.index.globals.get(def_id).map(|item| item.ty)
             }
+            nia_function_ir::FunctionPlaceBase::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => self
+                .index
+                .global_instances
+                .get(&(*def_id, *arg_module_id))
+                .and_then(|instances| instances.get(args.as_slice()))
+                .map(|item| item.ty),
             nia_function_ir::FunctionPlaceBase::Deref(expr) => match self.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
                     Some(*elem)

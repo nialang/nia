@@ -622,8 +622,17 @@ fn semantic_use_table_for_body_input(
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
-        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_node_local_value_use(key.clone(), *local_id);
+        match local_use {
+            nia_local_resolve::LocalUse::Local(local_id) => {
+                builder.insert_node_local_value_use(key.clone(), *local_id);
+            }
+            nia_local_resolve::LocalUse::Static(global_id) => {
+                builder.insert_node_global_value_use(key.clone(), *global_id);
+            }
+            nia_local_resolve::LocalUse::ModuleValue
+            | nia_local_resolve::LocalUse::Module
+            | nia_local_resolve::LocalUse::TypePrefix
+            | nia_local_resolve::LocalUse::Unresolved => {}
         }
     }
     builder.extend_node_global_value_uses(
@@ -1760,11 +1769,21 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        self.check_global_binding_inner(item_span, binding, true);
+    }
+
+    fn check_global_binding_inner(
+        &mut self,
+        item_span: Span,
+        binding: &nia_ast::BindingItem,
+        filter_reachable_globals: bool,
+    ) {
         let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Global)
         else {
             return;
         };
-        if !self.body_filter.includes_global(self.global_def_id(def_id)) {
+        if filter_reachable_globals && !self.body_filter.includes_global(self.global_def_id(def_id))
+        {
             return;
         }
         let Some(value) = &binding.value else {
@@ -2076,6 +2095,7 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => true,
             StmtKind::Expr(expr) => self.expr_ty(expr).is_some_and(|ty| self.is_never(ty)),
             StmtKind::Binding(_)
+            | StmtKind::Static(_)
             | StmtKind::Using(_)
             | StmtKind::Defer(_)
             | StmtKind::ForIn(_)
@@ -2095,6 +2115,9 @@ impl<'a> BodyChecker<'a> {
         match &stmt.kind {
             StmtKind::Binding(binding) => {
                 self.check_local_binding(stmt, binding);
+            }
+            StmtKind::Static(binding) => {
+                self.check_global_binding_inner(stmt.span, binding, false);
             }
             StmtKind::Using(_) => {
                 // Block-scope `using` is a no-op for body type-checking.

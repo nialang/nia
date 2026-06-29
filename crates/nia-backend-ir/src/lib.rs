@@ -26,6 +26,7 @@ pub struct BackendModule {
     pub union_instances: Vec<BackendUnionInstance>,
     pub enums: Vec<BackendEnum>,
     pub globals: Vec<BackendGlobal>,
+    pub global_instances: Vec<BackendGlobalInstance>,
     pub functions: Vec<BackendFunction>,
     pub function_instances: Vec<BackendFunctionInstance>,
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
@@ -198,6 +199,26 @@ pub struct BackendGlobal {
     pub ty: InternedTyId,
     pub is_let: bool,
     pub is_extern: bool,
+    pub init: Option<StaticInit>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BackendGlobalInstanceKey {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendGlobalInstance {
+    pub def_id: GlobalDefId,
+    pub name: String,
+    pub arg_module_id: ModuleId,
+    pub args: Vec<InternedTyId>,
+    pub symbol: String,
+    pub ty: InternedTyId,
+    pub is_let: bool,
     pub init: Option<StaticInit>,
     pub span: Span,
 }

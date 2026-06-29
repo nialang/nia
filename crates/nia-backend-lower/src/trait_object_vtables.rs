@@ -299,6 +299,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -368,7 +369,8 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_trait_object_vtables_from_expr(expr, out, seen);
             }
             nia_function_ir::FunctionPlaceBase::Local(_)
-            | nia_function_ir::FunctionPlaceBase::Global(_) => {}
+            | nia_function_ir::FunctionPlaceBase::Global(_)
+            | nia_function_ir::FunctionPlaceBase::GlobalInstance { .. } => {}
             nia_function_ir::FunctionPlaceBase::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
             }

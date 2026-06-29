@@ -480,7 +480,7 @@ fn emits_global_string_pointer_call() {
         &main,
         r#"
 extern fn puts(s: & u8) i32;
-let hello: [6]u8 = b"hello\0".*;
+static hello: [6]u8 = b"hello\0".*;
 
 fn main() i32 {
     _ = puts(&hello[0]);

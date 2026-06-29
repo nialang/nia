@@ -132,6 +132,26 @@ impl BackendValidator<'_> {
                     ));
                 }
             }
+            FunctionExprKind::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => {
+                if !self
+                    .index
+                    .global_instances
+                    .get(&(*def_id, *arg_module_id))
+                    .is_some_and(|instances| instances.contains_key(args.as_slice()))
+                {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        format!(
+                            "backend IR expression references missing global instance {def_id:?}"
+                        ),
+                    ));
+                }
+            }
             FunctionExprKind::Function(def_id) => {
                 self.validate_function_ref(
                     *def_id,
@@ -466,6 +486,24 @@ impl BackendValidator<'_> {
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         place.span,
                         format!("backend IR place references missing global {def_id:?}"),
+                    ));
+                }
+            }
+            FunctionPlaceBase::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => {
+                if !self
+                    .index
+                    .global_instances
+                    .get(&(*def_id, *arg_module_id))
+                    .is_some_and(|instances| instances.contains_key(args.as_slice()))
+                {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        place.span,
+                        format!("backend IR place references missing global instance {def_id:?}"),
                     ));
                 }
             }

@@ -2,9 +2,9 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    Attribute, AttributeKind, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param,
-    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause, type_ref_identity,
-    where_clause_identity,
+    Attribute, AttributeKind, BindingItem, Block, EnumItem, ExtendItem, FunctionItem, Module,
+    Param, StmtKind, StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
+    type_ref_identity, where_clause_identity,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -350,7 +350,7 @@ pub struct TypeAliasSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalSignature {
     pub explicit_type: Option<InternedTyId>,
-    pub is_let: bool,
+    pub is_mutable: bool,
     pub is_extern: bool,
     pub span: Span,
 }
@@ -445,8 +445,9 @@ impl<'a> SignatureCollector<'a> {
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.collect_type_alias(signatures, item, alias);
             }
-            ItemTreeNodeKind::Function(_) => {
+            ItemTreeNodeKind::Function(function) => {
                 self.collect_function(signatures, item);
+                self.collect_function_local_static_signatures(signatures, function);
             }
             ItemTreeNodeKind::Binding(binding) => {
                 if binding.is_comptime {
@@ -747,6 +748,56 @@ impl<'a> SignatureCollector<'a> {
         );
     }
 
+    fn collect_function_local_static_signatures(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        function: &FunctionItem,
+    ) {
+        let Some(body) = &function.body else {
+            return;
+        };
+        self.collect_block_static_signatures(signatures, body);
+    }
+
+    fn collect_block_static_signatures(&mut self, signatures: &mut ItemSignatures, block: &Block) {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Static(binding) => {
+                    let Some(def_id) =
+                        self.def_id_for_node(&binding.node_key, stmt.span, DefKind::Global)
+                    else {
+                        continue;
+                    };
+                    signatures.globals.insert(
+                        def_id,
+                        GlobalSignature {
+                            explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
+                            is_mutable: binding.is_mutable,
+                            is_extern: false,
+                            span: stmt.span,
+                        },
+                    );
+                }
+                StmtKind::ForIn(for_stmt) => {
+                    self.collect_block_static_signatures(signatures, &for_stmt.body);
+                }
+                StmtKind::While(while_stmt) => {
+                    self.collect_block_static_signatures(signatures, &while_stmt.body);
+                }
+                StmtKind::Loop(loop_stmt) => {
+                    self.collect_block_static_signatures(signatures, &loop_stmt.body);
+                }
+                StmtKind::Binding(_)
+                | StmtKind::Using(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Return(_)
+                | StmtKind::Break
+                | StmtKind::Continue
+                | StmtKind::Defer(_) => {}
+            }
+        }
+    }
+
     fn collect_global(
         &mut self,
         signatures: &mut ItemSignatures,
@@ -761,7 +812,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             GlobalSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                is_let: binding.is_let,
+                is_mutable: binding.is_mutable,
                 is_extern: binding.is_extern,
                 span: item.span,
             },
@@ -1050,7 +1101,7 @@ mod tests {
         let (module, errors) = parse_module(
             r#"
 extern fn printf(fmt: &u8, ...);
-extern let errno: i32;
+extern static errno: i32;
 
 struct Point {
     x: i32,
@@ -1068,7 +1119,7 @@ enum Color: u8 {
 }
 
 type Byte = u8;
-let mut counter: i32 = 0;
+static mut counter: i32 = 0;
 
 fn add(a: i32, b: i32) i32 {
     a + b

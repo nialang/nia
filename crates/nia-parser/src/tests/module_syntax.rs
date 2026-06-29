@@ -24,8 +24,8 @@ extend Vec2 {
     }
 }
 
-let banner = "nia\0";
-extern let mut a: usize;
+static banner = "nia\0";
+extern static mut a: usize;
 type Byte = u8;
 fn main() i32 { 0 }
 "#;

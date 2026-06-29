@@ -5,9 +5,9 @@ mod extensions;
 mod public_surface;
 
 use nia_ast::{
-    BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
-    Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
-    type_ref_identity, where_clause_identity,
+    BindingItem, Block, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem,
+    FunctionItem, Module, StmtKind, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem,
+    UsingItem, type_ref_identity, where_clause_identity,
 };
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
@@ -623,13 +623,21 @@ impl Collector {
             ItemTreeNodeKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
             ItemTreeNodeKind::Function(function) => {
                 self.check_duplicate_generics(&function.generics, item.span);
-                self.add_value_def(
+                let function_id = self.add_value_def(
                     function.name.clone(),
                     DefKind::Function,
                     item.visibility,
                     item.span,
                     function.node_key.clone(),
                     function.generics.clone(),
+                );
+                let function_identity =
+                    DefIdentity::top(DefNamespace::Value, DefKind::Function, &function.name);
+                self.collect_function_local_static_bindings(
+                    &function_identity,
+                    function_id,
+                    function,
+                    item.visibility,
                 );
             }
             ItemTreeNodeKind::Binding(binding) => {
@@ -870,6 +878,12 @@ impl Collector {
             method.span,
             "duplicate trait method",
         );
+        self.collect_function_local_static_bindings(
+            &owner_identity.child(DefKind::TraitMethod, &method.name),
+            method_id,
+            method,
+            Visibility::Private,
+        );
     }
 
     fn collect_method(
@@ -898,6 +912,80 @@ impl Collector {
             method.span,
             "duplicate struct method",
         );
+        self.collect_function_local_static_bindings(
+            &owner_identity.child(DefKind::Method, &method.name),
+            method_id,
+            method,
+            Visibility::Private,
+        );
+    }
+
+    fn collect_function_local_static_bindings(
+        &mut self,
+        owner_identity: &DefIdentity,
+        parent: DefId,
+        function: &FunctionItem,
+        visibility: Visibility,
+    ) {
+        let Some(body) = &function.body else {
+            return;
+        };
+        self.collect_block_static_bindings(owner_identity, parent, body, visibility);
+    }
+
+    fn collect_block_static_bindings(
+        &mut self,
+        owner_identity: &DefIdentity,
+        parent: DefId,
+        block: &Block,
+        visibility: Visibility,
+    ) {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Static(binding) => {
+                    let def_id = self.push_member_def(
+                        owner_identity.child(DefKind::Global, &binding.name),
+                        Some(parent),
+                        binding.name.clone(),
+                        DefKind::Global,
+                        visibility,
+                        stmt.span,
+                    );
+                    self.def_nodes.insert(binding.node_key.clone(), def_id);
+                }
+                StmtKind::ForIn(for_stmt) => {
+                    self.collect_block_static_bindings(
+                        owner_identity,
+                        parent,
+                        &for_stmt.body,
+                        visibility,
+                    );
+                }
+                StmtKind::While(while_stmt) => {
+                    self.collect_block_static_bindings(
+                        owner_identity,
+                        parent,
+                        &while_stmt.body,
+                        visibility,
+                    );
+                }
+                StmtKind::Loop(loop_stmt) => {
+                    self.collect_block_static_bindings(
+                        owner_identity,
+                        parent,
+                        &loop_stmt.body,
+                        visibility,
+                    );
+                }
+                StmtKind::Binding(_)
+                | StmtKind::Using(_)
+                | StmtKind::Expr(_)
+                | StmtKind::Return(_)
+                | StmtKind::Break
+                | StmtKind::Continue
+                | StmtKind::Defer(_) => {}
+            }
+        }
     }
 
     fn push_associated_value_def(
@@ -1194,7 +1282,7 @@ struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;
 fn Point() i32 { 0 }
-let mut counter = 0;
+static mut counter = 0;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1293,7 +1381,7 @@ extend[T, T] Methods[T] {
     fn maps_top_level_bindings_by_binding_node_key() {
         let (module, errors) = parse_module(
             r#"
-let global: i32 = 1;
+static global: i32 = 1;
 comptime answer: i32 = 42;
 "#,
         );

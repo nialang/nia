@@ -2332,7 +2332,7 @@ fn emit_exe_if_pattern_matches_nested_error_optional_once() {
         r#"
 using std::process;
 
-let mut calls: i32 = 0;
+static mut calls: i32 = 0;
 
 fn next(flag: bool) ?(i32!i32) {
     calls += 1;
@@ -2435,6 +2435,68 @@ pub fn main(init: process::Init) process::ExitCode!void {
     counter.add(7);
     if counter.get() != 7 {
         return (1 as process::ExitCode)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_generic_local_static_has_per_instance_storage() {
+    let root = temp_dir("emit_exe_generic_local_static_has_per_instance_storage");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+fn slot[T]() &mut T {
+    static mut item: T;
+    &mut item
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let mut left = slot[i32]();
+    let mut right = slot[u64]();
+    left.* = 11;
+    right.* = 99u64;
+
+    let mut left_again = slot[i32]();
+    let mut right_again = slot[u64]();
+    if left_again.* != 11 {
+        return (1 as process::ExitCode)!;
+    }
+    if right_again.* != 99u64 {
+        return (2 as process::ExitCode)!;
+    }
+
+    left_again.* = 7;
+    if slot[i32]().* != 7 {
+        return (3 as process::ExitCode)!;
+    }
+    if slot[u64]().* != 99u64 {
+        return (4 as process::ExitCode)!;
     }
     !{}
 }

@@ -1123,7 +1123,7 @@ mod tests {
     fn resolves_module_value_names_and_defers_locals() {
         let (module, errors) = parse_module(
             r#"
-let mut counter = 0;
+static mut counter = 0;
 
 fn add(a: i32, b: i32) i32 {
     a + b + counter

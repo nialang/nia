@@ -242,6 +242,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariant(_)
@@ -300,7 +301,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionPlaceBase::Deref(expr) => {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(expr);
             }
-            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Local(_)
+            | FunctionPlaceBase::Global(_)
+            | FunctionPlaceBase::GlobalInstance { .. } => {}
             FunctionPlaceBase::Error => {
                 crate::input::unreachable_invalid_function_ir("FunctionPlaceBase::Error")
             }

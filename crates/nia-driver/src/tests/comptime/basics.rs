@@ -49,7 +49,7 @@ fn comptime_values_drive_static_global_integer_initializers() {
         &root.join("main.nia"),
         r#"
 comptime base = 20;
-let mut value: i32 = base + 2;
+static mut value: i32 = base + 2;
 "#,
     );
 

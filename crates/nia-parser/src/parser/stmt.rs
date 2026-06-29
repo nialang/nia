@@ -26,6 +26,14 @@ impl Parser {
                 StmtKind::Using(using),
             ));
         }
+        if self.at(TokenKind::Static) {
+            let binding = self.parse_binding(false)?;
+            return Some(self.make_stmt(
+                Span::new(start, self.previous_end()),
+                attributes,
+                StmtKind::Static(Box::new(binding)),
+            ));
+        }
         if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
@@ -605,6 +613,7 @@ impl Parser {
                 | TokenKind::While
                 | TokenKind::Loop
                 | TokenKind::Using
+                | TokenKind::Static
         ) || self.at(TokenKind::Comptime)
     }
 
@@ -620,7 +629,8 @@ impl Parser {
                 if let Some(stmt) = self.parse_stmt() {
                     stmts.push(stmt);
                 } else {
-                    self.recover_to_stmt_boundary();
+                    let checkpoint = self.checkpoint();
+                    self.recover_to_stmt_boundary_with_progress(checkpoint);
                 }
                 continue;
             }

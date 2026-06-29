@@ -27,7 +27,7 @@ fn emits_declarations_for_codegen_program() {
         &main,
         r#"
 extern fn puts(s: &u8) i32;
-let hello: [6]u8 = b"hello\0".*;
+static hello: [6]u8 = b"hello\0".*;
 
 extern struct Point {
     x: i32,

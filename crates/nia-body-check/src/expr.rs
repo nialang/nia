@@ -1182,6 +1182,10 @@ impl<'a> BodyChecker<'a> {
                     self.error()
                 })
             }
+            Some(LocalUse::Static(global_id)) if global_id.module_id == self.defs.module_id => {
+                self.module_value_type(global_id.def_id, span)
+            }
+            Some(LocalUse::Static(_)) => self.error(),
             Some(LocalUse::ModuleValue) => {
                 if let Some(enum_id) = self.values.node_variant_enums.get(&expr.node_key).copied() {
                     return self.interner.intern(TyKind::Nominal {

@@ -335,10 +335,10 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
 fn checks_global_initializers_and_inferred_global_types() {
     let checked = pipeline(
         r#"
-let mut counter = 1;
-let mut flag = true;
-let limit = 10;
-let mut bad: bool = 1;
+static mut counter = 1;
+static mut flag = true;
+static limit = 10;
+static mut bad: bool = 1;
 
 fn main() i32 {
     counter = counter + 1;
@@ -357,7 +357,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("global is let"))
+            .any(|diagnostic| diagnostic.summary.contains("static is immutable"))
     );
     assert!(
         !checked

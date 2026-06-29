@@ -607,7 +607,7 @@ not construct ad hoc `ComptimeCheck` result tables for layout queries.
 
 This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
-storage or address, while top-level `let` and `let mut` bindings do.
+storage or address, while `static` and `static mut` declarations do.
 
 `nia-comptime-check` also owns the typed comptime value layer. The engine may
 produce a pure value such as an integer, string, array, or struct, but the
@@ -774,7 +774,7 @@ imports, definitions, values, locals, and comptime modules are available.
 
 ### 8.4 `nia-static-check`
 
-Validates static initializers for top-level storage. It distinguishes static data
+Validates static initializers for `static` storage. It distinguishes static data
 from compile-time value bindings. Address initializers are allowed only when they
 can be represented as target static relocations.
 
@@ -1017,7 +1017,7 @@ codegen boundary.
 ### 11.3 Static Initializer IR
 
 `nia-static-ir::StaticInit` is the static/global initialization IR. It is a data
-IR, not a body IR node. Body checking creates it for top-level storage
+IR, not a body IR node. Body checking creates it for `static` storage
 initializers after static-check has accepted the source expression.
 
 Static initializer checking and lowering stay separate from `nia-function-ir`
