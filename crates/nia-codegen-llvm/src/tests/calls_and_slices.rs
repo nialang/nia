@@ -182,7 +182,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(&b"nia\n") {
         _ = ok;
     } or error! {
         return (1 as process::ExitCode)!;
@@ -227,7 +227,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(&b"nia\n") {
         _ = ok;
     } or error! {
         return (1 as process::ExitCode)!;
@@ -338,8 +338,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_slice_readruction_len_ptr_and_indexing() {
-    let root = temp_dir("emits_slice_readruction_len_ptr_and_indexing");
+fn emits_slice_len_ptr_and_indexing() {
+    let root = temp_dir("emits_slice_len_ptr_and_indexing");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -351,7 +351,7 @@ fn first(xs: & [i32]) i32 {
 fn main() i32 {
     let mut xs: [4]i32 = [1, 2, 3, 4];
     let mut s = & xs[1..=2];
-    let mut p = s.get_ptr_read();
+    let mut p = s.ptr();
     let mut single = & p[..];
     first(s) + s.len() as i32 + single.len() as i32
 }
@@ -372,18 +372,18 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_get_ptr_methods_on_slice_parameters() {
-    let root = temp_dir("emits_get_ptr_methods_on_slice_parameters");
+fn emits_ptr_methods_on_slice_parameters() {
+    let root = temp_dir("emits_ptr_methods_on_slice_parameters");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
 fn read_ptr(xs: &[u8]) &u8 {
-    xs.get_ptr_read()
+    xs.ptr()
 }
 
 fn write_ptr(xs: &mut [u8]) &mut u8 {
-    xs.get_ptr()
+    xs.ptr_mut()
 }
 
 fn main() usize {
@@ -429,7 +429,7 @@ fn main() i32 {
     let mut borrow = & xs[..];
     let mut literal: & [i32] = &[4, 5, 6];
     let bytes = b"hi";
-    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(bytes) + overwrite(&mut xs) + overwrite(&mut [6, 7])
+    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(&bytes) + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
 "#,
     )
@@ -441,7 +441,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@.nia.static.array"), "{ir}");
+    assert!(ir.contains("%bytes = alloca [2 x i8]"), "{ir}");
+    assert!(ir.contains("store [2 x i8] c\"hi\""), "{ir}");
     assert!(ir.contains("insertvalue"), "{ir}");
     assert!(ir.contains("getelementptr"), "{ir}");
 }
@@ -480,7 +481,7 @@ fn emits_global_string_pointer_call() {
         &main,
         r#"
 extern fn puts(s: & u8) i32;
-static hello: [6]u8 = b"hello\0".*;
+static hello: [6]u8 = b"hello\0";
 
 fn main() i32 {
     _ = puts(&hello[0]);
@@ -553,17 +554,17 @@ fn first(ptr: &mut u8) i32 {
 }
 
 fn main() i32 {
-    let mut mutable: [8]u8 = b"mutable\0".*;
+    let mut mutable: [8]u8 = b"mutable\0";
     let hello = b"hello\0";
     let world = b"world\0";
     let multiline = (
         b\\multi
         \\line
     );
-    let mut direct: & u8 = &(hello.*[0]);
+    let mut direct: & u8 = &hello[0];
     let mut writable: &mut u8 = &mut mutable[0];
-    _ = puts(&(world.*[0]));
-    _ = puts(&(multiline.*[0]));
+    _ = puts(&world[0]);
+    _ = puts(&multiline[0]);
     first(writable) + direct.* as i32
 }
 "#,
@@ -577,7 +578,6 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));
-    assert!(ir.contains("@.nia.static.array"));
     assert!(ir.contains("getelementptr"));
     assert!(ir.contains("call i32 @puts"));
     assert!(ir.contains("[6 x i8] c\"hello\\00\""), "{ir}");

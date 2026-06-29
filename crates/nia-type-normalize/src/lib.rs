@@ -515,8 +515,8 @@ fn id(x: Byte) u8 { x }
     fn expands_generic_type_aliases() {
         let (module, errors) = parse_module(
             r#"
-type Ptr[T] = &T;
-fn id(p: Ptr[u8]) &u8 { p }
+type RawPtr[T] = &T;
+fn id(p: RawPtr[u8]) &u8 { p }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

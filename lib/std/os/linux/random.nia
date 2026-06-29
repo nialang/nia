@@ -7,7 +7,7 @@ pub fn random(bytes: &mut [u8]) Errno!void {
     let mut done = 0usize;
     while done < bytes.len() {
         let mut chunk = &mut bytes[done..];
-        let ret = syscall::syscall3(syscall::getrandom, chunk.get_ptr() as usize, chunk.len(), 0);
+        let ret = syscall::syscall3(syscall::getrandom, chunk.ptr_mut() as usize, chunk.len(), 0);
         if ret < 0 {
             let err = ret.syscall_error();
             if err == Errno::Interrupted {

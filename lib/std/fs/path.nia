@@ -78,7 +78,7 @@ extend PathView {
             return PathError::TooLong!;
         }
         storage[out] = 0u8;
-        !EncodedPath::init(storage.get_ptr_read(), out)
+        !EncodedPath::init(storage.ptr(), out)
     }
 
 }

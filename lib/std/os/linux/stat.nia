@@ -70,7 +70,7 @@ pub extern struct Statx {
 
 pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
     let empty = b"\0";
-    statx_at(fd, &(empty.*[0]), at_empty_path, statx_request_basic)
+    statx_at(fd, &empty[0], at_empty_path, statx_request_basic)
 }
 
 pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {

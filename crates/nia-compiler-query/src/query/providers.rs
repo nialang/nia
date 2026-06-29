@@ -3354,10 +3354,6 @@ fn collect_semantic_layout_roots(
                 roots.add(*ty);
             }
         }
-        for coercion in facts.node_array_to_slice_coercions.values() {
-            roots.add(coercion.array_ty);
-            roots.add(coercion.slice_ty);
-        }
         for coercion in facts.node_pointer_array_to_slice_coercions.values() {
             roots.add(coercion.pointer_ty);
             roots.add(coercion.array_ty);
@@ -4095,11 +4091,6 @@ fn extend_executable_checked_module_state(
     state
         .module
         .semantic_facts
-        .node_array_to_slice_coercions
-        .extend(increment.semantic_facts.node_array_to_slice_coercions);
-    state
-        .module
-        .semantic_facts
         .node_pointer_array_to_slice_coercions
         .extend(
             increment
@@ -4530,6 +4521,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     .values()
                     .map(|state| ReachableModuleInput {
                         module_id: state.module.id,
+                        defs: &state.module.defs,
                         body_ir: &state.module.body_ir,
                         semantic_facts: &state.module.semantic_facts,
                         type_lowering: &state.module.type_lowering,
@@ -4614,6 +4606,20 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     already_checked_globals.is_none_or(|checked| !checked.contains(def_id))
                 })
                 .collect::<HashSet<_>>();
+            let module_functions = time_module_provider(
+                db,
+                "executable_checked_modules.extend_local_static_owners",
+                module_id,
+                || {
+                    extend_module_functions_from_local_static_globals(
+                        db,
+                        module_id,
+                        module_functions,
+                        &module_globals,
+                        already_checked_functions,
+                    )
+                },
+            );
             let (module_functions, resolution_inputs) = time_module_provider(
                 db,
                 "executable_checked_modules.extend_value_refs",
@@ -4863,6 +4869,36 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     codegen_modules
 }
 
+fn extend_module_functions_from_local_static_globals(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    mut module_functions: HashSet<GlobalDefId>,
+    module_globals: &HashSet<GlobalDefId>,
+    checked_functions: Option<&HashSet<GlobalDefId>>,
+) -> HashSet<GlobalDefId> {
+    let defs = db.query(FullModuleDefsQuery(module_id));
+    for global in module_globals {
+        let Some(def) = defs.defs.get(global.def_id) else {
+            continue;
+        };
+        if def.kind != DefKind::Global {
+            continue;
+        }
+        let Some(owner) = def.parent else {
+            continue;
+        };
+        let owner = GlobalDefId {
+            module_id,
+            def_id: owner,
+        };
+        if checked_functions.is_some_and(|checked| checked.contains(&owner)) {
+            continue;
+        }
+        module_functions.insert(owner);
+    }
+    module_functions
+}
+
 fn filter_checked_module_for_codegen(
     mut module: CheckedModule,
     db: &QueryDb<CompilerContext>,
@@ -5108,7 +5144,13 @@ fn provide_backend_lowering_inner(
                 time_provider(timings, "backend_lowering.inputs.item_signatures", || {
                     checked_modules
                         .iter()
-                        .map(|checked_module| db.query(ItemSignaturesQuery(checked_module.id)))
+                        .map(|checked_module| {
+                            body_local_item_signatures(
+                                db,
+                                checked_module.id,
+                                &checked_module.type_lowering,
+                            )
+                        })
                         .collect::<Vec<_>>()
                 });
             let comptime_array_lengths = checked_modules

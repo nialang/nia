@@ -11,7 +11,7 @@ where T: Sized + fmt::Format
         let mut index = 0usize;
         while index < self.len() {
             if index != 0usize {
-                formatter.write_text(", ").?;
+                formatter.write_text(&", ").?;
             }
             self.as_slice()[index].format(formatter).?;
             index += 1usize;

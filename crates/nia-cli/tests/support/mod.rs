@@ -4,12 +4,17 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{Command, ExitStatus, Output, Stdio},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+#[allow(dead_code)]
+static BUILD_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
 const COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_COMMAND_TIMEOUT_SECS";
@@ -20,6 +25,14 @@ pub(crate) trait CommandExt {
 
 pub(crate) trait CommandStatusExt {
     fn status_timeout(&mut self, context: &str) -> ExitStatus;
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_command_output_timeout(command: &mut Command, context: &str) -> Output {
+    let _guard = BUILD_COMMAND_LOCK
+        .lock()
+        .expect("build command test lock poisoned");
+    command.output_timeout(context)
 }
 
 impl CommandExt for Command {

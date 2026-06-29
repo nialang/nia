@@ -705,7 +705,7 @@ comptime fn id[T](value: T) T {
     value
 }
 
-comptime text: [4]char = id("nia!".*);
+comptime text: [4]char = id("nia!");
 comptime n: usize = accept4(text);
 
 fn main() i32 {
@@ -729,7 +729,7 @@ comptime fn total(values: [3]usize, text: [4]char) usize {
     values.len() + text.len() + values[1..].len()
 }
 
-comptime n: usize = total([1usize, 2usize, 3usize], "nia!".*);
+comptime n: usize = total([1usize, 2usize, 3usize], "nia!");
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];

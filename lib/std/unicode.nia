@@ -38,7 +38,7 @@ extend Utf8Decode {
 
 extend char {
     pub fn from_u32(value: u32) ?char {
-        value.to_char()
+        value.char()
     }
 
     pub fn codepoint(self) u32 {
@@ -121,7 +121,7 @@ pub fn utf8_decode_first(bytes: &[u8]) ?Utf8Decode {
     if not is_valid_utf8_scalar_for_width(code, width) {
         return null;
     }
-    if ?ch = code.to_char() {
+    if ?ch = code.char() {
         ?Utf8Decode::init(ch, width)
     } or null {
         null

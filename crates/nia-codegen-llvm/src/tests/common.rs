@@ -206,7 +206,7 @@ struct Header {
 }
 
 static header: Header = { tag: 1, count: 2, flag: 3 };
-static bytes: [3]u8 = b"ok\0".*;
+static bytes: [3]u8 = b"ok\0";
 static byte_ptr: & u8 = &bytes[0];
 static mut global: i32 = 5;
 static global_ptr: &i32 = &global;
@@ -369,9 +369,9 @@ extend[T] A!T {
             files: &[(
                 "main.nia",
                 r#"
-type Ptr[T] = &T;
+type RawPtr[T] = &T;
 
-extend[T] Ptr[T] {
+extend[T] RawPtr[T] {
     fn is_null(self) bool {
         self as usize == 0
     }

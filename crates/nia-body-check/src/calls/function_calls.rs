@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
-use nia_ast::{BracketArg, Expr, ExprKind};
+use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
@@ -568,19 +568,25 @@ impl<'a> BodyChecker<'a> {
         let expected = self.normalization.normalize(expected);
         match (&expr.kind, self.interner.get(expected).cloned()) {
             (
-                ExprKind::String(_),
+                ExprKind::Unary {
+                    op: UnaryOp::RefReadOnly,
+                    expr: inner,
+                },
                 Some(TyKind::Slice {
                     is_readonly: true,
                     elem,
                 }),
-            ) => self.types_match(elem, self.primitive(PrimitiveTy::Char)),
-            (
-                ExprKind::ByteString(_),
-                Some(TyKind::Slice {
-                    is_readonly: true,
-                    elem,
-                }),
-            ) => self.types_match(elem, self.primitive(PrimitiveTy::U8)),
+            ) => match &inner.kind {
+                ExprKind::String(_) => self.types_match(elem, self.primitive(PrimitiveTy::Char)),
+                ExprKind::ByteString(_) => self.types_match(elem, self.primitive(PrimitiveTy::U8)),
+                _ => true,
+            },
+            (ExprKind::String(_), Some(TyKind::Array { elem, .. })) => {
+                self.types_match(elem, self.primitive(PrimitiveTy::Char))
+            }
+            (ExprKind::ByteString(_), Some(TyKind::Array { elem, .. })) => {
+                self.types_match(elem, self.primitive(PrimitiveTy::U8))
+            }
             (ExprKind::String(_), _) | (ExprKind::ByteString(_), _) => false,
             _ => true,
         }

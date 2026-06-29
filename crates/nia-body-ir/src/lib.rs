@@ -6,9 +6,9 @@ use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind,
 };
 pub use nia_sema_ir::{
-    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue,
-    FunctionReference, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
-    TraitObjectCoercion, TraitObjectUpcast,
+    BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue, FunctionReference,
+    GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, TraitObjectCoercion,
+    TraitObjectUpcast,
 };
 use nia_span::Span;
 use nia_static_ir::StaticInit;

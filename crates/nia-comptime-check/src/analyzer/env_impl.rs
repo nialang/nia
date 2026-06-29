@@ -52,12 +52,12 @@ impl ComptimeCommonEnv for Analyzer<'_> {
             span,
             message: format!("failed to embed `{}`: {error}", resolved.display()),
         })?;
-        Ok(ComptimeValue::Pointer(Box::new(ComptimeValue::Array(
+        Ok(ComptimeValue::Array(
             bytes
                 .into_iter()
                 .map(|byte| ComptimeValue::Int(IntConst::unsigned(byte as u128)))
                 .collect(),
-        ))))
+        ))
     }
 
     fn cast_value(

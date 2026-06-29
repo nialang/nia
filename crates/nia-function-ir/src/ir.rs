@@ -564,7 +564,7 @@ pub enum FunctionBuiltinMethod {
     Len,
     Start,
     End,
-    ToChar,
+    Char,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

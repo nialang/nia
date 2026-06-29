@@ -323,12 +323,12 @@ extend Formatter {
             !{}
         } else if radix == 16u128 {
             if uppercase {
-                self.write_text("0X")
+                self.write_text(&"0X")
             } else {
-                self.write_text("0x")
+                self.write_text(&"0x")
             }
         } else if radix == 2u128 {
-            self.write_text("0b")
+            self.write_text(&"0b")
         } else if radix == 8u128 {
             self.write_byte(b'0')
         } else {

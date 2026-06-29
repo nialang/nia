@@ -18,7 +18,7 @@ extend[T] SliceIter[T]
 where T: Sized
 {
     pub fn init(items: &[T]) SliceIter[T] {
-        { ptr: items.get_ptr_read(), len: items.len(), index: 0 }
+        { ptr: items.ptr(), len: items.len(), index: 0 }
     }
 
     pub fn from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
@@ -38,7 +38,7 @@ extend[T] SliceIterMut[T]
 where T: Sized
 {
     pub fn init(items: &mut [T]) SliceIterMut[T] {
-        { ptr: items.get_ptr(), len: items.len(), index: 0 }
+        { ptr: items.ptr_mut(), len: items.len(), index: 0 }
     }
 
     pub fn from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
@@ -90,10 +90,10 @@ extend[T] [T]
 where T: Sized
 {
     pub fn iter(&self) SliceIter[T] {
-        SliceIter[T]::from_raw_parts(self.get_ptr_read(), self.len())
+        SliceIter[T]::from_raw_parts(self.ptr(), self.len())
     }
 
     pub fn iter_mut(&mut self) SliceIterMut[T] {
-        SliceIterMut[T]::from_raw_parts(self.get_ptr(), self.len())
+        SliceIterMut[T]::from_raw_parts(self.ptr_mut(), self.len())
     }
 }

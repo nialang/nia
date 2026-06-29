@@ -1058,6 +1058,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut trait_object_vtables,
         );
+        self.lower_missing_body_ir_static_globals(&mut globals, &mut worklist);
         let mut function_instances = Vec::new();
         self.lower_reachable_instances_and_vtables(
             &mut functions,
@@ -1151,35 +1152,59 @@ impl<'a> ModuleLowerer<'a> {
         let Some(body) = &function.body else {
             return;
         };
-        if let Some(def_id) = self.def_id_for_node_any_function(&function.node_key) {
-            let global_def_id = self.global_def_id(def_id);
-            let effective_generics = self.effective_generics(global_def_id, &function.generics);
-            if !effective_generics.is_empty() {
-                return;
-            }
-        }
-        self.lower_block_static_globals(body, globals, worklist);
+        let owner_has_effective_generics = self
+            .def_id_for_node_any_function(&function.node_key)
+            .map(|def_id| {
+                let global_def_id = self.global_def_id(def_id);
+                !self
+                    .effective_generics(global_def_id, &function.generics)
+                    .is_empty()
+            })
+            .unwrap_or(false);
+        self.lower_block_static_globals(body, owner_has_effective_generics, globals, worklist);
     }
 
     fn lower_block_static_globals(
         &mut self,
         block: &Block,
+        owner_has_effective_generics: bool,
         globals: &mut Vec<BackendGlobal>,
         worklist: &mut ReachabilityWorklist,
     ) {
         for stmt in &block.stmts {
             match &stmt.kind {
                 StmtKind::Static(binding) => {
-                    self.lower_static_global_binding(stmt.span, binding, globals, worklist);
+                    self.lower_local_static_global_binding(
+                        stmt.span,
+                        binding,
+                        owner_has_effective_generics,
+                        globals,
+                        worklist,
+                    );
                 }
                 StmtKind::ForIn(for_stmt) => {
-                    self.lower_block_static_globals(&for_stmt.body, globals, worklist);
+                    self.lower_block_static_globals(
+                        &for_stmt.body,
+                        owner_has_effective_generics,
+                        globals,
+                        worklist,
+                    );
                 }
                 StmtKind::While(while_stmt) => {
-                    self.lower_block_static_globals(&while_stmt.body, globals, worklist);
+                    self.lower_block_static_globals(
+                        &while_stmt.body,
+                        owner_has_effective_generics,
+                        globals,
+                        worklist,
+                    );
                 }
                 StmtKind::Loop(loop_stmt) => {
-                    self.lower_block_static_globals(&loop_stmt.body, globals, worklist);
+                    self.lower_block_static_globals(
+                        &loop_stmt.body,
+                        owner_has_effective_generics,
+                        globals,
+                        worklist,
+                    );
                 }
                 StmtKind::Binding(_)
                 | StmtKind::Using(_)
@@ -1189,6 +1214,65 @@ impl<'a> ModuleLowerer<'a> {
                 | StmtKind::Continue
                 | StmtKind::Defer(_) => {}
             }
+        }
+    }
+
+    fn lower_local_static_global_binding(
+        &mut self,
+        span: nia_span::Span,
+        binding: &BindingItem,
+        owner_has_effective_generics: bool,
+        globals: &mut Vec<BackendGlobal>,
+        worklist: &mut ReachabilityWorklist,
+    ) {
+        let Some(global_def_id) = self
+            .def_id_for_node(&binding.node_key, DefKind::Global)
+            .map(|def_id| self.global_def_id(def_id))
+        else {
+            return;
+        };
+        if owner_has_effective_generics
+            && !self.input.body_ir.global_inits.contains_key(&global_def_id)
+        {
+            return;
+        }
+        self.lower_static_global_binding(span, binding, globals, worklist);
+    }
+
+    fn lower_missing_body_ir_static_globals(
+        &mut self,
+        globals: &mut Vec<BackendGlobal>,
+        worklist: &mut ReachabilityWorklist,
+    ) {
+        let mut seen = globals
+            .iter()
+            .map(|global| global.def_id)
+            .collect::<HashSet<_>>();
+        let mut pending = self
+            .input
+            .body_ir
+            .global_inits
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        pending.sort_by_key(|def_id| def_id.def_id);
+        for global_def_id in pending {
+            if global_def_id.module_id != self.input.module_id || !seen.insert(global_def_id) {
+                continue;
+            }
+            let Some(global) = self.lower_global_from_body_ir(global_def_id) else {
+                continue;
+            };
+            if let Some(init) = &global.init {
+                let mut refs = FunctionRefs::default();
+                function_refs::collect_function_refs_from_static_init(
+                    self.input.module_id,
+                    init,
+                    &mut refs,
+                );
+                worklist.enqueue_refs(refs);
+            }
+            globals.push(global);
         }
     }
 

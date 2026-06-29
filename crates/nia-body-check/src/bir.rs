@@ -37,73 +37,15 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn readonly_slice_elem_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
-        match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::Slice {
-                is_readonly: true,
-                elem,
-            }) => Some(*elem),
-            _ => None,
-        }
-    }
-
-    fn lower_static_array_literal_with_ty(
+    fn lower_array_literal_with_ty(
         &mut self,
-        span: Span,
         array: TypedExpr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
         if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
             return array;
         }
-        let pointer_ty = self.interner.intern(TyKind::Pointer {
-            is_readonly: true,
-            elem: array.ty,
-        });
-        let pointer = TypedExpr {
-            span,
-            ty: pointer_ty,
-            kind: TypedExprKind::StaticArrayPointer {
-                array: Box::new(array),
-                is_readonly: true,
-            },
-        };
-        let Some(slice_ty) = forced_ty else {
-            return pointer;
-        };
-        let Some(slice_elem) = self.readonly_slice_elem_ty(slice_ty) else {
-            return pointer;
-        };
-        let Some(TyKind::Array {
-            elem: array_elem, ..
-        }) = self
-            .interner
-            .get(self.normalization.normalize(pointer.ty))
-            .and_then(|kind| match kind {
-                TyKind::Pointer { elem, .. } => {
-                    self.interner.get(self.normalization.normalize(*elem))
-                }
-                _ => None,
-            })
-        else {
-            return pointer;
-        };
-        if !self.types_match(slice_elem, *array_elem) {
-            return pointer;
-        }
-        TypedExpr {
-            span,
-            ty: slice_ty,
-            kind: TypedExprKind::Slice {
-                lhs: Box::new(pointer),
-                range: TypedSliceRange {
-                    start: None,
-                    end: None,
-                    inclusive: false,
-                },
-                is_readonly: true,
-            },
-        }
+        array
     }
 
     fn materialize_forced_expr_ty(
@@ -581,26 +523,6 @@ impl<'a> BodyChecker<'a> {
             };
         }
         if let Some(coercion) = self
-            .node_array_to_slice_coercions
-            .get(&expr.node_key)
-            .copied()
-            && forced_ty.is_none_or(|forced_ty| forced_ty == coercion.slice_ty)
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.slice_ty,
-                kind: TypedExprKind::Slice {
-                    lhs: Box::new(self.lower_expr_with_ty(expr, Some(coercion.array_ty))),
-                    range: TypedSliceRange {
-                        start: None,
-                        end: None,
-                        inclusive: false,
-                    },
-                    is_readonly: coercion.is_readonly,
-                },
-            };
-        }
-        if let Some(coercion) = self
             .node_pointer_array_to_slice_coercions
             .get(&expr.node_key)
             .copied()
@@ -677,7 +599,7 @@ impl<'a> BodyChecker<'a> {
                     ty: self.string_literal_array_type(literal),
                     kind: TypedExprKind::String(decode_string_literal(literal).unwrap_or_default()),
                 };
-                return self.lower_static_array_literal_with_ty(expr.span, array, forced_ty);
+                return self.lower_array_literal_with_ty(array, forced_ty);
             }
             ExprKind::ByteString(literal) => {
                 let array = TypedExpr {
@@ -687,7 +609,7 @@ impl<'a> BodyChecker<'a> {
                         decode_byte_string_literal(literal).unwrap_or_default(),
                     ),
                 };
-                return self.lower_static_array_literal_with_ty(expr.span, array, forced_ty);
+                return self.lower_array_literal_with_ty(array, forced_ty);
             }
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
@@ -760,11 +682,12 @@ impl<'a> BodyChecker<'a> {
                             } else {
                                 None
                             };
-                            self.lower_index_read_expr(callee, index)
-                                .unwrap_or_else(|| TypedExprKind::Index {
+                            self.lower_index_expr(callee, index).unwrap_or_else(|| {
+                                TypedExprKind::Index {
                                     lhs: Box::new(self.lower_expr_with_ty(callee, lhs_expected)),
                                     index: Box::new(self.lower_expr(index)),
-                                })
+                                }
+                            })
                         } else {
                             TypedExprKind::Error
                         }
@@ -882,7 +805,7 @@ impl<'a> BodyChecker<'a> {
                         }),
                     }
                 } else if matches!(op, UnaryOp::Deref)
-                    && let Some(pointer) = self.lower_deref_read_pointer(inner)
+                    && let Some(pointer) = self.lower_deref_pointer(inner)
                 {
                     TypedExprKind::Unary {
                         op: *op,
@@ -1126,7 +1049,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     let (receiver, lowered_args) =
                         self.lower_builtin_call_receiver(callee, args, Some(self_ty));
-                    if method == nia_sema_ir::BuiltinMethod::ToChar && self.is_u32(self_ty) {
+                    if method == nia_sema_ir::BuiltinMethod::Char && self.is_u32(self_ty) {
                         TypedExprKind::CharFromU32 {
                             value: Box::new(receiver),
                         }
@@ -1173,13 +1096,13 @@ impl<'a> BodyChecker<'a> {
                     } else {
                         None
                     };
-                    self.lower_index_read_expr(lhs, index)
+                    self.lower_index_expr(lhs, index)
                         .unwrap_or_else(|| TypedExprKind::Index {
                             lhs: Box::new(self.lower_expr_with_ty(lhs, lhs_expected)),
                             index: Box::new(self.lower_expr(index)),
                         })
                 }
-                IndexArg::Range(range) => self.lower_slice_read_expr(lhs, range),
+                IndexArg::Range(range) => self.lower_slice_expr_readonly(lhs, range),
             },
             ExprKind::Range(range) => TypedExprKind::Range(self.lower_range(range)),
             ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => self
@@ -1596,12 +1519,12 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|resolved| resolved.signature.fields.is_empty())
     }
 
-    fn lower_deref_read_pointer(&mut self, expr: &Expr) -> Option<TypedExpr> {
+    fn lower_deref_pointer(&mut self, expr: &Expr) -> Option<TypedExpr> {
         let ty = self.expr_runtime_ty(expr);
         self.lower_builtin_deref_method_call(expr, ty, false)
     }
 
-    fn lower_index_read_expr(&mut self, lhs: &Expr, index: &Expr) -> Option<TypedExprKind> {
+    fn lower_index_expr(&mut self, lhs: &Expr, index: &Expr) -> Option<TypedExprKind> {
         let lhs_ty = self.expr_runtime_ty(lhs);
         let index_ty = self.expr_ty(index).unwrap_or_else(|| self.error());
         let pointer =
@@ -2676,9 +2599,9 @@ impl<'a> BodyChecker<'a> {
         mutable: bool,
     ) -> Option<TypedExpr> {
         let (trait_id, method, target_const) = if mutable {
-            (BuiltinTrait::Deref, BuiltinTraitMethod::Deref, false)
+            (BuiltinTrait::DerefMut, BuiltinTraitMethod::DerefMut, false)
         } else {
-            (BuiltinTrait::DerefRead, BuiltinTraitMethod::DerefRead, true)
+            (BuiltinTrait::Deref, BuiltinTraitMethod::Deref, true)
         };
         let resolution = self.current_context_resolve_trait_obligation(
             receiver_ty,
@@ -2732,7 +2655,7 @@ impl<'a> BodyChecker<'a> {
         let trait_args = vec![index_ty];
         let resolution = self.current_context_resolve_trait_obligation(
             receiver_ty,
-            TraitId::Builtin(BuiltinTrait::IndexRead),
+            TraitId::Builtin(BuiltinTrait::Index),
             trait_args.clone(),
         );
         if !matches!(
@@ -2743,7 +2666,7 @@ impl<'a> BodyChecker<'a> {
         }
         let output = self.interner.intern(TyKind::Projection {
             self_ty: receiver_ty,
-            trait_id: TraitId::Builtin(BuiltinTrait::IndexRead),
+            trait_id: TraitId::Builtin(BuiltinTrait::Index),
             trait_args: trait_args.clone(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
@@ -2757,14 +2680,14 @@ impl<'a> BodyChecker<'a> {
             ty: pointer_ty,
             kind: TypedExprKind::Call {
                 callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
-                    trait_id: BuiltinTrait::IndexRead,
-                    method: BuiltinTraitMethod::IndexRead,
+                    trait_id: BuiltinTrait::Index,
+                    method: BuiltinTraitMethod::Index,
                     self_ty: receiver_ty,
                     trait_args,
                     receiver: Box::new(self.lower_builtin_place_method_receiver(
                         receiver,
                         receiver_ty,
-                        BuiltinTraitMethod::IndexRead,
+                        BuiltinTraitMethod::Index,
                     )),
                 }),
                 args: vec![self.lower_expr_with_ty(index, Some(index_ty))],
@@ -2781,9 +2704,9 @@ impl<'a> BodyChecker<'a> {
         mutable: bool,
     ) -> Option<TypedExpr> {
         let (trait_id, method, output_const) = if mutable {
-            (BuiltinTrait::Index, BuiltinTraitMethod::Index, false)
+            (BuiltinTrait::IndexMut, BuiltinTraitMethod::IndexMut, false)
         } else {
-            (BuiltinTrait::IndexRead, BuiltinTraitMethod::IndexRead, true)
+            (BuiltinTrait::Index, BuiltinTraitMethod::Index, true)
         };
         let trait_args = vec![index_ty];
         let resolution = self.current_context_resolve_trait_obligation(
@@ -2828,7 +2751,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn lower_slice_read_expr(&mut self, lhs: &Expr, range: &SliceRange) -> TypedExprKind {
+    fn lower_slice_expr_readonly(&mut self, lhs: &Expr, range: &SliceRange) -> TypedExprKind {
         self.lower_slice_expr(lhs, range, true)
     }
 
@@ -2841,9 +2764,9 @@ impl<'a> BodyChecker<'a> {
         let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
         let range_ty = self.check_slice_range_bounds(range);
         let (trait_id, method) = if is_readonly {
-            (BuiltinTrait::SliceRead, BuiltinTraitMethod::SliceRead)
-        } else {
             (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
+        } else {
+            (BuiltinTrait::SliceMut, BuiltinTraitMethod::SliceMut)
         };
         let resolution = self.current_context_resolve_trait_obligation(
             lhs_ty,

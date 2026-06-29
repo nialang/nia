@@ -16,19 +16,14 @@ use nia_value_resolve::ValueNameResolution;
 impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
         match &expr.kind {
-            ExprKind::String(literal) => {
-                if self.static_init_target_is_array(ty) {
-                    self.lower_static_string_array_init(expr, literal)
-                } else {
-                    self.lower_static_string_pointer_init(expr, literal)
-                }
+            ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
+                self.lower_static_string_array_init(expr, literal)
             }
-            ExprKind::ByteString(literal) => {
-                if self.static_init_target_is_array(ty) {
-                    self.lower_static_byte_string_array_init(expr, literal)
-                } else {
-                    self.lower_static_byte_string_pointer_init(expr, literal)
-                }
+            ExprKind::ByteString(literal) if self.static_init_target_is_array(ty) => {
+                self.lower_static_byte_string_array_init(expr, literal)
+            }
+            ExprKind::String(_) | ExprKind::ByteString(_) => {
+                self.lower_static_string_target_mismatch(expr)
             }
             _ => self.lower_static_init(expr),
         }
@@ -48,9 +43,9 @@ impl<'a> BodyChecker<'a> {
                 }),
             ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
-            ExprKind::String(literal) => self.lower_static_string_pointer_init(expr, literal),
+            ExprKind::String(literal) => self.lower_static_string_array_init(expr, literal),
             ExprKind::ByteString(literal) => {
-                self.lower_static_byte_string_pointer_init(expr, literal)
+                self.lower_static_byte_string_array_init(expr, literal)
             }
             ExprKind::Char(text) => decode_char_literal(text)
                 .map(StaticInit::Char)
@@ -178,20 +173,15 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr: inner,
-            } => match &inner.kind {
-                ExprKind::String(literal) => self.lower_static_string_array_init(expr, literal),
-                ExprKind::ByteString(literal) => {
-                    self.lower_static_byte_string_array_init(expr, literal)
-                }
-                _ => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        "global initializer is not representable as static data yet",
-                    ));
-                    StaticInit::Zero
-                }
-            },
+            } => {
+                let _ = inner;
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "global initializer is not representable as static data yet",
+                ));
+                StaticInit::Zero
+            }
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
@@ -210,47 +200,20 @@ impl<'a> BodyChecker<'a> {
 
     fn lower_static_init_with_target(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
         match &expr.kind {
-            ExprKind::String(literal) => {
-                if self.static_init_target_is_array(ty) {
-                    self.lower_static_string_array_init(expr, literal)
-                } else {
-                    self.lower_static_string_pointer_init(expr, literal)
-                }
+            ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
+                self.lower_static_string_array_init(expr, literal)
             }
-            ExprKind::ByteString(literal) => {
-                if self.static_init_target_is_array(ty) {
-                    self.lower_static_byte_string_array_init(expr, literal)
-                } else {
-                    self.lower_static_byte_string_pointer_init(expr, literal)
-                }
+            ExprKind::ByteString(literal) if self.static_init_target_is_array(ty) => {
+                self.lower_static_byte_string_array_init(expr, literal)
+            }
+            ExprKind::String(_) | ExprKind::ByteString(_) => {
+                self.lower_static_string_target_mismatch(expr)
             }
             ExprKind::Cast { expr: inner, .. } => {
                 let cast_ty = self.expr_ty(expr).unwrap_or(ty);
                 self.lower_static_cast_init_with_target(expr, inner, cast_ty)
             }
             _ => self.lower_static_init(expr),
-        }
-    }
-
-    fn lower_static_string_pointer_init(
-        &mut self,
-        expr: &Expr,
-        literal: &nia_ast::StringLiteral,
-    ) -> StaticInit {
-        StaticInit::StaticArrayPointer {
-            array_ty: self.string_literal_array_type(literal),
-            array_init: Box::new(self.lower_static_string_array_init(expr, literal)),
-        }
-    }
-
-    fn lower_static_byte_string_pointer_init(
-        &mut self,
-        expr: &Expr,
-        literal: &nia_ast::StringLiteral,
-    ) -> StaticInit {
-        StaticInit::StaticArrayPointer {
-            array_ty: self.byte_string_literal_array_type(literal),
-            array_init: Box::new(self.lower_static_byte_string_array_init(expr, literal)),
         }
     }
 
@@ -286,6 +249,15 @@ impl<'a> BodyChecker<'a> {
                 ));
                 StaticInit::Bytes(Vec::new())
             })
+    }
+
+    fn lower_static_string_target_mismatch(&mut self, expr: &Expr) -> StaticInit {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            expr.span,
+            "string literal static initializer requires an array target",
+        ));
+        StaticInit::Zero
     }
 
     fn static_init_target_is_array(&mut self, ty: InternedTyId) -> bool {

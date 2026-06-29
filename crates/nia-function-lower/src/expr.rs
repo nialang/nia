@@ -1234,7 +1234,7 @@ impl FunctionLowerer {
             BuiltinMethod::Len => FunctionBuiltinMethod::Len,
             BuiltinMethod::Start => FunctionBuiltinMethod::Start,
             BuiltinMethod::End => FunctionBuiltinMethod::End,
-            BuiltinMethod::ToChar => FunctionBuiltinMethod::ToChar,
+            BuiltinMethod::Char => FunctionBuiltinMethod::Char,
         }
     }
 

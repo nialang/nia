@@ -2910,7 +2910,7 @@ extend i32 : ParseFrom[Input] {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "fn main() i32 { 0 }",
+            "fn main() i32 { static value: i32 = 1; value }",
         )]);
         let db = query_db(loaded);
 
@@ -2931,7 +2931,8 @@ extend i32 : ParseFrom[Input] {
             dependency.from.name == "checked_module" && dependency.to.name == "item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering" && dependency.to.name == "item_signatures"
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "signature_item_tree"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
@@ -4409,6 +4410,187 @@ fn main() i32 {
         assert!(
             module.body_ir.global_inits.contains_key(&used),
             "reachable global initializers must be retained for executable codegen"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_reachable_local_static_initializers() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+fn option_arg() &u8 {
+    static text = b"-O2\0";
+    &text[0]
+}
+
+fn main() i32 {
+    _ = option_arg();
+    0
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let text = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Global && def.name == "text").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
+            })
+            .expect("local static global");
+
+        assert!(
+            module.body_ir.global_inits.contains_key(&text),
+            "reachable local static initializers must be retained for executable codegen"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_reachable_extension_method_local_static_initializers() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+enum Mode: i32 {
+    O2 = 2,
+}
+
+extend Mode {
+    fn argv(self) &u8 {
+        static o2 = b"-O2\0";
+        switch self {
+            Mode::O2 => &o2[0],
+            _ => &o2[0],
+        }
+    }
+}
+
+fn main() i32 {
+    _ = Mode::O2.argv();
+    0
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        let o2 = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Global && def.name == "o2").then_some(GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id,
+                })
+            })
+            .expect("local static global");
+
+        assert!(
+            module.body_ir.global_inits.contains_key(&o2),
+            "reachable extension method local static initializers must be retained for executable codegen"
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_include_cross_module_extension_method_local_static_initializers()
+    {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+using helper::Mode;
+
+fn main() i32 {
+    _ = Mode::O2.argv();
+    0
+}
+"#,
+        );
+        let helper = loaded_module(
+            ModuleId(1),
+            "helper.nia",
+            r#"
+pub enum Mode: i32 {
+    O2 = 2,
+}
+
+extend Mode {
+    pub fn argv(self) &u8 {
+        static o2 = b"-O2\0";
+        switch self {
+            Mode::O2 => &o2[0],
+            _ => &o2[0],
+        }
+    }
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(main, "helper", helper);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("helper module should be executable-reachable");
+        let o2 = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Global && def.name == "o2").then_some(GlobalDefId {
+                    module_id: ModuleId(1),
+                    def_id,
+                })
+            })
+            .expect("local static global");
+
+        assert!(
+            module.body_ir.global_inits.contains_key(&o2),
+            "reachable cross-module extension method local static initializers must be retained for executable codegen"
+        );
+        assert!(
+            module
+                .executable_reachable_globals
+                .as_ref()
+                .is_some_and(|globals| globals.contains(&o2)),
+            "reachable local static should be recorded in executable_reachable_globals: {:?}",
+            module.executable_reachable_globals
+        );
+
+        let backend = db.query(BackendLoweringQuery);
+        let backend_module = backend
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("helper backend module");
+        assert!(
+            backend_module
+                .globals
+                .iter()
+                .any(|global| global.def_id == o2 && global.init.is_some()),
+            "reachable cross-module extension method local static must lower as a backend global"
         );
     }
 

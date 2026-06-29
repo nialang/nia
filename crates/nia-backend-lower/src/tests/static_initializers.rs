@@ -158,7 +158,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_byte_static_initializers() {
     let source = r#"
-static bytes: [3]u8 = b"aaa".*;
+static bytes: [3]u8 = b"aaa";
 
 fn main() u8 {
     bytes[0]
@@ -187,7 +187,7 @@ fn main() u8 {
 #[test]
 fn o2_simplifies_repeated_char_static_initializers() {
     let source = r#"
-static text: [3]char = "aaa".*;
+static text: [3]char = "aaa";
 
 fn main() char {
     text[0]
@@ -386,8 +386,8 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_string_static_initializers() {
     let source = r#"
-static bytes: [3]u8 = b"aaa".*;
-static text: [3]char = "aaa".*;
+static bytes: [3]u8 = b"aaa";
+static text: [3]char = "aaa";
 
 fn main() u8 {
     bytes[0]
@@ -428,13 +428,13 @@ fn main() u8 {
 }
 
 #[test]
-fn lowers_global_string_literal_pointers_as_static_array_pointers() {
+fn lowers_global_string_literals_as_static_arrays() {
     let source = r#"
 static bytes = b"ok";
 static text = "hi";
 
 fn main() u8 {
-    bytes.*[0]
+    bytes[0]
 }
 "#;
     let lowering = lower_source_with_body_mutation_and_optimization(
@@ -454,12 +454,6 @@ fn main() u8 {
         .find(|global| global.name == "text")
         .expect("text global");
 
-    assert!(matches!(
-        bytes.init,
-        Some(StaticInit::StaticArrayPointer { .. })
-    ));
-    assert!(matches!(
-        text.init,
-        Some(StaticInit::StaticArrayPointer { .. })
-    ));
+    assert!(matches!(bytes.init, Some(StaticInit::Bytes(_))));
+    assert!(matches!(text.init, Some(StaticInit::Chars(_))));
 }

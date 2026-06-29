@@ -1121,10 +1121,10 @@ fn builtin_trait_method_signature_matches(
         return false;
     }
     match (trait_id, method) {
-        (BuiltinTrait::DerefRead, BuiltinTraitMethod::DerefRead)
-        | (BuiltinTrait::Deref, BuiltinTraitMethod::Deref)
-        | (BuiltinTrait::IndexRead, BuiltinTraitMethod::IndexRead)
-        | (BuiltinTrait::Index, BuiltinTraitMethod::Index) => {
+        (BuiltinTrait::Deref, BuiltinTraitMethod::Deref)
+        | (BuiltinTrait::DerefMut, BuiltinTraitMethod::DerefMut)
+        | (BuiltinTrait::Index, BuiltinTraitMethod::Index)
+        | (BuiltinTrait::IndexMut, BuiltinTraitMethod::IndexMut) => {
             builtin_place_trait_method_signature_matches(
                 module,
                 impl_signature,
@@ -1133,8 +1133,8 @@ fn builtin_trait_method_signature_matches(
                 method,
             )
         }
-        (BuiltinTrait::SliceRead, BuiltinTraitMethod::SliceRead)
-        | (BuiltinTrait::Slice, BuiltinTraitMethod::Slice) => {
+        (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
+        | (BuiltinTrait::SliceMut, BuiltinTraitMethod::SliceMut) => {
             builtin_slice_trait_method_signature_matches(
                 module,
                 impl_signature,
@@ -1153,8 +1153,8 @@ fn builtin_trait_method_signature_matches(
         | (BuiltinTrait::End, BuiltinTraitMethod::End) => {
             builtin_bound_method_signature_matches(module, impl_signature, actual)
         }
-        (BuiltinTrait::ToChar, BuiltinTraitMethod::ToChar) => {
-            builtin_to_char_method_signature_matches(module, actual)
+        (BuiltinTrait::Char, BuiltinTraitMethod::Char) => {
+            builtin_char_method_signature_matches(module, actual)
         }
         _ => true,
     }
@@ -1181,13 +1181,13 @@ fn builtin_place_trait_method_signature_matches(
     else {
         return false;
     };
-    let expected_const = matches!(trait_id, BuiltinTrait::DerefRead | BuiltinTrait::IndexRead);
+    let expected_const = matches!(trait_id, BuiltinTrait::Deref | BuiltinTrait::Index);
     if *is_readonly != expected_const {
         return false;
     }
     let assoc_name = match trait_id {
-        BuiltinTrait::DerefRead | BuiltinTrait::Deref => BuiltinTrait::TARGET_ASSOC_TYPE,
-        BuiltinTrait::IndexRead | BuiltinTrait::Index => BuiltinTrait::OUTPUT_ASSOC_TYPE,
+        BuiltinTrait::Deref | BuiltinTrait::DerefMut => BuiltinTrait::TARGET_ASSOC_TYPE,
+        BuiltinTrait::Index | BuiltinTrait::IndexMut => BuiltinTrait::OUTPUT_ASSOC_TYPE,
         _ => return false,
     };
     let Some(associated_type) = associated_type_ty(impl_signature, assoc_name) else {
@@ -1272,7 +1272,7 @@ fn builtin_bound_method_signature_matches(
     types_equivalent(module.lowering, actual.return_type, output)
 }
 
-fn builtin_to_char_method_signature_matches(
+fn builtin_char_method_signature_matches(
     module: &ExtensionModuleInput<'_>,
     actual: &FunctionSignature,
 ) -> bool {

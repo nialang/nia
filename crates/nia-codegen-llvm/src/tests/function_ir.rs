@@ -1892,8 +1892,8 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
                         ty: i32_ty,
                         kind: FunctionExprKind::Call {
                             callee: FunctionCallee::BuiltinPlaceMethod {
-                                trait_id: BuiltinTrait::Slice,
-                                method: BuiltinTraitMethod::Slice,
+                                trait_id: BuiltinTrait::SliceMut,
+                                method: BuiltinTraitMethod::SliceMut,
                                 self_ty: i32_ty,
                                 trait_args: Vec::new(),
                                 receiver: Box::new(FunctionExpr {

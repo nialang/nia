@@ -55,34 +55,34 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : DerefRead {
-    type Target = i32;
-
-    fn deref_read(& self) & i32 {
-        & self.value
-    }
-}
-
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(&mut self) &mut i32 {
-        &mut self.value
+    fn deref(& self) & i32 {
+        & self.value
     }
 }
 
-extend Cell : IndexRead[usize] {
-    type Output = i32;
+extend Cell : DerefMut {
+    type Target = i32;
 
-    fn index_read(& self, index: usize) & i32 {
-        & self.value
+    fn deref_mut(&mut self) &mut i32 {
+        &mut self.value
     }
 }
 
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(&mut self, index: usize) &mut i32 {
+    fn index(& self, index: usize) & i32 {
+        & self.value
+    }
+}
+
+extend Cell : IndexMut[usize] {
+    type Output = i32;
+
+    fn index_mut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
@@ -105,10 +105,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__deref_read"), "{ir}");
     assert!(ir.contains("__deref"), "{ir}");
-    assert!(ir.contains("__index_read"), "{ir}");
+    assert!(ir.contains("__deref_mut"), "{ir}");
     assert!(ir.contains("__index"), "{ir}");
+    assert!(ir.contains("__index_mut"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }
 
@@ -871,7 +871,7 @@ where W: FormatWriter
 
 fn main() i32 {
     let mut sink: Sink = { count: 0 };
-    if !ok = use_format[Sink](&mut sink, b"ok") {
+    if !ok = use_format[Sink](&mut sink, &b"ok") {
         _ = ok;
         sink.count as i32
     } or error! {
@@ -959,7 +959,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !value = sink.write(b"ok") {
+    if !value = sink.write(&b"ok") {
         value as i32
     } or error! {
         0

@@ -179,10 +179,10 @@ fn take_bytes(xs: &[u8]) usize {
 }
 
 fn main() usize {
-    let mut selected: &u8 = &default_value.*[0];
-    let mut bytes: &[u8] = default_value;
-    let mut chars: &[char] = text_value;
-    (selected as usize) + take_bytes(default_value) + bytes.len() + chars.len()
+    let mut selected: &u8 = &default_value[0];
+    let mut bytes: &[u8] = &default_value;
+    let mut chars: &[char] = &text_value;
+    (selected as usize) + take_bytes(&default_value) + bytes.len() + chars.len()
 }
 "#,
     );
@@ -285,7 +285,7 @@ fn take_bytes(xs: &[u8]) usize {
 }
 
 fn main() usize {
-    take_bytes(default_value)
+    take_bytes(&default_value)
 }
 "#,
     );
@@ -311,7 +311,7 @@ fn main() i32 {
     let mut t = & xs[1..=2];
     let mut p = & xs[0];
     let mut single = & p[..];
-    _ = s.get_ptr_read();
+    _ = s.ptr();
     xs.len() as i32 + s.len() as i32 + t.len() as i32 + single.len() as i32 + read(s)
 }
 "#,
@@ -603,7 +603,7 @@ extend[T] [T]
 where T: Sized
 {
     fn iter_mut(&mut self) SliceIterMut[T] {
-        SliceIterMut[T]::from_raw_parts(self.get_ptr(), self.len())
+        SliceIterMut[T]::from_raw_parts(self.ptr_mut(), self.len())
     }
 }
 
@@ -666,22 +666,22 @@ fn checks_text_and_byte_string_literal_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    let mut text: [3]char = "中a\n".*;
-    let mut adjacent_text: [9]char = ("中" "" "a\n" "" "b" "c" "" "done").*;
-    let mut inferred_text: [_]char = "hi".*;
+    let mut text: [3]char = "中a\n";
+    let mut adjacent_text: [9]char = "中" "" "a\n" "" "b" "c" "" "done";
+    let mut inferred_text: [_]char = "hi";
     let mut multiline: [11]char = (
         \\hello
         \\world
-    ).*;
+    );
     let mut byte_multiline: [11]u8 = (
         b\\hello
         \\world
-    ).*;
-    let mut bytes: [4]u8 = b"nia\0".*;
-    let mut adjacent_bytes: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
-    let mut nul_terminated: [4]u8 = b"nia\0".*;
-    let mut adjacent_nul_terminated: [4]u8 = (b"" b"n" b"" b"i" b"" b"a" b"" b"\0").*;
-    let mut wrong_text_len: [2]char = "中a\n".*;
+    );
+    let mut bytes: [4]u8 = b"nia\0";
+    let mut adjacent_bytes: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let mut nul_terminated: [4]u8 = b"nia\0";
+    let mut adjacent_nul_terminated: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    let mut wrong_text_len: [2]char = "中a\n";
     let mut bad_bytes: [3]u8 = "nia";
     let mut byte: u8 = b'a';
     let mut ch: char = 'a';
@@ -727,8 +727,8 @@ static hello = b"hello\0";
 fn main(flag: bool) i32 {
     let mut xs: [2]u8 = [1, 2];
     let mut p: &u8 = &xs[0];
-    let mut c: &u8 = &(hello.*[0]);
-    _ = puts(&(hello.*[0]));
+    let mut c: &u8 = &hello[0];
+    _ = puts(&hello[0]);
     _ = xs[flag];
     0
 }
@@ -772,20 +772,20 @@ fn bytes(xs: & [u8]) i32 {
 }
 
 fn main() i32 {
-    let mut ro: & [char] = "abc";
-    let mut rb: & [u8] = b"abc";
-    let mut rc: & [u8] = b"hi\0";
-    let mut cast_text: & [char] = "abc" as &[char];
-    let mut cast_bytes: & [u8] = b"abc" as &[u8];
-    let mut cast_cbytes: & [u8] = b"hi\0" as &[u8];
+    let mut ro: & [char] = &"abc";
+    let mut rb: & [u8] = &b"abc";
+    let mut rc: & [u8] = &b"hi\0";
+    let mut cast_text: & [char] = &"abc" as &[char];
+    let mut cast_bytes: & [u8] = &b"abc" as &[u8];
+    let mut cast_cbytes: & [u8] = &b"hi\0" as &[u8];
     let mut arr: [2]i32 = [6, 7];
     let mut from_place: & [i32] = &arr;
     let mut cast_from_place: & [i32] = &arr as &[i32];
-    let mut from_string: & [u8] = b"hi\0";
-    let mut literal_ptr: &u8 = b"hi\0".get_ptr_read();
+    let mut from_string: & [u8] = &b"hi\0";
+    let mut literal_ptr: &u8 = (&b"hi\0").ptr();
     _ = take(&[1, 2, 3]);
     _ = mutate(&mut [4, 5]);
-    _ = bytes(b"hi\0");
+    _ = bytes(&b"hi\0");
     _ = literal_ptr;
 
     let mut int_ptr: &i32 = &10;

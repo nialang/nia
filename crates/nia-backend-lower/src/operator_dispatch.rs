@@ -1005,7 +1005,7 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         }
-        if method == FunctionBuiltinMethod::ToChar && self.is_u32(self_ty) {
+        if method == FunctionBuiltinMethod::Char && self.is_u32(self_ty) {
             return FunctionExprKind::CharFromU32 {
                 value: Box::new(receiver),
             };
@@ -1128,6 +1128,6 @@ fn builtin_method_trait(
         FunctionBuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
         FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
-        FunctionBuiltinMethod::ToChar => Some((BuiltinTrait::ToChar, BuiltinTraitMethod::ToChar)),
+        FunctionBuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
     }
 }

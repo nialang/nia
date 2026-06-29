@@ -8,10 +8,10 @@ fn comptime_char_arrays_compare_with_string_literals() {
         &root.join("main.nia"),
         r#"
 comptime fn is_sample_os(value: [5]char) bool {
-    "linux".* == value
+    "linux" == value
 }
 
-comptime n: usize = if is_sample_os("linux".*) { 4usize } else { 2usize };
+comptime n: usize = if is_sample_os("linux") { 4usize } else { 2usize };
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -31,14 +31,14 @@ fn comptime_char_arrays_pass_as_char_arrays() {
         &root.join("main.nia"),
         r#"
 comptime fn accept_linux(value: [5]char) usize {
-    if value.len() == 5usize and value[0] == 'l' and value == "linux".* {
+    if value.len() == 5usize and value[0] == 'l' and value == "linux" {
         5usize
     } else {
         0usize
     }
 }
 
-comptime n: usize = accept_linux("linux".*);
+comptime n: usize = accept_linux("linux");
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -61,7 +61,7 @@ comptime fn accept_short(value: [4]char) usize {
     value.len()
 }
 
-comptime n: usize = accept_short("linux".*);
+comptime n: usize = accept_short("linux");
 "#,
     );
 
@@ -82,7 +82,7 @@ fn typed_comptime_char_array_binding_is_a_char_array() {
     write(
         &root.join("main.nia"),
         r#"
-comptime os: [5]char = "linux".*;
+comptime os: [5]char = "linux";
 comptime n: usize = if os.len() == 5usize {
     os.len()
 } else {
@@ -106,7 +106,7 @@ fn imported_typed_comptime_char_array_binding_is_a_char_array() {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime os: [5]char = "linux".*;
+pub comptime os: [5]char = "linux";
 "#,
     );
     write(
@@ -135,7 +135,7 @@ fn comptime_function_returned_char_array_is_a_char_array() {
         &root.join("main.nia"),
         r#"
 comptime fn sample_os() [5]char {
-    "linux".*
+    "linux"
 }
 
 comptime os: [5]char = sample_os();
@@ -159,7 +159,7 @@ fn comptime_function_returned_char_array_can_be_consumed_directly() {
         &root.join("main.nia"),
         r#"
 comptime fn sample_os() [5]char {
-    "linux".*
+    "linux"
 }
 
 comptime n: usize = sample_os().len();
@@ -182,7 +182,7 @@ fn comptime_function_returned_char_array_validates_char_array_length() {
         &root.join("main.nia"),
         r#"
 comptime fn sample_os() [4]char {
-    "linux".*
+    "linux"
 }
 
 comptime os = sample_os();
@@ -214,7 +214,7 @@ comptime fn total(values: [1][5]char) usize {
     n
 }
 
-comptime n: usize = total(["linux".*]);
+comptime n: usize = total(["linux"]);
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -241,7 +241,7 @@ fn comptime_if_pattern_optional_payload_preserves_array_type() {
         &root.join("main.nia"),
         r#"
 comptime fn sample_os() ?[5]char {
-    ?"linux".*
+    ?"linux"
 }
 
 comptime n: usize = if ?os = sample_os() {
@@ -267,7 +267,7 @@ fn comptime_optional_constructor_projects_char_array_payload() {
     write(
         &root.join("main.nia"),
         r#"
-comptime os = ?"linux".*;
+comptime os = ?"linux";
 comptime n: usize = if ?payload = os {
     payload.len()
 } or null {
@@ -294,7 +294,7 @@ fn imported_comptime_function_return_validates_imported_array_length() {
 pub comptime os_len: usize = 5usize;
 
 pub comptime fn sample_os() [os_len]char {
-    "linux".*
+    "linux"
 }
 "#,
     );
@@ -326,7 +326,7 @@ fn imported_comptime_function_return_rejects_imported_array_length_mismatch() {
 pub comptime os_len: usize = 4usize;
 
 pub comptime fn sample_os() [os_len]char {
-    "linux".*
+    "linux"
 }
 "#,
     );
@@ -373,7 +373,7 @@ comptime fn c_score(value: [4]u8) usize {
     }
 }
 
-comptime n: usize = byte_score(b"nia".*) + c_score(b"nia\0".*);
+comptime n: usize = byte_score(b"nia") + c_score(b"nia\0");
 
 fn main() i32 {
     let mut values: [n]i32 = [0; n];
@@ -416,16 +416,16 @@ comptime fn multiline_score(value: [11]char) usize {
     }
 }
 
-comptime text: [3]char = ("n" "ia").*;
-comptime bytes: [3]u8 = (b"n" b"ia").*;
+comptime text: [3]char = "n" "ia";
+comptime bytes: [3]u8 = b"n" b"ia";
 comptime multiline: [11]char = (
     \\hello
     \\world
-).*;
+);
 comptime byte_multiline: [11]u8 = (
     b\\hello
     \\world
-).*;
+);
 comptime n: usize =
     char_score(text)
     + byte_score(bytes)

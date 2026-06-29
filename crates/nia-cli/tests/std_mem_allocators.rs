@@ -561,7 +561,7 @@ extend CountingAllocator : mem::Allocator {
         if layout.is_empty() {
             return !mem::Block::init(layout.align() as &mut u8, layout);
         }
-        let base = self.buffer.get_ptr() as usize;
+        let base = self.buffer.ptr_mut() as usize;
         let current = base + self.end_index;
         let aligned = if ?value = current.align_forward(layout.align()) { value } or null { return mem::Error::OutOfMemory!; };
         let offset = aligned - base;

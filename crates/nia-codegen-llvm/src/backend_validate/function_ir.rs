@@ -405,7 +405,7 @@ impl BackendValidator<'_> {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
-                if !matches!(trait_id, BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr) {
+                if !matches!(trait_id, BuiltinTrait::Ptr | BuiltinTrait::PtrMut) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,

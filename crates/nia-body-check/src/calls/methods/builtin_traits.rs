@@ -413,7 +413,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         match trait_id {
-            BuiltinTrait::SliceRead | BuiltinTrait::Slice => {
+            BuiltinTrait::Slice | BuiltinTrait::SliceMut => {
                 let range = args.first()?;
                 let range_ty = self.check_expr(range);
                 Some(vec![range_ty])
@@ -508,7 +508,7 @@ impl<'a> BodyChecker<'a> {
         if matches!(trait_id, BuiltinTrait::Len) {
             return self.primitive(PrimitiveTy::Usize);
         }
-        if matches!(trait_id, BuiltinTrait::ToChar) {
+        if matches!(trait_id, BuiltinTrait::Char) {
             return self.interner.intern(TyKind::Optional {
                 elem: self.primitive(PrimitiveTy::Char),
             });
@@ -537,7 +537,7 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
         match trait_id {
-            BuiltinTrait::SliceRead | BuiltinTrait::Slice => {
+            BuiltinTrait::Slice | BuiltinTrait::SliceMut => {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
@@ -546,7 +546,7 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.normalize_projection(output)
             }
-            BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr => {
+            BuiltinTrait::Ptr | BuiltinTrait::PtrMut => {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
@@ -555,7 +555,7 @@ impl<'a> BodyChecker<'a> {
                 });
                 let target = self.normalize_projection(target);
                 self.interner.intern(TyKind::Pointer {
-                    is_readonly: matches!(trait_id, BuiltinTrait::GetPtrRead),
+                    is_readonly: matches!(trait_id, BuiltinTrait::Ptr),
                     elem: target,
                 })
             }
@@ -579,7 +579,7 @@ fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod>
         BuiltinTraitMethod::Len => Some(BuiltinMethod::Len),
         BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
         BuiltinTraitMethod::End => Some(BuiltinMethod::End),
-        BuiltinTraitMethod::ToChar => Some(BuiltinMethod::ToChar),
+        BuiltinTraitMethod::Char => Some(BuiltinMethod::Char),
         _ => None,
     }
 }

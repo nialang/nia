@@ -6,7 +6,7 @@ use nia_body_ir::{
     TypedExpr, TypedExprKind, TypedInlineAsm, TypedMemoryIntrinsicSource, TypedPattern,
     TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitchArmBody,
 };
-use nia_defs::ExtensionMethods;
+use nia_defs::{DefCollection, DefKind, ExtensionMethods};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
@@ -20,6 +20,7 @@ use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 #[derive(Debug, Clone, Copy)]
 pub struct ReachableModuleInput<'a> {
     pub module_id: ModuleId,
+    pub defs: &'a DefCollection,
     pub body_ir: &'a BodyIr,
     pub semantic_facts: &'a SemanticFacts,
     pub type_lowering: &'a nia_type_lower::TypeLowering,
@@ -253,9 +254,6 @@ pub fn filter_semantic_facts_for_reachable_items(
         reachable_facts
             .node_bracket_suffix_resolutions
             .extend(function_facts.node_bracket_suffix_resolutions.clone());
-        reachable_facts
-            .node_array_to_slice_coercions
-            .extend(function_facts.node_array_to_slice_coercions.clone());
         reachable_facts
             .node_pointer_array_to_slice_coercions
             .extend(function_facts.node_pointer_array_to_slice_coercions.clone());
@@ -658,6 +656,7 @@ fn typed_body_refs(
     for (def_id, body) in &module.body_ir.function_bodies {
         if reachable_functions.contains(def_id) {
             collect_typed_body_refs(module, body, &mut refs);
+            collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
         }
     }
     for (def_id, init) in &module.body_ir.global_inits {
@@ -678,6 +677,7 @@ fn collect_reachable_body_trait_ids(
     for (def_id, body) in &module.body_ir.function_bodies {
         if reachable_functions.contains(def_id) {
             collect_typed_body_refs(module, body, &mut refs);
+            collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
         }
     }
     for (def_id, init) in &module.body_ir.global_inits {
@@ -686,6 +686,21 @@ fn collect_reachable_body_trait_ids(
         }
     }
     traits.extend(refs.traits);
+}
+
+fn collect_local_static_globals_owned_by_function(
+    module: &ReachableModuleInput<'_>,
+    function: GlobalDefId,
+    refs: &mut TypedBodyRefs,
+) {
+    for (def_id, def) in module.defs.defs.iter() {
+        if def.kind == DefKind::Global && def.parent == Some(function.def_id) {
+            refs.globals.insert(GlobalDefId {
+                module_id: module.module_id,
+                def_id,
+            });
+        }
+    }
 }
 
 #[derive(Default)]
@@ -2061,9 +2076,6 @@ fn collect_function_fact_owner_modules(
     for instantiation in &facts.generic_instantiations {
         add_reachable_module(instantiation.def_id.module_id, modules, pending_modules);
         type_ids.extend(instantiation.args.iter().copied());
-    }
-    for coercion in facts.node_array_to_slice_coercions.values() {
-        type_ids.extend([coercion.array_ty, coercion.slice_ty]);
     }
     for coercion in facts.node_pointer_array_to_slice_coercions.values() {
         type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);

@@ -74,7 +74,7 @@ fn main() i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("DerefRead")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("Deref")),
         "{:?}",
         program.diagnostics
     );

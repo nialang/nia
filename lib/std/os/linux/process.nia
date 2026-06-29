@@ -175,7 +175,7 @@ fn open_dev_null() Errno!types::FileDescriptor {
     let ret = syscall::syscall4(
         syscall::openat,
         types::at_fdcwd as usize,
-        &path.*[0] as usize,
+        &path[0] as usize,
         OpenMode::ReadWrite as i32 as usize,
         0usize,
     );

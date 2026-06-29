@@ -255,7 +255,7 @@ impl Analyzer<'_> {
         let len = nia_comptime_engine::eval_string_literal(literal)?
             .chars()
             .count() as u64;
-        self.comptime_array_pointer_runtime_type(len, PrimitiveTy::Char)
+        self.comptime_array_runtime_type(len, PrimitiveTy::Char)
             .map(ComptimeValueType::Runtime)
     }
 
@@ -263,24 +263,8 @@ impl Analyzer<'_> {
         &mut self,
         len: u64,
     ) -> Option<ComptimeValueType> {
-        self.comptime_array_pointer_runtime_type(len, PrimitiveTy::U8)
+        self.comptime_array_runtime_type(len, PrimitiveTy::U8)
             .map(ComptimeValueType::Runtime)
-    }
-
-    pub(super) fn comptime_array_pointer_runtime_type(
-        &mut self,
-        len: u64,
-        elem_primitive: PrimitiveTy,
-    ) -> Option<InternedTyId> {
-        let array = self.comptime_array_runtime_type(len, elem_primitive)?;
-        self.comptime_runtime_type(
-            array,
-            |elem| TyKind::Pointer {
-                is_readonly: true,
-                elem,
-            },
-            self.current_execution_module_id(),
-        )
     }
 
     pub(super) fn comptime_array_runtime_type(
