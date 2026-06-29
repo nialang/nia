@@ -291,6 +291,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
+        | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
@@ -366,6 +367,7 @@ fn function_place_contains_builtin_eq(place: &nia_function_ir::FunctionPlace) ->
         nia_function_ir::FunctionPlaceBase::Deref(expr) => function_expr_contains_builtin_eq(expr),
         nia_function_ir::FunctionPlaceBase::Local(_)
         | nia_function_ir::FunctionPlaceBase::Global(_)
+        | nia_function_ir::FunctionPlaceBase::GlobalInstance { .. }
         | nia_function_ir::FunctionPlaceBase::Error => false,
     };
     base_contains
