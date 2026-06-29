@@ -1377,8 +1377,8 @@ extend types::Box : api::Show {
 }
 
 #[test]
-fn std_hash_map_requires_hash_facade_for_default_key_impls() {
-    let root = temp_dir("std_hash_map_requires_hash_facade_for_default_key_impls");
+fn std_root_facade_enables_default_hash_map_key_impls() {
+    let root = temp_dir("std_root_facade_enables_default_hash_map_key_impls");
     write(
         &root.join("main.nia"),
         r#"
@@ -1398,15 +1398,7 @@ fn main() mem::Error!usize {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| {
-            let summary = &diagnostic.diagnostic.summary;
-            summary.contains("requires i32: std::hash::Hash[std::hash::Wyhash]")
-                || summary.contains("unknown struct field `put`")
-        }),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]

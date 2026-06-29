@@ -2402,7 +2402,8 @@ fn main() i32 {
             dependency.from.name == "body_check" && dependency.to.name == "signature_item_tree"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "signature_item_signatures"
+            dependency.from.name == "body_check"
+                && dependency.to.name == "signature_item_tree"
                 && dependency.to.description.contains("ExtensionFunctions")
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -2414,6 +2415,11 @@ fn main() i32 {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
                 && matches!(dependency.to.name, "item_signatures" | "comptime")
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check"
+                && dependency.to.name == "signature_item_signatures"
+                && dependency.to.description.contains("ExtensionFunctions")
         }));
     }
 
