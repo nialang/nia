@@ -17,8 +17,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/true\0";
-    let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    let mut child = if !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
+    let mut child = if !value = process::spawn_raw(&path[0], &argv[0], init.raw_envp()) {
         value
     } or error! {
         return process::exit(1)!;
@@ -74,8 +74,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path = b"/bin/false\0";
-    let mut argv: [2]&u8 = [&path.*[0], 0usize as &u8];
-    let mut child = if !value = process::spawn_raw(&path.*[0], &argv[0], init.raw_envp()) {
+    let mut argv: [2]&u8 = [&path[0], 0usize as &u8];
+    let mut child = if !value = process::spawn_raw(&path[0], &argv[0], init.raw_envp()) {
         value
     } or error! {
         return process::exit(1)!;
@@ -132,7 +132,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -184,13 +184,13 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/echo\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let message = b"ignored-output\0";
-    let mut argv: [3]&u8 = [path.raw_ptr(), &message.*[0], 0usize as &u8];
+    let mut argv: [3]&u8 = [path.raw_ptr(), &message[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     let term = if !value = command.run() {
@@ -203,7 +203,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     let mut buffer: [64]u8 = [0; 64];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(b"ok").exit().?;
+    stdout.write_all(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -243,14 +243,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
     let script = b"echo ignored-error >&2\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stderr(process::StdIo::Ignore).exit().?;
     let term = if !value = command.run() {
@@ -263,7 +263,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     let mut buffer: [64]u8 = [0; 64];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(b"ok").exit().?;
+    stdout.write_all(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -304,14 +304,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
     let script = b"cat >/dev/null; echo ignored-output; echo ignored-error >&2\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdin(process::StdIo::Ignore).exit().?;
     command.set_stdout(process::StdIo::Ignore).exit().?;
@@ -326,7 +326,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     let mut buffer: [64]u8 = [0; 64];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    stdout.write_all(b"ok").exit().?;
+    stdout.write_all(&b"ok").exit().?;
     stdout.flush().exit().?;
     !{}
 }
@@ -366,7 +366,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -419,7 +419,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let bad_path_bytes = b"/definitely/not/a/nia/process-test-binary\0";
-    let bad_path = if ?value = std::CStringView::from_bytes(bad_path_bytes) {
+    let bad_path = if ?value = std::CStringView::from_bytes(&bad_path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -446,7 +446,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     let good_path_bytes = b"/bin/true\0";
-    let good_path = if ?value = std::CStringView::from_bytes(good_path_bytes) {
+    let good_path = if ?value = std::CStringView::from_bytes(&good_path_bytes) {
         value
     } or null {
         return process::exit(4)!;
@@ -502,14 +502,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
     let script = b"printf pipe-output\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Pipe).exit().?;
     let mut child = if !value = command.spawn() {
@@ -592,7 +592,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -666,7 +666,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -688,7 +688,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     };
     let mut write_buffer: [16]u8 = [0; 16];
     let mut writer = io::FileWriter::init(init.io(), stdin_handle, &mut write_buffer[..]);
-    writer.write_all(b"roundtrip").exit().?;
+    writer.write_all(&b"roundtrip").exit().?;
     writer.flush().exit().?;
     stdin_handle.close().exit().?;
 
@@ -757,7 +757,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -816,7 +816,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -878,7 +878,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -953,7 +953,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/cat\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
@@ -1022,14 +1022,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
@@ -1100,14 +1100,14 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let flag = b"-c\0";
     let script = b"while true; do sleep 1; done\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_stdout(process::StdIo::Ignore).exit().?;
     command.set_stderr(process::StdIo::Ignore).exit().?;
@@ -1187,20 +1187,20 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {{
     let path_bytes = b"/bin/sh\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {{
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {{
         value
     }} or null {{
         return process::exit(1)!;
     }};
     let cwd_bytes = b"{cwd_literal}";
-    let cwd = if ?value = std::CStringView::from_bytes(cwd_bytes) {{
+    let cwd = if ?value = std::CStringView::from_bytes(&cwd_bytes) {{
         value
     }} or null {{
         return process::exit(2)!;
     }};
     let flag = b"-c\0";
     let script = b"test \"$(basename \"$PWD\")\" = child-cwd\0";
-    let mut argv: [4]&u8 = [path.raw_ptr(), &flag.*[0], &script.*[0], 0usize as &u8];
+    let mut argv: [4]&u8 = [path.raw_ptr(), &flag[0], &script[0], 0usize as &u8];
     let mut command = process::Command::init(path, &argv[0], init.raw_envp());
     command.set_cwd(cwd);
     let term = if !value = command.run() {{
@@ -1249,13 +1249,13 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     let path_bytes = b"/bin/true\0";
-    let path = if ?value = std::CStringView::from_bytes(path_bytes) {
+    let path = if ?value = std::CStringView::from_bytes(&path_bytes) {
         value
     } or null {
         return process::exit(1)!;
     };
     let cwd_bytes = b"/definitely/not/a/nia/process-test-cwd\0";
-    let cwd = if ?value = std::CStringView::from_bytes(cwd_bytes) {
+    let cwd = if ?value = std::CStringView::from_bytes(&cwd_bytes) {
         value
     } or null {
         return process::exit(2)!;
@@ -1415,7 +1415,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut page_allocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut page_allocator;
 
-    let value = if ?value = std::CStringView::from_bytes(b"nia\0") {
+    let value = if ?value = std::CStringView::from_bytes(&b"nia\0") {
         value
     } or null {
         return process::exit(3)!;
@@ -1427,23 +1427,24 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if bytes[0] != b'n' or bytes[1] != b'i' or bytes[2] != b'a' {
         return process::exit(2)!;
     }
-    if ?invalid = std::CStringView::from_bytes(b"nia") {
+    if ?invalid = std::CStringView::from_bytes(&b"nia") {
         _ = invalid;
         return process::exit(4)!;
     } or null {}
-    let ptr = b"nia\0".get_ptr_read();
+    let cstr_bytes = b"nia\0";
+    let ptr = (&cstr_bytes).ptr();
     if ptr[0] != b'n' or ptr[1] != b'i' or ptr[2] != b'a' or ptr[3] != 0u8 {
         return process::exit(5)!;
     }
-    let mut text = std::StringBuf::from_slice(page, "nia").exit().?;
+    let mut text = std::StringBuf::from_slice(page, &"nia").exit().?;
     defer text.deinit(page).exit().?;
-    text.append(page, " std").exit().?;
+    text.append(page, &" std").exit().?;
     if text.view().len() != 7usize {
         return process::exit(6)!;
     }
-    let mut path = std::PathBuf::from_path(page, std::PathView::init("root")).exit().?;
+    let mut path = std::PathBuf::from_path(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
-    path.join_component(page, "child").exit().?;
+    path.join_component(page, &"child").exit().?;
     if path.view().text().len() != 10usize {
         return process::exit(7)!;
     }
@@ -1591,7 +1592,7 @@ pub fn write(init: process::Init) process::ExitCode!void {
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
     let text = b"left";
-    stdout.print("{}\n", &[&text.*[..]]).exit()
+    stdout.print(&"{}\n", &[&text[..]]).exit()
 }
 "#,
     )
@@ -1607,7 +1608,7 @@ pub fn write(init: process::Init) process::ExitCode!void {
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer);
     defer stdout.flush().exit().?;
     let text = b"right";
-    stdout.print("{}\n", &[&text.*[..]]).exit()
+    stdout.print(&"{}\n", &[&text[..]]).exit()
 }
 "#,
     )
@@ -1892,7 +1893,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     let mut writer = io::DiscardingWriter::init();
-    if !ok = writer.write_all(b"nia") { _ = ok; } or error! { return (1 as process::ExitCode)!; }
+    if !ok = writer.write_all(&b"nia") { _ = ok; } or error! { return (1 as process::ExitCode)!; }
     if writer.len() != 3 {
         return (2 as process::ExitCode)!;
     }
@@ -2121,7 +2122,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         } } or error! { return (17 as process::ExitCode)!; }
     let mut storage: [16]u8 = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.print("{:_>5.2}", &[&first_arg]).exit().?;
+    writer.print(&"{:_>5.2}", &[&first_arg]).exit().?;
     let written = writer.written();
     if written.len() != 5usize or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return (8 as process::ExitCode)!;
@@ -2166,7 +2167,7 @@ fn emit_exe_exposes_process_env_as_values() {
 using std::process;
 
 fn starts_with_needle(bytes: &[u8]) bool {
-    let needle: &[u8] = b"NIA_TEST_ENV=ok";
+    let needle: &[u8] = &b"NIA_TEST_ENV=ok";
     if bytes.len() < needle.len() {
         return false;
     }

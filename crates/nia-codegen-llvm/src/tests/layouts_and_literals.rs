@@ -506,7 +506,7 @@ fn main() i32 {
     let mut byte = b'A';
     _ = bytes;
     _ = nul_bytes;
-    text.*[0] as u32 as i32 + ch as u32 as i32 + byte as i32
+    text[0] as u32 as i32 + ch as u32 as i32 + byte as i32
 }
 "#,
     )
@@ -532,7 +532,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
     std::fs::write(
         &main,
         r#"
-static bytes: [4]u8 = b"aaaa".*;
+static bytes: [4]u8 = b"aaaa";
 
 fn main() i32 {
     bytes[0] as i32
@@ -580,7 +580,7 @@ static bytes = b"nia";
 static text = "ok";
 
 fn main() i32 {
-    bytes.*[0] as i32
+    bytes[0] as i32
 }
 "#,
     )
@@ -595,9 +595,8 @@ fn main() i32 {
 
     let bytes = mangled_symbol(ir, '@', 0, "bytes");
     let text = mangled_symbol(ir, '@', 0, "text");
-    assert!(ir.contains(&format!("{bytes} = constant ptr")), "{ir}");
-    assert!(ir.contains(&format!("{text} = constant ptr")), "{ir}");
-    assert!(ir.contains("@.nia.static.array"), "{ir}");
+    assert!(ir.contains(&format!("{bytes} = constant [3 x i8]")), "{ir}");
+    assert!(ir.contains(&format!("{text} = constant [2 x i32]")), "{ir}");
 }
 
 #[test]
@@ -616,7 +615,7 @@ static fmt: [104]u8 = (
     b"            MemSiz"
     b""
     b"             Flags Align\n\0"
-).*;
+    );
 
 fn main() i32 {
     let mut text = "中" "" "a" "" "b" "" "c" "";
@@ -631,7 +630,7 @@ fn main() i32 {
     );
     _ = text;
     _ = bytes;
-    printf(&(inline_fmt.*[0]));
+    printf(&inline_fmt[0]);
     printf(&fmt[0]);
     0
 }

@@ -107,8 +107,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_to_char_checks_unicode_scalar_values() {
-    let root = temp_dir("emit_exe_to_char_checks_unicode_scalar_values");
+fn emit_exe_char_checks_unicode_scalar_values() {
+    let root = temp_dir("emit_exe_char_checks_unicode_scalar_values");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -117,15 +117,15 @@ fn emit_exe_to_char_checks_unicode_scalar_values() {
 using std::process;
 using std::unicode;
 
-fn generic_to_char[T](value: T) ?char
-where T: ToChar {
-    value.to_char()
+fn generic_char[T](value: T) ?char
+where T: Char {
+    value.char()
 }
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    let ascii = if ?ch = 65u32.to_char() {
+    let ascii = if ?ch = 65u32.char() {
         ch
     } or null {
         return (1 as process::ExitCode)!;
@@ -134,7 +134,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (2 as process::ExitCode)!;
     }
 
-    let generic_ascii = if ?ch = generic_to_char(66u32) {
+    let generic_ascii = if ?ch = generic_char(66u32) {
         ch
     } or null {
         return (10 as process::ExitCode)!;
@@ -152,11 +152,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return (4 as process::ExitCode)!;
     }
 
-    if ?ch = 0xd800u32.to_char() {
+    if ?ch = 0xd800u32.char() {
         _ = ch;
         return (5 as process::ExitCode)!;
     } or null {}
-    if ?ch = 0x110000u32.to_char() {
+    if ?ch = 0x110000u32.char() {
         _ = ch;
         return (6 as process::ExitCode)!;
     } or null {}

@@ -18,7 +18,7 @@ comptime dirent_type_sock: u8 = 12u8;
 
 extend FileDescriptor {
     pub fn write_some(&self, bytes: &[u8]) Errno!usize {
-        let ptr = bytes.get_ptr_read();
+        let ptr = bytes.ptr();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
             ret.syscall_error()!
@@ -28,7 +28,7 @@ extend FileDescriptor {
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Errno!usize {
-        let ptr = bytes.get_ptr();
+        let ptr = bytes.ptr_mut();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
             ret.syscall_error()!
@@ -107,7 +107,7 @@ extend FileDescriptor {
         let ret = syscall::syscall3(
             syscall::getdents64,
             self.fd as usize,
-            buffer.get_ptr() as usize,
+            buffer.ptr_mut() as usize,
             buffer.len(),
         );
         if ret < 0 {
@@ -142,7 +142,7 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
     }
     let ret = syscall::syscall2(
         syscall::getcwd,
-        buffer.get_ptr() as usize,
+        buffer.ptr_mut() as usize,
         buffer.len(),
     );
     if ret < 0 {

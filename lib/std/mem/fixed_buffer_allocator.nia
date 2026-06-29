@@ -35,7 +35,7 @@ extend FixedBufferAllocator {
         if block.is_empty() {
             return true;
         }
-        let base = self.buffer.get_ptr_read() as usize;
+        let base = self.buffer.ptr() as usize;
         let limit = if ?value = base.checked_add(self.buffer.len()) {
             value
         } or null {
@@ -57,7 +57,7 @@ extend FixedBufferAllocator {
         if block.is_empty() {
             return false;
         }
-        let base = self.buffer.get_ptr_read() as usize;
+        let base = self.buffer.ptr() as usize;
         let cursor = if ?value = base.checked_add(self.end_index) {
             value
         } or null {
@@ -78,7 +78,7 @@ extend FixedBufferAllocator : Allocator {
             return !Block::empty(layout);
         }
 
-        let base = self.buffer.get_ptr() as usize;
+        let base = self.buffer.ptr_mut() as usize;
         let current = if ?value = base.checked_add(self.end_index) {
             value
         } or null {

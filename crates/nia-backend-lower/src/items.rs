@@ -146,6 +146,39 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
+    pub(crate) fn lower_global_from_body_ir(
+        &mut self,
+        global_def_id: nia_ids::GlobalDefId,
+    ) -> Option<BackendGlobal> {
+        let def = self.input.defs.defs.get(global_def_id.def_id)?;
+        let signature = self.input.signatures.globals.get(&global_def_id.def_id);
+        let ty = self
+            .input
+            .semantic_facts
+            .global_types
+            .get(&global_def_id)
+            .copied()
+            .or_else(|| signature.and_then(|signature| signature.explicit_type))
+            .unwrap_or_else(|| self.error_ty());
+        let ty = self.instantiate_ty(ty, &std::collections::HashMap::new());
+        let init = self
+            .input
+            .body_ir
+            .global_inits
+            .get(&global_def_id)
+            .cloned()
+            .map(|init| self.optimize_static_init(global_def_id, init));
+        Some(BackendGlobal {
+            def_id: global_def_id,
+            name: def.name.clone(),
+            ty,
+            is_let: signature.is_none_or(|signature| !signature.is_mutable),
+            is_extern: signature.is_some_and(|signature| signature.is_extern),
+            init,
+            span: def.span,
+        })
+    }
+
     pub(crate) fn optimize_static_init(
         &mut self,
         global: nia_ids::GlobalDefId,

@@ -212,40 +212,40 @@ where
             }
             BuiltinTrait::Sized => self.can_have_known_layout(self_ty),
             BuiltinTrait::Unsized => self.can_be_compiler_classified_type(self_ty),
-            BuiltinTrait::DerefRead => self.can_be_non_void_pointer(self_ty, false),
-            BuiltinTrait::Deref => self.can_be_non_void_pointer(self_ty, true),
-            BuiltinTrait::IndexRead => {
+            BuiltinTrait::Deref => self.can_be_non_void_pointer(self_ty, false),
+            BuiltinTrait::DerefMut => self.can_be_non_void_pointer(self_ty, true),
+            BuiltinTrait::Index => {
                 let Some(index_ty) = trait_args.first().copied() else {
                     return false;
                 };
                 self.can_be_array_pointer_or_slice(self_ty, false) && self.can_be_integer(index_ty)
             }
-            BuiltinTrait::Index => {
+            BuiltinTrait::IndexMut => {
                 let Some(index_ty) = trait_args.first().copied() else {
                     return false;
                 };
                 self.can_be_array_pointer_or_slice(self_ty, true) && self.can_be_integer(index_ty)
             }
-            BuiltinTrait::SliceRead => {
+            BuiltinTrait::Slice => {
                 let Some(range_ty) = trait_args.first().copied() else {
                     return false;
                 };
                 self.can_be_array_pointer_or_slice(self_ty, false)
                     && self.can_be_usize_range(range_ty)
             }
-            BuiltinTrait::Slice => {
+            BuiltinTrait::SliceMut => {
                 let Some(range_ty) = trait_args.first().copied() else {
                     return false;
                 };
                 self.can_be_array_pointer_or_slice(self_ty, true)
                     && self.can_be_usize_range(range_ty)
             }
-            BuiltinTrait::GetPtrRead => self.can_be_slice(self_ty, false),
-            BuiltinTrait::GetPtr => self.can_be_slice(self_ty, true),
+            BuiltinTrait::Ptr => self.can_be_slice(self_ty, false),
+            BuiltinTrait::PtrMut => self.can_be_slice(self_ty, true),
             BuiltinTrait::Len => self.can_have_len(self_ty),
             BuiltinTrait::Start => self.can_have_range_start(self_ty),
             BuiltinTrait::End => self.can_have_range_end(self_ty),
-            BuiltinTrait::ToChar => self.can_convert_to_char(self_ty),
+            BuiltinTrait::Char => self.can_convert_to_char(self_ty),
             BuiltinTrait::Iterator => false,
         }
     }
@@ -723,49 +723,47 @@ where
                 goal.trait_args.is_empty()
                     && (self.is_generic_param(self_ty) || self.is_unsized_pointee(self_ty))
             }
-            BuiltinTrait::DerefRead => {
+            BuiltinTrait::Deref => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, false).is_some()
             }
-            BuiltinTrait::Deref => {
+            BuiltinTrait::DerefMut => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::IndexRead => {
+            BuiltinTrait::Index => {
                 let [index_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
                 self.intrinsic_index_output_ty(self_ty, *index_ty, false)
                     .is_some()
             }
-            BuiltinTrait::Index => {
+            BuiltinTrait::IndexMut => {
                 let [index_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
                 self.intrinsic_index_output_ty(self_ty, *index_ty, true)
                     .is_some()
             }
-            BuiltinTrait::SliceRead => {
+            BuiltinTrait::Slice => {
                 let [range_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
                 self.is_usize_range(*range_ty)
                     && self.intrinsic_slice_output_ty(self_ty, false).is_some()
             }
-            BuiltinTrait::Slice => {
+            BuiltinTrait::SliceMut => {
                 let [range_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
                 self.is_usize_range(*range_ty)
                     && self.intrinsic_slice_output_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::GetPtrRead => {
-                goal.trait_args.is_empty()
-                    && self.intrinsic_get_ptr_target_ty(self_ty, false).is_some()
+            BuiltinTrait::Ptr => {
+                goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, false).is_some()
             }
-            BuiltinTrait::GetPtr => {
-                goal.trait_args.is_empty()
-                    && self.intrinsic_get_ptr_target_ty(self_ty, true).is_some()
+            BuiltinTrait::PtrMut => {
+                goal.trait_args.is_empty() && self.intrinsic_ptr_target_ty(self_ty, true).is_some()
             }
             BuiltinTrait::Len => {
                 goal.trait_args.is_empty() && self.intrinsic_len_output_ty(self_ty).is_some()
@@ -777,7 +775,7 @@ where
             BuiltinTrait::End => {
                 goal.trait_args.is_empty() && self.intrinsic_range_end_output_ty(self_ty).is_some()
             }
-            BuiltinTrait::ToChar => goal.trait_args.is_empty() && self.intrinsic_to_char(self_ty),
+            BuiltinTrait::Char => goal.trait_args.is_empty() && self.intrinsic_char(self_ty),
             BuiltinTrait::Iterator => false,
         }
     }
@@ -829,47 +827,47 @@ where
                 trait_args.is_empty().then_some(())?;
                 self.is_integer(self_ty).then_some(self.normalize(self_ty))
             }
-            (BuiltinTrait::DerefRead, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::Deref, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_deref_target_ty(self_ty, false)
             }
-            (BuiltinTrait::Deref, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::DerefMut, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_deref_target_ty(self_ty, true)
-            }
-            (BuiltinTrait::IndexRead, BuiltinAssociatedType::Output) => {
-                let [index_ty] = trait_args else {
-                    return None;
-                };
-                self.intrinsic_index_output_ty(self_ty, *index_ty, false)
             }
             (BuiltinTrait::Index, BuiltinAssociatedType::Output) => {
                 let [index_ty] = trait_args else {
                     return None;
                 };
-                self.intrinsic_index_output_ty(self_ty, *index_ty, true)
+                self.intrinsic_index_output_ty(self_ty, *index_ty, false)
             }
-            (BuiltinTrait::SliceRead, BuiltinAssociatedType::Output) => {
-                let [range_ty] = trait_args else {
+            (BuiltinTrait::IndexMut, BuiltinAssociatedType::Output) => {
+                let [index_ty] = trait_args else {
                     return None;
                 };
-                self.is_usize_range(*range_ty).then_some(())?;
-                self.intrinsic_slice_output_ty(self_ty, false)
+                self.intrinsic_index_output_ty(self_ty, *index_ty, true)
             }
             (BuiltinTrait::Slice, BuiltinAssociatedType::Output) => {
                 let [range_ty] = trait_args else {
                     return None;
                 };
                 self.is_usize_range(*range_ty).then_some(())?;
+                self.intrinsic_slice_output_ty(self_ty, false)
+            }
+            (BuiltinTrait::SliceMut, BuiltinAssociatedType::Output) => {
+                let [range_ty] = trait_args else {
+                    return None;
+                };
+                self.is_usize_range(*range_ty).then_some(())?;
                 self.intrinsic_slice_output_ty(self_ty, true)
             }
-            (BuiltinTrait::GetPtrRead, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::Ptr, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
-                self.intrinsic_get_ptr_target_ty(self_ty, false)
+                self.intrinsic_ptr_target_ty(self_ty, false)
             }
-            (BuiltinTrait::GetPtr, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::PtrMut, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
-                self.intrinsic_get_ptr_target_ty(self_ty, true)
+                self.intrinsic_ptr_target_ty(self_ty, true)
             }
             (BuiltinTrait::Start, BuiltinAssociatedType::Output) => {
                 trait_args.is_empty().then_some(())?;
@@ -883,7 +881,7 @@ where
         }
     }
 
-    fn intrinsic_to_char(&mut self, self_ty: InternedTyId) -> bool {
+    fn intrinsic_char(&mut self, self_ty: InternedTyId) -> bool {
         matches!(
             self.kind(self_ty),
             Some(TyKind::Primitive(PrimitiveTy::U32))
@@ -999,7 +997,7 @@ where
         }
     }
 
-    pub fn intrinsic_get_ptr_target_ty(
+    pub fn intrinsic_ptr_target_ty(
         &mut self,
         self_ty: InternedTyId,
         require_mutable: bool,

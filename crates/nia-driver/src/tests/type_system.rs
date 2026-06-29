@@ -77,8 +77,8 @@ fn checks_bodies_against_normalized_generic_type_aliases() {
     write(
         &root.join("main.nia"),
         r#"
-type Ptr[T] = &T;
-fn id(p: Ptr[u8]) &u8 {
+type RawPtr[T] = &T;
+fn id(p: RawPtr[u8]) &u8 {
     p
 }
 "#,
@@ -247,15 +247,15 @@ fn supports_alias_to_pointer_extension_methods_without_void_cascades() {
     write(
         &root.join("main.nia"),
         r#"
-type Ptr[T] = &T;
+type RawPtr[T] = &T;
 
-extend[T] Ptr[T] {
+extend[T] RawPtr[T] {
     fn is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: Ptr[i32]) void {
+fn main(ptr: RawPtr[i32]) void {
     if ptr.is_null() {}
 }
 "#,
@@ -287,7 +287,7 @@ fn supports_structural_extension_methods() {
     write(
         &root.join("main.nia"),
         r#"
-type Ptr[T] = &T;
+type RawPtr[T] = &T;
 
 extend i32 {
     fn is_zero(self) bool { self == 0 }
@@ -297,7 +297,7 @@ extend void {
     fn unit(self) i32 { 1 }
 }
 
-extend[T] Ptr[T] {
+extend[T] RawPtr[T] {
     fn is_null(self) bool { self as usize == 0 }
 }
 

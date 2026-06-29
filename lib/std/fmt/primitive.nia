@@ -227,17 +227,17 @@ where T: Sized
 extend bool : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!void {
         if self.* {
-            formatter.write_text("true")
+            formatter.write_text(&"true")
         } else {
-            formatter.write_text("false")
+            formatter.write_text(&"false")
         }
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!void {
         if self.* {
-            format_text_spec(formatter, "true", spec)
+            format_text_spec(formatter, &"true", spec)
         } else {
-            format_text_spec(formatter, "false", spec)
+            format_text_spec(formatter, &"false", spec)
         }
     }
 }
@@ -293,7 +293,7 @@ where T: Sized + core::Format
         let mut index = 0usize;
         while index < self.len() {
             if index != 0usize {
-                formatter.write_text(", ").?;
+                formatter.write_text(&", ").?;
             }
             self[index].format(formatter).?;
             index += 1usize;

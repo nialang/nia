@@ -501,7 +501,7 @@ array element type.
 
 ### 4.2 Pointers
 
-Pointer types:
+Ptr types:
 
 ```nia
 &T
@@ -516,7 +516,7 @@ object pointer. Whitespace is insignificant: `& T` parses as `&T`, and `^ T`
 parses as `^T`, not as different pointer kinds.
 
 Pointers are ordinary values. Nia has no borrow checker. Read-only and writable
-pointers are different types. Pointer conversions must be explicit:
+pointers are different types. Ptr conversions must be explicit:
 
 ```nia
 let mut addr = ptr as usize;
@@ -593,7 +593,7 @@ let mut answer = &42i32;
 let mut returned = &make_i32();
 
 let hello = b"hello\0";
-_ = &(hello.*[0]);
+_ = &hello[0];
 ```
 
 ### 4.3 Arrays
@@ -609,7 +609,7 @@ an array literal provides the element count:
 
 ```nia
 let mut xs: [_]i32 = [1, 2, 3];
-let mut name: [_]u8 = b"nia".*;
+let mut name: [_]u8 = b"nia";
 ```
 
 `[_]T` is only valid in contexts initialized by an array literal or string
@@ -895,7 +895,7 @@ payload. `null` matches the empty optional case. `!pattern` matches the
 error-union success case. `pattern!` matches the error-union error case.
 Patterns may be nested, so `?!value` matches an optional present value whose
 payload is an error-union success value, while `?err!` matches the nested error
-case. Pointer binding forms such as `let &value = ptr;` and `for &value in
+case. Ptr binding forms such as `let &value = ptr;` and `for &value in
 items` are binding destructuring forms too, but they are parsed on local/loop
 bindings rather than as optional/error-union match patterns. Neither form is a
 `switch` case pattern.
@@ -1360,7 +1360,7 @@ success payload of an error union. `pattern!` matches the error payload of an
 error union. `null` matches the empty optional case. `_` is a catch-all
 optional/error-union pattern in if-pattern expressions; in `switch`, `_` is the
 default case. These match patterns may nest across optional and error-union
-layers. Pointer destructuring forms such as `let &value = ptr;` are separate
+layers. Ptr destructuring forms such as `let &value = ptr;` are separate
 local/loop binding syntax, not switch case syntax.
 
 Switch expression arms must produce compatible value types unless an arm exits
@@ -1419,7 +1419,7 @@ Top-level `static` creates immutable global static storage. Implementations
 should place it in read-only data where possible:
 
 ```nia
-static hello: [7]u8 = b"hello\n\0".*;
+static hello: [7]u8 = b"hello\n\0";
 ```
 
 Top-level `static` initializers must be expressible as static initialization data.
@@ -1427,7 +1427,7 @@ They do not execute arbitrary compile-time programs:
 
 ```nia
 static a = 1 + 2;           // allowed: integer static expression
-static hello: [3]u8 = b"hi\0".*; // allowed: byte-array static data
+static hello: [3]u8 = b"hi\0"; // allowed: byte-array static data
 static p = &hello[0];       // allowed: global static address
 static bad = { 1 + 2 };     // error: block execution is not static data
 ```
@@ -1539,7 +1539,7 @@ Explicit type declaration:
 
 ```nia
 let mut x: i32 = 1;
-let mut name: [4]u8 = b"nia\0".*;
+let mut name: [4]u8 = b"nia\0";
 ```
 
 Assignment to an existing place:
@@ -1573,7 +1573,7 @@ let mut &mut y: i32 = mut_ptr;
 
 `let &x = ptr` requires `ptr: &T` and binds `x: T`. `let mut &mut y: T = ptr`
 requires `ptr: &mut T` and binds `y: T`. A type annotation names the bound value
-type after destructuring, not the pointer input type. Pointer-destructuring
+type after destructuring, not the pointer input type. Ptr-destructuring
 local bindings require an initializer. This syntax is separate from the
 optional/error-union match patterns used by if-pattern expressions, and from the
 value/range/default patterns used by `switch`.
@@ -1945,8 +1945,8 @@ Nia provides a small builtin surface:
 value.len()
 range.start()
 range.end()
-slice.get_ptr_read()
-slice.get_ptr()
+slice.ptr()
+slice.ptr_mut()
 @load_unaligned[T](ptr)
 @splat[Vec](value)
 @extract(vector, index)
@@ -2004,13 +2004,13 @@ and `&mut [T]`, it returns the runtime slice length. User types may implement
 methods. They are available only for range shapes that carry the requested
 bound and return that bound's integer type.
 
-`slice.get_ptr_read()` and `slice.get_ptr()` call the built-in `GetPtrRead`
-and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
-`GetPtrRead` implementations. Mutable slices also have compiler-proven
-`GetPtr` implementations, whose `get_ptr()` method returns `&mut T`. Arrays
-intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
+`slice.ptr()` and `slice.ptr_mut()` call the built-in `Ptr`
+and `PtrMut` trait methods. `&[T]` and `&mut [T]` have compiler-proven
+`Ptr` implementations. Mutable slices also have compiler-proven
+`PtrMut` implementations, whose `ptr_mut()` method returns `&mut T`. Arrays
+intentionally do not implement `Ptr` or `PtrMut`; form a slice first
 with `&array[..]`. A pointer to an array may coerce to a slice at the receiver
-of these built-in place methods, so `b"name\0".get_ptr_read()` is valid and
+of these built-in place methods, so `b"name\0".ptr()` is valid and
 explicitly produces a pointer to the first byte. User types may implement these
 traits for custom contiguous storage abstractions, but may not overlap
 compiler-proven slice implementations.
@@ -2383,41 +2383,41 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 `shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
-`Sized`, `DerefRead`, `Deref`, `IndexRead`, `Index`, `SliceRead`, `Slice`,
-`GetPtrRead`, and `GetPtr` are also builtin capability traits. Their names and
+`Sized`, `Deref`, `DerefMut`, `Index`, `IndexMut`, `Slice`, `SliceMut`,
+`Ptr`, `PtrMut`, and `Char` are also builtin capability traits. Their names and
 required members are fixed by the language:
 
 ```nia
 trait Sized {}
 
-trait DerefRead {
+trait Deref {
     type Target;
-    fn deref_read(&self) &[Self as DerefRead]::Target;
+    fn deref(&self) &[Self as Deref]::Target;
 }
 
-trait Deref : DerefRead {
+trait DerefMut : Deref {
     type Target;
-    fn deref(&mut self) &mut [Self as Deref]::Target;
+    fn deref_mut(&mut self) &mut [Self as DerefMut]::Target;
 }
 
-trait IndexRead[I] {
+trait Index[I] {
     type Output;
-    fn index_read(&self, index: I) &[Self as IndexRead[I]]::Output;
+    fn index(&self, index: I) &[Self as Index[I]]::Output;
 }
 
-trait Index[I] : IndexRead[I] {
+trait IndexMut[I] : Index[I] {
     type Output;
-    fn index(&mut self, index: I) &mut [Self as Index[I]]::Output;
+    fn index_mut(&mut self, index: I) &mut [Self as IndexMut[I]]::Output;
 }
 
-trait SliceRead[R] {
+trait Slice[R] {
     type Output;
-    fn slice_read(&self, range: R) [Self as SliceRead[R]]::Output;
+    fn slice(&self, range: R) [Self as Slice[R]]::Output;
 }
 
-trait Slice[R] : SliceRead[R] {
+trait SliceMut[R] : Slice[R] {
     type Output;
-    fn slice(&mut self, range: R) [Self as Slice[R]]::Output;
+    fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
 trait Len {
@@ -2434,14 +2434,18 @@ trait End {
     fn end(&self) [Self as End]::Output;
 }
 
-trait GetPtrRead {
+trait Ptr {
     type Target;
-    fn get_ptr_read(&self) &[Self as GetPtrRead]::Target;
+    fn ptr(&self) &[Self as Ptr]::Target;
 }
 
-trait GetPtr : GetPtrRead {
+trait PtrMut : Ptr {
     type Target;
-    fn get_ptr(&mut self) &mut [Self as GetPtr]::Target;
+    fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
+}
+
+trait Char {
+    fn char(self) ?char;
 }
 ```
 
@@ -2449,13 +2453,13 @@ The compiler proves builtin implementations for primitive operations,
 layout-known types, pointers, arrays, and slices where the operation is native
 to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
-container may implement `SliceRead[..]`, but `[N]T` may not provide a manual
-`SliceRead[..]` implementation because array slicing is already
+container may implement `Slice[..]`, but `[N]T` may not provide a manual
+`Slice[..]` implementation because array slicing is already
 compiler-proven. Custom range-like types may implement `Start` and `End`,
 while compiler-proven structural range implementations cannot be overlapped.
 
-Index expressions lower through `IndexRead` or `Index`; slice expressions
-lower through `SliceRead` or `Slice`. Native array, pointer, and slice
+Index expressions lower through `Index` or `IndexMut`; slice expressions
+lower through `Slice` or `SliceMut`. Native array, pointer, and slice
 implementations require integer indices or range types whose bounds are
 `usize`.
 
@@ -2892,12 +2896,12 @@ When calling C string APIs, use `b"...\0"` and pass an explicit pointer to the
 first byte:
 
 ```nia
-foreign_log(b"hello\n\0".get_ptr_read());
+foreign_log(b"hello\n\0".ptr());
 ```
 
 String and byte string literals are read-only pointers to static arrays, not
 element pointers. There is no implicit `&[N]u8` to `&u8` decay; take the first
-element address explicitly with `get_ptr_read()` when an ABI requires `&u8`.
+element address explicitly with `ptr()` when an ABI requires `&u8`.
 
 ### 13.1 Internal Symbol Names
 
@@ -2972,7 +2976,7 @@ A conforming Nia compiler supports:
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.get_ptr_read()`, and `@asm({...})`;
+- `@size[T]()`, `@align[T]()`, `value.len()`, `range.start()`, `range.end()`, `slice.ptr()`, and `@asm({...})`;
 - explicit `module` declarations, module-map package roots, and `using`;
 - global static storage from top-level `static mut` and `static`;
 - top-level `pub` visibility;

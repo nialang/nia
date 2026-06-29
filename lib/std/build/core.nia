@@ -196,8 +196,8 @@ extend Build {
         let runtime_arg = runtime.argv();
         let optimization_arg = mod_record.optimization.argv();
         self.run_toolchain_module_args(&[
-            &check_arg.*[0],
-            &exe_arg.*[0],
+            &check_arg[0],
+            &exe_arg[0],
             source_arg.ptr(),
             runtime_arg,
             optimization_arg,
@@ -221,15 +221,15 @@ extend Build {
         let runtime_arg = runtime.argv();
         let optimization_arg = mod_record.optimization.argv();
         self.run_toolchain_module_args(&[
-            &emit_arg.*[0],
-            &exe_arg.*[0],
+            &emit_arg[0],
+            &exe_arg[0],
             source_arg.ptr(),
             runtime_arg,
             optimization_arg,
         ], mod_record.imports, &[
-            &output_arg.*[0],
+            &output_arg[0],
             output.ptr(),
-            &cache_dir_flag.*[0],
+            &cache_dir_flag[0],
             cache_dir_arg.ptr(),
         ])
     }
@@ -392,7 +392,7 @@ extend Build {
     fn report_unknown_step(&mut self, step: process::Arg) Error!void {
         let mut buffer: [256]u8 = [_]u8[0; 256];
         let mut stderr = io::FileWriter::stderr(self.init.io(), &mut buffer[..]);
-        stderr.print("unknown build step `{}`\n", &[&step]).as_build_error().?;
+        stderr.print(&"unknown build step `{}`\n", &[&step]).as_build_error().?;
         stderr.flush().as_build_error()
     }
 
@@ -581,24 +581,32 @@ fn executable_output_name(options: ExecutableOptions) string::StringView {
 
 extend OptimizationMode {
     fn argv(self) &u8 {
+        static o0 = b"-O0\0";
+        static o1 = b"-O1\0";
+        static o2 = b"-O2\0";
+        static o3 = b"-O3\0";
+        static os = b"-Os\0";
+        static oz = b"-Oz\0";
         switch self {
-            OptimizationMode::O0 => &b"-O0\0".*[0],
-            OptimizationMode::O1 => &b"-O1\0".*[0],
-            OptimizationMode::O2 => &b"-O2\0".*[0],
-            OptimizationMode::O3 => &b"-O3\0".*[0],
-            OptimizationMode::Os => &b"-Os\0".*[0],
-            OptimizationMode::Oz => &b"-Oz\0".*[0],
-            _ => &b"-O2\0".*[0],
+            OptimizationMode::O0 => &o0[0],
+            OptimizationMode::O1 => &o1[0],
+            OptimizationMode::O2 => &o2[0],
+            OptimizationMode::O3 => &o3[0],
+            OptimizationMode::Os => &os[0],
+            OptimizationMode::Oz => &oz[0],
+            _ => &o2[0],
         }
     }
 }
 
 extend Runtime {
     fn argv(self) &u8 {
+        static bare = b"--runtime=bare\0";
+        static freestanding = b"--runtime=freestanding\0";
         switch self {
-            Runtime::Bare => &b"--runtime=bare\0".*[0],
-            Runtime::Freestanding => &b"--runtime=freestanding\0".*[0],
-            _ => &b"--runtime=freestanding\0".*[0],
+            Runtime::Bare => &bare[0],
+            Runtime::Freestanding => &freestanding[0],
+            _ => &freestanding[0],
         }
     }
 }
@@ -651,7 +659,7 @@ fn is_valid_module_import_name(name: string::StringView) bool {
         return false;
     }
     let text = name.text();
-    if mem::equal[char](text, "entry") or mem::equal[char](text, "pkg") or mem::equal[char](text, "builtin") {
+    if mem::equal[char](text, &"entry") or mem::equal[char](text, &"pkg") or mem::equal[char](text, &"builtin") {
         return false;
     }
     for &ch in text.iter() {
@@ -676,10 +684,10 @@ fn append_module_import_args(
     if imports.len() > 16usize {
         return Error::InvalidTarget!;
     }
-    let module_flag = b"--module\0";
+    static module_flag = b"--module\0";
     let mut index = 0usize;
     for &import in imports.iter() {
-        argv.push_ptr(&module_flag.*[0]).as_build_error().?;
+        argv.push_ptr(&module_flag[0]).as_build_error().?;
         let arg = encode_module_import(import, &mut storage[index][..]).?;
         argv.push_ptr(arg.ptr()).as_build_error().?;
         index += 1usize;
@@ -700,7 +708,7 @@ fn encode_module_import(import: ModuleImport, storage: &mut [u8]) Error!fs::Enco
         return Error::InvalidTarget!;
     }
     storage[out] = 0u8;
-    !fs::EncodedPath::init(storage.get_ptr_read(), out)
+    !fs::EncodedPath::init(storage.ptr(), out)
 }
 
 fn append_chars_to_bytes(text: &[char], storage: &mut [u8], start: usize) Error!usize {

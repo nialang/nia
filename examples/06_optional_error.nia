@@ -51,7 +51,7 @@ pub fn main(init: Init) ExitCode!void {
         _ = error;
     }
 
-    debug::print("optional/error pair_sum={} missing=error\n", &[&pair_sum]);
+    debug::print(&"optional/error pair_sum={} missing=error\n", &[&pair_sum]);
 
     !{}
 }

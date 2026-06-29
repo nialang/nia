@@ -89,9 +89,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     receiver,
                     nia_function_ir::FunctionRangeBound::End,
                 ),
-                nia_function_ir::FunctionBuiltinMethod::ToChar => Err(self.error(
+                nia_function_ir::FunctionBuiltinMethod::Char => Err(self.error(
                     expr.span,
-                    "`to_char` builtin method must be lowered as an expression",
+                    "`char` builtin method must be lowered as an expression",
                 )),
             };
         }
@@ -103,8 +103,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         } = callee
         {
             return match trait_id {
-                BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr => {
-                    self.emit_builtin_get_ptr_method(expr.span, *self_ty, receiver)
+                BuiltinTrait::Ptr | BuiltinTrait::PtrMut => {
+                    self.emit_builtin_ptr_method(expr.span, *self_ty, receiver)
                 }
                 _ => Err(self.error(
                     expr.span,
@@ -185,7 +185,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_builtin_get_ptr_method(
+    fn emit_builtin_ptr_method(
         &mut self,
         span: Span,
         self_ty: nia_ids::InternedTyId,
@@ -195,11 +195,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::Slice { .. }) => {
                 let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
                 let slice = slice.into_struct_value().map_err(|_| {
-                    self.error(span, "`GetPtr.get_ptr` receiver is not a slice value")
+                    self.error(span, "`PtrMut.ptr_mut` receiver is not a slice value")
                 })?;
                 self.extract_slice_ptr(span, slice).map(Into::into)
             }
-            _ => Err(self.error(span, "`GetPtr.get_ptr` requires a slice")),
+            _ => Err(self.error(span, "`PtrMut.ptr_mut` requires a slice")),
         }
     }
 

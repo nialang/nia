@@ -215,7 +215,6 @@ pub struct SemanticFacts {
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
-    pub node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
@@ -234,7 +233,6 @@ pub struct FunctionSemanticFacts {
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
-    pub node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
@@ -265,13 +263,6 @@ pub enum BracketSuffixResolution {
     Index,
     GenericCall,
     TypePrefixInstantiation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArrayToSliceCoercion {
-    pub array_ty: InternedTyId,
-    pub slice_ty: InternedTyId,
-    pub is_readonly: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,7 +364,7 @@ pub enum BuiltinMethod {
     Len,
     Start,
     End,
-    ToChar,
+    Char,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -462,18 +453,18 @@ impl BuiltinOperatorOp {
             BuiltinTraitMethod::Le => Some(Self::Binary(BinaryOp::Le)),
             BuiltinTraitMethod::Gt => Some(Self::Binary(BinaryOp::Gt)),
             BuiltinTraitMethod::Ge => Some(Self::Binary(BinaryOp::Ge)),
-            BuiltinTraitMethod::DerefRead
-            | BuiltinTraitMethod::Deref
-            | BuiltinTraitMethod::IndexRead
+            BuiltinTraitMethod::Deref
+            | BuiltinTraitMethod::DerefMut
             | BuiltinTraitMethod::Index
-            | BuiltinTraitMethod::SliceRead
+            | BuiltinTraitMethod::IndexMut
             | BuiltinTraitMethod::Slice
-            | BuiltinTraitMethod::GetPtrRead
-            | BuiltinTraitMethod::GetPtr
+            | BuiltinTraitMethod::SliceMut
+            | BuiltinTraitMethod::Ptr
+            | BuiltinTraitMethod::PtrMut
             | BuiltinTraitMethod::Len
             | BuiltinTraitMethod::Start
             | BuiltinTraitMethod::End
-            | BuiltinTraitMethod::ToChar
+            | BuiltinTraitMethod::Char
             | BuiltinTraitMethod::IteratorNext => None,
         }
     }

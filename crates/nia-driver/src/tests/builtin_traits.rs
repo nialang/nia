@@ -391,38 +391,38 @@ fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
     write(
         &root.join("main.nia"),
         r##"
-fn read_ptr[P](ptr: P) [P as DerefRead]::Target
-where P: DerefRead {
+fn read_ptr[P](ptr: P) [P as Deref]::Target
+where P: Deref {
     ptr.*
 }
 
-fn write_ptr[P](ptr: P, value: [P as Deref]::Target) void
-where P: Deref {
+fn write_ptr[P](ptr: P, value: [P as DerefMut]::Target) void
+where P: DerefMut {
     ptr.* = value;
 }
 
-fn read_index[C](items: C, index: usize) [C as IndexRead[usize]]::Output
-where C: IndexRead[usize] {
+fn read_index[C](items: C, index: usize) [C as Index[usize]]::Output
+where C: Index[usize] {
     items[index]
 }
 
-fn write_index[C](items: C, index: usize, value: [C as Index[usize]]::Output) void
-where C: Index[usize] {
+fn write_index[C](items: C, index: usize, value: [C as IndexMut[usize]]::Output) void
+where C: IndexMut[usize] {
     items[index] = value;
 }
 
-fn write_index_i32[C](items: C, index: i32, value: [C as Index[i32]]::Output) void
-where C: Index[i32] {
+fn write_index_i32[C](items: C, index: i32, value: [C as IndexMut[i32]]::Output) void
+where C: IndexMut[i32] {
     items[index] = value;
 }
 
-fn slice_read[S](items: S) [S as SliceRead[..]]::Output
-where S: SliceRead[..] {
+fn slice[S](items: S) [S as Slice[..]]::Output
+where S: Slice[..] {
     & items[..]
 }
 
-fn slice_mut[S](items: S) [S as Slice[..]]::Output
-where S: Slice[..] {
+fn slice_mut[S](items: S) [S as SliceMut[..]]::Output
+where S: SliceMut[..] {
     &mut items[..]
 }
 
@@ -432,7 +432,7 @@ fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
     let mut y = read_index[& [i32]](ro, 0);
     write_index[&mut [i32]](rw, 0, y);
     write_index_i32[&mut [i32]](rw, 0, y);
-    let mut a = slice_read[& [i32]](ro);
+    let mut a = slice[& [i32]](ro);
     let mut b = slice_mut[&mut [i32]](rw);
     a.len() as i32 + b.len() as i32 + x + y
 }
@@ -444,30 +444,30 @@ fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
 }
 
 #[test]
-fn builtin_len_method_and_get_ptr_traits_model_arrays_and_slices() {
-    let root = temp_dir("builtin_len_method_and_get_ptr_traits_model_arrays_and_slices");
+fn builtin_len_method_and_ptr_traits_model_arrays_and_slices() {
+    let root = temp_dir("builtin_len_method_and_ptr_traits_model_arrays_and_slices");
     write(
         &root.join("main.nia"),
         r##"
-fn ptr_read_value[S](slice: S) [S as GetPtrRead]::Target
-where S: GetPtrRead {
-    let mut ptr = slice.get_ptr_read();
+fn ptr_read_value[S](slice: S) [S as Ptr]::Target
+where S: Ptr {
+    let mut ptr = slice.ptr();
     ptr.*
 }
 
-fn ptr_value[S](slice: S) [S as GetPtr]::Target
-where S: GetPtr {
-    let mut ptr = slice.get_ptr();
+fn ptr_value[S](slice: S) [S as PtrMut]::Target
+where S: PtrMut {
+    let mut ptr = slice.ptr_mut();
     ptr.*
 }
 
-fn main(slice_read: & [usize], slice_mut: &mut [usize]) usize {
+fn main(slice: & [usize], slice_mut: &mut [usize]) usize {
     let mut array: [4]i32 = [1, 2, 3, 4];
-    let mut literal_ptr = b"nia\0".get_ptr_read();
+    let mut literal_ptr = (&b"nia\0").ptr();
     array.len()
-        + slice_read.len()
+        + slice.len()
         + slice_mut.len()
-        + ptr_read_value(slice_read)
+        + ptr_read_value(slice)
         + ptr_value(slice_mut)
         + literal_ptr[0] as usize
 }
@@ -479,14 +479,14 @@ fn main(slice_read: & [usize], slice_mut: &mut [usize]) usize {
 }
 
 #[test]
-fn builtin_get_ptr_traits_do_not_apply_to_arrays() {
-    let root = temp_dir("builtin_get_ptr_traits_do_not_apply_to_arrays");
+fn builtin_ptr_traits_do_not_apply_to_arrays() {
+    let root = temp_dir("builtin_ptr_traits_do_not_apply_to_arrays");
     write(
         &root.join("main.nia"),
         r#"
 fn main() i32 {
     let mut array: [4]i32 = [1, 2, 3, 4];
-    array.get_ptr_read().*
+    array.ptr().*
 }
 "#,
     );
@@ -531,17 +531,17 @@ fn main() i32 { 0 }
         .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
-        messages.iter().any(|message| message.contains("DerefRead")),
+        messages.iter().any(|message| message.contains("Deref")),
         "{:?}",
         program.diagnostics
     );
     assert!(
-        messages.iter().any(|message| message.contains("IndexRead")),
+        messages.iter().any(|message| message.contains("Index")),
         "{:?}",
         program.diagnostics
     );
     assert!(
-        messages.iter().any(|message| message.contains("SliceRead")),
+        messages.iter().any(|message| message.contains("Slice")),
         "{:?}",
         program.diagnostics
     );
@@ -557,55 +557,55 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : DerefRead {
-    type Target = i32;
-
-    fn deref_read(& self) & i32 {
-        & self.value
-    }
-}
-
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(&mut self) &mut i32 {
-        &mut self.value
+    fn deref(& self) & i32 {
+        & self.value
     }
 }
 
-extend Cell : IndexRead[usize] {
-    type Output = i32;
+extend Cell : DerefMut {
+    type Target = i32;
 
-    fn index_read(& self, index: usize) & i32 {
-        & self.value
+    fn deref_mut(&mut self) &mut i32 {
+        &mut self.value
     }
 }
 
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(&mut self, index: usize) &mut i32 {
+    fn index(& self, index: usize) & i32 {
+        & self.value
+    }
+}
+
+extend Cell : IndexMut[usize] {
+    type Output = i32;
+
+    fn index_mut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
 
-fn read_deref[P](value: P) [P as DerefRead]::Target
-where P: DerefRead {
+fn read_deref[P](value: P) [P as Deref]::Target
+where P: Deref {
     value.*
 }
 
-fn write_deref[P](value: P, next: [P as Deref]::Target) void
-where P: Deref {
+fn write_deref[P](value: P, next: [P as DerefMut]::Target) void
+where P: DerefMut {
     value.* = next;
 }
 
-fn read_index[C](value: C) [C as IndexRead[usize]]::Output
-where C: IndexRead[usize] {
+fn read_index[C](value: C) [C as Index[usize]]::Output
+where C: Index[usize] {
     value[0]
 }
 
-fn write_index[C](value: C, next: [C as Index[usize]]::Output) void
-where C: Index[usize] {
+fn write_index[C](value: C, next: [C as IndexMut[usize]]::Output) void
+where C: IndexMut[usize] {
     value[0] = next;
 }
 
@@ -634,18 +634,18 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : IndexRead[usize] {
+extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index_read(& self, index: usize) & i32 {
+    fn index(& self, index: usize) & i32 {
         & self.value
     }
 }
 
-extend Cell : IndexRead[i32] {
+extend Cell : Index[i32] {
     type Output = i32;
 
-    fn index_read(& self, index: i32) & i32 {
+    fn index(& self, index: i32) & i32 {
         & self.value
     }
 }
@@ -681,19 +681,19 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : Deref {
+extend Cell : DerefMut {
     type Target = i32;
 
-    fn deref(&self) &i32 {
-        &self.value
+    fn deref_mut(&mut self) &mut i32 {
+        &mut self.value
     }
 }
 
-extend Cell : Index[usize] {
+extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn index(&self, index: usize) &i32 {
-        &self.value
+    fn index_mut(&mut self, index: usize) &mut i32 {
+        &mut self.value
     }
 }
 
@@ -710,14 +710,14 @@ fn main() i32 { 0 }
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("supertrait `DerefRead`")),
+            .any(|message| message.contains("supertrait `Deref`")),
         "{:?}",
         program.diagnostics
     );
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("supertrait `IndexRead`")),
+            .any(|message| message.contains("supertrait `Index`")),
         "{:?}",
         program.diagnostics
     );
@@ -733,16 +733,16 @@ struct Cell {}
 
 static mut backing: [3]i32 = [1, 2, 3];
 
-extend Cell : SliceRead[..] {
+extend Cell : Slice[..] {
     type Output = & [i32];
 
-    fn slice_read(& self, range: ..) & [i32] {
+    fn slice(& self, range: ..) & [i32] {
         & backing[..]
     }
 }
 
-fn take[T](value: T) [T as SliceRead[..]]::Output
-where T: SliceRead[..] {
+fn take[T](value: T) [T as Slice[..]]::Output
+where T: Slice[..] {
     & value[..]
 }
 
@@ -763,19 +763,19 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-extend[T] [T] : GetPtrRead {
+extend[T] [T] : Ptr {
     type Target = T;
 
-    fn get_ptr_read(& self) & T {
-        self.get_ptr_read()
+    fn ptr(& self) & T {
+        self.ptr()
     }
 }
 
-extend[T] [4]T : SliceRead[..] {
+extend[T] [4]T : Slice[..] {
     type Output = & [T];
 
-    fn slice_read(& self, range: ..) & [T] {
-        self.slice_read(range)
+    fn slice(& self, range: ..) & [T] {
+        self.slice(range)
     }
 }
 
@@ -825,21 +825,21 @@ fn main(slice: & [usize]) usize {
 }
 
 #[test]
-fn builtin_to_char_trait_models_checked_scalar_conversion() {
-    let root = temp_dir("builtin_to_char_trait_models_checked_scalar_conversion");
+fn builtin_char_trait_models_checked_scalar_conversion() {
+    let root = temp_dir("builtin_char_trait_models_checked_scalar_conversion");
     write(
         &root.join("main.nia"),
         r#"
 using std::unicode;
 
 fn convert[T](value: T) ?char
-where T: ToChar {
-    value.to_char()
+where T: Char {
+    value.char()
 }
 
 fn associated_convert[T](value: T) ?char
-where T: ToChar {
-    [T]::to_char(value)
+where T: Char {
+    [T]::char(value)
 }
 
 fn main() i32 {
@@ -870,13 +870,13 @@ fn main() i32 {
 }
 
 #[test]
-fn builtin_to_char_trait_rejects_unproven_receivers() {
-    let root = temp_dir("builtin_to_char_trait_rejects_unproven_receivers");
+fn builtin_char_trait_rejects_unproven_receivers() {
+    let root = temp_dir("builtin_char_trait_rejects_unproven_receivers");
     write(
         &root.join("main.nia"),
         r#"
 fn main() ?char {
-    65usize.to_char()
+    65usize.char()
 }
 "#,
     );
@@ -888,7 +888,7 @@ fn main() ?char {
                 .diagnostic
                 .summary
                 .contains("trait bound not satisfied")
-                && diagnostic.diagnostic.summary.contains("ToChar")
+                && diagnostic.diagnostic.summary.contains("Char")
         }),
         "{:?}",
         program.diagnostics

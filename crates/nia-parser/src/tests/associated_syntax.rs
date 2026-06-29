@@ -246,12 +246,12 @@ trait Add[Rhs] {
 fn parses_range_types_and_expressions() {
     let (module, errors) = parse_module(
         r#"
-trait SliceRead[R] {
+trait Slice[R] {
     type Output;
 }
 
-fn take[S](items: S, end: usize) [S as SliceRead[usize..usize]]::Output
-where S: SliceRead[..] {
+fn take[S](items: S, end: usize) [S as Slice[usize..usize]]::Output
+where S: Slice[..] {
     0..end
 }
 "#,

@@ -520,7 +520,7 @@ extern fn fopen(path: & u8, mode: & u8) &void;
 
 fn inspect(path: & u8) i32 {
     let mode = b"rb\0";
-    let mut file = fopen(path, &(mode.*[0]));
+    let mut file = fopen(path, &mode[0]);
 
     if file as usize == 0 {
         return 1;

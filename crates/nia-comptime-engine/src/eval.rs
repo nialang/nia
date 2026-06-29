@@ -165,17 +165,13 @@ fn eval_resolved_comptime_expr_flow(
         ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
         ResolvedComptimeExprKind::Null => ComptimeValue::Optional(None),
         ResolvedComptimeExprKind::String(literal) => eval_string_literal(literal)
-            .map(|value| {
-                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(string_to_char_array(&value))))
-            })
+            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
             .ok_or_else(|| ComptimeError {
                 span,
                 message: "unsupported string literal in comptime expression".to_string(),
             })?,
         ResolvedComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-            .map(|value| {
-                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(bytes_to_array(&value))))
-            })
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
             .ok_or_else(|| ComptimeError {
                 span,
                 message: "unsupported byte string literal in comptime expression".to_string(),
@@ -417,17 +413,13 @@ fn eval_comptime_expr_flow(
         EarlyComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
         EarlyComptimeExprKind::Null => ComptimeValue::Optional(None),
         EarlyComptimeExprKind::String(literal) => eval_string_literal(literal)
-            .map(|value| {
-                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(string_to_char_array(&value))))
-            })
+            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: "unsupported string literal in comptime expression".to_string(),
             })?,
         EarlyComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-            .map(|value| {
-                ComptimeValue::Pointer(Box::new(ComptimeValue::Array(bytes_to_array(&value))))
-            })
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: "unsupported byte string literal in comptime expression".to_string(),

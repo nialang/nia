@@ -19,8 +19,8 @@ fn inc(value: i32) i32 {
 
 fn main() i32 {
     let mut build = build::Build::init();
-    build.step("run", &inc);
-    let step = types::Step::init("run", &inc);
+    build.step(&"run", &inc);
+    let step = types::Step::init(&"run", &inc);
     step.run(41) + build.run(0)
 }
 "#,
@@ -56,7 +56,7 @@ pub struct Build {
 extend Build {
     pub fn init() Build {
         {
-            registered: types::Step::init("noop", &noop),
+            registered: types::Step::init(&"noop", &noop),
         }
     }
 

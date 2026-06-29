@@ -16,7 +16,7 @@ extend CStringView {
         if bytes[bytes.len() - 1usize] != 0u8 {
             return null;
         }
-        ?CStringView::from_ptr(bytes.get_ptr_read())
+        ?CStringView::from_ptr(bytes.ptr())
     }
 
     pub fn raw_ptr(&self) &u8 {

@@ -99,7 +99,7 @@ where T: Sized
     }
 
     pub fn clear(&mut self) void {
-        let mut ptr = self.items.get_ptr();
+        let mut ptr = self.items.ptr_mut();
         self.items = &mut ptr[0..0];
     }
 
@@ -189,7 +189,7 @@ where T: Sized
         } else {
             let next_len = len - 1usize;
             let value = self.items[next_len];
-            let mut ptr = self.items.get_ptr();
+            let mut ptr = self.items.ptr_mut();
             self.items = &mut ptr[0..next_len];
             ?value
         }
@@ -205,7 +205,7 @@ where T: Sized
             if index != last_index {
                 self.items[index] = self.items[last_index];
             }
-            let mut ptr = self.items.get_ptr();
+            let mut ptr = self.items.ptr_mut();
             self.items = &mut ptr[0..last_index];
             ?value
         }
@@ -544,7 +544,7 @@ where T: Sized
 
     pub fn shrink_retaining_capacity(&mut self, new_len: usize) void {
         if new_len < self.len() {
-            let mut ptr = self.items.get_ptr();
+            let mut ptr = self.items.ptr_mut();
             self.items = &mut ptr[0..new_len];
         }
     }
@@ -678,13 +678,13 @@ where T: Sized
     }
 
     fn allocated_items(&mut self) &mut [T] {
-        let mut ptr = self.items.get_ptr() as &mut T;
+        let mut ptr = self.items.ptr_mut() as &mut T;
         &mut ptr[0..self.capacity]
     }
 
     fn allocated_block(&self) mem::Error!mem::Block {
         let layout = mem::Layout::array[T](self.capacity).?;
-        !mem::Block::init(self.items.get_ptr() as &mut u8, layout)
+        !mem::Block::init(self.items.ptr_mut() as &mut u8, layout)
     }
 
     fn set_allocated_block(&mut self, block: mem::Block, capacity: usize) void {
@@ -700,8 +700,8 @@ where T: Sized
         }
 
         let item_size = @size[T]();
-        let base = self.items.get_ptr() as usize;
-        let ptr = items.get_ptr_read() as usize;
+        let base = self.items.ptr_mut() as usize;
+        let ptr = items.ptr() as usize;
         if ptr < base {
             return false;
         }

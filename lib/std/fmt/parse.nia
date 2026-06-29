@@ -215,9 +215,9 @@ where U: AsciiParseUnit
 fn parse_bool_units[U](input: &[U]) ParseError!bool
 where U: AsciiParseUnit
 {
-    if ascii_matches[U](input, "true") {
+    if ascii_matches[U](input, &"true") {
         !true
-    } else if ascii_matches[U](input, "false") {
+    } else if ascii_matches[U](input, &"false") {
         !false
     } else if input.len() == 0usize {
         ParseError::Empty!

@@ -133,7 +133,7 @@ extend CStr {
     }
 
     fn from_bytes(bytes: &[u8]) ?CStr {
-        ?CStr::from_ptr(bytes.get_ptr_read())
+        ?CStr::from_ptr(bytes.ptr())
     }
 
     fn raw_ptr(&self) &u8 {

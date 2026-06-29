@@ -195,8 +195,7 @@ impl<'a> BodyChecker<'a> {
                 let source = self.check_expr(inner);
                 let target = self.ty_for_type(ty);
                 if let Some(coerced) = self
-                    .coerce_array_to_slice(inner, target, source)
-                    .or_else(|| self.coerce_pointer_array_to_slice(inner, target, source))
+                    .coerce_pointer_array_to_slice(inner, target, source)
                     .or_else(|| self.coerce_mutable_pointer_to_readonly(target, source))
                     .or_else(|| {
                         self.coerce_pointer_array_to_slice_trait_object(inner, target, source)
@@ -258,7 +257,7 @@ impl<'a> BodyChecker<'a> {
                 match index {
                     IndexArg::Expr(index) => {
                         let index_ty =
-                            self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
+                            self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
                         self.expect_integer(index.span, index_ty, "index");
                         let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                         if index_ty == self.error() {
@@ -287,8 +286,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
-            self.coerce_array_to_slice(expr, expected, ty)
-                .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, ty))
+            self.coerce_pointer_array_to_slice(expr, expected, ty)
                 .or_else(|| self.coerce_mutable_pointer_to_readonly(expected, ty))
                 .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
                 .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, ty))
@@ -331,7 +329,10 @@ impl<'a> BodyChecker<'a> {
             nia_comptime_check::ComptimeValueType::Runtime(actual)
                 if self.types_match(expected, actual) =>
             {
-                Some(expected)
+                Some(
+                    self.materialize_inferred_array_type(expected, actual)
+                        .unwrap_or(expected),
+                )
             }
             nia_comptime_check::ComptimeValueType::Runtime(actual) => {
                 self.coerce_pointer_array_to_slice(expr, expected, actual)
@@ -339,7 +340,12 @@ impl<'a> BodyChecker<'a> {
             nia_comptime_check::ComptimeValueType::String
                 if self.is_runtime_char_array_type(expected) =>
             {
-                Some(expected)
+                Some(match &expr.kind {
+                    ExprKind::String(literal) => {
+                        self.materialize_string_literal_expected_array(literal, expected)
+                    }
+                    _ => expected,
+                })
             }
             _ => None,
         }
@@ -353,6 +359,26 @@ impl<'a> BodyChecker<'a> {
             self.interner.get(*elem),
             Some(TyKind::Primitive(PrimitiveTy::Char))
         )
+    }
+
+    fn materialize_string_literal_expected_array(
+        &mut self,
+        literal: &nia_ast::StringLiteral,
+        expected: InternedTyId,
+    ) -> InternedTyId {
+        match self.interner.get(expected) {
+            Some(TyKind::Array {
+                len: ArrayLenTy::Infer,
+                elem,
+            }) if matches!(
+                self.interner.get(*elem),
+                Some(TyKind::Primitive(PrimitiveTy::Char))
+            ) =>
+            {
+                self.string_literal_array_type(literal)
+            }
+            _ => expected,
+        }
     }
 
     fn check_null_expr(&mut self, span: Span, expected: Option<InternedTyId>) -> InternedTyId {
@@ -1139,7 +1165,7 @@ impl<'a> BodyChecker<'a> {
             };
             self.check_expr_with_expected(callee, lhs_expected);
             let lhs_ty = self.expr_runtime_ty(callee);
-            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
+            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
             self.expect_integer(index.span, index_ty, "index");
             let index_ty = self.expr_ty(index).unwrap_or(index_ty);
             if index_ty == self.error() {

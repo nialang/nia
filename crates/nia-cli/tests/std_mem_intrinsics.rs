@@ -343,7 +343,7 @@ extend[T] [T]
 where T: Sized
 {
     pub fn iter_custom(&self) SliceIter[T] {
-        SliceIter[T]::from_raw_parts(self.get_ptr_read(), self.len())
+        SliceIter[T]::from_raw_parts(self.ptr(), self.len())
     }
 }
 "#,

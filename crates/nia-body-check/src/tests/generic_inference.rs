@@ -150,7 +150,7 @@ extend i32 : ParseFrom[&[u8]] {
 }
 
 fn main() i32 {
-    parse[i32]("abc")
+    parse[i32](&"abc")
 }
 "#,
     );
@@ -166,9 +166,9 @@ extern fn printf(fmt: &u8, ...);
 fn main(flag: bool) i32 {
     _ = printf(flag, 1);
     let mut s = b"hello\0";
-    printf(&(s.*[0]), s);
+    printf(&s[0], s);
     let mut sp = &s;
-    printf(&(s.*[0]), sp.*);
+    printf(&s[0], sp.*);
     0
 }
 "#,

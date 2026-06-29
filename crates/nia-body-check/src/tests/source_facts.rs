@@ -157,9 +157,9 @@ fn main() i32 {
     let mut n = @size[Pair]();
     let mut s = take(&[1, 2, 3]);
     let mut literal_slice: &[i32] = &[4, 5, 6];
-    let mut t = text("ok");
+    let mut t = text(&"ok");
     let ok = b"ok\0";
-    let mut p = cstr(&(ok.*[0]));
+    let mut p = cstr(&ok[0]);
     let mut q = call_ptr(& id, y);
     q + n as i32 + s as i32 + literal_slice.len() as i32 + t as i32 + p as i32
 }

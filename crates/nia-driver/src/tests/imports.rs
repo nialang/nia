@@ -171,7 +171,7 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     let mut buffer: [0]u8 = [];
     let mut stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
-    if !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(&b"nia\n") {
         _ = ok;
     } or error! {
         return (1 as process::ExitCode)!;
@@ -202,7 +202,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     let mut raw_buffer: [0]u8 = [];
     let mut raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     let mut stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
-    if !ok = stdout.write_all(b"nia\n") {
+    if !ok = stdout.write_all(&b"nia\n") {
         _ = ok;
     } or error! {
         return (1 as process::ExitCode)!;
@@ -234,7 +234,7 @@ using std::fs;
 using std::process;
 
 fn reject_file_writer(file: fs::File) process::ExitCode!void {
-    if !ok = file.write_all(b"nia\n") {
+    if !ok = file.write_all(&b"nia\n") {
         _ = ok;
     } or error! {
         return (1 as process::ExitCode)!;
@@ -992,7 +992,7 @@ fn std_facade_type_can_be_imported_directly() {
 using std::CStringView;
 
 fn main() void {
-    if ?text = CStringView::from_bytes(b"nia\0") {
+    if ?text = CStringView::from_bytes(&b"nia\0") {
         _ = text;
     } or null {}
 }
@@ -1010,7 +1010,7 @@ fn std_facade_type_can_be_named_by_package_root_path() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    if ?text = std::CStringView::from_bytes(b"nia\0") {
+    if ?text = std::CStringView::from_bytes(&b"nia\0") {
         _ = text;
     } or null {}
 }
@@ -2103,9 +2103,9 @@ fn main(ptr: &u8) i32 {
     write(
         &root.join("ptr.nia"),
         r#"
-type Ptr[T] = &T;
+type RawPtr[T] = &T;
 
-extend[T] Ptr[T] {
+extend[T] RawPtr[T] {
     pub fn alias_null(self) bool {
         self as usize == 0
     }

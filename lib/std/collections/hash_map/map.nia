@@ -624,7 +624,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 self.values = values_block.as_slice[V]();
             } or err! {
                 if not keys_layout.is_empty() {
-                    let key_block = mem::Block::init(self.keys.get_ptr() as &mut u8, keys_layout);
+                    let key_block = mem::Block::init(self.keys.ptr_mut() as &mut u8, keys_layout);
                     if !ok = allocator.free(key_block) {
                         _ = ok;
                     } or error! {}
@@ -649,7 +649,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let mut first_error: ?mem::Error = null;
         if self.ctrl.len() != 0usize {
             let layout = mem::Layout::array[u8](self.ctrl.len()).?;
-            if !ok = allocator.free(mem::Block::init(self.ctrl.get_ptr() as &mut u8, layout)) {
+            if !ok = allocator.free(mem::Block::init(self.ctrl.ptr_mut() as &mut u8, layout)) {
                 _ = ok;
             } or err! {
                 first_error = ?err;
@@ -658,7 +658,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.keys.len() != 0usize {
             let layout = mem::Layout::array[K](self.bucket_count).?;
             if not layout.is_empty() {
-                if !ok = allocator.free(mem::Block::init(self.keys.get_ptr() as &mut u8, layout)) {
+                if !ok = allocator.free(mem::Block::init(self.keys.ptr_mut() as &mut u8, layout)) {
                     _ = ok;
                 } or err! {
                     if ?value = first_error {
@@ -672,7 +672,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.values.len() != 0usize {
             let layout = mem::Layout::array[V](self.bucket_count).?;
             if not layout.is_empty() {
-                if !ok = allocator.free(mem::Block::init(self.values.get_ptr() as &mut u8, layout)) {
+                if !ok = allocator.free(mem::Block::init(self.values.ptr_mut() as &mut u8, layout)) {
                     _ = ok;
                 } or err! {
                     if ?value = first_error {

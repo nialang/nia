@@ -90,7 +90,7 @@ fn comptime_function_rejects_structural_array_field_assignment_type_mismatch() {
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
-    comptime mut config = {target: {os: "linux".*, pointer_width: 64usize}};
+    comptime mut config = {target: {os: "linux", pointer_width: 64usize}};
     config.target.os = true;
     config.target.pointer_width
 }
@@ -233,7 +233,7 @@ comptime fn score(bytes: [3]u8) usize {
     }
 }
 
-comptime n: usize = score(payload.*);
+comptime n: usize = score(payload);
 
 fn main() i32 {
     let mut values: [n]u8 = [0; n];

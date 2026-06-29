@@ -185,24 +185,24 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_runtime_storage_for_comptime_string_values() {
-    let root = temp_dir("emits_runtime_storage_for_comptime_string_values");
+fn emits_runtime_storage_for_static_string_values() {
+    let root = temp_dir("emits_runtime_storage_for_static_string_values");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
-comptime bytes = b"paw\0";
-comptime text = "nia";
+static bytes = b"paw\0";
+static text = "nia";
 
 fn first_byte(xs: &[u8]) i32 {
     xs[0] as i32
 }
 
 fn main() i32 {
-    let mut byte_ptr: &u8 = &bytes.*[1];
-    let mut byte_slice: &[u8] = bytes;
-    let mut char_slice: &[char] = text;
-    first_byte(bytes) + byte_ptr.* as i32 + byte_slice.len() as i32 + char_slice.len() as i32
+    let mut byte_ptr: &u8 = &bytes[1];
+    let mut byte_slice: &[u8] = &bytes;
+    let mut char_slice: &[char] = &text;
+    first_byte(&bytes) + byte_ptr.* as i32 + byte_slice.len() as i32 + char_slice.len() as i32
 }
 "#,
     )

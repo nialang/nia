@@ -46,9 +46,9 @@ use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_sema_ir::{
-    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, FunctionReference,
-    FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
-    SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
+    BracketSuffixResolution, BuiltinValue, FunctionReference, FunctionSemanticFacts,
+    GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts,
+    SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -749,7 +749,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         callable_extension_methods_by_name: HashMap::new(),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
-        node_array_to_slice_coercions: HashMap::new(),
         node_pointer_array_to_slice_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
@@ -807,7 +806,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             function_facts: checker.function_facts,
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
-            node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
@@ -893,7 +891,6 @@ struct BodyChecker<'a> {
     callable_extension_methods_by_name: HashMap<String, CallableExtensionMethods>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
-    node_array_to_slice_coercions: HashMap<VersionedNodeKey, ArrayToSliceCoercion>,
     node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
@@ -1236,16 +1233,6 @@ impl<'a> BodyChecker<'a> {
         }
         if self.body_filter.add_function(def_id) {
             self.pending_functions.push_back(def_id);
-        }
-    }
-
-    fn record_array_to_slice_node_coercion(&mut self, expr: &Expr, coercion: ArrayToSliceCoercion) {
-        self.node_array_to_slice_coercions
-            .insert(expr.node_key.clone(), coercion);
-        if let Some(facts) = self.current_function_facts() {
-            facts
-                .node_array_to_slice_coercions
-                .insert(expr.node_key.clone(), coercion);
         }
     }
 

@@ -492,13 +492,13 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let slice_is_readonly = match method {
-            BuiltinTraitMethod::Slice | BuiltinTraitMethod::GetPtr => {
+            BuiltinTraitMethod::SliceMut | BuiltinTraitMethod::PtrMut => {
                 if is_readonly {
                     return None;
                 }
                 false
             }
-            BuiltinTraitMethod::SliceRead | BuiltinTraitMethod::GetPtrRead => true,
+            BuiltinTraitMethod::Slice | BuiltinTraitMethod::Ptr => true,
             _ => return None,
         };
         let slice_ty = self.interner.intern(TyKind::Slice {

@@ -54,7 +54,7 @@ fn emits_structural_extension_method_calls() {
     std::fs::write(
         &main,
         r#"
-type Ptr[T] = &T;
+type RawPtr[T] = &T;
 
 extend i32 {
     fn is_zero(self) bool {
@@ -62,7 +62,7 @@ extend i32 {
     }
 }
 
-extend[T] Ptr[T] {
+extend[T] RawPtr[T] {
     fn is_null(self) bool {
         self as usize == 0
     }
@@ -323,10 +323,10 @@ extend Point {
     }
 }
 
-static get_ptr: &fn(& Point) i32 = & Point::get;
+static point_get: &fn(& Point) i32 = & Point::get;
 
 fn main(p: & Point) i32 {
-    get_ptr(p)
+    point_get(p)
 }
 "#,
     )
@@ -338,10 +338,10 @@ fn main(p: & Point) i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let get_ptr = mangled_symbol(ir, '@', 0, "get_ptr");
+    let point_get = mangled_symbol(ir, '@', 0, "point_get");
     let get = mangled_symbol(ir, '@', 0, "get");
     assert!(
-        ir.contains(&format!("{get_ptr} = constant ptr {get}")),
+        ir.contains(&format!("{point_get} = constant ptr {get}")),
         "{ir}"
     );
 }

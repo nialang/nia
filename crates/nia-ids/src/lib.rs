@@ -116,18 +116,18 @@ pub enum BuiltinTrait {
     Ord,
     Sized,
     Unsized,
-    DerefRead,
     Deref,
-    IndexRead,
+    DerefMut,
     Index,
-    SliceRead,
+    IndexMut,
     Slice,
-    GetPtrRead,
-    GetPtr,
+    SliceMut,
+    Ptr,
+    PtrMut,
     Len,
     Start,
     End,
-    ToChar,
+    Char,
     Iterator,
 }
 
@@ -195,18 +195,18 @@ pub enum BuiltinTraitMethod {
     Le,
     Gt,
     Ge,
-    DerefRead,
     Deref,
-    IndexRead,
+    DerefMut,
     Index,
-    SliceRead,
+    IndexMut,
     Slice,
-    GetPtrRead,
-    GetPtr,
+    SliceMut,
+    Ptr,
+    PtrMut,
     Len,
     Start,
     End,
-    ToChar,
+    Char,
     IteratorNext,
 }
 
@@ -339,33 +339,23 @@ impl BuiltinTraitMethod {
             BuiltinTraitMethodDescriptor::value_operator("ge", BuiltinTrait::Ord, 2),
         ),
         (
-            Self::DerefRead,
-            BuiltinTraitMethodDescriptor::place(
-                "deref_read",
-                BuiltinTrait::DerefRead,
-                1,
-                ReceiverKind::RefReadOnly,
-                Some(ReceiverKind::RefReadOnly),
-            ),
-        ),
-        (
             Self::Deref,
             BuiltinTraitMethodDescriptor::place(
                 "deref",
                 BuiltinTrait::Deref,
                 1,
-                ReceiverKind::Value,
-                Some(ReceiverKind::Ref),
+                ReceiverKind::RefReadOnly,
+                Some(ReceiverKind::RefReadOnly),
             ),
         ),
         (
-            Self::IndexRead,
+            Self::DerefMut,
             BuiltinTraitMethodDescriptor::place(
-                "index_read",
-                BuiltinTrait::IndexRead,
-                2,
-                ReceiverKind::RefReadOnly,
-                Some(ReceiverKind::RefReadOnly),
+                "deref_mut",
+                BuiltinTrait::DerefMut,
+                1,
+                ReceiverKind::Value,
+                Some(ReceiverKind::Ref),
             ),
         ),
         (
@@ -374,18 +364,18 @@ impl BuiltinTraitMethod {
                 "index",
                 BuiltinTrait::Index,
                 2,
-                ReceiverKind::Value,
-                Some(ReceiverKind::Ref),
+                ReceiverKind::RefReadOnly,
+                Some(ReceiverKind::RefReadOnly),
             ),
         ),
         (
-            Self::SliceRead,
+            Self::IndexMut,
             BuiltinTraitMethodDescriptor::place(
-                "slice_read",
-                BuiltinTrait::SliceRead,
+                "index_mut",
+                BuiltinTrait::IndexMut,
                 2,
-                ReceiverKind::RefReadOnly,
-                None,
+                ReceiverKind::Value,
+                Some(ReceiverKind::Ref),
             ),
         ),
         (
@@ -394,25 +384,35 @@ impl BuiltinTraitMethod {
                 "slice",
                 BuiltinTrait::Slice,
                 2,
+                ReceiverKind::RefReadOnly,
+                None,
+            ),
+        ),
+        (
+            Self::SliceMut,
+            BuiltinTraitMethodDescriptor::place(
+                "slice_mut",
+                BuiltinTrait::SliceMut,
+                2,
                 ReceiverKind::Ref,
                 None,
             ),
         ),
         (
-            Self::GetPtrRead,
+            Self::Ptr,
             BuiltinTraitMethodDescriptor::place(
-                "get_ptr_read",
-                BuiltinTrait::GetPtrRead,
+                "ptr",
+                BuiltinTrait::Ptr,
                 1,
                 ReceiverKind::RefReadOnly,
                 None,
             ),
         ),
         (
-            Self::GetPtr,
+            Self::PtrMut,
             BuiltinTraitMethodDescriptor::place(
-                "get_ptr",
-                BuiltinTrait::GetPtr,
+                "ptr_mut",
+                BuiltinTrait::PtrMut,
                 1,
                 ReceiverKind::Ref,
                 None,
@@ -446,10 +446,10 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
-            Self::ToChar,
+            Self::Char,
             BuiltinTraitMethodDescriptor::method(
-                "to_char",
-                BuiltinTrait::ToChar,
+                "char",
+                BuiltinTrait::Char,
                 1,
                 ReceiverKind::Value,
             ),
@@ -587,37 +587,37 @@ impl BuiltinTrait {
         BuiltinTraitMethod::Ge,
     ];
     const NO_METHODS: [BuiltinTraitMethod; 0] = [];
-    const DEREF_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::DerefRead];
     const DEREF_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Deref];
-    const INDEX_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IndexRead];
+    const DEREF_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::DerefMut];
     const INDEX_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Index];
-    const SLICE_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceRead];
+    const INDEX_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IndexMut];
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
-    const GET_PTR_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrRead];
-    const GET_PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtr];
+    const SLICE_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceMut];
+    const PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Ptr];
+    const PTR_MUT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::PtrMut];
     const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
     const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
     const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
-    const TO_CHAR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::ToChar];
+    const CHAR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Char];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::DerefRead,
+        trait_id: Self::Deref,
         preserves_trait_args: false,
     }];
     const INDEX_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::IndexRead,
+        trait_id: Self::Index,
         preserves_trait_args: true,
     }];
     const SLICE_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::SliceRead,
+        trait_id: Self::Slice,
         preserves_trait_args: true,
     }];
-    const GET_PTR_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::GetPtrRead,
+    const PTR_MUT_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
+        trait_id: Self::Ptr,
         preserves_trait_args: false,
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
@@ -640,18 +640,18 @@ impl BuiltinTrait {
         Self::Ord,
         Self::Sized,
         Self::Unsized,
-        Self::DerefRead,
         Self::Deref,
-        Self::IndexRead,
+        Self::DerefMut,
         Self::Index,
-        Self::SliceRead,
+        Self::IndexMut,
         Self::Slice,
-        Self::GetPtrRead,
-        Self::GetPtr,
+        Self::SliceMut,
+        Self::Ptr,
+        Self::PtrMut,
         Self::Len,
         Self::Start,
         Self::End,
-        Self::ToChar,
+        Self::Char,
         Self::Iterator,
     ];
 
@@ -793,28 +793,20 @@ impl BuiltinTrait {
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
-            Self::DerefRead,
-            "DerefRead",
-            0,
-            &Self::TARGET_ASSOC_TYPES,
-            &Self::DEREF_READ_METHODS,
-            &Self::NO_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
             Self::Deref,
             "Deref",
             0,
             &Self::TARGET_ASSOC_TYPES,
             &Self::DEREF_METHODS,
-            &Self::DEREF_SUPERTRAITS,
+            &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
-            Self::IndexRead,
-            "IndexRead",
-            1,
-            &Self::OUTPUT_ASSOC_TYPES,
-            &Self::INDEX_READ_METHODS,
-            &Self::NO_SUPERTRAITS,
+            Self::DerefMut,
+            "DerefMut",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::DEREF_MUT_METHODS,
+            &Self::DEREF_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Index,
@@ -822,15 +814,15 @@ impl BuiltinTrait {
             1,
             &Self::OUTPUT_ASSOC_TYPES,
             &Self::INDEX_METHODS,
-            &Self::INDEX_SUPERTRAITS,
+            &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
-            Self::SliceRead,
-            "SliceRead",
+            Self::IndexMut,
+            "IndexMut",
             1,
             &Self::OUTPUT_ASSOC_TYPES,
-            &Self::SLICE_READ_METHODS,
-            &Self::NO_SUPERTRAITS,
+            &Self::INDEX_MUT_METHODS,
+            &Self::INDEX_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Slice,
@@ -838,23 +830,31 @@ impl BuiltinTrait {
             1,
             &Self::OUTPUT_ASSOC_TYPES,
             &Self::SLICE_METHODS,
-            &Self::SLICE_SUPERTRAITS,
-        ),
-        Self::descriptor_entry(
-            Self::GetPtrRead,
-            "GetPtrRead",
-            0,
-            &Self::TARGET_ASSOC_TYPES,
-            &Self::GET_PTR_READ_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
-            Self::GetPtr,
-            "GetPtr",
+            Self::SliceMut,
+            "SliceMut",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SLICE_MUT_METHODS,
+            &Self::SLICE_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Ptr,
+            "Ptr",
             0,
             &Self::TARGET_ASSOC_TYPES,
-            &Self::GET_PTR_METHODS,
-            &Self::GET_PTR_SUPERTRAITS,
+            &Self::PTR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::PtrMut,
+            "PtrMut",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::PTR_MUT_METHODS,
+            &Self::PTR_MUT_SUPERTRAITS,
         ),
         Self::descriptor_entry(
             Self::Len,
@@ -881,11 +881,11 @@ impl BuiltinTrait {
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(
-            Self::ToChar,
-            "ToChar",
+            Self::Char,
+            "Char",
             0,
             &Self::NO_ASSOC_TYPES,
-            &Self::TO_CHAR_METHODS,
+            &Self::CHAR_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(

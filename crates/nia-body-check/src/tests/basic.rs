@@ -179,7 +179,7 @@ extern fn printf(fmt: &u8, ...);
 
 fn main() i32 {
     let mut hello = b"hello, world!\n\0";
-    printf(&(hello.*[0]));
+    printf(&hello[0]);
     return 0;
 }
 "#,

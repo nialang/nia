@@ -582,8 +582,8 @@ impl<'a> ModuleLowerer<'a> {
         let receiver_span = receiver.span;
         match (trait_id, method, trait_args, args) {
             (
-                BuiltinTrait::DerefRead | BuiltinTrait::Deref,
-                BuiltinTraitMethod::DerefRead | BuiltinTraitMethod::Deref,
+                BuiltinTrait::Deref | BuiltinTrait::DerefMut,
+                BuiltinTraitMethod::Deref | BuiltinTraitMethod::DerefMut,
                 [],
                 [],
             ) => {
@@ -602,7 +602,7 @@ impl<'a> ModuleLowerer<'a> {
                 Some(FunctionExpr {
                     span: receiver_ptr.span,
                     ty: self.type_context.interner.intern(TyKind::Pointer {
-                        is_readonly: matches!(trait_id, BuiltinTrait::DerefRead),
+                        is_readonly: matches!(trait_id, BuiltinTrait::Deref),
                         elem,
                     }),
                     kind: FunctionExprKind::AddrOf(FunctionPlace {
@@ -614,8 +614,8 @@ impl<'a> ModuleLowerer<'a> {
                 })
             }
             (
-                BuiltinTrait::IndexRead | BuiltinTrait::Index,
-                BuiltinTraitMethod::IndexRead | BuiltinTraitMethod::Index,
+                BuiltinTrait::Index | BuiltinTrait::IndexMut,
+                BuiltinTraitMethod::Index | BuiltinTraitMethod::IndexMut,
                 [index_ty],
                 [index],
             ) => {
@@ -634,7 +634,7 @@ impl<'a> ModuleLowerer<'a> {
                 Some(FunctionExpr {
                     span: index.span,
                     ty: self.type_context.interner.intern(TyKind::Pointer {
-                        is_readonly: matches!(trait_id, BuiltinTrait::IndexRead),
+                        is_readonly: matches!(trait_id, BuiltinTrait::Index),
                         elem,
                     }),
                     kind: FunctionExprKind::AddrOf(FunctionPlace {
@@ -646,8 +646,8 @@ impl<'a> ModuleLowerer<'a> {
                 })
             }
             (
-                BuiltinTrait::SliceRead | BuiltinTrait::Slice,
-                BuiltinTraitMethod::SliceRead | BuiltinTraitMethod::Slice,
+                BuiltinTrait::Slice | BuiltinTrait::SliceMut,
+                BuiltinTraitMethod::Slice | BuiltinTraitMethod::SliceMut,
                 [_range_ty],
                 [range],
             ) => {
@@ -677,7 +677,7 @@ impl<'a> ModuleLowerer<'a> {
                     kind: FunctionExprKind::Slice {
                         lhs: Box::new(base),
                         range: self.range_expr_to_slice_range(range)?,
-                        is_readonly: matches!(trait_id, BuiltinTrait::SliceRead),
+                        is_readonly: matches!(trait_id, BuiltinTrait::Slice),
                     },
                 })
             }

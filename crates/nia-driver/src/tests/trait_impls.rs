@@ -98,8 +98,8 @@ where T: ReadText
 }
 
 fn main() i32 {
-    let mut direct = [Number]::read_text("42");
-    let mut generic = parse_generic[Number]("42");
+    let mut direct = [Number]::read_text(&"42");
+    let mut generic = parse_generic[Number](&"42");
     direct.value + generic.value
 }
 "#,
@@ -355,7 +355,7 @@ module fmt;
 using entry::fmt;
 
 fn main() i32 {
-    fmt::parse[i32]("abc")
+    fmt::parse[i32](&"abc")
 }
 "#,
     );
@@ -457,7 +457,7 @@ extend File : io::Writer {
 
 fn main() void {
     let mut stdout: File = { raw: 1 };
-    if !ok = io::write_fully_with[File](& stdout, b"nia\n") {
+    if !ok = io::write_fully_with[File](& stdout, &b"nia\n") {
         _ = ok;
     } or error! {
     }
@@ -562,7 +562,7 @@ using entry::io;
 
 fn main() void {
     let mut stdout = fs::File::standard_output();
-    if !ok = io::write_fully_with[fs::File](& stdout, b"nia\n") {
+    if !ok = io::write_fully_with[fs::File](& stdout, &b"nia\n") {
         _ = ok;
     } or error! {
     }
@@ -610,7 +610,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !ok = forward[Sink](&mut sink, b"ok") {
+    if !ok = forward[Sink](&mut sink, &b"ok") {
         _ = ok;
         0
     } or error! {
@@ -664,7 +664,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    if !ok = forward[Sink](&mut sink, b"ok") {
+    if !ok = forward[Sink](&mut sink, &b"ok") {
         _ = ok;
         0
     } or error! {

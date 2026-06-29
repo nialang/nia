@@ -68,7 +68,7 @@ extend Allocator {
     where T: Sized
     {
         let layout = Layout::array[T](slice.len()).?;
-        self.free(Block::init(slice.get_ptr() as &mut u8, layout))
+        self.free(Block::init(slice.ptr_mut() as &mut u8, layout))
     }
 }
 

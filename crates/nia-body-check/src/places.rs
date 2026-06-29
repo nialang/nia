@@ -22,7 +22,8 @@ impl<'a> BodyChecker<'a> {
                 index: IndexArg::Expr(index),
             } => {
                 let lhs_ty = self.check_assignment_lhs(lhs);
-                let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
+                let index_ty =
+                    self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexMut, index);
                 self.expect_integer(index.span, index_ty, "index");
                 let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                 if index_ty == self.error() {
@@ -34,7 +35,7 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_assignment_lhs(callee);
                 if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
                     let index_ty =
-                        self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
+                        self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexMut, index);
                     self.expect_integer(index.span, index_ty, "index");
                     let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                     if index_ty == self.error() {
@@ -70,7 +71,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: inner_ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::Deref),
+                    trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
@@ -88,7 +89,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::Index),
+                    trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
@@ -106,7 +107,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::Index),
+                    trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
@@ -203,15 +204,15 @@ impl<'a> BodyChecker<'a> {
 
     fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
         let ty = self.expr_runtime_ty(expr);
-        let has_deref_read = self.current_context_proves_trait_obligation(
+        let has_deref = self.current_context_proves_trait_obligation(
             ty,
-            TraitId::Builtin(BuiltinTrait::DerefRead),
+            TraitId::Builtin(BuiltinTrait::Deref),
             Vec::new(),
         );
         match self.interner.get(ty) {
             Some(TyKind::Error) => None,
-            Some(_) if has_deref_read => None,
-            Some(_) => Some("expression does not implement DerefRead"),
+            Some(_) if has_deref => None,
+            Some(_) => Some("expression does not implement Deref"),
             None => Some("pointer type is not known"),
         }
     }
@@ -312,7 +313,7 @@ impl<'a> BodyChecker<'a> {
         };
         let has_deref = self.current_context_proves_trait_obligation(
             ty,
-            TraitId::Builtin(BuiltinTrait::Deref),
+            TraitId::Builtin(BuiltinTrait::DerefMut),
             Vec::new(),
         );
         match self.interner.get(ty) {
@@ -406,12 +407,12 @@ impl<'a> BodyChecker<'a> {
         if is_readonly {
             if self.current_context_proves_trait_obligation(
                 lhs_ty,
-                TraitId::Builtin(BuiltinTrait::SliceRead),
+                TraitId::Builtin(BuiltinTrait::Slice),
                 vec![range_ty],
             ) {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::SliceRead),
+                    trait_id: TraitId::Builtin(BuiltinTrait::Slice),
                     trait_args: vec![range_ty],
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
@@ -424,7 +425,7 @@ impl<'a> BodyChecker<'a> {
                     format!(
                         "trait bound not satisfied: {}: {}",
                         self.ty_name(lhs_ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::SliceRead, &[range_ty])
+                        self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty])
                     ),
                 ));
             }
@@ -432,12 +433,12 @@ impl<'a> BodyChecker<'a> {
         }
         if self.current_context_proves_trait_obligation(
             lhs_ty,
-            TraitId::Builtin(BuiltinTrait::Slice),
+            TraitId::Builtin(BuiltinTrait::SliceMut),
             vec![range_ty],
         ) {
             let output = self.interner.intern(TyKind::Projection {
                 self_ty: lhs_ty,
-                trait_id: TraitId::Builtin(BuiltinTrait::Slice),
+                trait_id: TraitId::Builtin(BuiltinTrait::SliceMut),
                 trait_args: vec![range_ty],
                 name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
@@ -450,7 +451,7 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "trait bound not satisfied: {}: {}",
                     self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty])
+                    self.builtin_trait_ty_name(BuiltinTrait::SliceMut, &[range_ty])
                 ),
             ));
         }
@@ -458,41 +459,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn index_result_type_for_index(
-        &mut self,
-        span: Span,
-        lhs_ty: InternedTyId,
-        index_ty: InternedTyId,
-    ) -> InternedTyId {
-        if self.is_error_ty(lhs_ty) {
-            return self.error();
-        }
-        let trait_args = vec![index_ty];
-        if !self.current_context_proves_trait_obligation(
-            lhs_ty,
-            TraitId::Builtin(BuiltinTrait::IndexRead),
-            trait_args.clone(),
-        ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::IndexRead, &trait_args)
-                ),
-            ));
-            return self.error();
-        }
-        let output = self.interner.intern(TyKind::Projection {
-            self_ty: lhs_ty,
-            trait_id: TraitId::Builtin(BuiltinTrait::IndexRead),
-            trait_args,
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
-        });
-        self.normalize_projection(output)
-    }
-
-    pub(crate) fn index_result_type_for_write_index(
         &mut self,
         span: Span,
         lhs_ty: InternedTyId,
@@ -521,6 +487,41 @@ impl<'a> BodyChecker<'a> {
         let output = self.interner.intern(TyKind::Projection {
             self_ty: lhs_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
+            trait_args,
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(output)
+    }
+
+    pub(crate) fn index_result_type_for_write_index(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        index_ty: InternedTyId,
+    ) -> InternedTyId {
+        if self.is_error_ty(lhs_ty) {
+            return self.error();
+        }
+        let trait_args = vec![index_ty];
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(BuiltinTrait::IndexMut),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(BuiltinTrait::IndexMut, &trait_args)
+                ),
+            ));
+            return self.error();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: lhs_ty,
+            trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
             trait_args,
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
@@ -598,7 +599,7 @@ impl<'a> BodyChecker<'a> {
         };
         let has_index = self.current_context_proves_trait_obligation(
             lhs_ty,
-            TraitId::Builtin(BuiltinTrait::Index),
+            TraitId::Builtin(BuiltinTrait::IndexMut),
             vec![index_ty],
         );
         match self.interner.get(self.normalization.normalize(lhs_ty)) {
@@ -618,52 +619,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn deref_result_type(&mut self, span: Span, ty: InternedTyId) -> InternedTyId {
-        let has_deref_read = self.current_context_proves_trait_obligation(
-            ty,
-            TraitId::Builtin(BuiltinTrait::DerefRead),
-            Vec::new(),
-        );
-        match self.expect_ty_kind(ty) {
-            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
-                if self.normalization.normalize(*elem) == self.void() =>
-            {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "cannot dereference `&void`",
-                ));
-                self.error()
-            }
-            TyKind::Error => self.error(),
-            _ if has_deref_read => {
-                let target = self.interner.intern(TyKind::Projection {
-                    self_ty: ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::DerefRead),
-                    trait_args: Vec::new(),
-                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
-                });
-                self.normalize_projection(target)
-            }
-            _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!(
-                        "trait bound not satisfied: {}: {}",
-                        self.ty_name(ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::DerefRead, &[])
-                    ),
-                ));
-                self.error()
-            }
-        }
-    }
-
-    pub(crate) fn deref_result_type_for_write(
-        &mut self,
-        span: Span,
-        ty: InternedTyId,
-    ) -> InternedTyId {
         let has_deref = self.current_context_proves_trait_obligation(
             ty,
             TraitId::Builtin(BuiltinTrait::Deref),
@@ -685,6 +640,52 @@ impl<'a> BodyChecker<'a> {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Deref),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(target)
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "trait bound not satisfied: {}: {}",
+                        self.ty_name(ty),
+                        self.builtin_trait_ty_name(BuiltinTrait::Deref, &[])
+                    ),
+                ));
+                self.error()
+            }
+        }
+    }
+
+    pub(crate) fn deref_result_type_for_write(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        let has_deref = self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(BuiltinTrait::DerefMut),
+            Vec::new(),
+        );
+        match self.expect_ty_kind(ty) {
+            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }
+                if self.normalization.normalize(*elem) == self.void() =>
+            {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "cannot dereference `&void`",
+                ));
+                self.error()
+            }
+            TyKind::Error => self.error(),
+            _ if has_deref => {
+                let target = self.interner.intern(TyKind::Projection {
+                    self_ty: ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
