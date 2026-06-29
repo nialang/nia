@@ -258,7 +258,7 @@ fn semantic_comptime_lowering_requires_resolved_function_locals() {
     let (module, errors) = parse_module(
         r#"
 comptime fn add_one(x: usize) usize {
-static y = x + 1;
+let y = x + 1;
 y
 }
 "#,
