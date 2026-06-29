@@ -2,8 +2,8 @@
 use super::*;
 use nia_defs::DefKind;
 use nia_executable_reachability::{
-    ExecutableReachability, ExecutableRootDefs, ReachableModuleInput,
-    compute_executable_reachability_with_seed, filter_semantic_facts_for_reachable_items,
+    ExecutableRootDefs, IncrementalExecutableReachability, ReachableModuleInput,
+    compute_executable_reachability_incremental, filter_semantic_facts_for_reachable_items,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -4506,7 +4506,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             .collect::<Vec<_>>()
     };
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
-    let mut reachability_seed = None::<ExecutableReachability>;
+    let mut reachability_state = IncrementalExecutableReachability::default();
     let program_trait_impls = executable_program_trait_impls(db);
     let executable_global_initializer_cache = RefCell::new(HashMap::<
         GlobalDefId,
@@ -4534,8 +4534,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             db.query(CompilerTimingsQuery),
             "executable_checked_modules.reachability_compute",
             || {
-                compute_executable_reachability_with_seed(
-                    reachability_seed.as_ref(),
+                compute_executable_reachability_incremental(
+                    &mut reachability_state,
                     &parse_ok,
                     &graph,
                     ExecutableRootDefs {
@@ -4742,7 +4742,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 },
             );
         }
-        reachability_seed = Some(reachability);
+        reachability_state.replace_reachability(reachability);
     };
 
     let parse_ok_modules = parse_ok;
