@@ -4,7 +4,7 @@ using std::process;
 using std::slice;
 using process::{Init, ExitCode, exit};
 
-let stable_bytes_storage = b"nia";
+static stable_bytes_storage = b"nia";
 
 fn first(values: &[i32]) i32 {
     values[0]
@@ -53,7 +53,7 @@ pub fn main(init: Init) ExitCode!void {
     // Pointer-to-array literals coerce to slices when a slice is expected.
     let direct_sum = byte_sum(b"nia");
 
-    // Use a top-level let when an address should refer to global static storage.
+    // Use a top-level static when an address should refer to global storage.
     let stable_bytes = &stable_bytes_storage[..];
 
     // Or let the caller provide storage that the callee fills.
