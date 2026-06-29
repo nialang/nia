@@ -203,7 +203,7 @@ impl<'a> BodyChecker<'a> {
             trait_candidates
                 .into_iter()
                 .partition(|candidate| candidate.is_assumed);
-        if viable_candidates.is_empty() && !dynamic_candidates.is_empty() {
+        if !dynamic_candidates.is_empty() {
             return self.profile_stage("body_check.profile.method.dynamic_call", |this| {
                 this.check_dynamic_trait_method_call_with_receiver_ty(call, dynamic_candidates)
             });
