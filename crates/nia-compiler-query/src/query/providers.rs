@@ -3,8 +3,7 @@ use super::*;
 use nia_defs::DefKind;
 use nia_executable_reachability::{
     ExecutableReachability, ExecutableRootDefs, ReachableModuleInput,
-    compute_executable_reachability_with_seed, extend_executable_reachability_from_checked_module,
-    filter_semantic_facts_for_reachable_items,
+    compute_executable_reachability_with_seed, filter_semantic_facts_for_reachable_items,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -4582,9 +4581,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         if stale.is_empty() {
             break reachability;
         }
-        let mut queued_stale = stale.iter().copied().collect::<HashSet<_>>();
         while let Some(module_id) = stale.pop_front() {
-            queued_stale.remove(&module_id);
             let already_checked_functions = checked_by_id
                 .get(&module_id)
                 .map(|state| &state.checked_functions);
@@ -4707,49 +4704,6 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             let flow_check = executable_flow_check(db, module_id, &checked_this_round);
             let mut module = module;
             module.flow_check = flow_check;
-            let checked_module_inputs = time_provider(
-                db.query(CompilerTimingsQuery),
-                "executable_checked_modules.checked_module_inputs",
-                || {
-                    checked_by_id
-                        .values()
-                        .map(|state| ReachableModuleInput {
-                            module_id: state.module.id,
-                            body_ir: &state.module.body_ir,
-                            semantic_facts: &state.module.semantic_facts,
-                            type_lowering: &state.module.type_lowering,
-                            type_normalization: &state.module.type_normalization,
-                        })
-                        .collect::<Vec<_>>()
-                },
-            );
-            let changed = time_module_provider(
-                db,
-                "executable_checked_modules.reachability_extend",
-                module_id,
-                || {
-                    extend_executable_reachability_from_checked_module(
-                        &mut reachability,
-                        nia_executable_reachability::ExecutableSignatureIndex {
-                            function: &function_signature,
-                            struct_: &struct_signature,
-                            union: &union_signature,
-                            trait_: &trait_signature,
-                            trait_default_method: &trait_default_method,
-                        },
-                        &extension_methods.methods,
-                        &program_trait_impls,
-                        ReachableModuleInput {
-                            module_id: module.id,
-                            body_ir: &module.body_ir,
-                            semantic_facts: &module.semantic_facts,
-                            type_lowering: &module.type_lowering,
-                            type_normalization: &module.type_normalization,
-                        },
-                        &checked_module_inputs,
-                    )
-                },
-            );
             time_module_provider(
                 db,
                 "executable_checked_modules.state_merge",
@@ -4773,37 +4727,6 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     }
                 },
             );
-            if changed {
-                time_provider(
-                    db.query(CompilerTimingsQuery),
-                    "executable_checked_modules.stale_enqueue",
-                    || {
-                        for candidate in parse_ok.iter().copied() {
-                            if !reachability.modules.contains(&candidate)
-                                || queued_stale.contains(&candidate)
-                            {
-                                continue;
-                            }
-                            let needs_check = match checked_by_id.get(&candidate) {
-                                Some(state) => {
-                                    reachability.functions.iter().any(|def_id| {
-                                        def_id.module_id == candidate
-                                            && !state.checked_functions.contains(def_id)
-                                    }) || reachability.globals.iter().any(|def_id| {
-                                        def_id.module_id == candidate
-                                            && !state.checked_globals.contains(def_id)
-                                    })
-                                }
-                                None => true,
-                            };
-                            if needs_check {
-                                queued_stale.insert(candidate);
-                                stale.push_back(candidate);
-                            }
-                        }
-                    },
-                );
-            }
         }
         reachability_seed = Some(reachability);
     };
