@@ -81,7 +81,7 @@ pub(pkg) module x86_64;
 using entry;
 
 fn syscall_exit(code: i32) void {
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -96,7 +96,7 @@ fn syscall_exit(code: i32) void {
 
 @[naked]
 pub extern fn _start() void {
-    @asm({
+    std::builtin::asm({
         code:
             b\\call custom_start
             \\ud2

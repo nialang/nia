@@ -15,6 +15,30 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_builtin_function_pointers() {
+    let checked = pipeline(
+        r#"
+@[builtin("trap")]
+pub extern fn trap() never;
+
+fn main() void {
+    _ = &trap;
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("builtin function `trap` cannot be used as a function pointer")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_direct_call_argument_count_and_types() {
     let checked = pipeline(
         r#"
@@ -258,11 +282,11 @@ fn checks_simd_lane_builtins() {
     let checked = pipeline(
         r#"
 fn lane(v: u8x16, i: usize) u8 {
-    @extract(v, i)
+    std::builtin::extract(v, i)
 }
 
 fn changed(v: u8x16, i: usize) u8x16 {
-    @insert(v, i, 9u8)
+    std::builtin::insert(v, i, 9u8)
 }
 "#,
     );
@@ -274,16 +298,16 @@ fn rejects_invalid_simd_lane_builtins() {
     let checked = pipeline(
         r#"
 fn invalid(v: u8x16) void {
-    _ = @extract[u8](v, 0usize);
-    _ = @extract(1u8, 0usize);
-    _ = @insert(v, 0usize, true);
+    _ = std::builtin::extract[u8](v, 0usize);
+    _ = std::builtin::extract(1u8, 0usize);
+    _ = std::builtin::insert(v, 0usize, true);
 }
 "#,
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("builtin `@extract` does not take a type argument")),
+            .contains("builtin `extract` does not take a type argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -310,10 +334,10 @@ fn checks_atomic_builtin_ordering_rules() {
         r#"
 fn main() void {
     let mut value = 0i32;
-    _ = @atomic_load[i32](&value, 3usize);
-    @atomic_store[i32](&mut value, 1i32, 2usize);
-    _ = @cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
-    @fence(1usize);
+    _ = std::builtin::atomic_load[i32](&value, 3usize);
+    std::builtin::atomic_store[i32](&mut value, 1i32, 2usize);
+    _ = std::builtin::cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
+    std::builtin::fence(1usize);
 }
 "#,
     );
@@ -362,9 +386,8 @@ struct Point {
 
 fn main() void {
     let mut point: Point = { x: 1 };
-    _ = @atomic_load[Point](&point, 1usize);
-    let mut pair = [1i32, 2i32];
-    _ = @atomic_rmw[[2]i32](&mut pair, 1usize, [3i32, 4i32], 1usize);
+    _ = std::builtin::atomic_load[Point](&point, 1usize);
+    _ = std::builtin::atomic_rmw[Point](&mut point, 1usize, { x: 2 }, 1usize);
 }
 "#,
     );
@@ -385,11 +408,11 @@ fn checks_splat_builtin() {
     let checked = pipeline(
         r#"
 fn make() u8x16 {
-    @splat[u8x16](7u8)
+    std::builtin::splat[u8x16](7u8)
 }
 
 fn invalid() u8 {
-    @splat[u8](1u8)
+    std::builtin::splat[u8](1u8)
 }
 "#,
     );
@@ -409,15 +432,15 @@ fn checks_simd_bitmask_builtin() {
     let checked = pipeline(
         r#"
 fn mask(v: u8x16) usize {
-    @bitmask(v == @splat[u8x16](7u8))
+    std::builtin::bitmask(v == std::builtin::splat[u8x16](7u8))
 }
 
 fn invalid_value(v: u8x16) usize {
-    @bitmask(v)
+    std::builtin::bitmask(v)
 }
 
 fn invalid_type_arg(v: boolx16) usize {
-    @bitmask[usize](v)
+    std::builtin::bitmask[usize](v)
 }
 "#,
     );
@@ -433,7 +456,7 @@ fn invalid_type_arg(v: boolx16) usize {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("builtin `@bitmask` does not take a type argument")),
+            .contains("builtin `bitmask` does not take a type argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -444,15 +467,15 @@ fn checks_bit_intrinsic_builtins() {
     let checked = pipeline(
         r#"
 fn bits(mask: usize) usize {
-    @ctz[usize](mask) + @clz[usize](mask) + @popcount[usize](mask)
+    std::builtin::ctz[usize](mask) + std::builtin::clz[usize](mask) + std::builtin::popcount[usize](mask)
 }
 
 fn invalid_type(value: bool) usize {
-    @ctz[bool](value)
+    std::builtin::ctz[bool](value)
 }
 
 fn missing_type(value: usize) usize {
-    @popcount(value)
+    std::builtin::popcount(value)
 }
 "#,
     );
@@ -468,7 +491,7 @@ fn missing_type(value: usize) usize {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("builtin `@popcount` requires an integer type argument")),
+            .contains("builtin `popcount` requires exactly one type argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -479,11 +502,11 @@ fn checks_load_unaligned_builtin() {
     let checked = pipeline(
         r#"
 fn load(ptr: &u8) u8x8 {
-    @load_unaligned[u8x8](ptr)
+    std::builtin::load_unaligned[u8x8](ptr)
 }
 
 fn invalid_ptr(ptr: &u16) u8x8 {
-    @load_unaligned[u8x8](ptr)
+    std::builtin::load_unaligned[u8x8](ptr)
 }
 "#,
     );

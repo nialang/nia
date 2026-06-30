@@ -75,24 +75,18 @@ fn main() bool {
 }
 
 #[test]
-fn unknown_builtin_value_is_rejected_during_lowering() {
-    let (module, errors) = nia_parser::parse_module(
+fn old_at_builtin_expr_syntax_is_rejected_by_parser() {
+    let (_module, errors) = nia_parser::parse_module(
         r#"
 fn main() bool {
     @unknown
 }
 "#,
     );
-    assert!(errors.is_empty(), "{errors:?}");
-    let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
-        panic!("expected function");
-    };
-    let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-    let err =
-        nia_comptime_ir::lower_expr_early(expr).expect_err("unknown builtin should not lower");
-    assert_eq!(
-        err.message,
-        "unsupported builtin value in comptime expression: @unknown"
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message == "expected expression")
     );
 }
 
@@ -341,7 +335,7 @@ impl ComptimeCommonEnv for ConfigEnv {
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
-            message: "`@error` is not available in this test environment".to_string(),
+            message: "`error` is not available in this test environment".to_string(),
         })
     }
 }

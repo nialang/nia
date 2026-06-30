@@ -5,6 +5,7 @@
 // standard-library implementation modules themselves.
 
 pub module atomic;
+pub module builtin;
 pub module build;
 pub module collections;
 pub module cstring;

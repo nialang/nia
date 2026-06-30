@@ -17,7 +17,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                "builtin `@asm` requires exactly one configuration argument",
+                "builtin `asm` requires exactly one configuration argument",
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -29,7 +29,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 config.span,
-                "builtin `@asm` expects an untyped struct literal configuration",
+                "builtin `asm` expects an untyped struct literal configuration",
             ));
             self.check_expr(config);
             return self.void();
@@ -44,7 +44,7 @@ impl<'a> BodyChecker<'a> {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             field.value.span,
-                            "`@asm` field `code` must be a byte string literal",
+                            "`asm` field `code` must be a byte string literal",
                         ));
                     }
                 }
@@ -56,7 +56,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         field.span,
-                        format!("unknown `@asm` field `{}`", field.name),
+                        format!("unknown `asm` field `{}`", field.name),
                     ));
                     self.check_expr(&field.value);
                 }
@@ -66,7 +66,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 builtin_span,
-                "builtin `@asm` requires a `code` byte string literal",
+                "builtin `asm` requires a `code` byte string literal",
             ));
         }
         self.void()
@@ -77,7 +77,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                "`@asm` field `inputs` must be a struct literal",
+                "`asm` field `inputs` must be a struct literal",
             ));
             self.check_expr(expr);
             return;
@@ -93,7 +93,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                "`@asm` field `outputs` must be a struct literal",
+                "`asm` field `outputs` must be a struct literal",
             ));
             self.check_expr(expr);
             return;
@@ -171,7 +171,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                "`@asm` field `clobbers` must be an array literal of byte strings",
+                "`asm` field `clobbers` must be an array literal of byte strings",
             ));
             self.check_expr(expr);
             return;
@@ -181,7 +181,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     elem.span,
-                    "`@asm` clobbers must be byte string literals",
+                    "`asm` clobbers must be byte string literals",
                 ));
             }
         }
@@ -200,7 +200,7 @@ impl<'a> BodyChecker<'a> {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             elem.span,
-                            "`@asm` options must be byte string literals",
+                            "`asm` options must be byte string literals",
                         ));
                         self.check_expr(elem);
                     }
@@ -210,7 +210,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    "`@asm` options must be a list of byte string literals",
+                    "`asm` options must be a list of byte string literals",
                 ));
                 self.check_expr(expr);
             }
@@ -218,7 +218,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    "`@asm` field `options` must be a byte string literal or array literal",
+                    "`asm` field `options` must be a byte string literal or array literal",
                 ));
                 self.check_expr(expr);
             }
@@ -231,12 +231,12 @@ impl<'a> BodyChecker<'a> {
             Some(name) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                format!("unknown `@asm` option `{name}`"),
+                format!("unknown `asm` option `{name}`"),
             )),
             None => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "invalid `@asm` option byte string literal",
+                "invalid `asm` option byte string literal",
             )),
         }
     }

@@ -610,7 +610,7 @@ struct S {
 }
 
 fn main() i32 {
-    @size[S]() as i32
+    std::builtin::size[S]() as i32
 }
 "#,
     )
@@ -651,7 +651,7 @@ extern struct Pair {
 }
 
 fn main() usize {
-    @offset[Pair]("b")
+    std::builtin::offset[Pair]("b")
 }
 "#,
     )
@@ -696,7 +696,7 @@ pub struct Header {
 }
 
 pub struct Box {
-    bytes: [@size[Header]()]u8,
+    bytes: [std::builtin::size[Header]()]u8,
 }
 
 pub fn make_box() Box {

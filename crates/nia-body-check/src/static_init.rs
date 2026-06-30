@@ -67,36 +67,6 @@ impl<'a> BodyChecker<'a> {
                     ));
                     StaticInit::Byte(0)
                 }),
-            ExprKind::Builtin { .. } => match self.builtin_value(expr) {
-                Some(BuiltinValue::Int(value)) => StaticInit::Int(*value),
-                Some(BuiltinValue::Usize(value)) => {
-                    StaticInit::Int(IntConst::unsigned(*value as u128))
-                }
-                Some(BuiltinValue::Layout { .. }) => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        "generic layout builtin is not representable as static data",
-                    ));
-                    StaticInit::Zero
-                }
-                Some(BuiltinValue::FieldOffset { .. }) => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        "generic field offset builtin is not representable as static data",
-                    ));
-                    StaticInit::Zero
-                }
-                None => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        expr.span,
-                        "builtin value is not representable as static data yet",
-                    ));
-                    StaticInit::Zero
-                }
-            },
             ExprKind::Ident(_) | ExprKind::Qualified { .. } => {
                 if let Some(BuiltinValue::Int(value)) = self.builtin_value(expr) {
                     return StaticInit::Int(*value);

@@ -2508,6 +2508,7 @@ fn collect_resolved_call_owner_modules(
     type_ids: &mut Vec<InternedTyId>,
 ) {
     match call {
+        nia_sema_ir::ResolvedCall::BuiltinFunction { .. } => {}
         nia_sema_ir::ResolvedCall::Function(def_id) => {
             add_reachable_module(def_id.module_id, modules, pending_modules);
         }

@@ -154,7 +154,7 @@ fn cstr(value: & u8) usize { 1 }
 fn main() i32 {
     let mut x = 1;
     let mut y = id(x);
-    let mut n = @size[Pair]();
+    let mut n = std::builtin::size[Pair]();
     let mut s = take(&[1, 2, 3]);
     let mut literal_slice: &[i32] = &[4, 5, 6];
     let mut t = text(&"ok");

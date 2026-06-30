@@ -3965,11 +3965,6 @@ fn extend_executable_checked_module_state(
     state
         .module
         .value_resolution
-        .node_builtins
-        .extend(increment.value_resolution.node_builtins);
-    state
-        .module
-        .value_resolution
         .diagnostics
         .extend(increment.value_resolution.diagnostics);
 
@@ -4189,7 +4184,6 @@ fn executable_signature_checked_module(
             node_builtin_associated_values: HashMap::new(),
             node_variant_enums: HashMap::new(),
             node_qualified_type_prefixes: HashMap::new(),
-            node_builtins: HashMap::new(),
             diagnostics: Vec::new(),
         },
         local_resolution: nia_local_resolve::LocalResolution {

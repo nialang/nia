@@ -94,14 +94,14 @@ fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) void {
 
 fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) void {
     let mut record = SpawnErrorRecord::init(stage, errno);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     _ = fd.write_some(bytes);
 }
 
 fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?SpawnError {
     defer _ = fd.close();
     let mut record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..@size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     let mut read_len = 0usize;
     while read_len < bytes.len() {
         let amount = fd.read_some(&mut bytes[read_len..]).as_spawn_setup_error().?;

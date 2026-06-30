@@ -495,13 +495,6 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
         ExprKind::Null => out.push_str("null"),
         ExprKind::Ident(name) => write_tagged_text(out, "ident", name),
         ExprKind::Underscore => out.push('_'),
-        ExprKind::Builtin { name, type_arg } => {
-            out.push_str("builtin(");
-            out.push_str(name);
-            out.push('|');
-            write_optional_type_identity(out, type_arg.as_ref());
-            out.push(')');
-        }
         ExprKind::TypeTarget { ty } => {
             out.push_str("type_target(");
             write_type_ref_identity(out, ty);

@@ -5,8 +5,8 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{
-    EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures, StructSignature,
-    UnionSignature,
+    EnumSignature, FunctionAttribute, FunctionSignature, GlobalSignature, ItemSignatures,
+    StructSignature, UnionSignature,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
@@ -177,6 +177,13 @@ impl AbiChecker<'_> {
         signature: &FunctionSignature,
         interner: &TyInterner,
     ) {
+        if signature
+            .attributes
+            .iter()
+            .any(|attribute| matches!(attribute, FunctionAttribute::Builtin(_)))
+        {
+            return;
+        }
         if !signature.generics.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,

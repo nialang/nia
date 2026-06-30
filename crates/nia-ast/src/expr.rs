@@ -200,10 +200,6 @@ pub enum ExprKind {
     Null,
     Ident(String),
     Underscore,
-    Builtin {
-        name: String,
-        type_arg: Option<TypeRef>,
-    },
     TypeTarget {
         ty: TypeRef,
     },

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
+use super::builtins::BuiltinCallTypeArgs;
+use super::std_builtin_function;
 use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::FunctionSignature;
+use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId};
+use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
@@ -99,6 +101,17 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         }
         let signature = item.resolved.signature;
+        if let Some(builtin) = builtin_function(&signature) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!(
+                    "builtin function `{}` cannot be used as a function pointer",
+                    builtin.name()
+                ),
+            ));
+            return Some(self.error());
+        }
         let substitutions = self.generic_substitutions_for_function_ref(
             expr,
             item.resolved.def_id,
@@ -254,6 +267,16 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let span = expr.span;
         let signature = &resolved.signature;
+        if let Some(builtin) = builtin_function(signature) {
+            return self.check_builtin_function_call(
+                span,
+                span,
+                expr,
+                builtin,
+                BuiltinCallTypeArgs::Bracket(&[]),
+                args,
+            );
+        }
         if signature.is_comptime && !self.in_comptime_context() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -300,6 +323,20 @@ impl<'a> BodyChecker<'a> {
             );
             return return_type;
         }
+        if let Some(builtin) = std_builtin_function(callee) {
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
+                BracketSuffixResolution::GenericCall,
+            );
+            return self.check_builtin_function_call(
+                expr.span,
+                bracket_expr.span,
+                expr,
+                builtin,
+                BuiltinCallTypeArgs::Bracket(type_args),
+                args,
+            );
+        }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
             && let Some(return_type) = self
                 .check_explicit_generic_associated_call(expr, lhs, name, type_args, args, expected)
@@ -315,6 +352,16 @@ impl<'a> BodyChecker<'a> {
                 bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
+            if let Some(builtin) = builtin_function(&resolved.signature) {
+                return self.check_builtin_function_call(
+                    expr.span,
+                    bracket_expr.span,
+                    expr,
+                    builtin,
+                    BuiltinCallTypeArgs::Bracket(type_args),
+                    args,
+                );
+            }
             return self.check_instantiated_function_call(
                 expr,
                 resolved.def_id,
@@ -329,6 +376,16 @@ impl<'a> BodyChecker<'a> {
                 bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
+            if let Some(builtin) = builtin_function(&resolved.signature) {
+                return self.check_builtin_function_call(
+                    expr.span,
+                    bracket_expr.span,
+                    expr,
+                    builtin,
+                    BuiltinCallTypeArgs::Bracket(type_args),
+                    args,
+                );
+            }
             return self.check_instantiated_function_call(
                 expr,
                 resolved.def_id,
@@ -978,4 +1035,14 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::GenericParam(existing)) if existing == name
         )
     }
+}
+
+fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
+    signature
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            FunctionAttribute::Builtin(builtin) => Some(*builtin),
+            FunctionAttribute::Naked => None,
+        })
 }

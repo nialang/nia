@@ -83,8 +83,8 @@ pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!
 
 fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
     let mut stx: Statx;
-    let mut bytes = &mut ((&mut stx as &mut u8)[0..@size[Statx]()]);
-    @memset(bytes, 0);
+    let mut bytes = &mut ((&mut stx as &mut u8)[0..std::builtin::size[Statx]()]);
+    std::builtin::memset(bytes, 0);
     let ret = syscall::syscall5(
         syscall::statx,
         dir.raw() as usize,

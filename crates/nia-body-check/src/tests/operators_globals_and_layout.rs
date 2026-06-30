@@ -163,7 +163,7 @@ fn generic_layout_builtins_require_sized_bound() {
         r#"
 fn bytes[T]() usize
 where T: Sized {
-    @size[T]() + @align[T]()
+    std::builtin::size[T]() + std::builtin::align[T]()
 }
 
 fn main() usize {
@@ -176,7 +176,7 @@ fn main() usize {
     let rejected = pipeline(
         r#"
 fn bytes[T]() usize {
-    @size[T]()
+    std::builtin::size[T]()
 }
 
 fn main() usize {

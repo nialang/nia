@@ -137,6 +137,95 @@ pub enum ValueBuiltin {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinFunction {
+    ComptimeError,
+    Trap,
+    SizeOf,
+    AlignOf,
+    Offset,
+    Asm,
+    MemCopy,
+    MemMove,
+    MemSet,
+    LoadUnaligned,
+    Splat,
+    Extract,
+    Insert,
+    Bitmask,
+    Ctz,
+    Clz,
+    Popcount,
+    AtomicLoad,
+    AtomicStore,
+    AtomicRmw,
+    CmpxchgStrong,
+    CmpxchgWeak,
+    Fence,
+    Embed,
+}
+
+impl BuiltinFunction {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "error" => Some(Self::ComptimeError),
+            "trap" => Some(Self::Trap),
+            "size" => Some(Self::SizeOf),
+            "align" => Some(Self::AlignOf),
+            "offset" => Some(Self::Offset),
+            "asm" => Some(Self::Asm),
+            "memcpy" => Some(Self::MemCopy),
+            "memmove" => Some(Self::MemMove),
+            "memset" => Some(Self::MemSet),
+            "load_unaligned" => Some(Self::LoadUnaligned),
+            "splat" => Some(Self::Splat),
+            "extract" => Some(Self::Extract),
+            "insert" => Some(Self::Insert),
+            "bitmask" => Some(Self::Bitmask),
+            "ctz" => Some(Self::Ctz),
+            "clz" => Some(Self::Clz),
+            "popcount" => Some(Self::Popcount),
+            "atomic_load" => Some(Self::AtomicLoad),
+            "atomic_store" => Some(Self::AtomicStore),
+            "atomic_rmw" => Some(Self::AtomicRmw),
+            "cmpxchg_strong" => Some(Self::CmpxchgStrong),
+            "cmpxchg_weak" => Some(Self::CmpxchgWeak),
+            "fence" => Some(Self::Fence),
+            "embed" => Some(Self::Embed),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ComptimeError => "error",
+            Self::Trap => "trap",
+            Self::SizeOf => "size",
+            Self::AlignOf => "align",
+            Self::Offset => "offset",
+            Self::Asm => "asm",
+            Self::MemCopy => "memcpy",
+            Self::MemMove => "memmove",
+            Self::MemSet => "memset",
+            Self::LoadUnaligned => "load_unaligned",
+            Self::Splat => "splat",
+            Self::Extract => "extract",
+            Self::Insert => "insert",
+            Self::Bitmask => "bitmask",
+            Self::Ctz => "ctz",
+            Self::Clz => "clz",
+            Self::Popcount => "popcount",
+            Self::AtomicLoad => "atomic_load",
+            Self::AtomicStore => "atomic_store",
+            Self::AtomicRmw => "atomic_rmw",
+            Self::CmpxchgStrong => "cmpxchg_strong",
+            Self::CmpxchgWeak => "cmpxchg_weak",
+            Self::Fence => "fence",
+            Self::Embed => "embed",
+        }
+    }
+}
+
 impl ValueBuiltin {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {

@@ -680,13 +680,13 @@ impl Analyzer<'_> {
         let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
             return Err(ComptimeError {
                 span,
-                message: "builtin `@offset` requires a struct or union type argument".to_string(),
+                message: "builtin `offset` requires a struct or union type argument".to_string(),
             });
         };
         let Some(field_def) = self.field_def_for_nominal(def_id, field) else {
             return Err(ComptimeError {
                 span,
-                message: format!("type has no field `{field}` for builtin `@offset`"),
+                message: format!("type has no field `{field}` for builtin `offset`"),
             });
         };
         let ty_module_id = self.type_owner(ty).module_id();
@@ -699,7 +699,7 @@ impl Analyzer<'_> {
         let Some(offset) = offset else {
             return Err(ComptimeError {
                 span,
-                message: "cannot compute field offset for comptime builtin `@offset`".to_string(),
+                message: "cannot compute field offset for comptime builtin `offset`".to_string(),
             });
         };
         Ok(ComptimeValue::Int(IntConst::unsigned(offset as u128)))

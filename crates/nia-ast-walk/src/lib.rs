@@ -276,11 +276,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         | ExprKind::Null
         | ExprKind::Ident(_)
         | ExprKind::Underscore => {}
-        ExprKind::Builtin { type_arg, .. } => {
-            if let Some(type_arg) = type_arg {
-                visitor.visit_type(type_arg);
-            }
-        }
         ExprKind::TypeTarget { ty } => visitor.visit_type(ty),
         ExprKind::BracketSuffix { callee, args } => {
             visitor.visit_expr(callee);

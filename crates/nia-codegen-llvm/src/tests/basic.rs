@@ -100,7 +100,7 @@ fn emits_splat_builtin() {
         &main,
         r#"
 fn make(value: u8) u8x16 {
-    @splat[u8x16](value)
+    std::builtin::splat[u8x16](value)
 }
 "#,
     )
@@ -132,11 +132,11 @@ fn emits_vector_lane_builtins() {
         &main,
         r#"
 fn lane(v: u8x16, i: usize) u8 {
-    @extract(v, i)
+    std::builtin::extract(v, i)
 }
 
 fn changed(v: u8x16, i: usize, x: u8) u8x16 {
-    @insert(v, i, x)
+    std::builtin::insert(v, i, x)
 }
 "#,
     )
@@ -206,7 +206,7 @@ fn emits_vector_bitmask_builtin() {
         &main,
         r#"
 fn matching(v: u8x16, tag: u8) usize {
-    @bitmask(v == @splat[u8x16](tag))
+    std::builtin::bitmask(v == std::builtin::splat[u8x16](tag))
 }
 "#,
     )
@@ -240,7 +240,7 @@ fn emits_bit_intrinsic_builtins() {
         &main,
         r#"
 fn scan(mask: usize) usize {
-    @ctz[usize](mask) + @clz[usize](mask) + @popcount[usize](mask)
+    std::builtin::ctz[usize](mask) + std::builtin::clz[usize](mask) + std::builtin::popcount[usize](mask)
 }
 "#,
     )
@@ -377,7 +377,7 @@ fn emits_unaligned_vector_load_builtin() {
         &main,
         r#"
 fn load(ptr: &u8) u8x8 {
-    @load_unaligned[u8x8](ptr)
+    std::builtin::load_unaligned[u8x8](ptr)
 }
 "#,
     )

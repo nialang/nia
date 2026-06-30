@@ -14,8 +14,8 @@ fn call_user_main(init: process::Init) process::ExitCode {
 
 extern fn nia_start_stack(stack: &usize) void {
     let argc = stack.*;
-    let argv = (stack as usize + @size[usize]()) as &&u8;
-    let envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
+    let argv = (stack as usize + std::builtin::size[usize]()) as &&u8;
+    let envp = (stack as usize + std::builtin::size[usize]() * (argc + 2)) as &&u8;
     let mut runtime_io = io::BlockingIo::init();
     let init = process::Init::init(argc, argv, envp, &mut runtime_io);
     let exit = call_user_main(init);
@@ -25,7 +25,7 @@ extern fn nia_start_stack(stack: &usize) void {
 
 @[naked]
 pub extern fn _start() void {
-    @asm({
+    std::builtin::asm({
         code:
             b\\mov rdi, rsp
             \\call nia_start_stack

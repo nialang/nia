@@ -255,7 +255,7 @@ fn builtin_sized_trait_allows_generic_layout_builtins() {
         r#"
 fn bytes[T]() usize
 where T: Sized {
-    @size[T]() + @align[T]()
+    std::builtin::size[T]() + std::builtin::align[T]()
 }
 
 fn main() usize {
@@ -275,7 +275,7 @@ fn builtin_sized_trait_rejects_unconstrained_generic_layout_builtins() {
         &root.join("main.nia"),
         r#"
 fn bytes[T]() usize {
-    @size[T]()
+    std::builtin::size[T]()
 }
 
 fn main() usize {
@@ -310,7 +310,7 @@ extend[T] ArrayList[T]
 where T: Sized {
     fn elem_size(& self) usize {
         _ = self;
-        @size[T]()
+        std::builtin::size[T]()
     }
 }
 
@@ -340,7 +340,7 @@ extend[T] ArrayList[T] {
     fn other_size[U](& self) usize
     where U: Sized {
         _ = self;
-        @size[U]()
+        std::builtin::size[U]()
     }
 }
 
@@ -371,7 +371,7 @@ where T: Sized {
 extend[T] ArrayList[T] {
     fn elem_size(& self) usize {
         _ = self;
-        @size[T]()
+        std::builtin::size[T]()
     }
 }
 

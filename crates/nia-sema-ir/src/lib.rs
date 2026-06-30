@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_ids::{
-    BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ReceiverKind,
+    BuiltinFunction, BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
+    ModuleId, ReceiverKind,
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -303,6 +304,10 @@ pub struct FunctionReference {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCall {
+    BuiltinFunction {
+        builtin: BuiltinFunction,
+        type_arg: Option<InternedTyId>,
+    },
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,

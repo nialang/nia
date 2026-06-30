@@ -3,7 +3,7 @@ using pkg::mem;
 pub fn dangling_slice[T](len: usize) &mut [T]
 where T: Sized
 {
-    let mut ptr = @align[T]() as &mut T;
+    let mut ptr = std::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 

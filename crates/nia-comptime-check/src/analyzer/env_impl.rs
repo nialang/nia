@@ -29,7 +29,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         match builtin {
             ValueBuiltin::Error => Err(ComptimeError {
                 span,
-                message: "builtin `@error` must be called with a message".to_string(),
+                message: "builtin `error` must be called with a message".to_string(),
             }),
         }
     }
@@ -38,13 +38,13 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         if path.is_empty() {
             return Err(ComptimeError {
                 span,
-                message: "builtin `@embed` path cannot be empty".to_string(),
+                message: "builtin `embed` path cannot be empty".to_string(),
             });
         }
         let Some(source_path) = self.current_execution_source_path() else {
             return Err(ComptimeError {
                 span,
-                message: "builtin `@embed` cannot resolve the current source path".to_string(),
+                message: "builtin `embed` cannot resolve the current source path".to_string(),
             });
         };
         let resolved = resolve_embed_path(source_path.as_str(), path);
@@ -279,7 +279,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         let Some(ty_id) = ty_id else {
             return Err(ComptimeError {
                 span,
-                message: "cannot resolve type argument for comptime builtin `@offset`".to_string(),
+                message: "cannot resolve type argument for comptime builtin `offset`".to_string(),
             });
         };
         self.resolve_field_offset_builtin_for_ty(span, ty_id, field)

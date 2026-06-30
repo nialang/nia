@@ -1444,7 +1444,7 @@ struct Pair {
     b: i32,
 }
 
-fn main(xs: [@size[Pair]()]u8, ys: [@align[Pair]()]u8) {}
+fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8) {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

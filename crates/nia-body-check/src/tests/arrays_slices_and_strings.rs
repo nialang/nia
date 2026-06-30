@@ -11,8 +11,8 @@ struct Pair {
 }
 
 fn main() usize {
-    let mut size = @size[Pair]();
-    let mut align = @align[Pair]();
+    let mut size = std::builtin::size[Pair]();
+    let mut align = std::builtin::align[Pair]();
     size + align
 }
 "#,
@@ -49,8 +49,8 @@ union Bits {
 }
 
 fn main() usize {
-    let mut b = @offset[Pair]("b");
-    let mut f = @offset[Bits]("f");
+    let mut b = std::builtin::offset[Pair]("b");
+    let mut f = std::builtin::offset[Bits]("f");
     b + f
 }
 "#,
@@ -101,15 +101,15 @@ struct Pair {
 }
 
 fn missing() usize {
-    @offset[Pair]("b")
+    std::builtin::offset[Pair]("b")
 }
 
 fn non_aggregate() usize {
-    @offset[u32]("x")
+    std::builtin::offset[u32]("x")
 }
 
 fn non_string() usize {
-    @offset[Pair](0)
+    std::builtin::offset[Pair](0)
 }
 "#,
     );
@@ -147,13 +147,13 @@ struct Pair {
     b: i32,
 }
 
-fn take_size(xs: [@size[Pair]()]u8) u8 {
+fn take_size(xs: [std::builtin::size[Pair]()]u8) u8 {
     xs[0]
 }
 
 fn main() u8 {
-    let mut exact: [@size[Pair]()]u8 = [b'\0'; 8];
-    let mut aligned: [@align[Pair]()]u8 = [b'\0'; 4];
+    let mut exact: [std::builtin::size[Pair]()]u8 = [b'\0'; 8];
+    let mut aligned: [std::builtin::align[Pair]()]u8 = [b'\0'; 4];
     _ = take_size(exact);
     aligned[0]
 }
@@ -326,9 +326,9 @@ fn checks_memory_intrinsic_builtins() {
 fn main() void {
     let mut dst: [4]u8 = [0, 0, 0, 0];
     let src: [4]u8 = [1, 2, 3, 4];
-    @memcpy(&mut dst[..], &src[..]);
-    @memmove(&mut dst[1..], &dst[0..3]);
-    @memset(&mut dst[..], 0);
+    std::builtin::memcpy(&mut dst[..], &src[..]);
+    std::builtin::memmove(&mut dst[1..], &dst[0..3]);
+    std::builtin::memset(&mut dst[..], 0);
 }
 "#,
     );
@@ -360,12 +360,12 @@ fn rejects_invalid_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
 fn readonly(xs: & [u8]) void {
-    @memcpy(xs, xs);
+    std::builtin::memcpy(xs, xs);
 }
 
 fn memset_non_byte() void {
     let mut xs: [2]i32 = [1, 2];
-    @memset(&mut xs[..], 0);
+    std::builtin::memset(&mut xs[..], 0);
 }
 "#,
     );
@@ -592,7 +592,7 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * @size[T]()) as &mut T;
+            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &mut T;
             self.index += 1usize;
             ?item
         }

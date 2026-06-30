@@ -321,8 +321,9 @@ impl<'a> ModuleLowerer<'a> {
             attributes: signature
                 .attributes
                 .iter()
-                .map(|attribute| match attribute {
-                    FunctionAttribute::Naked => BackendFunctionAttribute::Naked,
+                .filter_map(|attribute| match attribute {
+                    FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
+                    FunctionAttribute::Builtin(_) => None,
                 })
                 .collect(),
             function_body,

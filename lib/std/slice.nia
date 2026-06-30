@@ -65,7 +65,7 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * @size[T]()) as &T;
+            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &T;
             self.index += 1;
             ?item
         }
@@ -80,7 +80,7 @@ where T: Sized
             null
         } else {
             self.len -= 1usize;
-            ?((self.ptr as usize + self.len * @size[T]()) as &T)
+            ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &T)
         }
     }
 }
@@ -102,7 +102,7 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * @size[T]()) as &mut T;
+            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &mut T;
             self.index += 1;
             ?item
         }
@@ -117,7 +117,7 @@ where T: Sized
             null
         } else {
             self.len -= 1usize;
-            ?((self.ptr as usize + self.len * @size[T]()) as &mut T)
+            ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &mut T)
         }
     }
 }

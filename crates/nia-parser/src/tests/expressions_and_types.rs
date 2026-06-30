@@ -119,8 +119,8 @@ struct Pair[T] {
 }
 
 fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
-    let mut size = @size[Pair[i32]]();
-    let mut offset = @offset[Pair[i32]]("value");
+    let mut size = std::builtin::size[Pair[i32]]();
+    let mut offset = std::builtin::offset[Pair[i32]]("value");
     let mut addr = ptr as usize;
     let mut first = xs[0];
     let mut value = ptr.*;
@@ -140,13 +140,7 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
         panic!("expected builtin call");
     };
     assert!(args.is_empty());
-    assert!(matches!(
-        callee.kind,
-        ExprKind::Builtin {
-            type_arg: Some(_),
-            ..
-        }
-    ));
+    assert!(matches!(callee.kind, ExprKind::BracketSuffix { .. }));
     let StmtKind::Binding(offset) = &body.stmts[1].kind else {
         panic!("expected binding");
     };
@@ -155,13 +149,7 @@ fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
         panic!("expected offset builtin call");
     };
     assert_eq!(args.len(), 1);
-    assert!(matches!(
-        callee.kind,
-        ExprKind::Builtin {
-            type_arg: Some(_),
-            ..
-        }
-    ));
+    assert!(matches!(callee.kind, ExprKind::BracketSuffix { .. }));
     let StmtKind::Binding(addr) = &body.stmts[2].kind else {
         panic!("expected binding");
     };

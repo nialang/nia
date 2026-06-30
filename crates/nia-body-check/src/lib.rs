@@ -1256,6 +1256,7 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitMethod { method_id, .. }
             | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
             ResolvedCall::DynamicTraitMethod { .. }
+            | ResolvedCall::BuiltinFunction { .. }
             | ResolvedCall::BuiltinTraitMethod { .. }
             | ResolvedCall::BuiltinMethod { .. }
             | ResolvedCall::BuiltinPlaceMethod { .. }
@@ -1474,10 +1475,6 @@ impl<'a> BodyChecker<'a> {
             .node_qualified_type_prefixes
             .get(&expr.node_key)
             .copied()
-    }
-
-    fn builtin_resolution(&self, expr: &Expr) -> Option<nia_value_resolve::BuiltinResolution> {
-        self.values.node_builtins.get(&expr.node_key).copied()
     }
 
     fn with_comptime_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -3221,10 +3218,8 @@ fn is_embed_builtin_call(expr: &Expr) -> bool {
     let ExprKind::Call { callee, .. } = &expr.kind else {
         return false;
     };
-    matches!(
-        &callee.kind,
-        ExprKind::Builtin { name, .. } if name == "embed"
-    )
+    calls::std_builtin_function(callee)
+        .is_some_and(|builtin| builtin == nia_ids::BuiltinFunction::Embed)
 }
 
 pub(crate) fn generic_inst_base(expr: &Expr) -> &Expr {

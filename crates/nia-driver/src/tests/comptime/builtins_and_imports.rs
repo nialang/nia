@@ -76,7 +76,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown builtin `@builtin`")),
+            .contains("expected expression")),
         "{:?}",
         program.diagnostics
     );
@@ -158,7 +158,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown builtin `@target_os`")),
+            .contains("expected expression")),
         "{:?}",
         program.diagnostics
     );
@@ -201,8 +201,8 @@ struct Pair {
     b: i32,
 }
 
-comptime pair_size: usize = @size[Pair]();
-comptime pair_align: usize = @align[Pair]();
+comptime pair_size: usize = std::builtin::size[Pair]();
+comptime pair_align: usize = std::builtin::align[Pair]();
 
 fn main() i32 {
     let mut bytes: [pair_size]u8 = [0; pair_size];
@@ -223,7 +223,7 @@ fn embed_reads_bytes_relative_to_source_file() {
     write(
         &root.join("src/main.nia"),
         r#"
-comptime payload = @embed("assets/payload.bin");
+comptime payload = std::builtin::embed("assets/payload.bin");
 
 comptime fn score(bytes: [3]u8) usize {
     if bytes[0] == b'n' and bytes[1] == b'i' and bytes[2] == b'a' {
@@ -252,7 +252,7 @@ fn embed_reports_missing_file() {
     write(
         &root.join("main.nia"),
         r#"
-comptime payload = @embed("missing.bin");
+comptime payload = std::builtin::embed("missing.bin");
 
 fn main() i32 {
     payload.len() as i32
@@ -279,7 +279,7 @@ fn embed_is_rejected_in_runtime_body() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    let payload = @embed("payload.bin");
+    let payload = std::builtin::embed("payload.bin");
     payload.len() as i32
 }
 "#,
@@ -290,7 +290,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("builtin `@embed` can only be evaluated at comptime")),
+            .contains("builtin `embed` can only be evaluated at comptime")),
         "{:?}",
         program.diagnostics
     );

@@ -27,7 +27,7 @@ pub comptime statx: usize = 332usize;
 
 pub fn syscall0(number: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -45,7 +45,7 @@ pub fn syscall0(number: usize) isize {
 
 pub fn syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -64,7 +64,7 @@ pub fn syscall1(number: usize, arg0: usize) isize {
 
 pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -84,7 +84,7 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
 
 pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -105,7 +105,7 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
 
 pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -127,7 +127,7 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
 
 pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,
@@ -158,7 +158,7 @@ pub fn syscall6(
     arg5: usize,
 ) isize {
     let mut ret: isize = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\syscall
         ,

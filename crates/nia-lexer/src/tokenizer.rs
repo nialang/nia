@@ -758,7 +758,7 @@ mod tests {
     #[test]
     fn tokenizes_literals_and_comments() {
         assert_eq!(
-            kinds("\"nia\\0\" b\"nia\" b'a' '中' // comment\n@size[usize]()"),
+            kinds("\"nia\\0\" b\"nia\" b'a' '中' // comment\nstd::builtin::size[usize]()"),
             vec![
                 TokenKind::String,
                 TokenKind::ByteString,
