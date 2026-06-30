@@ -48,6 +48,8 @@ pub struct IncrementalExecutableReachability {
     reachability: ExecutableReachability,
     scanned_functions: HashSet<GlobalDefId>,
     scanned_globals: HashSet<GlobalDefId>,
+    scanned_generic_trait_functions: HashSet<GlobalDefId>,
+    generic_trait_scan_method_count: usize,
     reachable_traits: ReachableTraitRefs,
 }
 
@@ -285,13 +287,12 @@ pub fn compute_executable_reachability_incremental(
             .copied()
             .filter(|module_id| state.reachability.modules.contains(module_id))
             .collect::<HashSet<_>>();
-        extend_reachable_traits_from_generic_instances(
+        extend_reachable_traits_from_generic_instances_incremental(
+            state,
             &modules_by_id,
             &current_reachable_modules,
             program_signatures,
             extension_methods,
-            &state.reachability.functions,
-            &mut state.reachable_traits,
         );
         let mut pending_modules = VecDeque::new();
         extend_reachable_functions_from_traits(
@@ -733,6 +734,59 @@ fn extend_reachable_traits_from_generic_instances(
                 );
             }
         }
+    }
+}
+
+fn extend_reachable_traits_from_generic_instances_incremental(
+    state: &mut IncrementalExecutableReachability,
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    current_reachable_modules: &HashSet<ModuleId>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+) {
+    let needed_method_count = state.reachable_traits.methods.len();
+    if state.generic_trait_scan_method_count != needed_method_count {
+        state.scanned_generic_trait_functions.clear();
+        state.generic_trait_scan_method_count = needed_method_count;
+    }
+    let needed_methods = state
+        .reachable_traits
+        .methods
+        .iter()
+        .map(|method| (method.trait_id, method.method_name.clone()))
+        .collect::<HashSet<_>>();
+    for module in modules_by_id
+        .values()
+        .filter(|module| current_reachable_modules.contains(&module.module_id))
+    {
+        for def_id in state
+            .reachability
+            .functions
+            .iter()
+            .filter(|def_id| def_id.module_id == module.module_id)
+        {
+            if state.scanned_generic_trait_functions.contains(def_id) {
+                continue;
+            }
+            let Some(function_facts) = module.semantic_facts.function_facts.get(def_id) else {
+                continue;
+            };
+            state.scanned_generic_trait_functions.insert(*def_id);
+            for instantiation in &function_facts.generic_instantiations {
+                extend_reachable_traits_from_generic_instantiation(
+                    module,
+                    program_signatures,
+                    extension_methods,
+                    &needed_methods,
+                    &mut state.reachable_traits,
+                    instantiation,
+                );
+            }
+        }
+    }
+    if state.reachable_traits.methods.len() != needed_method_count {
+        state.generic_trait_scan_method_count = state.reachable_traits.methods.len();
+        state.scanned_generic_trait_functions.clear();
     }
 }
 
