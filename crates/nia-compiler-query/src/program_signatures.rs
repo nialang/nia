@@ -337,7 +337,9 @@ fn trait_id_and_args(
     ty: nia_ids::InternedTyId,
 ) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
     match interner.get(ty) {
-        Some(TyKind::Nominal { def_id, args }) => Some((TraitId::Source(*def_id), args.clone())),
+        Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some((TraitId::Source(*def_id), args.clone()))
+        }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             Some((TraitId::Builtin(*trait_id), args.clone()))
         }
@@ -690,7 +692,7 @@ fn impl_trait_args(
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
     match (expected_trait_id, module.normalization.interner.get(ty)) {
-        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
+        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args, .. }))
             if *def_id == expected =>
         {
             Some(args.clone())
@@ -713,7 +715,7 @@ fn impl_trait_args_for_index(
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
     match (expected_trait_id, module.normalization.interner.get(ty)) {
-        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
+        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args, .. }))
             if *def_id == expected =>
         {
             Some(args.clone())
@@ -1358,6 +1360,7 @@ fn validate_supertrait_impls(
         let Some(TyKind::Nominal {
             def_id: supertrait_id,
             args: supertrait_args,
+            ..
         }) = comparison_interner.get(supertrait).cloned()
         else {
             continue;
@@ -1798,7 +1801,7 @@ fn substitute_imported_type(
                 is_variadic: *is_variadic,
             })
         }
-        Some(TyKind::Nominal { def_id, args }) => {
+        Some(TyKind::Nominal { def_id, args, .. }) => {
             let args = args
                 .iter()
                 .map(|arg| {
@@ -1815,6 +1818,7 @@ fn substitute_imported_type(
             target_interner.intern(TyKind::Nominal {
                 def_id: *def_id,
                 args,
+                const_args: Vec::new(),
             })
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {

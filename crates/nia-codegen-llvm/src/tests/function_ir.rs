@@ -303,6 +303,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
     let point_ty = interner.intern(TyKind::Nominal {
         def_id: point_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let body = TypedBody {
         span: Span::default(),
@@ -514,6 +515,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
     let box_ty = interner.intern(TyKind::Nominal {
         def_id: box_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let span = Span::default();
     let program = BackendProgram {
@@ -725,6 +727,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                         def_id: callee_id,
                                         arg_module_id: ModuleId(0),
                                         args: vec![i32_ty],
+                                        const_args: Vec::new(),
                                     },
                                     args: Vec::new(),
                                 },
@@ -768,10 +771,12 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
     let canonical_struct_ty = interner.intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let equivalent_struct_ty = interner.intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let span = Span::default();
     let callee_id = GlobalDefId {
@@ -850,6 +855,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                                         def_id: callee_id,
                                         arg_module_id: ModuleId(0),
                                         args: vec![equivalent_struct_ty],
+                                        const_args: Vec::new(),
                                     },
                                     args: Vec::new(),
                                 },
@@ -867,6 +873,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 name: "make".to_string(),
                 arg_module_id: ModuleId(0),
                 args: vec![canonical_struct_ty],
+                const_args: Vec::new(),
                 symbol: "make_marker".to_string(),
                 params: Vec::new(),
                 return_type: i32_ty,
@@ -1079,6 +1086,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     let struct_ty = interner.intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let span = Span::default();
     let program = BackendProgram {
@@ -1572,6 +1580,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     let struct_ty = interner.intern(TyKind::Nominal {
         def_id: struct_id,
         args: Vec::new(),
+        const_args: Vec::new(),
     });
     let span = Span::default();
     let function = BackendFunction {

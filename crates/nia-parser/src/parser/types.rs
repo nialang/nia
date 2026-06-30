@@ -9,14 +9,24 @@ enum TypeParseMode {
 }
 
 impl Parser {
-    pub(super) fn parse_generic_params(&mut self) -> Vec<String> {
+    pub(super) fn parse_generic_params(&mut self) -> Vec<nia_ast::GenericParam> {
         let mut generics = Vec::new();
         if self.eat(TokenKind::LBracket).is_none() {
             return generics;
         }
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
-            if let Some(name) = self.expect_text(TokenKind::Ident, "expected generic parameter") {
-                generics.push(name);
+            if let Some(token) = self.eat(TokenKind::Ident) {
+                let name = self.token_text(&token).to_string();
+                if self.eat(TokenKind::Colon).is_some() {
+                    if let Some(ty) = self.parse_type() {
+                        generics.push(nia_ast::GenericParam::comptime_param(name, token.span, ty));
+                    }
+                } else {
+                    generics.push(nia_ast::GenericParam::type_param(name, token.span));
+                }
+            } else {
+                self.error_here("expected generic parameter");
+                break;
             }
             if self.eat(TokenKind::Comma).is_none() {
                 break;

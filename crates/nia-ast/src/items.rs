@@ -133,7 +133,7 @@ pub struct UsingName {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructItem {
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub fields: Vec<Field>,
     pub is_extern: bool,
@@ -142,7 +142,7 @@ pub struct StructItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionItem {
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub fields: Vec<Field>,
     pub is_extern: bool,
@@ -151,7 +151,7 @@ pub struct UnionItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitItem {
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub supertraits: Vec<TypeRef>,
     pub where_clause: WhereClause,
     pub associated_types: Vec<TraitAssociatedType>,
@@ -172,7 +172,7 @@ pub struct TraitMethod {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtendItem {
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub target: TypeRef,
     pub trait_ref: Option<TypeRef>,
     pub where_clause: WhereClause,
@@ -230,7 +230,7 @@ pub struct EnumVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasItem {
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub ty: TypeRef,
 }
@@ -238,7 +238,7 @@ pub struct TypeAliasItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionItem {
     pub name: String,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
@@ -248,6 +248,65 @@ pub struct FunctionItem {
     pub is_variadic: bool,
     pub span: Span,
     pub node_key: VersionedNodeKey,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenericParam {
+    pub name: String,
+    pub name_span: Span,
+    pub kind: GenericParamKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenericParamKind {
+    Type,
+    Comptime { ty: TypeRef },
+}
+
+impl GenericParam {
+    pub fn type_param(name: String, name_span: Span) -> Self {
+        Self {
+            name,
+            name_span,
+            kind: GenericParamKind::Type,
+        }
+    }
+
+    pub fn comptime_param(name: String, name_span: Span, ty: TypeRef) -> Self {
+        Self {
+            name,
+            name_span,
+            kind: GenericParamKind::Comptime { ty },
+        }
+    }
+
+    pub fn is_type(&self) -> bool {
+        matches!(self.kind, GenericParamKind::Type)
+    }
+
+    pub fn is_comptime(&self) -> bool {
+        matches!(self.kind, GenericParamKind::Comptime { .. })
+    }
+}
+
+pub fn generic_param_names(generics: &[GenericParam]) -> Vec<String> {
+    generics
+        .iter()
+        .map(|generic| generic.name.clone())
+        .collect()
+}
+
+pub fn generic_param_identities(generics: &[GenericParam]) -> Vec<String> {
+    generics.iter().map(generic_param_identity).collect()
+}
+
+pub fn generic_param_identity(generic: &GenericParam) -> String {
+    match &generic.kind {
+        GenericParamKind::Type => generic.name.clone(),
+        GenericParamKind::Comptime { ty } => {
+            format!("{}:{}", generic.name, crate::type_ref_identity(ty))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

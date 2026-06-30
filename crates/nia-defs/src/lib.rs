@@ -6,8 +6,8 @@ mod public_surface;
 
 use nia_ast::{
     BindingItem, Block, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem,
-    FunctionItem, Module, StmtKind, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem,
-    UsingItem, type_ref_identity, where_clause_identity,
+    FunctionItem, GenericParam, Module, StmtKind, StructItem, TraitAssociatedType, TypeAliasItem,
+    UnionItem, UsingItem, generic_param_identities, type_ref_identity, where_clause_identity,
 };
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
@@ -393,7 +393,7 @@ impl DefIdentity {
             segments: vec![DefIdentitySegment::Extension {
                 target: type_ref_identity(&extend.target),
                 trait_ref: extend.trait_ref.as_ref().map(type_ref_identity),
-                generics: extend.generics.clone(),
+                generics: generic_param_identities(&extend.generics),
                 where_clause: where_clause_identity(&extend.where_clause),
             }],
         }
@@ -441,6 +441,7 @@ pub struct Def {
     pub module_id: ModuleId,
     pub parent: Option<DefId>,
     pub generics: Vec<String>,
+    pub generic_params: Vec<GenericParam>,
     pub visibility: Visibility,
     pub span: Span,
 }
@@ -1088,7 +1089,7 @@ impl Collector {
         visibility: Visibility,
         span: Span,
         node_key: VersionedNodeKey,
-        generics: Vec<String>,
+        generics: Vec<GenericParam>,
     ) -> DefId {
         let def_id = self.push_top_def(identity, name.clone(), kind, visibility, span, generics);
         self.def_nodes.insert(node_key, def_id);
@@ -1110,7 +1111,7 @@ impl Collector {
         visibility: Visibility,
         span: Span,
         node_key: VersionedNodeKey,
-        generics: Vec<String>,
+        generics: Vec<GenericParam>,
     ) -> DefId {
         let def_id = self.push_top_def(
             DefIdentity::top(DefNamespace::Value, kind, &name),
@@ -1139,8 +1140,9 @@ impl Collector {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
-        generics: Vec<String>,
+        generics: Vec<GenericParam>,
     ) -> DefId {
+        let generic_names = nia_ast::generic_param_names(&generics);
         self.push_def(
             identity,
             Def {
@@ -1148,7 +1150,8 @@ impl Collector {
                 kind,
                 module_id: self.module_id,
                 parent: None,
-                generics,
+                generics: generic_names,
+                generic_params: generics,
                 visibility,
                 span,
             },
@@ -1183,8 +1186,9 @@ impl Collector {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
-        generics: Vec<String>,
+        generics: Vec<GenericParam>,
     ) -> DefId {
+        let generic_names = nia_ast::generic_param_names(&generics);
         self.push_def(
             identity,
             Def {
@@ -1192,7 +1196,8 @@ impl Collector {
                 kind,
                 module_id: self.module_id,
                 parent,
-                generics,
+                generics: generic_names,
+                generic_params: generics,
                 visibility,
                 span,
             },
@@ -1252,14 +1257,14 @@ impl Collector {
         }
     }
 
-    fn check_duplicate_generics(&mut self, generics: &[String], span: Span) {
+    fn check_duplicate_generics(&mut self, generics: &[GenericParam], span: Span) {
         let mut seen = HashSet::new();
         for generic in generics {
-            if !seen.insert(generic) {
+            if !seen.insert(&generic.name) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::PARSE,
                     span,
-                    format!("duplicate generic parameter `{generic}`"),
+                    format!("duplicate generic parameter `{}`", generic.name),
                 ));
             }
         }

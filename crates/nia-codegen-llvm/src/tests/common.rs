@@ -464,6 +464,11 @@ pub(super) fn mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> 
         .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__m{module}__d...__{name}`"))
 }
 
+pub(super) fn mangled_symbol_any_module(ir: &str, sigil: char, name: &str) -> String {
+    find_mangled_symbol_any_module(ir, sigil, name)
+        .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__m...__d...__{name}`"))
+}
+
 pub(super) fn assert_contains_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) {
     let _ = mangled_symbol(ir, sigil, module, name);
 }
@@ -476,9 +481,34 @@ pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, module: 
 
 fn find_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> Option<String> {
     let prefix = format!("{sigil}nia__m{module}__d");
+    find_mangled_symbol_with_prefix(ir, &prefix, name)
+}
+
+fn find_mangled_symbol_any_module(ir: &str, sigil: char, name: &str) -> Option<String> {
+    let prefix = format!("{sigil}nia__m");
     for (start, _) in ir.match_indices(&prefix) {
         let token = symbol_token(&ir[start..]);
-        let rest = &token[prefix.len()..];
+        let Some((_, rest)) = token.split_once("__d") else {
+            continue;
+        };
+        let Some((_, symbol_name)) = rest.split_once("__") else {
+            continue;
+        };
+        if symbol_name == name {
+            return Some(token.to_string());
+        }
+    }
+    None
+}
+
+fn find_mangled_symbol_with_prefix(ir: &str, prefix: &str, name: &str) -> Option<String> {
+    for (start, _) in ir.match_indices(&prefix) {
+        let token = symbol_token(&ir[start..]);
+        let rest = if let Some(rest) = token.strip_prefix(prefix) {
+            rest
+        } else {
+            continue;
+        };
         let Some((_, symbol_name)) = rest.split_once("__") else {
             continue;
         };

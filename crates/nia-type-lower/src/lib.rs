@@ -2,8 +2,8 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
-    ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg,
-    TypeKind, TypePathSegment, TypeRef, WhereClause,
+    ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, GenericParam, GenericParamKind, Item,
+    ItemKind, Module, TypeArg, TypeKind, TypePathSegment, TypeRef, WhereClause,
 };
 use nia_ast_walk::Visitor;
 use nia_defs::DefCollection;
@@ -13,8 +13,9 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_node_id::NodeSite;
 use nia_span::Span;
 use nia_ty::{
-    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, LayoutBuiltin,
-    PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind, TraitId, TyInterner, TyKind,
+    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, ConstGenericArg,
+    ConstGenericValue, IntConst, LayoutBuiltin, PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind,
+    TraitId, TyInterner, TyKind,
 };
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
@@ -331,7 +332,7 @@ struct TypeLowerer<'a> {
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
     diagnostics: Vec<Diagnostic>,
-    generic_stack: Vec<Vec<String>>,
+    generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<InternedTyId>,
     associated_type_scope_stack: Vec<AssociatedTypeScope>,
     next_const_expr_id: u32,
@@ -394,10 +395,11 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
+                                .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
                                 .map(|generic| {
                                     lowerer
                                         .interner
-                                        .intern(TyKind::GenericParam(generic.clone()))
+                                        .intern(TyKind::GenericParam(generic.name.clone()))
                                 })
                                 .collect::<Vec<_>>();
                             let associated_types = item_trait
@@ -600,10 +602,11 @@ impl TypeLowerer<'_> {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
+                                .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
                                 .map(|generic| {
                                     lowerer
                                         .interner
-                                        .intern(TyKind::GenericParam(generic.clone()))
+                                        .intern(TyKind::GenericParam(generic.name.clone()))
                                 })
                                 .collect::<Vec<_>>();
                             let associated_types = item_trait
@@ -967,8 +970,11 @@ impl<'a> TypeLowerer<'a> {
         context: TypeContext,
     ) -> InternedTyId {
         let mut args = Vec::new();
+        let mut const_args = Vec::new();
         let mut seen_assoc_bindings = HashSet::new();
         let mut seen_assoc_binding = false;
+        let generic_params = self.generic_params_for_def(def_id).unwrap_or_default();
+        let mut positional_index = 0usize;
         for arg in &segment.args {
             match arg {
                 TypeArg::Type(arg_ty) => {
@@ -979,14 +985,54 @@ impl<'a> TypeLowerer<'a> {
                             "positional type arguments must precede associated type bindings",
                         ));
                     }
-                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                    match generic_params
+                        .get(positional_index)
+                        .map(|generic| &generic.kind)
+                    {
+                        Some(GenericParamKind::Comptime { ty }) => {
+                            let Some(value) = self.const_generic_value_from_type_ref(arg_ty) else {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::TYPE_NORMALIZATION,
+                                    arg_ty.span,
+                                    "expected comptime generic argument",
+                                ));
+                                positional_index += 1;
+                                continue;
+                            };
+                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            const_args.push(ConstGenericArg { ty, value });
+                        }
+                        _ => args.push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
+                    }
+                    positional_index += 1;
                 }
                 TypeArg::Const(expr) => {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_NORMALIZATION,
-                        expr.span,
-                        "comptime value generic arguments are not supported",
-                    ));
+                    match generic_params
+                        .get(positional_index)
+                        .map(|generic| &generic.kind)
+                    {
+                        Some(GenericParamKind::Comptime { ty }) => {
+                            let Some(value) = self.const_generic_value_from_stub(expr) else {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::TYPE_NORMALIZATION,
+                                    expr.span,
+                                    "unsupported comptime generic argument",
+                                ));
+                                positional_index += 1;
+                                continue;
+                            };
+                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            const_args.push(ConstGenericArg { ty, value });
+                        }
+                        _ => {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_NORMALIZATION,
+                                expr.span,
+                                "comptime value generic argument supplied for type parameter",
+                            ));
+                        }
+                    }
+                    positional_index += 1;
                 }
                 TypeArg::AssocBinding {
                     key,
@@ -1037,7 +1083,7 @@ impl<'a> TypeLowerer<'a> {
                 }
             }
         }
-        self.check_type_arg_count(span, def_id, args.len());
+        self.check_type_arg_count(span, def_id, positional_index);
         if context == TypeContext::ExtendTarget && self.is_trait_def(def_id) {
             let object_args = self
                 .lower_trait_object_args(span, segment, TraitId::Source(def_id))
@@ -1048,7 +1094,11 @@ impl<'a> TypeLowerer<'a> {
                 associated_type_bindings: object_args.associated_type_bindings,
             });
         }
-        self.interner.intern(TyKind::Nominal { def_id, args })
+        self.interner.intern(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        })
     }
 
     fn lower_trait_object_type(&mut self, is_readonly: bool, ty: &TypeRef) -> Option<InternedTyId> {
@@ -1230,7 +1280,7 @@ impl<'a> TypeLowerer<'a> {
                     .get(self.normalize_if_known(lowered_trait))
                     .cloned()
                 {
-                    Some(TyKind::Nominal { def_id, args }) => (TraitId::Source(def_id), args),
+                    Some(TyKind::Nominal { def_id, args, .. }) => (TraitId::Source(def_id), args),
                     Some(TyKind::BuiltinTrait { trait_id, args }) => {
                         (TraitId::Builtin(trait_id), args)
                     }
@@ -1368,7 +1418,7 @@ impl<'a> TypeLowerer<'a> {
         trait_ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>)> {
         match self.interner.get(trait_ty).cloned() {
-            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def(def_id) => {
+            Some(TyKind::Nominal { def_id, args, .. }) if self.is_trait_def(def_id) => {
                 Some((TraitId::Source(def_id), args))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -1425,6 +1475,45 @@ impl<'a> TypeLowerer<'a> {
         }
     }
 
+    fn generic_params_for_def(&mut self, def_id: GlobalDefId) -> Option<Vec<GenericParam>> {
+        self.defs_for_module(def_id.module_id).and_then(|defs| {
+            defs.defs
+                .get(def_id.def_id)
+                .map(|def| def.generic_params.clone())
+        })
+    }
+
+    fn const_generic_value_from_type_ref(&self, ty: &TypeRef) -> Option<ConstGenericValue> {
+        let TypeKind::Path { segments } = &ty.kind else {
+            return None;
+        };
+        if segments.len() == 1 && segments[0].args.is_empty() {
+            let name = &segments[0].name;
+            if self.is_comptime_generic_param(name) {
+                return Some(ConstGenericValue::GenericParam(name.clone()));
+            }
+            match name.as_str() {
+                "true" => return Some(ConstGenericValue::Bool(true)),
+                "false" => return Some(ConstGenericValue::Bool(false)),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn const_generic_value_from_stub(&self, expr: &nia_ast::ExprStub) -> Option<ConstGenericValue> {
+        let text = expr.text.trim();
+        if self.is_comptime_generic_param(text) {
+            return Some(ConstGenericValue::GenericParam(text.to_string()));
+        }
+        match text {
+            "true" => return Some(ConstGenericValue::Bool(true)),
+            "false" => return Some(ConstGenericValue::Bool(false)),
+            _ => {}
+        }
+        parse_integer_const_generic(text).map(ConstGenericValue::Int)
+    }
+
     fn check_builtin_trait_arg_count(&mut self, span: Span, trait_id: BuiltinTrait, actual: usize) {
         let expected = trait_id.generic_count();
         if expected != actual {
@@ -1439,10 +1528,23 @@ impl<'a> TypeLowerer<'a> {
         }
     }
 
-    fn with_generics(&mut self, generics: &[String], f: impl FnOnce(&mut Self)) {
+    fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {
+        for generic in generics {
+            if let GenericParamKind::Comptime { ty } = &generic.kind {
+                self.lower_type_in_context(ty, TypeContext::Value);
+            }
+        }
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
+    }
+
+    fn is_comptime_generic_param(&self, name: &str) -> bool {
+        self.generic_stack.iter().rev().any(|generics| {
+            generics.iter().any(|generic| {
+                generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
+            })
+        })
     }
 
     fn with_self_type(&mut self, self_ty: InternedTyId, f: impl FnOnce(&mut Self)) {
@@ -1560,6 +1662,11 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn lower_array_len_expr(&mut self, expr: &Expr) -> ArrayLenTy {
+        if let ExprKind::Ident(name) = &expr.kind
+            && self.is_comptime_generic_param(name)
+        {
+            return ArrayLenTy::GenericParam(name.clone());
+        }
         if let Some((builtin, type_arg)) = layout_builtin_array_len(expr) {
             ArrayLenTy::Builtin {
                 builtin,
@@ -1708,6 +1815,13 @@ fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {
     u64::try_from(value).ok()
 }
 
+fn parse_integer_const_generic(text: &str) -> Option<IntConst> {
+    nia_literals::eval_int_literal(text)
+        .ok()
+        .and_then(|value| u128::try_from(value).ok())
+        .map(IntConst::unsigned)
+}
+
 fn const_expr_summary(expr: &Expr) -> ConstExprSummary {
     ConstExprSummary {
         span: expr.span,
@@ -1781,6 +1895,52 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Pointer { .. })))
         );
+    }
+
+    #[test]
+    fn lowers_comptime_generic_array_lengths_and_nominal_args() {
+        let (module, errors) = parse_module(
+            r#"
+struct Buffer[T, N: usize] {
+    data: [N]T,
+}
+
+fn use_buffer(buf: Buffer[u8, 4]) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        assert!(lowered.interner.iter().any(|(_, ty)| {
+            matches!(
+                ty,
+                TyKind::Array {
+                    len: ArrayLenTy::GenericParam(name),
+                    ..
+                } if name == "N"
+            )
+        }));
+        assert!(lowered.interner.iter().any(|(_, ty)| {
+            matches!(
+                ty,
+                TyKind::Nominal { const_args, .. }
+                    if matches!(
+                        const_args.as_slice(),
+                        [ConstGenericArg {
+                            value: ConstGenericValue::Int(value),
+                            ..
+                        }] if value.bits() == 4
+                    )
+            )
+        }));
     }
 
     #[test]

@@ -641,7 +641,7 @@ impl Analyzer<'_> {
                 .get(&id)
                 .copied()
                 .or_else(|| self.eval_array_len_const_expr_id(id)),
-            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+            ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::Builtin { .. } => None,
         }
     }
 
@@ -998,7 +998,7 @@ impl Analyzer<'_> {
         ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         match self.ty_kind(ty)? {
-            TyKind::Nominal { def_id, args } => Some((def_id, args)),
+            TyKind::Nominal { def_id, args, .. } => Some((def_id, args)),
             _ => None,
         }
     }
@@ -1066,7 +1066,13 @@ impl Analyzer<'_> {
         };
         self.working_interners
             .get_mut(&current_module)
-            .map(|interner| interner.intern(TyKind::Nominal { def_id, args }))
+            .map(|interner| {
+                interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args: Vec::new(),
+                })
+            })
     }
 
     pub(super) fn resolved_comptime_switch_expr_type(

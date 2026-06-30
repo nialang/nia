@@ -81,11 +81,13 @@ impl<'a> ModuleLowerer<'a> {
                         def_id,
                         arg_module_id,
                         args,
+                        const_args,
                     } => {
                         refs.instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
                             args: args.clone(),
+                            const_args: const_args.clone(),
                             arg_interner: None,
                             span: vtable.span,
                         });
@@ -173,6 +175,7 @@ impl From<&BackendFunctionInstance> for FunctionInstanceRef {
             def_id: instance.def_id,
             arg_module_id: instance.arg_module_id,
             args: instance.args.clone(),
+            const_args: instance.const_args.clone(),
             arg_interner: None,
             span: instance.span,
         }
@@ -185,6 +188,7 @@ impl From<&BackendFunctionInstance> for FunctionInstanceKey {
             def_id: instance.def_id,
             arg_module_id: instance.arg_module_id,
             args: instance.args.clone(),
+            const_args: instance.const_args.clone(),
         }
     }
 }

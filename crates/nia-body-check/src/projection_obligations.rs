@@ -231,7 +231,8 @@ impl<'a> BodyChecker<'a> {
         owner_ty: InternedTyId,
     ) {
         let owner_ty = self.normalization.normalize(owner_ty);
-        let Some(TyKind::Nominal { def_id, args }) = self.interner.get(owner_ty).cloned() else {
+        let Some(TyKind::Nominal { def_id, args, .. }) = self.interner.get(owner_ty).cloned()
+        else {
             return;
         };
         if def_id.module_id != self.defs.module_id {
@@ -459,15 +460,18 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Nominal {
                 def_id: required_def,
                 args: required_args,
+                const_args: required_const_args,
             }) => {
                 let Some(TyKind::Nominal {
                     def_id: actual_def,
                     args: actual_args,
+                    const_args: actual_const_args,
                 }) = self.interner.get(actual).cloned()
                 else {
                     return false;
                 };
                 required_def == actual_def
+                    && required_const_args == actual_const_args
                     && required_args.len() == actual_args.len()
                     && required_args
                         .iter()
@@ -555,12 +559,16 @@ impl<'a> BodyChecker<'a> {
                 let value = self.substitute_ty(value, substitutions);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
                     .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args: Vec::new(),
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -932,6 +940,7 @@ impl<'a> BodyChecker<'a> {
                         Some(TyKind::Nominal {
                             def_id: supertrait_id,
                             args: supertrait_args,
+                            ..
                         }) => Some((TraitId::Source(supertrait_id), supertrait_args)),
                         Some(TyKind::BuiltinTrait { trait_id, args }) => {
                             Some((TraitId::Builtin(trait_id), args))
@@ -1125,7 +1134,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_type_projection_obligations(span, error, obligations);
                 self.check_type_projection_obligations(span, value, obligations);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 for arg in &args {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
@@ -1455,13 +1464,16 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
+                    const_args: left_const_args,
                 }),
                 Some(TyKind::Nominal {
                     def_id: right_def,
                     args: right_args,
+                    const_args: right_const_args,
                 }),
             ) => {
                 left_def == right_def
+                    && left_const_args == right_const_args
                     && left_args.len() == right_args.len()
                     && left_args.iter().zip(right_args).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, *right)

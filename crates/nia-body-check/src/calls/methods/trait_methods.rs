@@ -296,12 +296,16 @@ impl<'a> BodyChecker<'a> {
                 let value = self.normalize_dynamic_trait_object_projection(candidate, value);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
                     .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args: Vec::new(),
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args

@@ -222,6 +222,7 @@ impl<'a> BodyChecker<'a> {
                     def_id: method_id,
                     arg_module_id: self.defs.module_id,
                     args: instance_args,
+                    const_args: Vec::new(),
                 },
             );
         } else {
@@ -431,10 +432,14 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     ) -> Option<InternedTyId> {
-        if let Some(target) = self.expand_type_alias_instance(def_id, &args) {
+        if let Some(target) = self.expand_type_alias_instance(def_id, &args, &[]) {
             return Some(target);
         }
-        let ty = self.interner.intern(TyKind::Nominal { def_id, args });
+        let ty = self.interner.intern(TyKind::Nominal {
+            def_id,
+            args,
+            const_args: Vec::new(),
+        });
         Some(self.normalization.normalize(ty))
     }
 
@@ -460,6 +465,7 @@ impl<'a> BodyChecker<'a> {
         let Some(nia_ty::TyKind::Nominal {
             def_id: expected_def,
             args: expected_args,
+            ..
         }) = self.interner.get(expected).cloned()
         else {
             return None;
@@ -586,7 +592,7 @@ impl<'a> BodyChecker<'a> {
         if let ExprKind::TypeTarget { ty } = &expr.kind
             && let Some(ty) = self.type_lowering.ty_for_key(&ty.node_key)
             && let ty = self.import_type_to_working_interner(ty)
-            && let Some(nia_ty::TyKind::Nominal { def_id, args }) = self.interner.get(ty)
+            && let Some(nia_ty::TyKind::Nominal { def_id, args, .. }) = self.interner.get(ty)
         {
             return Some((*def_id, args.clone()));
         }

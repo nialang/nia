@@ -80,7 +80,7 @@ pub fn take(value: Empty) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    let take = mangled_symbol(&main_ir.ir, '@', 1, "take");
+    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
     assert!(main_ir.ir.contains("__take_local()"), "{}", main_ir.ir);
     assert!(
         main_ir.ir.contains(&format!("call i32 {take}()")),

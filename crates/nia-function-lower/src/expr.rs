@@ -242,10 +242,12 @@ impl FunctionLowerer {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => FunctionExprKind::FunctionInstance {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                const_args: const_args.clone(),
             },
             TypedExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(*def_id),
             TypedExprKind::BuiltinValue(value) => {
@@ -1114,10 +1116,12 @@ impl FunctionLowerer {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => FunctionCallee::FunctionInstance {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                const_args: const_args.clone(),
             },
             TypedCallee::Method {
                 def_id,

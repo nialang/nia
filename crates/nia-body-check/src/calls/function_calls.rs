@@ -7,11 +7,11 @@ use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId};
-use nia_item_signatures::{FunctionAttribute, FunctionSignature};
+use nia_item_signatures::{FunctionAttribute, FunctionSignature, GenericParamSignatureKind};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 struct FunctionItemRef {
@@ -242,6 +242,7 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id: self.defs.module_id,
                 args: type_args.to_vec(),
+                const_args: Vec::new(),
             },
         );
         let mut substitutions = self.generic_substitutions(&generics, type_args);
@@ -448,37 +449,43 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let lowered_args = self.lower_bracket_type_args(type_args);
-        if lowered_args.len() > signature.generics.len() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
-                    "generic argument count mismatch for function: expected {}, got {}",
-                    signature.generics.len(),
-                    lowered_args.len()
-                ),
-            ));
+        let Some(lowered_args) =
+            self.lower_bracket_args_for_generic_params(span, &signature.generic_params, type_args)
+        else {
             for arg in args {
                 self.check_expr(arg);
             }
             return self.error();
-        }
-        let mut substitutions =
-            self.generic_substitutions(&signature.generics[..lowered_args.len()], &lowered_args);
+        };
+        let mut substitutions = lowered_args.type_substitutions;
+        let mut const_substitutions = lowered_args.const_substitutions;
         self.infer_generic_function_call_substitutions(
             span,
             signature,
             args,
             expected,
             &mut substitutions,
+            &mut const_substitutions,
         );
+        let type_generics = type_generic_names(signature);
         let Some(instance_args) =
-            self.complete_generic_function_instance_args(span, &signature.generics, &substitutions)
+            self.complete_generic_function_instance_args(span, &type_generics, &substitutions)
         else {
             return self.error();
         };
-        self.record_generic_instantiation(def_id, &instance_args, span);
+        let Some(const_instance_args) = self.complete_const_instance_args_for_generic_params(
+            span,
+            &signature.generic_params,
+            &const_substitutions,
+        ) else {
+            return self.error();
+        };
+        self.record_generic_instantiation_with_const_args(
+            def_id,
+            &instance_args,
+            &const_instance_args,
+            span,
+        );
         self.record_resolved_node_call(
             span,
             &expr.node_key,
@@ -486,10 +493,21 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id: self.defs.module_id,
                 args: instance_args,
+                const_args: const_instance_args,
             },
         );
-        self.check_instantiated_generic_function_call_args(span, signature, args, &substitutions);
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.check_instantiated_generic_function_call_args(
+            span,
+            signature,
+            args,
+            &substitutions,
+            &const_substitutions,
+        );
+        let return_type = self.substitute_generics_and_consts(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_projection(return_type);
         self.normalize_aliases_in_type(return_type)
     }
@@ -504,19 +522,34 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let span = expr.span;
         let mut substitutions = HashMap::new();
+        let mut const_substitutions = HashMap::new();
         self.infer_generic_function_call_substitutions(
             span,
             signature,
             args,
             expected,
             &mut substitutions,
+            &mut const_substitutions,
         );
+        let type_generics = type_generic_names(signature);
         let Some(instance_args) =
-            self.complete_generic_function_instance_args(span, &signature.generics, &substitutions)
+            self.complete_generic_function_instance_args(span, &type_generics, &substitutions)
         else {
             return self.error();
         };
-        self.record_generic_instantiation(def_id, &instance_args, span);
+        let Some(const_instance_args) = self.complete_const_instance_args_for_generic_params(
+            span,
+            &signature.generic_params,
+            &const_substitutions,
+        ) else {
+            return self.error();
+        };
+        self.record_generic_instantiation_with_const_args(
+            def_id,
+            &instance_args,
+            &const_instance_args,
+            span,
+        );
         self.record_resolved_node_call(
             span,
             &expr.node_key,
@@ -524,11 +557,22 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id: self.defs.module_id,
                 args: instance_args,
+                const_args: const_instance_args,
             },
         );
 
-        self.check_instantiated_generic_function_call_args(span, signature, args, &substitutions);
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.check_instantiated_generic_function_call_args(
+            span,
+            signature,
+            args,
+            &substitutions,
+            &const_substitutions,
+        );
+        let return_type = self.substitute_generics_and_consts(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_projection(return_type);
         self.normalize_aliases_in_type(return_type)
     }
@@ -540,6 +584,7 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<InternedTyId>,
         substitutions: &mut HashMap<String, InternedTyId>,
+        const_substitutions: &mut HashMap<String, ConstGenericArg>,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
@@ -556,14 +601,21 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
-            let substituted_param = self.substitute_generics(param, substitutions);
+            let substituted_param =
+                self.substitute_generics_and_consts(param, substitutions, const_substitutions);
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
+            } else if matches!(
+                arg.kind,
+                ExprKind::ArrayLiteral { .. } | ExprKind::TypedArrayLiteral { .. }
+            ) {
+                self.infer_array_literal_expr(arg)
             } else {
                 self.check_expr(arg)
             };
             self.infer_generics_from_type(param, actual, substitutions, arg.span);
+            self.infer_const_generics_from_type(param, actual, const_substitutions, arg.span);
             self.infer_generic_function_call_substitutions_from_where_predicates(
                 signature,
                 args,
@@ -666,11 +718,14 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         args: &[Expr],
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let instantiated_params: Vec<InternedTyId> = params
             .iter()
-            .map(|param| self.substitute_generics(*param, substitutions))
+            .map(|param| {
+                self.substitute_generics_and_consts(*param, substitutions, const_substitutions)
+            })
             .collect();
         self.check_where_predicates_hold(&signature.where_predicates, substitutions, span);
         for (index, arg) in args.iter().enumerate() {
@@ -896,12 +951,15 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,
+                const_args: pattern_const_args,
             }) => {
                 if let Some(TyKind::Nominal {
                     def_id: actual_def,
                     args: actual_args,
+                    const_args: actual_const_args,
                 }) = self.interner.get(actual).cloned()
                     && pattern_def == actual_def
+                    && pattern_const_args == actual_const_args
                     && pattern_args.len() == actual_args.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
@@ -1035,9 +1093,167 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::GenericParam(existing)) if existing == name
         )
     }
+
+    pub(crate) fn infer_const_generics_from_type(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, ConstGenericArg>,
+        span: Span,
+    ) {
+        let pattern = self.normalization.normalize(pattern);
+        let actual = self.normalization.normalize(actual);
+        match (
+            self.interner.get(pattern).cloned(),
+            self.interner.get(actual).cloned(),
+        ) {
+            (
+                Some(TyKind::Array {
+                    len: pattern_len,
+                    elem: pattern_elem,
+                }),
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }),
+            ) => {
+                self.infer_const_generic_from_array_len(
+                    pattern_len,
+                    actual_len,
+                    substitutions,
+                    span,
+                );
+                self.infer_const_generics_from_type(pattern_elem, actual_elem, substitutions, span);
+            }
+            (
+                Some(TyKind::Pointer { elem: left, .. }),
+                Some(TyKind::Pointer { elem: right, .. }),
+            )
+            | (
+                Some(TyKind::VolatilePointer { elem: left, .. }),
+                Some(TyKind::VolatilePointer { elem: right, .. }),
+            )
+            | (Some(TyKind::Slice { elem: left, .. }), Some(TyKind::Slice { elem: right, .. }))
+            | (
+                Some(TyKind::SlicePointee { elem: left }),
+                Some(TyKind::SlicePointee { elem: right }),
+            )
+            | (Some(TyKind::Optional { elem: left }), Some(TyKind::Optional { elem: right })) => {
+                self.infer_const_generics_from_type(left, right, substitutions, span)
+            }
+            (
+                Some(TyKind::Nominal {
+                    def_id: pattern_def,
+                    args: pattern_args,
+                    const_args: pattern_const_args,
+                }),
+                Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_const_args,
+                }),
+            ) if pattern_def == actual_def => {
+                for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                    self.infer_const_generics_from_type(*pattern, *actual, substitutions, span);
+                }
+                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter()) {
+                    if let ConstGenericValue::GenericParam(name) = &pattern.value {
+                        self.record_const_generic_substitution(
+                            name,
+                            actual.clone(),
+                            substitutions,
+                            span,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn infer_const_generic_from_array_len(
+        &mut self,
+        pattern: ArrayLenTy,
+        actual: ArrayLenTy,
+        substitutions: &mut HashMap<String, ConstGenericArg>,
+        span: Span,
+    ) {
+        let ArrayLenTy::GenericParam(name) = pattern else {
+            return;
+        };
+        let Some(value) = self.const_generic_value_from_array_len(actual) else {
+            return;
+        };
+        let ty = self.primitive(PrimitiveTy::Usize);
+        self.record_const_generic_substitution(
+            &name,
+            ConstGenericArg { ty, value },
+            substitutions,
+            span,
+        );
+    }
+
+    fn record_const_generic_substitution(
+        &mut self,
+        name: &str,
+        arg: ConstGenericArg,
+        substitutions: &mut HashMap<String, ConstGenericArg>,
+        span: Span,
+    ) {
+        if let Some(existing) = substitutions.get(name) {
+            if !const_generic_args_match(existing, &arg) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!("conflicting inferred value for comptime generic parameter `{name}`"),
+                ));
+            }
+        } else {
+            substitutions.insert(name.to_string(), arg);
+        }
+    }
+
+    fn const_generic_value_from_array_len(&self, len: ArrayLenTy) -> Option<ConstGenericValue> {
+        match len {
+            ArrayLenTy::ConstValue(value) => {
+                Some(ConstGenericValue::Int(IntConst::unsigned(value.into())))
+            }
+            ArrayLenTy::ConstExpr(id) => self
+                .comptime
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
+            ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),
+            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+        }
+    }
 }
 
-fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
+fn const_generic_args_match(left: &ConstGenericArg, right: &ConstGenericArg) -> bool {
+    if left.ty != right.ty {
+        return false;
+    }
+    match (&left.value, &right.value) {
+        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+            left.bits() == right.bits()
+        }
+        _ => left.value == right.value,
+    }
+}
+
+fn type_generic_names(signature: &FunctionSignature) -> Vec<String> {
+    signature
+        .generic_params
+        .iter()
+        .filter_map(|param| match param.kind {
+            GenericParamSignatureKind::Type => Some(param.name.clone()),
+            GenericParamSignatureKind::Comptime { .. } => None,
+        })
+        .collect()
+}
+
+pub(super) fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
     signature
         .attributes
         .iter()

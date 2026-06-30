@@ -161,12 +161,20 @@ impl<'a> BodyChecker<'a> {
                 let value = self.normalize_projection_inner(value, active_projections);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.normalize_projection_inner(arg, active_projections))
                     .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -1061,7 +1069,7 @@ impl<'a> BodyChecker<'a> {
             .interner
             .get(ty)
             .or_else(|| self.normalization.interner.get(ty))?;
-        let TyKind::Nominal { def_id, args } = kind else {
+        let TyKind::Nominal { def_id, args, .. } = kind else {
             return None;
         };
         if def_id.module_id == self.defs.module_id {
@@ -1087,6 +1095,9 @@ impl<'a> BodyChecker<'a> {
                 Ok(layout.builtin_value(*builtin))
             }
             ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
+            ArrayLenTy::GenericParam(name) => Err(format!(
+                "array length const generic `{name}` at {span:?} is not substituted"
+            )),
         }
     }
 
@@ -1134,7 +1145,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 format!("&fn({}){return_part}", params.join(", "))
             }
-            Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
+            Some(TyKind::Nominal { def_id, args, .. }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 self.builtin_trait_ty_name(*trait_id, args)
             }
@@ -1192,6 +1203,7 @@ impl<'a> BodyChecker<'a> {
     fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
+            ArrayLenTy::GenericParam(name) => name.clone(),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
@@ -1379,7 +1391,7 @@ impl<'a> BodyChecker<'a> {
         ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>)> {
         match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def_id(*def_id) => {
+            Some(TyKind::Nominal { def_id, args, .. }) if self.is_trait_def_id(*def_id) => {
                 Some((TraitId::Source(*def_id), args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

@@ -470,7 +470,8 @@ fn nominal_type_by_def_with_args(
                 kind,
                 nia_ty::TyKind::Nominal {
                     def_id,
-                    args
+                    args,
+                    ..
                 } if *def_id == target && args == target_args
             )
             .then_some(ty)

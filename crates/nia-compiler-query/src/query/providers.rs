@@ -1564,7 +1564,7 @@ fn collect_array_len_const_exprs_in_len(
         ArrayLenTy::Builtin { ty, .. } => {
             collect_array_len_const_exprs_in_ty(interner, *ty, candidate_ids, out, seen);
         }
-        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) => {}
+        ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
     }
 }
 
@@ -3475,7 +3475,7 @@ impl<'a> LayoutRootCollector<'a> {
                 self.add(error);
                 self.add(value);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 self.add_global_struct(def_id);
                 self.add_global_union(def_id);
                 for arg in &args {
@@ -3653,12 +3653,16 @@ impl<'a> LayoutRootCollector<'a> {
                 let value = self.substitute_generics(value, substitutions);
                 self.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.substitute_generics(arg, substitutions))
                     .collect();
-                self.intern(TyKind::Nominal { def_id, args })
+                self.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args: Vec::new(),
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -3762,6 +3766,7 @@ impl<'a> LayoutRootCollector<'a> {
                 ty: self.substitute_generics(ty, substitutions),
             },
             nia_ty::ArrayLenTy::Infer
+            | nia_ty::ArrayLenTy::GenericParam(_)
             | nia_ty::ArrayLenTy::ConstValue(_)
             | nia_ty::ArrayLenTy::ConstExpr(_) => len,
         }

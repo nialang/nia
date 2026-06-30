@@ -2076,7 +2076,7 @@ impl<'a> BodyChecker<'a> {
         if block.stmts.is_empty()
             && block.tail.is_none()
             && let Some(expected) = expected_tail
-            && let Some(TyKind::Nominal { def_id, args }) = self.interner.get(expected)
+            && let Some(TyKind::Nominal { def_id, args, .. }) = self.interner.get(expected)
         {
             let def_id = *def_id;
             let args = args.clone();

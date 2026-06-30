@@ -212,6 +212,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id,
                             args,
+                            const_args: Vec::new(),
                         }
                     } else {
                         FunctionExprKind::Global(def_id)
@@ -221,6 +222,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id: _,
                     args,
+                    const_args,
                 } => FunctionExprKind::GlobalInstance {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
@@ -231,6 +233,7 @@ impl<'a> ModuleLowerer<'a> {
                             .collect::<Vec<_>>();
                         self.canonicalize_instance_args(&instantiated_args)
                     },
+                    const_args,
                 },
                 FunctionExprKind::Function(def_id) => {
                     if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
@@ -240,6 +243,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             args,
+                            const_args: Vec::new(),
                         }
                     } else {
                         FunctionExprKind::Function(def_id)
@@ -249,6 +253,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id: _,
                     args,
+                    const_args,
                 } => {
                     let args = args
                         .into_iter()
@@ -258,6 +263,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
                         args: self.canonicalize_instance_args(&args),
+                        const_args,
                     }
                 }
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
@@ -650,6 +656,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
                         args,
+                        const_args: Vec::new(),
                     }
                 } else {
                     FunctionCallee::Function(def_id)
@@ -659,6 +666,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id,
                 arg_module_id: _,
                 args,
+                const_args,
             } => {
                 let args = args
                     .into_iter()
@@ -668,6 +676,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
                     args: self.canonicalize_instance_args(&args),
+                    const_args,
                 }
             }
             FunctionCallee::Method {
@@ -808,6 +817,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             args: instance_args,
+                            const_args: Vec::new(),
                         }
                     }
                 } else if self.trait_method_has_default(method_id)
@@ -822,6 +832,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id: method_id,
                         arg_module_id: self.current_arg_module_id(),
                         args: instance_args,
+                        const_args: Vec::new(),
                     }
                 } else {
                     if self.trait_method_call_requires_concrete_impl(
@@ -1151,6 +1162,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id,
                             args,
+                            const_args: Vec::new(),
                         }
                     } else {
                         FunctionPlaceBase::Global(def_id)
@@ -1160,6 +1172,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id: _,
                     args,
+                    const_args,
                 } => FunctionPlaceBase::GlobalInstance {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
@@ -1170,6 +1183,7 @@ impl<'a> ModuleLowerer<'a> {
                             .collect::<Vec<_>>();
                         self.canonicalize_instance_args(&instantiated_args)
                     },
+                    const_args,
                 },
                 FunctionPlaceBase::Deref(expr) => {
                     FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))

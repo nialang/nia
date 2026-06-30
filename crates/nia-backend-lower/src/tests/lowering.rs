@@ -96,7 +96,8 @@ fn main() i32 {
                 ty,
                 nia_ty::TyKind::Nominal {
                     def_id,
-                    args
+                    args,
+                    ..
                 } if def_id.module_id == ModuleId(0) && def_id.def_id == point_id && args.is_empty()
             )
             .then_some(ty_id)
@@ -426,6 +427,118 @@ fn main() i32 {
     assert_eq!(instance.return_type, i32_ty);
     assert_eq!(body.ty, i32_ty);
     assert!(body.locals.iter().all(|local| local.ty == i32_ty));
+}
+
+#[test]
+fn instantiates_comptime_generic_function_array_lengths_in_function_ir() {
+    let source = r#"
+fn take[T, N: usize](items: [N]T) usize {
+    items.len()
+}
+
+fn main() usize {
+    take([1u8, 2u8, 3u8, 4u8]) + take([1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8])
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let u8_ty = module.interner.primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = module.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let mut instances = module
+        .function_instances
+        .iter()
+        .filter(|instance| instance.name == "take")
+        .collect::<Vec<_>>();
+    instances.sort_by_key(|instance| {
+        instance
+            .const_args
+            .first()
+            .and_then(|arg| match arg.value {
+                nia_ty::ConstGenericValue::Int(value) => Some(value.bits() as u64),
+                _ => None,
+            })
+            .unwrap_or(0)
+    });
+
+    assert_eq!(instances.len(), 2);
+    for (instance, expected_len) in instances.into_iter().zip([4, 8]) {
+        assert_eq!(instance.args, vec![u8_ty]);
+        assert_eq!(instance.const_args.len(), 1);
+        assert_eq!(instance.const_args[0].ty, usize_ty);
+        assert!(matches!(
+            instance.const_args[0].value,
+            nia_ty::ConstGenericValue::Int(value) if value.bits() == expected_len
+        ));
+        assert!(matches!(
+            module.interner.get(instance.params[0].local_ty),
+            Some(nia_ty::TyKind::Array {
+                len: nia_ty::ArrayLenTy::ConstValue(len),
+                elem,
+            }) if *len == expected_len as u64 && *elem == u8_ty
+        ));
+        assert_eq!(instance.return_type, usize_ty);
+    }
+}
+
+#[test]
+fn instantiates_nominal_comptime_generic_array_lengths() {
+    let source = r#"
+struct Buffer[T, N: usize] {
+    data: [N]T,
+}
+
+fn make4() Buffer[u8, 4] {
+    { data: [1u8, 2u8, 3u8, 4u8] }
+}
+
+fn make8() Buffer[u8, 8] {
+    { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
+}
+
+fn main() usize {
+    let a = make4();
+    let b = make8();
+    a.data.len() + b.data.len()
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let u8_ty = module.interner.primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = module.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let mut instances = module
+        .struct_instances
+        .iter()
+        .filter(|instance| instance.name == "Buffer")
+        .collect::<Vec<_>>();
+    instances.sort_by_key(|instance| {
+        instance
+            .const_args
+            .first()
+            .and_then(|arg| match arg.value {
+                nia_ty::ConstGenericValue::Int(value) => Some(value.bits() as u64),
+                _ => None,
+            })
+            .unwrap_or(0)
+    });
+
+    assert_eq!(instances.len(), 2);
+    for (instance, expected_len) in instances.into_iter().zip([4, 8]) {
+        assert_eq!(instance.args, vec![u8_ty]);
+        assert_eq!(instance.const_args.len(), 1);
+        assert_eq!(instance.const_args[0].ty, usize_ty);
+        assert!(matches!(
+            instance.const_args[0].value,
+            nia_ty::ConstGenericValue::Int(value) if value.bits() == expected_len
+        ));
+        assert_eq!(instance.fields.len(), 1);
+        assert!(matches!(
+            module.interner.get(instance.fields[0].ty),
+            Some(nia_ty::TyKind::Array {
+                len: nia_ty::ArrayLenTy::ConstValue(len),
+                elem,
+            }) if *len == expected_len as u64 && *elem == u8_ty
+        ));
+    }
 }
 
 #[test]

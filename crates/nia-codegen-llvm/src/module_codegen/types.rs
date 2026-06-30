@@ -423,14 +423,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 Ok(elem.array_type(len as u32).into())
             }
-            Some(TyKind::Nominal { def_id, args }) => {
-                if let Some(struct_ty) = self.struct_instance_type(*def_id, args) {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
+                if let Some(struct_ty) = self.struct_instance_type(*def_id, args, const_args) {
                     return Ok(struct_ty.into());
                 }
                 if let Some(struct_ty) = self.structs.get(def_id).copied() {
                     return Ok(struct_ty.into());
                 }
-                if let Some(union_ty) = self.union_instance_type(*def_id, args) {
+                if let Some(union_ty) = self.union_instance_type(*def_id, args, const_args) {
                     return Ok(union_ty.into());
                 }
                 if let Some(union_ty) = self.unions.get(def_id).copied() {
@@ -612,6 +616,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     LayoutBuiltin::Align => Ok(layout.align),
                 }
             }
+            ArrayLenTy::GenericParam(name) => Err(self.error(
+                span,
+                format!("array length const generic `{name}` reached LLVM lowering"),
+            )),
             ArrayLenTy::Infer => {
                 Err(self.error(span, "array length inference reached LLVM lowering"))
             }
@@ -628,7 +636,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         field: GlobalDefId,
         span: Span,
     ) -> Result<u32, Diagnostic> {
-        let Some((def_id, args)) = self.field_base_type(base_ty) else {
+        let Some((def_id, args, const_args)) = self.field_base_type(base_ty) else {
             return Err(self.error(span, "field base type is not nominal"));
         };
         if self
@@ -637,7 +645,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return Err(self.error(span, "zero-sized aggregate field has no runtime index"));
         }
-        if let Some(layout) = self.struct_layout(def_id, &args) {
+        if let Some(layout) = self.struct_layout(def_id, &args, &const_args) {
             if let Some(index) = layout
                 .fields
                 .iter()
@@ -648,16 +656,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             return Err(self.error(span, "missing struct field layout index"));
         }
-        if self.union_layout(def_id, &args).is_some() {
+        if self.union_layout(def_id, &args, &const_args).is_some() {
             return Ok(0);
         }
         Err(self.error(span, "missing aggregate field index"))
     }
 
     pub(crate) fn field_offset(&self, base_ty: InternedTyId, field: GlobalDefId) -> Option<u64> {
-        let (def_id, args) = self.field_base_type(base_ty)?;
-        self.struct_layout(def_id, &args)
-            .or_else(|| self.union_layout(def_id, &args))
+        let (def_id, args, const_args) = self.field_base_type(base_ty)?;
+        self.struct_layout(def_id, &args, &const_args)
+            .or_else(|| self.union_layout(def_id, &args, &const_args))
             .and_then(|layout| {
                 layout
                     .fields
@@ -671,10 +679,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         field: GlobalDefId,
         span: Span,
     ) -> Result<&BackendField, Diagnostic> {
-        self.struct_fields(def_id, args, span)?
+        self.struct_fields(def_id, args, const_args, span)?
             .iter()
             .find(|candidate| candidate.def_id == field)
             .ok_or_else(|| self.error(span, "missing struct field"))
@@ -693,11 +702,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         field: GlobalDefId,
         span: Span,
     ) -> Result<InternedTyId, Diagnostic> {
-        let Some((def_id, args)) = self.field_base_type(base_ty) else {
+        let Some((def_id, args, const_args)) = self.field_base_type(base_ty) else {
             return Err(self.error(span, "field base type is not nominal"));
         };
         if let Some(candidate) = self
-            .aggregate_fields(def_id, &args, span)?
+            .aggregate_fields(def_id, &args, &const_args, span)?
             .iter()
             .find(|candidate| candidate.def_id == field)
         {
@@ -706,9 +715,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Err(self.error(span, "missing aggregate field type"))
     }
 
-    fn field_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    fn field_base_type(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         match self.ty_kind(ty) {
-            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => Some((*def_id, args.clone(), const_args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
             _ => None,
         }
@@ -718,9 +734,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
-        if let Some(instance) = self.struct_instance_item(def_id, args) {
+        if let Some(instance) = self.struct_instance_item(def_id, args, const_args) {
             return Ok(&instance.fields);
         }
         if let Some(item) = self.program.structs.get(&def_id) {
@@ -733,9 +750,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
-        if let Some(instance) = self.union_instance_item(def_id, args) {
+        if let Some(instance) = self.union_instance_item(def_id, args, const_args) {
             return Ok(&instance.fields);
         }
         if let Some(item) = self.program.unions.get(&def_id) {
@@ -748,19 +766,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
-        self.struct_fields(def_id, args, span)
-            .or_else(|_| self.union_fields(def_id, args, span))
+        self.struct_fields(def_id, args, const_args, span)
+            .or_else(|_| self.union_fields(def_id, args, const_args, span))
     }
 
     pub(super) fn physical_struct_fields(
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<Vec<&BackendField>, Diagnostic> {
-        let Some(layout) = self.struct_layout(def_id, args) else {
+        let Some(layout) = self.struct_layout(def_id, args, const_args) else {
             return Err(self.error(span, "missing struct layout"));
         };
         layout
@@ -771,6 +791,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.backend_struct_field(
                     def_id,
                     args,
+                    const_args,
                     GlobalDefId {
                         module_id: def_id.module_id,
                         def_id: field.def_id,
@@ -790,9 +811,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<Vec<BasicTypeEnum<'ctx>>, Diagnostic> {
-        let Some(layout) = self.union_layout(def_id, args) else {
+        let Some(layout) = self.union_layout(def_id, args, const_args) else {
             return Err(self.error(span, "missing union layout"));
         };
         let align_ty = self.union_alignment_type(layout.layout.align, span)?;
@@ -827,25 +849,27 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&nia_layout::StructLayout> {
         self.program.module(def_id.module_id)?;
-        if args.is_empty() {
+        if args.is_empty() && const_args.is_empty() {
             self.program.union_layout(def_id)
         } else {
-            if let Some(layout) = self.program.union_instance_layout(def_id, args) {
+            if let Some(layout) = self.program.union_instance_layout(def_id, args, const_args) {
                 return Some(layout);
             }
-            let key = (def_id, args.to_vec());
+            let key = (def_id, args.to_vec(), const_args.to_vec());
             if let Some(cached_args) = self.union_layout_lookups.borrow().get(&key).cloned() {
                 return cached_args
                     .as_deref()
-                    .and_then(|args| self.program.union_instance_layout(def_id, args));
+                    .and_then(|args| self.program.union_instance_layout(def_id, args, const_args));
             }
             let matched_args = self
                 .program
                 .union_instance_layouts(def_id)
                 .find_map(|item| {
-                    self.same_type_args(&item.key.args, args)
+                    (self.same_type_args(&item.key.args, args)
+                        && item.key.const_args.as_slice() == const_args)
                         .then(|| item.key.args.clone())
                 });
             self.union_layout_lookups
@@ -853,7 +877,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .insert(key, matched_args.clone());
             matched_args
                 .as_deref()
-                .and_then(|args| self.program.union_instance_layout(def_id, args))
+                .and_then(|args| self.program.union_instance_layout(def_id, args, const_args))
         }
     }
 
@@ -861,33 +885,40 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&nia_layout::StructLayout> {
         self.program.module(def_id.module_id)?;
-        if args.is_empty() {
+        if args.is_empty() && const_args.is_empty() {
             self.program.struct_layout(def_id)
         } else {
-            if let Some(layout) = self.program.struct_instance_layout(def_id, args) {
+            if let Some(layout) = self
+                .program
+                .struct_instance_layout(def_id, args, const_args)
+            {
                 return Some(layout);
             }
-            let key = (def_id, args.to_vec());
+            let key = (def_id, args.to_vec(), const_args.to_vec());
             if let Some(cached_args) = self.struct_layout_lookups.borrow().get(&key).cloned() {
-                return cached_args
-                    .as_deref()
-                    .and_then(|args| self.program.struct_instance_layout(def_id, args));
+                return cached_args.as_deref().and_then(|args| {
+                    self.program
+                        .struct_instance_layout(def_id, args, const_args)
+                });
             }
             let matched_args = self
                 .program
                 .struct_instance_layouts(def_id)
                 .find_map(|item| {
-                    self.same_type_args(&item.key.args, args)
+                    (self.same_type_args(&item.key.args, args)
+                        && item.key.const_args.as_slice() == const_args)
                         .then(|| item.key.args.clone())
                 });
             self.struct_layout_lookups
                 .borrow_mut()
                 .insert(key, matched_args.clone());
-            matched_args
-                .as_deref()
-                .and_then(|args| self.program.struct_instance_layout(def_id, args))
+            matched_args.as_deref().and_then(|args| {
+                self.program
+                    .struct_instance_layout(def_id, args, const_args)
+            })
         }
     }
 
@@ -895,15 +926,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<StructType<'ctx>> {
-        let key = (def_id, args.to_vec());
+        let key = (def_id, args.to_vec(), const_args.to_vec());
         if let Some(cached) = self.struct_instance_type_lookups.borrow().get(&key) {
             return *cached;
         }
         if let Some(ty) = self
             .struct_instances
             .get(&def_id)
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
         {
             self.struct_instance_type_lookups
@@ -916,8 +948,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find_map(|(candidate_args, ty)| {
-                self.same_type_args(args, candidate_args).then_some(*ty)
+            .find_map(|(candidate_args, candidate_const_args, ty)| {
+                (self.same_type_args(args, candidate_args)
+                    && const_args == candidate_const_args.as_slice())
+                .then_some(*ty)
             });
         self.struct_instance_type_lookups
             .borrow_mut()
@@ -929,8 +963,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&BackendStructInstance> {
-        if let Some(item) = self.program.struct_instance(def_id, args) {
+        if let Some(item) = self.program.struct_instance(def_id, args, const_args) {
             return Some(item);
         }
         self.program
@@ -938,7 +973,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find(|item| self.same_type_args(args, &item.args))
+            .find(|item| {
+                self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+            })
             .copied()
     }
 
@@ -946,15 +983,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<StructType<'ctx>> {
-        let key = (def_id, args.to_vec());
+        let key = (def_id, args.to_vec(), const_args.to_vec());
         if let Some(cached) = self.union_instance_type_lookups.borrow().get(&key) {
             return *cached;
         }
         if let Some(ty) = self
             .union_instances
             .get(&def_id)
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
         {
             self.union_instance_type_lookups
@@ -967,8 +1005,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find_map(|(candidate_args, ty)| {
-                self.same_type_args(args, candidate_args).then_some(*ty)
+            .find_map(|(candidate_args, candidate_const_args, ty)| {
+                (self.same_type_args(args, candidate_args)
+                    && const_args == candidate_const_args.as_slice())
+                .then_some(*ty)
             });
         self.union_instance_type_lookups
             .borrow_mut()
@@ -980,8 +1020,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&BackendUnionInstance> {
-        if let Some(item) = self.program.union_instance(def_id, args) {
+        if let Some(item) = self.program.union_instance(def_id, args, const_args) {
             return Some(item);
         }
         self.program
@@ -989,7 +1030,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find(|item| self.same_type_args(args, &item.args))
+            .find(|item| {
+                self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+            })
             .copied()
     }
 
@@ -1006,7 +1049,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
-        self.function_instance_item_with_arg_module(def_id, self.source.id, args)
+        self.function_instance_item_with_arg_module(def_id, self.source.id, args, &[])
     }
 
     pub(crate) fn function_instance_item_with_arg_module(
@@ -1014,8 +1057,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&'a BackendFunctionInstance> {
-        if let Some(item) = self.program.function_instance(def_id, arg_module_id, args) {
+        if let Some(item) = self
+            .program
+            .function_instance(def_id, arg_module_id, args, const_args)
+        {
             return Some(item);
         }
         let mut matches = self
@@ -1025,7 +1072,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .into_iter()
             .flatten()
             .filter(|item| {
-                item.arg_module_id == arg_module_id && self.same_type_args(args, &item.args)
+                item.arg_module_id == arg_module_id
+                    && self.same_type_args(args, &item.args)
+                    && const_args == item.const_args.as_slice()
             });
         let first = matches.next().copied()?;
         if matches.next().is_some() {
@@ -1039,15 +1088,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<FunctionValue<'ctx>> {
-        let key = (def_id, arg_module_id, args.to_vec());
+        let key = (def_id, arg_module_id, args.to_vec(), const_args.to_vec());
         if let Some(cached) = self.function_instance_value_lookups.borrow().get(&key) {
             return *cached;
         }
         if let Some(value) = self
             .function_instances
             .get(&(def_id, arg_module_id))
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
         {
             self.function_instance_value_lookups
@@ -1060,11 +1110,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find_map(|(candidate_arg_module_id, candidate_args, value)| {
-                (*candidate_arg_module_id == arg_module_id
-                    && self.same_type_args(args, candidate_args))
-                .then_some(*value)
-            });
+            .find_map(
+                |(candidate_arg_module_id, candidate_args, candidate_const_args, value)| {
+                    (*candidate_arg_module_id == arg_module_id
+                        && self.same_type_args(args, candidate_args)
+                        && candidate_const_args.as_slice() == const_args)
+                        .then_some(*value)
+                },
+            );
         self.function_instance_value_lookups
             .borrow_mut()
             .insert(key, value);

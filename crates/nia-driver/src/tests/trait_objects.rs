@@ -578,6 +578,7 @@ extend[E] i32 : Format[E] {
                 def_id,
                 arg_module_id,
                 args,
+                ..
             } => Some((*def_id, *arg_module_id, args.clone())),
             nia_backend_ir::BackendTraitObjectVtableFunction::Function(_) => None,
         })

@@ -3,7 +3,7 @@ use nia_backend_ir::BackendField;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
 
 use super::BackendValidator;
 
@@ -37,7 +37,7 @@ impl BackendValidator<'_> {
         span: Span,
         message: &str,
     ) -> Option<InternedTyId> {
-        let Some((def_id, args)) = self.field_base_type(base_ty) else {
+        let Some((def_id, args, const_args)) = self.field_base_type(base_ty) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -45,7 +45,7 @@ impl BackendValidator<'_> {
             ));
             return None;
         };
-        let Some(fields) = self.aggregate_fields(def_id, &args) else {
+        let Some(fields) = self.aggregate_fields(def_id, &args, &const_args) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -111,9 +111,13 @@ impl BackendValidator<'_> {
     pub(super) fn field_base_type(
         &self,
         ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         match self.ty_kind(ty) {
-            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => Some((*def_id, args.clone(), const_args.clone())),
             Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
                 self.field_base_type(*elem)
             }
@@ -137,11 +141,12 @@ impl BackendValidator<'_> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => self
                 .index
                 .global_instances
                 .get(&(*def_id, *arg_module_id))
-                .and_then(|instances| instances.get(args.as_slice()))
+                .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
                 .map(|item| item.ty),
             nia_function_ir::FunctionPlaceBase::Deref(expr) => match self.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
@@ -157,20 +162,26 @@ impl BackendValidator<'_> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&[BackendField]> {
-        self.struct_fields(def_id, args)
-            .or_else(|| self.union_fields(def_id, args))
+        self.struct_fields(def_id, args, const_args)
+            .or_else(|| self.union_fields(def_id, args, const_args))
     }
 
-    fn struct_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
-        if let Some(item) = self.index.struct_instance(def_id, args) {
+    fn struct_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<&[BackendField]> {
+        if let Some(item) = self.index.struct_instance(def_id, args, const_args) {
             return Some(&item.fields);
         }
-        let key = (def_id, args.to_vec());
+        let key = (def_id, args.to_vec(), const_args.to_vec());
         if let Some(cached_args) = self.struct_fields_lookup_cache.borrow().get(&key).cloned() {
             if let Some(fields) = cached_args
                 .as_deref()
-                .and_then(|args| self.index.struct_instance(def_id, args))
+                .and_then(|args| self.index.struct_instance(def_id, args, const_args))
                 .map(|item| item.fields.as_slice())
             {
                 return Some(fields);
@@ -182,7 +193,10 @@ impl BackendValidator<'_> {
                 .get(&def_id)
                 .into_iter()
                 .flatten()
-                .find(|item| self.same_type_args(&item.args, args))
+                .find(|item| {
+                    self.same_type_args(&item.args, args)
+                        && item.const_args.as_slice() == const_args
+                })
                 .map(|item| item.args.clone());
             self.struct_fields_lookup_cache
                 .borrow_mut()
@@ -190,7 +204,7 @@ impl BackendValidator<'_> {
             if let Some(matched_args) = matched_args {
                 return self
                     .index
-                    .struct_instance(def_id, &matched_args)
+                    .struct_instance(def_id, &matched_args, const_args)
                     .map(|item| item.fields.as_slice());
             }
         }
@@ -200,15 +214,20 @@ impl BackendValidator<'_> {
             .map(|item| item.fields.as_slice())
     }
 
-    fn union_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
-        if let Some(item) = self.index.union_instance(def_id, args) {
+    fn union_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<&[BackendField]> {
+        if let Some(item) = self.index.union_instance(def_id, args, const_args) {
             return Some(&item.fields);
         }
-        let key = (def_id, args.to_vec());
+        let key = (def_id, args.to_vec(), const_args.to_vec());
         if let Some(cached_args) = self.union_fields_lookup_cache.borrow().get(&key).cloned() {
             if let Some(fields) = cached_args
                 .as_deref()
-                .and_then(|args| self.index.union_instance(def_id, args))
+                .and_then(|args| self.index.union_instance(def_id, args, const_args))
                 .map(|item| item.fields.as_slice())
             {
                 return Some(fields);
@@ -220,7 +239,10 @@ impl BackendValidator<'_> {
                 .get(&def_id)
                 .into_iter()
                 .flatten()
-                .find(|item| self.same_type_args(&item.args, args))
+                .find(|item| {
+                    self.same_type_args(&item.args, args)
+                        && item.const_args.as_slice() == const_args
+                })
                 .map(|item| item.args.clone());
             self.union_fields_lookup_cache
                 .borrow_mut()
@@ -228,7 +250,7 @@ impl BackendValidator<'_> {
             if let Some(matched_args) = matched_args {
                 return self
                     .index
-                    .union_instance(def_id, &matched_args)
+                    .union_instance(def_id, &matched_args, const_args)
                     .map(|item| item.fields.as_slice());
             }
         }

@@ -94,6 +94,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             let key = BackendStructInstanceKey {
                 def_id: instance.def_id,
                 args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
             };
             if !seen_structs.insert(key.clone()) {
                 continue;
@@ -103,6 +104,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 nia_layout::InstanceLayoutRequest {
                     def_id: instance.def_id,
                     args: &instance.args,
+                    const_args: &instance.const_args,
                 },
             ) {
                 layouts.struct_instances.push((key, layout));
@@ -121,6 +123,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             let key = BackendStructInstanceKey {
                 def_id: instance.def_id,
                 args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
             };
             if !seen_unions.insert(key.clone()) {
                 continue;
@@ -130,6 +133,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 nia_layout::InstanceLayoutRequest {
                     def_id: instance.def_id,
                     args: &instance.args,
+                    const_args: &instance.const_args,
                 },
             ) {
                 layouts.union_instances.push((key, layout));
@@ -173,6 +177,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             let key = BackendStructInstanceKey {
                 def_id: instance.def_id,
                 args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
             };
             if !seen_structs.insert(key.clone()) {
                 continue;
@@ -182,6 +187,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 nia_layout::InstanceLayoutRequest {
                     def_id: instance.def_id,
                     args: &instance.args,
+                    const_args: &instance.const_args,
                 },
             ) {
                 layouts.struct_instances.push((key, layout));
@@ -200,6 +206,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             let key = BackendStructInstanceKey {
                 def_id: instance.def_id,
                 args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
             };
             if !seen_unions.insert(key.clone()) {
                 continue;
@@ -209,6 +216,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 nia_layout::InstanceLayoutRequest {
                     def_id: instance.def_id,
                     args: &instance.args,
+                    const_args: &instance.const_args,
                 },
             ) {
                 layouts.union_instances.push((key, layout));

@@ -13,7 +13,8 @@ use nia_body_ir::{
     TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
     TypedSwitchPatternKind, TypedWhile,
 };
-use nia_ids::{BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
+use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
+use nia_item_signatures::FunctionAttribute;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
@@ -687,6 +688,7 @@ impl<'a> BodyChecker<'a> {
                                 def_id: reference.def_id,
                                 arg_module_id: reference.arg_module_id,
                                 args: reference.args.clone(),
+                                const_args: reference.const_args.clone(),
                             }
                         } else {
                             TypedExprKind::Error
@@ -950,6 +952,9 @@ impl<'a> BodyChecker<'a> {
                         callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op }),
                         args: lowered_args,
                     }
+                } else if let Some((builtin, type_arg)) = self.resolved_builtin_attribute_call(expr)
+                {
+                    self.lower_builtin_function_call(expr, builtin, type_arg, args)
                 } else {
                     TypedExprKind::Call {
                         callee: self.lower_callee(expr, callee, args),
@@ -1045,6 +1050,35 @@ impl<'a> BodyChecker<'a> {
             ty: lowered_ty,
             kind,
         }
+    }
+
+    fn resolved_builtin_attribute_call(
+        &mut self,
+        expr: &Expr,
+    ) -> Option<(BuiltinFunction, Option<InternedTyId>)> {
+        match self.resolved_call(expr)? {
+            ResolvedCall::Function(def_id) => self
+                .builtin_attribute_for_function(def_id)
+                .map(|builtin| (builtin, None)),
+            ResolvedCall::FunctionInstance { def_id, args, .. } => self
+                .builtin_attribute_for_function(def_id)
+                .map(|builtin| (builtin, args.first().copied())),
+            _ => None,
+        }
+    }
+
+    fn builtin_attribute_for_function(
+        &mut self,
+        def_id: nia_ids::GlobalDefId,
+    ) -> Option<BuiltinFunction> {
+        self.resolved_function_signature(def_id)?
+            .signature
+            .attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                FunctionAttribute::Builtin(builtin) => Some(*builtin),
+                FunctionAttribute::Naked => None,
+            })
     }
 
     fn memory_intrinsic_elem_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {
@@ -1472,6 +1506,7 @@ impl<'a> BodyChecker<'a> {
                 len: ArrayLenTy::ConstValue(values.len() as u64),
                 elem,
             }),
+            ArrayLenTy::GenericParam(_) => return None,
             ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => {
                 if self.array_len_value(span, &len).ok()? != values.len() as u64 {
                     return None;
@@ -1576,17 +1611,24 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> Option<nia_ids::InternedTyId> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Nominal { def_id, args }) = self.interner.get(ty).cloned() else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.interner.get(ty).cloned()
+        else {
             return None;
         };
         let resolved = self.resolved_struct_signature(def_id)?;
-        let substitutions = self.generic_substitutions(&resolved.signature.generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
         let field = resolved
             .signature
             .fields
             .iter()
             .find(|field| field.name == name)?;
-        let ty = self.substitute_generics(field.ty, &substitutions);
+        let ty =
+            self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions);
         Some(self.normalize_aliases_in_type(ty))
     }
 
@@ -1741,6 +1783,7 @@ impl<'a> BodyChecker<'a> {
                 def_id: reference.def_id,
                 arg_module_id: reference.arg_module_id,
                 args: reference.args.clone(),
+                const_args: reference.const_args.clone(),
             })
         }
     }
@@ -1823,6 +1866,7 @@ impl<'a> BodyChecker<'a> {
                 def_id: reference.def_id,
                 arg_module_id: reference.arg_module_id,
                 args: reference.args.clone(),
+                const_args: reference.const_args.clone(),
             };
         }
         if let Some(def_id) = self.qualified_value(callee)
@@ -2003,14 +2047,26 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id: _,
                 args,
+                const_args,
             } => {
                 let signature = self.resolved_function_signature(def_id)?.signature;
-                let substitutions = self.method_substitutions(def_id, &signature, &args);
+                let (mut substitutions, const_substitutions) =
+                    self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+                if substitutions.len() < args.len() {
+                    let effective_generics = self.effective_generics_for_def(def_id);
+                    substitutions = self.generic_substitutions(&effective_generics, &args);
+                }
                 Some(
                     signature
                         .params
                         .into_iter()
-                        .map(|param| self.substitute_generics(param.ty, &substitutions))
+                        .map(|param| {
+                            self.substitute_generics_and_consts(
+                                param.ty,
+                                &substitutions,
+                                &const_substitutions,
+                            )
+                        })
                         .collect(),
                 )
             }
@@ -2196,10 +2252,12 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => TypedCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             },
             ResolvedCall::Method {
                 def_id,

@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ids::{InternedTyId, ModuleId, TyInternerId};
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
 
 use crate::{
     BackendLowerModuleInput, BackendLowerShared, TypeInstantiationKey, TypeSubstitutionId,
@@ -15,6 +15,7 @@ pub(crate) struct BackendTypeContext<'input, 'shared> {
     pub(crate) interner: nia_ty::TyInterner,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
+    const_substitutions: Vec<HashMap<String, ConstGenericArg>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
 }
 
@@ -29,6 +30,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
             interner: merged_current_interner(input),
             type_instantiations: HashMap::new(),
             type_substitutions: Vec::new(),
+            const_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
         }
     }
@@ -109,7 +111,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         if let Some(layout) = self.input.layouts.types.get(&ty).cloned() {
             return Some(layout);
         }
-        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(ty) else {
             return None;
         };
         if def_id.module_id != self.input.module_id {
@@ -124,7 +126,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         field: nia_ids::GlobalDefId,
     ) -> Option<u64> {
         let ty = self.input.type_normalization.normalize(ty);
-        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(ty) else {
             return None;
         };
         if def_id.module_id != self.input.module_id {
@@ -149,14 +151,20 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     pub(crate) fn intern_type_substitutions(
         &mut self,
         substitutions: Vec<(String, InternedTyId)>,
+        const_substitutions: Vec<(String, ConstGenericArg)>,
     ) -> TypeSubstitutionId {
-        let key = TypeSubstitutionKey { substitutions };
+        let key = TypeSubstitutionKey {
+            substitutions,
+            const_substitutions,
+        };
         if let Some(id) = self.type_substitution_ids.get(&key) {
             return *id;
         }
         let id = TypeSubstitutionId(self.type_substitutions.len());
         self.type_substitutions
             .push(key.substitutions.iter().cloned().collect());
+        self.const_substitutions
+            .push(key.const_substitutions.iter().cloned().collect());
         self.type_substitution_ids.insert(key, id);
         id
     }
@@ -177,6 +185,17 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         substitutions: TypeSubstitutionId,
     ) -> Option<&HashMap<String, InternedTyId>> {
         self.type_substitutions.get(substitutions.0)
+    }
+
+    pub(crate) fn const_substitution(
+        &self,
+        substitutions: TypeSubstitutionId,
+        name: &str,
+    ) -> Option<ConstGenericArg> {
+        self.const_substitutions
+            .get(substitutions.0)?
+            .get(name)
+            .cloned()
     }
 }
 

@@ -97,7 +97,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ty: InternedTyId,
     ) -> Option<(nia_ids::GlobalDefId, Vec<InternedTyId>)> {
         match self.module.ty_kind(ty) {
-            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
+            Some(TyKind::Nominal { def_id, args, .. }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.module_field_base_type(*elem),
             _ => None,
         }
@@ -427,10 +427,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => self
                 .module
                 .global_instances
-                .get(&(*def_id, *arg_module_id, args.clone()))
+                .get(&(*def_id, *arg_module_id, args.clone(), const_args.clone()))
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global instance value"))?,
             FunctionPlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
@@ -522,12 +523,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => self
                 .module
                 .program
                 .global_instances
                 .get(&(*def_id, *arg_module_id))
-                .and_then(|instances| instances.get(args.as_slice()))
+                .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
             FunctionPlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {

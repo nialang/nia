@@ -12,14 +12,20 @@ use nia_backend_ir::{
 use nia_function_ir::{FunctionBody, FunctionLocal, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
 
-type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
+type InstanceKey = (
+    GlobalDefId,
+    ModuleId,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
 
 struct PlannedFunctionInstance {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
     symbol: String,
 }
 
@@ -40,6 +46,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
                     args,
+                    const_args: instance.const_args.clone(),
                     arg_interner: Some(self.type_context.interner.clone()),
                     span: instance.span,
                 }
@@ -72,7 +79,12 @@ impl<'a> ModuleLowerer<'a> {
         let mut pending = VecDeque::new();
         for instance in existing {
             let args = self.canonicalize_instance_args(&instance.args);
-            seen.insert((instance.def_id, instance.arg_module_id, args));
+            seen.insert((
+                instance.def_id,
+                instance.arg_module_id,
+                args,
+                instance.const_args.clone(),
+            ));
         }
         for instance in initial_instances {
             enqueue_function_instance_ref(&mut pending, &mut queued, instance);
@@ -88,6 +100,7 @@ impl<'a> ModuleLowerer<'a> {
                         instance.def_id,
                         instance.arg_module_id,
                         self.canonicalize_instance_args(&instance.args),
+                        instance.const_args.clone(),
                     ),
                     instance.symbol.clone(),
                 )
@@ -101,7 +114,13 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             let args = self.canonicalize_instance_ref_args(&instance);
-            let key = (instance.def_id, instance.arg_module_id, args.clone());
+            let const_args = instance.const_args.clone();
+            let key = (
+                instance.def_id,
+                instance.arg_module_id,
+                args.clone(),
+                const_args.clone(),
+            );
             if seen.contains(&key) {
                 continue;
             }
@@ -127,9 +146,12 @@ impl<'a> ModuleLowerer<'a> {
                 );
                 continue;
             }
-            let symbol = if let Some(symbol) =
-                planned_symbols.get(&(instance.def_id, instance.arg_module_id, args.clone()))
-            {
+            let symbol = if let Some(symbol) = planned_symbols.get(&(
+                instance.def_id,
+                instance.arg_module_id,
+                args.clone(),
+                const_args.clone(),
+            )) {
                 symbol.clone()
             } else {
                 let Some(name) =
@@ -137,9 +159,15 @@ impl<'a> ModuleLowerer<'a> {
                 else {
                     continue;
                 };
-                let symbol = self.mangle_instance_symbol(instance.def_id, &name, &args);
+                let symbol =
+                    self.mangle_instance_symbol(instance.def_id, &name, &args, &const_args);
                 planned_symbols.insert(
-                    (instance.def_id, instance.arg_module_id, args.clone()),
+                    (
+                        instance.def_id,
+                        instance.arg_module_id,
+                        args.clone(),
+                        const_args.clone(),
+                    ),
                     symbol.clone(),
                 );
                 symbol
@@ -152,6 +180,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
                     args,
+                    const_args,
                     symbol,
                 },
             ) else {
@@ -165,10 +194,12 @@ impl<'a> ModuleLowerer<'a> {
             );
             for discovered in refs.instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
+                let discovered_const_args = discovered.const_args.clone();
                 if !seen.contains(&(
                     discovered.def_id,
                     discovered.arg_module_id,
                     discovered_args.clone(),
+                    discovered_const_args.clone(),
                 )) {
                     enqueue_function_instance_ref(
                         &mut pending,
@@ -177,6 +208,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: discovered.def_id,
                             arg_module_id: discovered.arg_module_id,
                             args: discovered_args,
+                            const_args: discovered_const_args,
                             arg_interner: Some(self.type_context.interner.clone()),
                             span: discovered.span,
                         },
@@ -370,9 +402,10 @@ impl<'a> ModuleLowerer<'a> {
             def_id,
             arg_module_id,
             args,
+            const_args,
             symbol,
         } = plan;
-        if !seen.insert((def_id, arg_module_id, args.clone())) {
+        if !seen.insert((def_id, arg_module_id, args.clone(), const_args.clone())) {
             return None;
         }
         if !functions_by_def.contains_key(&def_id)
@@ -386,14 +419,18 @@ impl<'a> ModuleLowerer<'a> {
             .map(|arg| self.import_instance_arg_type(*arg))
             .collect::<Vec<_>>();
         let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
+        let const_substitutions = self.const_generic_substitutions_for_def(def_id, &const_args);
+        let substitution_id =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         let function_body = base.function_body.clone().map(|body| {
-            self.instantiate_function_body(
+            self.instantiate_function_body_with_const_substitutions(
                 def_id,
                 arg_module_id,
                 true,
                 args.len(),
                 body,
                 &substitutions,
+                &const_substitutions,
             )
         });
         let discovered_body = function_body.clone();
@@ -402,9 +439,10 @@ impl<'a> ModuleLowerer<'a> {
             name: base.name.clone(),
             arg_module_id,
             args,
+            const_args,
             symbol,
-            params: self.instantiate_params(&base, &substitutions),
-            return_type: self.instantiate_ty(base.return_type, &substitutions),
+            params: self.instantiate_params_with_id(&base, substitution_id),
+            return_type: self.instantiate_ty_with_id(base.return_type, substitution_id),
             is_extern: base.is_extern,
             is_variadic: base.is_variadic,
             attributes: base.attributes.clone(),

@@ -18,10 +18,15 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::TypeLayout;
-use nia_ty::PrimitiveTy;
+use nia_ty::{ConstGenericArg, PrimitiveTy};
 
-type FunctionInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
-type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>);
+type FunctionInstanceKey = (
+    GlobalDefId,
+    ModuleId,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
+type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
 
 pub(super) fn validate_backend_program(
@@ -165,11 +170,13 @@ impl BackendValidator<'_> {
                         def_id,
                         arg_module_id,
                         args,
+                        const_args,
                     } => {
                         self.validate_function_instance_ref(
                             *def_id,
                             *arg_module_id,
                             args,
+                            const_args,
                             vtable.span,
                             "backend IR vtable references missing function instance",
                         );

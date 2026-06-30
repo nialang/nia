@@ -182,13 +182,19 @@ impl Analyzer<'_> {
                     )?;
                 }
             }
-            TyKind::Nominal { def_id, args } => {
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => {
                 if let Some(TyKind::Nominal {
                     def_id: actual_def_id,
                     args: actual_args,
+                    const_args: actual_const_args,
                 }) = self.ty_kind(actual_ty)
                     && def_id == actual_def_id
                     && args.len() == actual_args.len()
+                    && const_args == actual_const_args
                 {
                     for (arg, actual_arg) in args.into_iter().zip(actual_args) {
                         self.infer_generics_from_tys(

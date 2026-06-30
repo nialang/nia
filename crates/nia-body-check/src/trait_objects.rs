@@ -689,6 +689,7 @@ impl<'a> BodyChecker<'a> {
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
+                ..
             }) = self
                 .interner
                 .get(self.normalization.normalize(supertrait))
@@ -783,12 +784,16 @@ impl<'a> BodyChecker<'a> {
                 let value = self.object_safe_ty(check, value);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.object_safe_ty(check, arg))
                     .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args: Vec::new(),
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -1026,7 +1031,7 @@ impl<'a> BodyChecker<'a> {
                     let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
                     let supertrait = self.normalization.normalize(supertrait);
                     match self.interner.get(supertrait).cloned() {
-                        Some(TyKind::Nominal { def_id, args }) => self
+                        Some(TyKind::Nominal { def_id, args, .. }) => self
                             .trait_object_has_supertrait_inner(
                                 TraitId::Source(def_id),
                                 &args,

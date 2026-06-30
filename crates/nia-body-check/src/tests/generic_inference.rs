@@ -106,6 +106,62 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_comptime_generic_array_lengths_from_call_arguments() {
+    let checked = pipeline(
+        r#"
+fn take_array[T, N: usize](xs: [N]T) usize {
+    _ = xs;
+    0usize
+}
+
+fn main(xs: [4]u8) usize {
+    take_array(xs) + take_array[u8, 4](xs)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instance_count = checked
+        .facts
+        .generic_instantiations
+        .iter()
+        .filter(|inst| !inst.const_args.is_empty())
+        .count();
+    assert_eq!(
+        const_instance_count, 2,
+        "{:?}",
+        checked.facts.generic_instantiations
+    );
+}
+
+#[test]
+fn infers_comptime_generic_array_lengths_from_array_literal_arguments() {
+    let checked = pipeline(
+        r#"
+fn take_array[T, N: usize](xs: [N]T) usize {
+    _ = xs;
+    0usize
+}
+
+fn main() usize {
+    take_array([1u8, 2u8, 3u8, 4u8])
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instance = checked
+        .facts
+        .generic_instantiations
+        .iter()
+        .find(|inst| !inst.const_args.is_empty())
+        .expect("const generic instantiation");
+    assert_eq!(const_instance.const_args.len(), 1);
+    assert!(matches!(
+        const_instance.const_args[0].value,
+        nia_ty::ConstGenericValue::Int(value) if value.bits() == 4
+    ));
+}
+
+#[test]
 fn infers_range_bound_literals_from_peer_bound_type() {
     let checked = pipeline(
         r#"

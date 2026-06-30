@@ -1233,6 +1233,7 @@ impl<'a> BodyChecker<'a> {
                     return self.interner.intern(TyKind::Nominal {
                         def_id: enum_id,
                         args: Vec::new(),
+                        const_args: Vec::new(),
                     });
                 }
                 if self

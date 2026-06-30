@@ -489,7 +489,7 @@ impl Parser {
         })
     }
 
-    fn parse_extend_generic_params(&mut self) -> Vec<String> {
+    fn parse_extend_generic_params(&mut self) -> Vec<nia_ast::GenericParam> {
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let generics = self.parse_generic_params();

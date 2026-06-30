@@ -42,11 +42,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => {
                 let Some(instance) = self.module.function_instance_item_with_arg_module(
                     *def_id,
                     *arg_module_id,
                     args,
+                    const_args,
                 ) else {
                     return Err(self.error(span, "missing function instance item"));
                 };
@@ -54,6 +56,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     instance.def_id,
                     instance.arg_module_id,
                     &instance.args,
+                    &instance.const_args,
                 ) else {
                     return Err(self.error(span, "missing function instance value"));
                 };
@@ -280,11 +283,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 def_id,
                 arg_module_id,
                 args: type_args,
+                const_args,
             } => {
                 let Some(instance) = self.module.function_instance_item_with_arg_module(
                     *def_id,
                     *arg_module_id,
                     type_args,
+                    const_args,
                 ) else {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
@@ -301,6 +306,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                 instance.def_id,
                                 instance.arg_module_id,
                                 &instance.args,
+                                &instance.const_args,
                             )
                             .ok_or_else(|| {
                                 self.error(expr.span, "missing callee function instance")
@@ -334,6 +340,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         *def_id,
                         *arg_module_id,
                         type_args,
+                        &[],
                     );
                     (
                         instance.and_then(|instance| {
@@ -341,6 +348,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                 instance.def_id,
                                 instance.arg_module_id,
                                 &instance.args,
+                                &instance.const_args,
                             )
                         }),
                         instance.is_some_and(|instance| instance.is_extern),

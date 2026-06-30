@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, AssocBindingKey, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
-    TypePathSegment, TypeRef,
+    ArrayLen, AssocBindingKey, FunctionItem, GenericParam, GenericParamKind, Item, ItemKind,
+    Module, TypeArg, TypeKind, TypePathSegment, TypeRef,
 };
 use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
@@ -252,7 +252,7 @@ struct TypeResolver<'a> {
     node_type_names: HashMap<NodeSite, TypeNameResolution>,
     node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
-    generic_stack: Vec<Vec<String>>,
+    generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<Span>,
     associated_type_stack: Vec<Vec<String>>,
     suppress_unknown_type_errors: bool,
@@ -906,7 +906,7 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         node_key: &VersionedNodeKey,
     ) -> TypeNameResolution {
-        if self.is_generic_param(&segment.name) {
+        if self.is_type_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;
         }
         if self.is_associated_type(&segment.name) {
@@ -980,7 +980,12 @@ impl<'a> TypeResolver<'a> {
         self.suppress_unknown_type_errors = previous;
     }
 
-    fn with_generics(&mut self, generics: &[String], f: impl FnOnce(&mut Self)) {
+    fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {
+        for generic in generics {
+            if let GenericParamKind::Comptime { ty } = &generic.kind {
+                self.visit_type(ty);
+            }
+        }
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
@@ -998,11 +1003,12 @@ impl<'a> TypeResolver<'a> {
         self.associated_type_stack.pop();
     }
 
-    fn is_generic_param(&self, name: &str) -> bool {
-        self.generic_stack
-            .iter()
-            .rev()
-            .any(|generics| generics.iter().any(|generic| generic == name))
+    fn is_type_generic_param(&self, name: &str) -> bool {
+        self.generic_stack.iter().rev().any(|generics| {
+            generics.iter().any(|generic| {
+                generic.name == name && matches!(generic.kind, GenericParamKind::Type)
+            })
+        })
     }
 
     fn is_associated_type(&self, name: &str) -> bool {

@@ -54,6 +54,7 @@ pub enum TyKind {
     Nominal {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     BuiltinTrait {
         trait_id: BuiltinTrait,
@@ -119,7 +120,7 @@ pub enum PrimitiveTy {
     Never,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IntConst {
     bits: u128,
     signed: bool,
@@ -179,6 +180,20 @@ impl From<i128> for IntConst {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConstGenericArg {
+    pub ty: InternedTyId,
+    pub value: ConstGenericValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConstGenericValue {
+    GenericParam(String),
+    Int(IntConst),
+    Bool(bool),
+    Char(char),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimitiveTypeSpelling {
     Scalar(PrimitiveTy),
@@ -188,6 +203,7 @@ pub enum PrimitiveTypeSpelling {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArrayLenTy {
     Infer,
+    GenericParam(String),
     ConstValue(u64),
     ConstExpr(GlobalConstExprId),
     Builtin {
@@ -384,7 +400,10 @@ impl TyInterner {
     fn array_len_contains_error(&self, len: &ArrayLenTy, seen: &mut Vec<InternedTyId>) -> bool {
         match len {
             ArrayLenTy::Builtin { ty, .. } => self.contains_error_inner(*ty, seen),
-            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => false,
+            ArrayLenTy::Infer
+            | ArrayLenTy::GenericParam(_)
+            | ArrayLenTy::ConstValue(_)
+            | ArrayLenTy::ConstExpr(_) => false,
         }
     }
 
@@ -477,12 +496,24 @@ pub fn try_import_type_into(
             let value = try_import_type_into(target, source, value)?;
             Ok(target.intern(TyKind::ErrorUnion { error, value }))
         }
-        Some(TyKind::Nominal { def_id, args }) => {
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => {
             let args = args
                 .into_iter()
                 .map(|arg| try_import_type_into(target, source, arg))
                 .collect::<Result<_, _>>()?;
-            Ok(target.intern(TyKind::Nominal { def_id, args }))
+            let const_args = const_args
+                .into_iter()
+                .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
+                .collect::<Result<_, _>>()?;
+            Ok(target.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }))
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
@@ -605,8 +636,22 @@ fn try_import_array_len_into(
             // point at the target interner just like ordinary array element types do.
             ty: try_import_type_into(target, source, *ty)?,
         }),
-        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => Ok(len.clone()),
+        ArrayLenTy::Infer
+        | ArrayLenTy::GenericParam(_)
+        | ArrayLenTy::ConstValue(_)
+        | ArrayLenTy::ConstExpr(_) => Ok(len.clone()),
     }
+}
+
+fn try_import_const_generic_arg_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    arg: &ConstGenericArg,
+) -> Result<ConstGenericArg, TypeImportError> {
+    Ok(ConstGenericArg {
+        ty: try_import_type_into(target, source, arg.ty)?,
+        value: arg.value.clone(),
+    })
 }
 
 pub trait TypeEquivalence {
@@ -620,6 +665,17 @@ pub trait TypeEquivalence {
                 .iter()
                 .zip(right)
                 .all(|(left, right)| self.same_type_for_equiv(*left, *right))
+    }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty) && left.value == right.value
+            })
     }
 
     fn compute_same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
@@ -711,12 +767,18 @@ pub trait TypeEquivalence {
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
+                    const_args: left_const_args,
                 }),
                 Some(TyKind::Nominal {
                     def_id: right_def,
                     args: right_args,
+                    const_args: right_const_args,
                 }),
-            ) => left_def == right_def && self.same_type_args_for_equiv(left_args, right_args),
+            ) => {
+                left_def == right_def
+                    && self.same_type_args_for_equiv(left_args, right_args)
+                    && self.same_const_generic_args_for_equiv(left_const_args, right_const_args)
+            }
             (
                 Some(TyKind::BuiltinTrait {
                     trait_id: left_trait,

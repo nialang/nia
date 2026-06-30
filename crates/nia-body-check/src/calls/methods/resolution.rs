@@ -592,6 +592,7 @@ impl<'a> BodyChecker<'a> {
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
+                ..
             }) = self
                 .interner
                 .get(self.normalization.normalize(supertrait))
@@ -676,6 +677,7 @@ impl<'a> BodyChecker<'a> {
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
+                ..
             }) = self
                 .interner
                 .get(self.normalization.normalize(supertrait))
@@ -993,11 +995,16 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Nominal {
                 def_id: general_def,
                 args: general_args,
+                const_args: general_const_args,
             }) => match self.interner.get(specific) {
                 Some(TyKind::Nominal {
                     def_id: specific_def,
                     args: specific_args,
-                }) if general_def == specific_def && general_args.len() == specific_args.len() => {
+                    const_args: specific_const_args,
+                }) if general_def == specific_def
+                    && general_const_args == specific_const_args
+                    && general_args.len() == specific_args.len() =>
+                {
                     general_args
                         .iter()
                         .zip(specific_args)
@@ -1349,9 +1356,15 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,
+                const_args: pattern_const_args,
             }) => match self.interner.get(actual) {
-                Some(TyKind::Nominal { def_id, args })
-                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                Some(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                }) if pattern_def == def_id
+                    && pattern_const_args == const_args
+                    && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern(*pattern, *actual, substitutions)

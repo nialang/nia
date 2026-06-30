@@ -247,7 +247,7 @@ impl Analyzer<'_> {
         ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>)> {
         match self.ty_kind(ty)? {
-            TyKind::Nominal { def_id, args } => Some((TraitId::Source(def_id), args)),
+            TyKind::Nominal { def_id, args, .. } => Some((TraitId::Source(def_id), args)),
             TyKind::BuiltinTrait { trait_id, args } => Some((TraitId::Builtin(trait_id), args)),
             _ => None,
         }

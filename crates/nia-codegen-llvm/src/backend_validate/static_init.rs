@@ -75,6 +75,7 @@ impl BackendValidator<'_> {
                         *function,
                         function.module_id,
                         args,
+                        &[],
                         span,
                         "backend IR static initializer references missing function instance",
                     );
@@ -102,7 +103,7 @@ impl BackendValidator<'_> {
         fields: &[StaticFieldInit],
         span: Span,
     ) {
-        let Some((def_id, args)) = self.field_base_type(ty) else {
+        let Some((def_id, args, const_args)) = self.field_base_type(ty) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -110,7 +111,7 @@ impl BackendValidator<'_> {
             ));
             return;
         };
-        let Some(target_fields) = self.aggregate_fields(def_id, &args) else {
+        let Some(target_fields) = self.aggregate_fields(def_id, &args, &const_args) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,

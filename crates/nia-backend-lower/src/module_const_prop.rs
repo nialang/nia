@@ -10,6 +10,7 @@ use nia_function_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_opt::OptimizationDepth;
+use nia_ty::ConstGenericArg;
 
 pub(crate) const PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS: &str =
     "propagate-cross-function-constants";
@@ -19,6 +20,7 @@ struct FunctionInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -47,6 +49,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: instance.def_id,
                             arg_module_id: instance.arg_module_id,
                             args: instance.args.clone(),
+                            const_args: instance.const_args.clone(),
                         },
                         value.clone(),
                     )
@@ -678,10 +681,12 @@ fn cross_function_constant_for_callee<'a>(
             def_id,
             arg_module_id,
             args,
+            const_args,
         } => instance_constants.get(&FunctionInstanceKey {
             def_id: *def_id,
             arg_module_id: *arg_module_id,
             args: args.clone(),
+            const_args: const_args.clone(),
         }),
         FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
