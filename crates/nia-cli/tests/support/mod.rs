@@ -18,6 +18,7 @@ static BUILD_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
 const COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_COMMAND_TIMEOUT_SECS";
+const COMPILER_CHECK_LIMIT_ENV: &str = "NIA_COMPILER_CHECK_LIMIT";
 
 pub(crate) trait CommandExt {
     fn output_timeout(&mut self, context: &str) -> Output;
@@ -118,11 +119,19 @@ fn command_timeout() -> Duration {
 }
 
 fn prepare_command(command: &mut Command) {
+    command.env(COMPILER_CHECK_LIMIT_ENV, compiler_check_limit());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
+}
+
+fn compiler_check_limit() -> String {
+    std::env::var(COMPILER_CHECK_LIMIT_ENV)
+        .ok()
+        .filter(|value| value.parse::<usize>().is_ok_and(|limit| limit > 0))
+        .unwrap_or_else(|| "1".to_string())
 }
 
 fn wait_child_timeout(
