@@ -894,6 +894,7 @@ impl<'a> BodyChecker<'a> {
             program_comptime_module: self.program_comptime_module,
             source_path: self.source_path,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
+            extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),
             callable_extension_methods_by_name: HashMap::new(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),

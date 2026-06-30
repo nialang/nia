@@ -2171,7 +2171,6 @@ struct BodyCheckResolutionInputs {
 struct BodyCheckWithResolutionInputs {
     body_check: nia_body_check::BodyCheck,
     inputs: BodyCheckResolutionInputs,
-    stored_inputs: Option<BodyCheckResolutionInputs>,
     comptime: Option<ComptimeCheck>,
 }
 
@@ -2571,7 +2570,7 @@ fn body_check_with_filter_and_layouts(
         program_layouts_override,
         program_signatures_override,
         None,
-        None,
+        false,
         None,
         None,
     )
@@ -2586,7 +2585,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
     program_signatures_override: Option<&ProgramExecutableSignatures>,
     resolution_inputs: Option<BodyCheckResolutionInputs>,
-    stored_inputs: Option<BodyCheckResolutionInputs>,
+    finalize_discovered_inputs: bool,
     seed_interner: Option<nia_ty::TyInterner>,
     global_initializer_cache: Option<
         &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
@@ -2879,16 +2878,16 @@ fn body_check_with_filter_and_layouts_with_inputs(
         )
     };
     let body_check = run_body_check(&inputs, body_comptime, comptime_module, filter);
-    let (body_check, stored_inputs, stored_comptime_inputs) = match (filter, stored_inputs) {
+    let (body_check, inputs, stored_comptime_inputs) = match (filter, finalize_discovered_inputs) {
         (
             nia_body_check::BodyCheckFilter::ReachableItems {
                 functions, globals, ..
             },
-            Some(stored_inputs),
+            true,
         ) => {
             let mut body_check = body_check;
             let mut final_functions = functions.iter().copied().collect::<HashSet<_>>();
-            let mut current_inputs = stored_inputs;
+            let mut current_inputs = inputs;
             let mut current_comptime_inputs = None;
             loop {
                 let before = final_functions.len();
@@ -2947,14 +2946,13 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 current_inputs = final_inputs;
                 current_comptime_inputs = Some(final_comptime_inputs);
             }
-            (body_check, Some(current_inputs), current_comptime_inputs)
+            (body_check, current_inputs, current_comptime_inputs)
         }
-        (_, stored_inputs) => (body_check, stored_inputs, None),
+        (_, _) => (body_check, inputs, None),
     };
     BodyCheckWithResolutionInputs {
         body_check,
         inputs,
-        stored_inputs,
         comptime: stored_comptime_inputs
             .or(filtered_comptime_inputs)
             .map(BodyCheckComptimeInputs::into_check),
@@ -3902,10 +3900,8 @@ fn executable_checked_module_with_body_and_flow_check(
     let BodyCheckWithResolutionInputs {
         body_check,
         inputs: body_inputs,
-        stored_inputs,
         comptime,
     } = body_check;
-    let body_inputs = stored_inputs.unwrap_or(body_inputs);
     CheckedModule {
         id: module_id,
         path: db.query(ModulePathQuery(module_id)),
@@ -4685,8 +4681,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                         Some(layouts.clone()),
                         Some(&executable_program_layouts),
                         Some(&*program_signatures),
-                        Some(resolution_inputs.clone()),
                         Some(resolution_inputs),
+                        true,
                         seed_interner,
                         Some(&executable_global_initializer_cache),
                     )

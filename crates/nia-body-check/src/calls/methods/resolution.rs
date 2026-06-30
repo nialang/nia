@@ -29,18 +29,30 @@ impl<'a> BodyChecker<'a> {
             .filter(|(_, method)| !method.is_trait_witness)
             .map(|(target_ty, method)| crate::CallableExtensionMethod { target_ty, method })
             .collect::<Vec<_>>();
-        for method in self.program_extension_methods.all_methods() {
-            if method.trait_id.is_some()
-                || method.name != name
-                || methods
-                    .iter()
-                    .any(|existing| existing.method.def_id == method.def_id)
+        let program_methods = self
+            .program_extension_methods
+            .all_methods()
+            .filter(|method| method.trait_id.is_none() && method.name == name)
+            .cloned()
+            .collect::<Vec<_>>();
+        for method in program_methods {
+            if methods
+                .iter()
+                .any(|existing| existing.method.def_id == method.def_id)
             {
                 continue;
             }
-            let Some(lookup) = self.extension_methods_by_id.get(&method.def_id) else {
-                continue;
-            };
+            let lookup =
+                if let Some(lookup) = self.extension_method_lookup_for_id(method.def_id).cloned() {
+                    lookup
+                } else {
+                    let Some(lookup) = self.import_program_extension_method_lookup(&method) else {
+                        continue;
+                    };
+                    self.extension_method_lookup_cache
+                        .insert(method.def_id, lookup.clone());
+                    lookup
+                };
             methods.push(crate::CallableExtensionMethod {
                 target_ty: lookup.target_ty,
                 method: VisibleExtensionMethod {
@@ -1219,8 +1231,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn extension_impl_generics_for_method(&self, method_id: GlobalDefId) -> Option<&[String]> {
-        self.extension_methods_by_id
-            .get(&method_id)
+        self.extension_method_lookup_for_id(method_id)
             .map(|method| method.effective_generics.as_slice())
     }
 
