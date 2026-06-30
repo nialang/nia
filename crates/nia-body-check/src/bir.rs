@@ -42,7 +42,15 @@ impl<'a> BodyChecker<'a> {
         array: TypedExpr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
-        if forced_ty == Some(array.ty) || forced_ty.is_some_and(|ty| self.is_array_ty(ty)) {
+        if forced_ty == Some(array.ty) {
+            return array;
+        }
+        if let Some(forced_ty) = forced_ty
+            && self.is_array_ty(forced_ty)
+        {
+            if let Some(ty) = self.materialize_inferred_array_type(forced_ty, array.ty) {
+                return TypedExpr { ty, ..array };
+            }
             return array;
         }
         array
@@ -587,6 +595,7 @@ impl<'a> BodyChecker<'a> {
                 kind,
             };
         }
+        let mut lowered_ty = ty;
         let kind = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) | ExprKind::Underscore => TypedExprKind::Error,
             ExprKind::Integer(text) => {
@@ -818,9 +827,14 @@ impl<'a> BodyChecker<'a> {
                         expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
                     }
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly) {
+                    let inner = self.lower_expr_with_ty(inner, inner_ty);
+                    lowered_ty = self.interner.intern(TyKind::Pointer {
+                        is_readonly: matches!(op, UnaryOp::RefReadOnly),
+                        elem: inner.ty,
+                    });
                     TypedExprKind::Unary {
                         op: *op,
-                        expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                        expr: Box::new(inner),
                     }
                 } else {
                     TypedExprKind::Unary {
@@ -1163,7 +1177,7 @@ impl<'a> BodyChecker<'a> {
         };
         TypedExpr {
             span: expr.span,
-            ty,
+            ty: lowered_ty,
             kind,
         }
     }

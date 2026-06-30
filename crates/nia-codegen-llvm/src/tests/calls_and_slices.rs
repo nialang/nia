@@ -419,6 +419,10 @@ fn first_byte(xs: & [u8]) i32 {
     xs[0] as i32
 }
 
+fn first_char(xs: & [char]) i32 {
+    if xs[0] == 'r' { 1 } else { 0 }
+}
+
 fn overwrite(xs: &mut [i32]) i32 {
     xs[1] = 9;
     xs[1]
@@ -429,7 +433,7 @@ fn main() i32 {
     let mut borrow = & xs[..];
     let mut literal: & [i32] = &[4, 5, 6];
     let bytes = b"hi";
-    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first_byte(&bytes) + overwrite(&mut xs) + overwrite(&mut [6, 7])
+    first(borrow) + first(literal) + first(&xs) + first(&[7, 8]) + first(&([_]i32[10, 11, 12])) + first_byte(&bytes) + first_byte(&b"ok") + first_char(&"run") + overwrite(&mut xs) + overwrite(&mut [6, 7])
 }
 "#,
     )

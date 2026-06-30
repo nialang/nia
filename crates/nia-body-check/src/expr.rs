@@ -126,6 +126,11 @@ impl<'a> BodyChecker<'a> {
                     }
                     UnaryOp::RefReadOnly => {
                         let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                        let inner_ty = expected_ref_target
+                            .and_then(|expected| {
+                                self.materialize_inferred_array_type(expected, inner_ty)
+                            })
+                            .unwrap_or(inner_ty);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_CHECK,
@@ -141,6 +146,11 @@ impl<'a> BodyChecker<'a> {
                     }
                     UnaryOp::Ref => {
                         let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                        let inner_ty = expected_ref_target
+                            .and_then(|expected| {
+                                self.materialize_inferred_array_type(expected, inner_ty)
+                            })
+                            .unwrap_or(inner_ty);
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_CHECK,
