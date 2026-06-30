@@ -113,7 +113,7 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
-        let _permit = compiler_check_permit();
+        let _permit = compiler_work_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(CheckedProgramQuery)
         })) {
@@ -135,7 +135,7 @@ impl CompilerDatabase {
     }
 
     pub fn entry_check_program(&self) -> CheckedProgram {
-        let _permit = compiler_check_permit();
+        let _permit = compiler_work_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(EntryCheckedProgramQuery)
         })) {
@@ -157,7 +157,7 @@ impl CompilerDatabase {
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
-        let _permit = compiler_check_permit();
+        let _permit = compiler_work_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(CodegenProgramQuery)
         })) {
@@ -313,11 +313,11 @@ impl CompilerDatabase {
     }
 }
 
-fn compiler_check_permit() -> CompilerCheckPermit {
+pub fn compiler_work_permit() -> CompilerWorkPermit {
     if !compiler_check_slots_enabled() {
-        return CompilerCheckPermit { slot: None };
+        return CompilerWorkPermit { slot: None };
     }
-    CompilerCheckPermit {
+    CompilerWorkPermit {
         slot: Some(acquire_compiler_check_slot()),
     }
 }
@@ -326,11 +326,11 @@ fn compiler_check_slots_enabled() -> bool {
     env_limit("NIA_COMPILER_CHECK_LIMIT").is_some()
 }
 
-struct CompilerCheckPermit {
+pub struct CompilerWorkPermit {
     slot: Option<PathBuf>,
 }
 
-impl Drop for CompilerCheckPermit {
+impl Drop for CompilerWorkPermit {
     fn drop(&mut self) {
         if let Some(slot) = self.slot.take() {
             let _ = fs::remove_dir_all(slot);

@@ -213,6 +213,7 @@ impl Driver {
         program: &CodegenProgram,
     ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
+            let _permit = nia_compiler_query::compiler_work_permit();
             let output = nia_codegen_llvm::emit_native_objects(
                 &program.backend_lowering.program,
                 codegen_options(program.optimization),
@@ -319,6 +320,7 @@ impl Driver {
         mut link_options: LinkOptions,
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
+            let _permit = nia_compiler_query::compiler_work_permit();
             link_options.target = LinkTarget::from_target_config(&self.config.target);
             let temp = TempDir::new("nia_emit_exe");
             if let Err(error) = fs::create_dir_all(temp.path()) {
