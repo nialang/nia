@@ -65,15 +65,26 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
-        { iter: self.iter() }
+        { iter: { map: self, index: 0usize, remaining: self.len } }
     }
 
     pub fn values(&self) HashMapValuesWithContext[K, V, C] {
-        { iter: self.iter() }
+        { iter: { map: self, index: 0usize, remaining: self.len } }
     }
 
     pub fn values_mut(&mut self) HashMapValuesMutWithContext[K, V, C] {
         { iter: self.iter_mut() }
+    }
+}
+
+extend[K, V, C] HashMapWithContext[K, V, C] : Iterable
+where K: Sized, V: Sized, C: HashMapContext[K]
+{
+    type Item = HashMapEntryRef[K, V];
+    type Iter = HashMapIterWithContext[K, V, C];
+
+    pub fn iter(&self) HashMapIterWithContext[K, V, C] {
+        { map: self, index: 0usize, remaining: self.len }
     }
 }
 

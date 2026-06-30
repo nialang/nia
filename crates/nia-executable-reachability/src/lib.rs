@@ -7,7 +7,7 @@ use nia_body_ir::{
     TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind, TypedSwitchArmBody,
 };
 use nia_defs::{DefCollection, DefKind, ExtensionMethods};
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
+use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ProgramFunctionSignature, ProgramStructSignature, ProgramTraitImplSignature,
@@ -1148,9 +1148,16 @@ fn collect_typed_stmt_refs(
         TypedStmtKind::ForIn(for_in) => {
             refs.traits.insert_method(
                 module.module_id,
-                TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
-                nia_ids::BuiltinTraitMethod::IteratorNext.name(),
-                for_in.iter.ty,
+                TraitId::Builtin(BuiltinTrait::Iterable),
+                BuiltinTraitMethod::IterableIter.name(),
+                for_in.iterable_self_ty,
+                Vec::new(),
+            );
+            refs.traits.insert_method(
+                module.module_id,
+                TraitId::Builtin(BuiltinTrait::Iterator),
+                BuiltinTraitMethod::IteratorNext.name(),
+                for_in.iterator_ty,
                 Vec::new(),
             );
             collect_typed_expr_refs(module, &for_in.iter, refs);
@@ -1393,7 +1400,23 @@ fn collect_typed_callee_refs(
             refs.traits.insert_trait(*trait_id);
             collect_typed_expr_refs(module, receiver, refs);
         }
-        TypedCallee::BuiltinMethod { receiver, .. } | TypedCallee::FunctionPointer(receiver) => {
+        TypedCallee::BuiltinMethod {
+            method,
+            self_ty,
+            receiver,
+        } => {
+            if let Some((trait_id, trait_method)) = builtin_method_trait(*method) {
+                refs.traits.insert_method(
+                    module.module_id,
+                    TraitId::Builtin(trait_id),
+                    trait_method.name(),
+                    *self_ty,
+                    Vec::new(),
+                );
+            }
+            collect_typed_expr_refs(module, receiver, refs);
+        }
+        TypedCallee::FunctionPointer(receiver) => {
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::BuiltinOperator(operator) => {
@@ -2290,6 +2313,7 @@ fn collect_reachable_fact_owner_modules_for_items(
             continue;
         };
         collect_function_fact_owner_modules(
+            module.module_id,
             function_facts,
             modules,
             type_modules,
@@ -2337,6 +2361,7 @@ fn collect_where_predicate_type_ids(
 }
 
 fn collect_function_fact_owner_modules(
+    module_id: ModuleId,
     facts: &FunctionSemanticFacts,
     modules: &mut HashSet<ModuleId>,
     type_modules: &mut HashSet<ModuleId>,
@@ -2368,6 +2393,7 @@ fn collect_function_fact_owner_modules(
     }
     for call in facts.node_resolved_calls.values() {
         collect_resolved_call_owner_modules(
+            module_id,
             call,
             modules,
             type_modules,
@@ -2384,6 +2410,7 @@ fn collect_function_fact_owner_modules(
 }
 
 fn collect_resolved_call_owner_modules(
+    module_id: ModuleId,
     call: &nia_sema_ir::ResolvedCall,
     modules: &mut HashSet<ModuleId>,
     type_modules: &mut HashSet<ModuleId>,
@@ -2456,7 +2483,16 @@ fn collect_resolved_call_owner_modules(
             let _ = op;
             traits.insert_trait(TraitId::Builtin(*trait_id));
         }
-        nia_sema_ir::ResolvedCall::BuiltinMethod { self_ty, .. } => {
+        nia_sema_ir::ResolvedCall::BuiltinMethod { method, self_ty } => {
+            if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method) {
+                traits.insert_method(
+                    module_id,
+                    TraitId::Builtin(trait_id),
+                    trait_method.name(),
+                    *self_ty,
+                    Vec::new(),
+                );
+            }
             type_ids.push(*self_ty);
         }
         nia_sema_ir::ResolvedCall::BuiltinPlaceMethod {
@@ -2472,6 +2508,34 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(trait_args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::FunctionPointer => {}
+    }
+}
+
+fn semantic_builtin_method_trait(
+    method: nia_sema_ir::BuiltinMethod,
+) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
+    match method {
+        nia_sema_ir::BuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
+        nia_sema_ir::BuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
+        nia_sema_ir::BuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
+        nia_sema_ir::BuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
+        nia_sema_ir::BuiltinMethod::Iter => {
+            Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
+        }
+    }
+}
+
+fn builtin_method_trait(
+    method: nia_body_ir::BuiltinMethod,
+) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
+    match method {
+        nia_body_ir::BuiltinMethod::Len => Some((BuiltinTrait::Len, BuiltinTraitMethod::Len)),
+        nia_body_ir::BuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
+        nia_body_ir::BuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
+        nia_body_ir::BuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
+        nia_body_ir::BuiltinMethod::Iter => {
+            Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
+        }
     }
 }
 

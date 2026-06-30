@@ -1,0 +1,113 @@
+pub(pkg) module range;
+
+using pkg::iter::range;
+
+pub trait DoubleEndedIterator : Iterator {
+    fn next_back(&mut self) ?[Self as Iterator]::Item;
+}
+
+pub struct Take[I]
+where I: Iterator
+{
+    iter: I,
+    remaining: usize,
+}
+
+pub struct Rev[I]
+where I: DoubleEndedIterator
+{
+    iter: I,
+}
+
+extend[I] Take[I]
+where I: Iterator
+{
+    pub fn init(iter: I, remaining: usize) Take[I] {
+        { iter: iter, remaining: remaining }
+    }
+}
+
+extend[I] Take[I] : Iterator
+where I: Iterator
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fn next(&mut self) ?[I as Iterator]::Item {
+        if self.remaining == 0usize {
+            return null;
+        }
+        if ?value = self.iter.next() {
+            self.remaining -= 1usize;
+            ?value
+        } or null {
+            null
+        }
+    }
+}
+
+extend[I] Take[I] : DoubleEndedIterator
+where I: DoubleEndedIterator
+{
+    pub fn next_back(&mut self) ?[I as Iterator]::Item {
+        if self.remaining == 0usize {
+            return null;
+        }
+        if ?value = self.iter.next_back() {
+            self.remaining -= 1usize;
+            ?value
+        } or null {
+            null
+        }
+    }
+}
+
+extend[I] Rev[I]
+where I: DoubleEndedIterator
+{
+    pub fn init(iter: I) Rev[I] {
+        { iter: iter }
+    }
+}
+
+extend[I] Rev[I] : Iterator
+where I: DoubleEndedIterator
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fn next(&mut self) ?[I as Iterator]::Item {
+        self.iter.next_back()
+    }
+}
+
+extend[I] Rev[I] : DoubleEndedIterator
+where I: DoubleEndedIterator
+{
+    pub fn next_back(&mut self) ?[I as Iterator]::Item {
+        self.iter.next()
+    }
+}
+
+extend[I] I
+where I: Iterator
+{
+    pub fn take(self, limit: usize) Take[I] {
+        Take[I]::init(self, limit)
+    }
+
+    pub fn count(self) usize {
+        let mut iter = self;
+        let mut total = 0usize;
+        let mut done = false;
+        while done == false {
+            if ?value = iter.next() {
+                _ = value;
+                total += 1usize;
+            } or null {
+                done = true;
+            }
+        }
+        total
+    }
+}
+
+pub using range::{Range, RangeFrom, RangeInclusive, Step, StepBack};

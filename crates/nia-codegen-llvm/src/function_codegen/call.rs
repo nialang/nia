@@ -93,6 +93,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     expr.span,
                     "`char` builtin method must be lowered as an expression",
                 )),
+                nia_function_ir::FunctionBuiltinMethod::Iter => Err(self.error(
+                    expr.span,
+                    "`iter` builtin method must be resolved before LLVM codegen",
+                )),
             };
         }
         if let FunctionCallee::BuiltinPlaceMethod {

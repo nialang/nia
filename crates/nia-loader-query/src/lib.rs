@@ -1370,7 +1370,8 @@ module present;
             "lib/std/build.nia",
             "lib/std/collections.nia",
             "lib/std/hash.nia",
-            "lib/std/range.nia",
+            "lib/std/iter.nia",
+            "lib/std/iter/range.nia",
             "lib/std/slice.nia",
         ] {
             assert!(
@@ -1520,13 +1521,13 @@ module present;
     fn query_loader_activates_std_facade_for_single_value_reexport_import() {
         let root = temp_dir("query_loader_activates_std_facade_for_single_value_reexport_import");
         let main_path = root.join("main.nia");
-        write(&main_path, "using std::range; fn main() void {}");
+        write(&main_path, "using std::CStringView; fn main() void {}");
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.graph.package_facade_active("std"));
-        assert_module_loaded(&program, "lib/std/range.nia");
+        assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 

@@ -513,6 +513,15 @@ impl<'a> BodyChecker<'a> {
                 elem: self.primitive(PrimitiveTy::Char),
             });
         }
+        if matches!(trait_id, BuiltinTrait::Iterable) {
+            let iter = self.interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id: TraitId::Builtin(trait_id),
+                trait_args: Vec::new(),
+                name: BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
+            });
+            return self.normalize_projection(iter);
+        }
         if matches!(
             trait_id,
             BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
@@ -580,6 +589,7 @@ fn builtin_intrinsic_method(method: BuiltinTraitMethod) -> Option<BuiltinMethod>
         BuiltinTraitMethod::Start => Some(BuiltinMethod::Start),
         BuiltinTraitMethod::End => Some(BuiltinMethod::End),
         BuiltinTraitMethod::Char => Some(BuiltinMethod::Char),
+        BuiltinTraitMethod::IterableIter => Some(BuiltinMethod::Iter),
         _ => None,
     }
 }

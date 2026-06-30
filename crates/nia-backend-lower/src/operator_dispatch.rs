@@ -984,6 +984,14 @@ impl<'a> ModuleLowerer<'a> {
         receiver: FunctionExpr,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
+        if method == FunctionBuiltinMethod::Iter
+            && matches!(
+                self.builtin_operator_resolution(BuiltinTrait::Iterable, self_ty, &[]),
+                TraitResolution::Intrinsic(_)
+            )
+        {
+            return receiver.kind;
+        }
         if let Some((trait_id, trait_method)) = builtin_method_trait(method)
             && let Some((def_id, method_args)) = self.resolve_builtin_extension_impl_method(
                 trait_id,
@@ -1129,5 +1137,8 @@ fn builtin_method_trait(
         FunctionBuiltinMethod::Start => Some((BuiltinTrait::Start, BuiltinTraitMethod::Start)),
         FunctionBuiltinMethod::End => Some((BuiltinTrait::End, BuiltinTraitMethod::End)),
         FunctionBuiltinMethod::Char => Some((BuiltinTrait::Char, BuiltinTraitMethod::Char)),
+        FunctionBuiltinMethod::Iter => {
+            Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
+        }
     }
 }

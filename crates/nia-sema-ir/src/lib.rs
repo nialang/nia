@@ -365,6 +365,7 @@ pub enum BuiltinMethod {
     Start,
     End,
     Char,
+    Iter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -465,6 +466,7 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Start
             | BuiltinTraitMethod::End
             | BuiltinTraitMethod::Char
+            | BuiltinTraitMethod::IterableIter
             | BuiltinTraitMethod::IteratorNext => None,
         }
     }

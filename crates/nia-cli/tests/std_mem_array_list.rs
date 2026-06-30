@@ -70,6 +70,29 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     if !ok = alias.deinit(page) { _ = ok; } or error! { return (45 as process::ExitCode)!; }
 
+    let mut iter_list = std::ArrayList[i32]::init();
+    if !ok = iter_list.push(page, 1) { _ = ok; } or error! { return (75 as process::ExitCode)!; }
+    if !ok = iter_list.push(page, 2) { _ = ok; } or error! { return (76 as process::ExitCode)!; }
+    if !ok = iter_list.push(page, 3) { _ = ok; } or error! { return (77 as process::ExitCode)!; }
+    for value in iter_list.iter_mut() {
+        value.* = value.* * 2;
+    }
+    for value in iter_list.iter_mut().rev().take(2usize) {
+        value.* += 1;
+    }
+    let mut iter_sum = 0;
+    for &value in iter_list {
+        iter_sum += value;
+    }
+    if iter_sum != 14 {
+        return (80 as process::ExitCode)!;
+    }
+    let expected_iter_mut: [3]i32 = [2, 5, 7];
+    if not mem::equal[i32](iter_list.as_slice(), &expected_iter_mut[..]) {
+        return (78 as process::ExitCode)!;
+    }
+    if !ok = iter_list.deinit(page) { _ = ok; } or error! { return (79 as process::ExitCode)!; }
+
     let mut list = std::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return (4 as process::ExitCode)!;

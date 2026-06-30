@@ -1,3 +1,5 @@
+using pkg::iter;
+
 pub struct SliceIter[T]
 where T: Sized
 {
@@ -70,6 +72,27 @@ where T: Sized
     }
 }
 
+extend[T] SliceIter[T] : iter::DoubleEndedIterator
+where T: Sized
+{
+    pub fn next_back(&mut self) ?&T {
+        if self.index >= self.len {
+            null
+        } else {
+            self.len -= 1usize;
+            ?((self.ptr as usize + self.len * @size[T]()) as &T)
+        }
+    }
+}
+
+extend[T] SliceIter[T]
+where T: Sized
+{
+    pub fn rev(self) iter::Rev[SliceIter[T]] {
+        iter::Rev[SliceIter[T]]::init(self)
+    }
+}
+
 extend[T] SliceIterMut[T] : Iterator
 where T: Sized
 {
@@ -86,6 +109,27 @@ where T: Sized
     }
 }
 
+extend[T] SliceIterMut[T] : iter::DoubleEndedIterator
+where T: Sized
+{
+    pub fn next_back(&mut self) ?&mut T {
+        if self.index >= self.len {
+            null
+        } else {
+            self.len -= 1usize;
+            ?((self.ptr as usize + self.len * @size[T]()) as &mut T)
+        }
+    }
+}
+
+extend[T] SliceIterMut[T]
+where T: Sized
+{
+    pub fn rev(self) iter::Rev[SliceIterMut[T]] {
+        iter::Rev[SliceIterMut[T]]::init(self)
+    }
+}
+
 extend[T] [T]
 where T: Sized
 {
@@ -95,5 +139,16 @@ where T: Sized
 
     pub fn iter_mut(&mut self) SliceIterMut[T] {
         SliceIterMut[T]::from_raw_parts(self.ptr_mut(), self.len())
+    }
+}
+
+extend[T] [T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = SliceIter[T];
+
+    pub fn iter(&self) SliceIter[T] {
+        SliceIter[T]::from_raw_parts(self.ptr(), self.len())
     }
 }

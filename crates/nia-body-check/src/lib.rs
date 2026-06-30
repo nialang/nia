@@ -2143,8 +2143,8 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::ForIn(for_stmt) => {
-                let iter_ty = self.check_expr(&for_stmt.iter);
-                let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
+                let iterable_ty = self.check_expr(&for_stmt.iter);
+                let (item_ty, _iterator_ty) = self.for_iterable_parts(&for_stmt.iter, iterable_ty);
                 self.check_irrefutable_pattern(&for_stmt.pattern, item_ty, "for pattern");
                 self.check_block(&for_stmt.body);
             }
@@ -2164,34 +2164,97 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn for_iterator_item_type(&mut self, iter: &Expr, iter_ty: InternedTyId) -> InternedTyId {
+    fn for_iterable_parts(
+        &mut self,
+        iter: &Expr,
+        iterable_ty: InternedTyId,
+    ) -> (InternedTyId, InternedTyId) {
         if !self.current_context_proves_trait_obligation(
-            iter_ty,
-            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            iterable_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             Vec::new(),
         ) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 iter.span,
                 format!(
-                    "for-in expects an Iterator, found `{}`",
-                    self.ty_name(iter_ty)
+                    "for-in expects an Iterable, found `{}`",
+                    self.ty_name(iterable_ty)
                 ),
             ));
-            return self.error();
+            return (self.error(), self.error());
         }
-        self.iterator_item_projection(iter_ty)
+        let item_ty = self.iterable_item_projection(iterable_ty);
+        let iterator_ty = self.iterable_iter_projection(iterable_ty);
+        self.check_for_iterator(iter.span, iterator_ty, item_ty);
+        (item_ty, iterator_ty)
     }
 
-    fn lower_for_iterator_item_type(&mut self, iter_ty: InternedTyId) -> InternedTyId {
+    fn check_for_iterator(
+        &mut self,
+        span: Span,
+        iterator_ty: InternedTyId,
+        iterable_item_ty: InternedTyId,
+    ) {
         if !self.current_context_proves_trait_obligation(
-            iter_ty,
+            iterator_ty,
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
             Vec::new(),
         ) {
-            return self.error();
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!(
+                    "for-in Iterable iterator must implement Iterator, found `{}`",
+                    self.ty_name(iterator_ty)
+                ),
+            ));
+            return;
         }
-        self.iterator_item_projection(iter_ty)
+        let iterator_item_ty = self.iterator_item_projection(iterator_ty);
+        self.expect_type(
+            span,
+            iterable_item_ty,
+            iterator_item_ty,
+            "for iterable item",
+        );
+    }
+
+    fn lower_for_iterable_parts(
+        &mut self,
+        iterable_ty: InternedTyId,
+    ) -> (InternedTyId, InternedTyId) {
+        if !self.current_context_proves_trait_obligation(
+            iterable_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+            Vec::new(),
+        ) {
+            return (self.error(), self.error());
+        }
+        (
+            self.iterable_item_projection(iterable_ty),
+            self.iterable_iter_projection(iterable_ty),
+        )
+    }
+
+    fn iterable_item_projection(&mut self, iterable_ty: InternedTyId) -> InternedTyId {
+        let item = self.interner.intern(TyKind::Projection {
+            self_ty: iterable_ty,
+            trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+            trait_args: Vec::new(),
+            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(item)
+    }
+
+    fn iterable_iter_projection(&mut self, iterable_ty: InternedTyId) -> InternedTyId {
+        let iter = self.interner.intern(TyKind::Projection {
+            self_ty: iterable_ty,
+            trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+            trait_args: Vec::new(),
+            name: nia_ty::BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(iter)
     }
 
     fn iterator_item_projection(&mut self, iter_ty: InternedTyId) -> InternedTyId {

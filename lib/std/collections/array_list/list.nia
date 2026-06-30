@@ -58,6 +58,10 @@ where T: Sized
         self.as_slice().iter()
     }
 
+    pub fn iter_mut(&mut self) slice::SliceIterMut[T] {
+        self.as_mut_slice().iter_mut()
+    }
+
     pub fn get(&self, index: usize) ?&T {
         if index >= self.len() {
             null
@@ -721,5 +725,16 @@ where T: Sized
             return false;
         }
         item_bytes <= alloc_bytes - byte_offset
+    }
+}
+
+extend[T] ArrayList[T] : Iterable
+where T: Sized
+{
+    type Item = &T;
+    type Iter = slice::SliceIter[T];
+
+    pub fn iter(&self) slice::SliceIter[T] {
+        self.as_slice().iter()
     }
 }

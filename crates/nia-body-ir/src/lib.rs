@@ -79,7 +79,8 @@ pub struct TypedBinding {
 pub struct TypedForIn {
     pub pattern: TypedPattern,
     pub item_ty: InternedTyId,
-    pub iter_self_ty: InternedTyId,
+    pub iterable_self_ty: InternedTyId,
+    pub iterator_ty: InternedTyId,
     pub iter: TypedExpr,
     pub body: TypedBody,
 }

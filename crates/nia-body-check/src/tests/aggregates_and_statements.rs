@@ -206,7 +206,7 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn rejects_for_in_non_iterator_ranges() {
+fn rejects_for_in_non_iterable_ranges_without_visible_impls() {
     let checked = pipeline(
         r#"
 fn main() i32 {
@@ -224,7 +224,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.summary.contains("for-in expects an Iterator"))
+            .filter(|diagnostic| diagnostic.summary.contains("for-in expects an Iterable"))
             .count(),
         2,
         "{:?}",

@@ -102,7 +102,7 @@ using std;
 
 fn main() i32 {
     let mut sum = 0;
-    for i in std::range(1usize..4usize) {
+    for i in 1usize..4usize {
         sum += i as i32;
     }
     sum
