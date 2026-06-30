@@ -9,7 +9,7 @@ mod program_index;
 
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
-use nia_backend_ir::BackendProgram;
+use nia_backend_ir::{BackendModule, BackendProgram};
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
 pub use output::{
@@ -100,6 +100,9 @@ fn emit_native_objects_inner(
     let mut diagnostics = Vec::new();
     let builtin_symbols = compiler_builtins::required_symbols(program);
     for module in &program.modules {
+        if !module_has_object_definitions(module) {
+            continue;
+        }
         let context = Context::create();
         let mut codegen = match ModuleCodegen::new(&context, module, &index, options) {
             Ok(codegen) => codegen,
@@ -133,6 +136,20 @@ fn emit_native_objects_inner(
         modules: outputs,
         diagnostics,
     }
+}
+
+fn module_has_object_definitions(module: &BackendModule) -> bool {
+    module.globals.iter().any(|global| !global.is_extern)
+        || !module.global_instances.is_empty()
+        || module
+            .functions
+            .iter()
+            .any(|function| !function.is_extern && function.function_body.is_some())
+        || module
+            .function_instances
+            .iter()
+            .any(|function| !function.is_extern && function.function_body.is_some())
+        || !module.trait_object_vtables.is_empty()
 }
 
 fn catch_llvm_codegen_ice(f: impl FnOnce() -> LlvmCodegenOutput) -> LlvmCodegenOutput {

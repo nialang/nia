@@ -326,10 +326,17 @@ fn main() i32 {
         LlvmCodegenOptions::default(),
     );
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(
+        !output
+            .modules
+            .iter()
+            .any(|module| module.name == "nia.compiler_builtins"),
+        "compiler builtins should not be emitted for programs that do not need lowered libcalls"
+    );
     assert_eq!(
         output.modules.len(),
-        codegen.backend_lowering.program.modules.len(),
-        "compiler builtins should not be emitted for programs that do not need lowered libcalls"
+        1,
+        "empty declaration-only backend modules should not produce native object files"
     );
 
     let wide = root.join("wide.nia");
@@ -351,9 +358,13 @@ fn divrem(value: u128, by: u128) u128 {
     );
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert_eq!(
-        output.modules.len(),
-        codegen.backend_lowering.program.modules.len() + 1,
-        "u128 division should request one compiler builtins object"
+        output
+            .modules
+            .iter()
+            .filter(|module| module.name == "nia.compiler_builtins")
+            .count(),
+        1,
+        "u128 division should request exactly one compiler builtins object"
     );
     assert!(
         output
