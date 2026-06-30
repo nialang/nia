@@ -23,16 +23,32 @@ use nia_llvm::{
 };
 use nia_mangle::{mangle_base_symbol, mangle_type_with};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
 
-type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
-type FunctionInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
-type GlobalInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
+type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
+type FunctionInstanceKey = (
+    GlobalDefId,
+    ModuleId,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
+type GlobalInstanceKey = (
+    GlobalDefId,
+    ModuleId,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
 type InstanceTypeLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<StructType<'ctx>>>>;
 type FunctionInstanceLookup<'ctx> =
     RefCell<HashMap<FunctionInstanceKey, Option<FunctionValue<'ctx>>>>;
 type AggregateLayoutLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
-type TraitObjectAdapterKey = (InternedTyId, GlobalDefId, ModuleId, Vec<InternedTyId>);
+type TraitObjectAdapterKey = (
+    InternedTyId,
+    GlobalDefId,
+    ModuleId,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
 
 struct FunctionSignature<'a, P> {
     param_tys: P,
@@ -51,19 +67,30 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) module: nia_llvm::module::Module<'ctx>,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
-    pub(super) struct_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
+    pub(super) struct_instances:
+        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), StructType<'ctx>>>,
     pub(super) struct_instances_by_def:
-        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
-    pub(super) union_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
+        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>, StructType<'ctx>)>>,
+    pub(super) union_instances:
+        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), StructType<'ctx>>>,
     pub(super) union_instances_by_def:
-        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
+        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>, StructType<'ctx>)>>,
     struct_instance_type_lookups: InstanceTypeLookup<'ctx>,
     union_instance_type_lookups: InstanceTypeLookup<'ctx>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
-    pub(super) function_instances:
-        HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, FunctionValue<'ctx>>>,
-    pub(super) function_instances_by_def:
-        HashMap<GlobalDefId, Vec<(ModuleId, Vec<InternedTyId>, FunctionValue<'ctx>)>>,
+    pub(super) function_instances: HashMap<
+        (GlobalDefId, ModuleId),
+        HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), FunctionValue<'ctx>>,
+    >,
+    pub(super) function_instances_by_def: HashMap<
+        GlobalDefId,
+        Vec<(
+            ModuleId,
+            Vec<InternedTyId>,
+            Vec<ConstGenericArg>,
+            FunctionValue<'ctx>,
+        )>,
+    >,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
@@ -245,7 +272,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 let value = self.layout_of(*value)?;
                 Some(tagged_union_layout(&[error, value]))
             }
-            Some(TyKind::Nominal { def_id, args }) if args.is_empty() => self
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) if args.is_empty() && const_args.is_empty() => self
                 .program
                 .struct_layout(*def_id)
                 .or_else(|| self.program.union_layout(*def_id))
@@ -254,29 +285,35 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     let enum_item = self.program.enums.get(def_id).copied()?;
                     self.layout_of(enum_item.backing_type)
                 }),
-            Some(TyKind::Nominal { def_id, args }) => self
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => self
                 .program
-                .struct_instance_layout(*def_id, args)
+                .struct_instance_layout(*def_id, args, const_args)
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
                     self.program
                         .struct_instance_layouts(*def_id)
                         .find_map(|item| {
-                            self.same_type_args(&item.key.args, args)
-                                .then_some(item.layout.layout.clone())
+                            (self.same_type_args(&item.key.args, args)
+                                && item.key.const_args.as_slice() == const_args.as_slice())
+                            .then_some(item.layout.layout.clone())
                         })
                 })
                 .or_else(|| {
                     self.program
-                        .union_instance_layout(*def_id, args)
+                        .union_instance_layout(*def_id, args, const_args)
                         .map(|layout| layout.layout.clone())
                 })
                 .or_else(|| {
                     self.program
                         .union_instance_layouts(*def_id)
                         .find_map(|item| {
-                            self.same_type_args(&item.key.args, args)
-                                .then_some(item.layout.layout.clone())
+                            (self.same_type_args(&item.key.args, args)
+                                && item.key.const_args.as_slice() == const_args.as_slice())
+                            .then_some(item.layout.layout.clone())
                         })
                 }),
             Some(
@@ -388,6 +425,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 instance.def_id,
                 instance.arg_module_id,
                 &instance.args,
+                &instance.const_args,
             ) else {
                 return Err(self.error(instance.span, "missing function instance"));
             };

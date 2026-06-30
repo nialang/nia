@@ -307,10 +307,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => self
                 .module
                 .global_instances
-                .get(&(*def_id, *arg_module_id, args.clone()))
+                .get(&(*def_id, *arg_module_id, args.clone(), const_args.clone()))
                 .copied()
                 .ok_or_else(|| self.error(expr.span, "missing global instance value"))
                 .and_then(|global| {
@@ -323,7 +324,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .program
                         .global_instances
                         .get(&(*def_id, *arg_module_id))
-                        .and_then(|instances| instances.get(args.as_slice()))
+                        .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
                         .copied()
                     else {
                         return Err(self.error(expr.span, "missing global instance metadata"));
@@ -1211,9 +1212,10 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
             def_id,
             arg_module_id,
             args,
+            const_args,
         } => codegen
             .module
-            .function_instance_item_with_arg_module(*def_id, *arg_module_id, args)
+            .function_instance_item_with_arg_module(*def_id, *arg_module_id, args, const_args)
             .is_some_and(|function| function.is_extern),
         FunctionCallee::Method {
             def_id,
@@ -1229,7 +1231,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
             } else {
                 codegen
                     .module
-                    .function_instance_item_with_arg_module(*def_id, *arg_module_id, args)
+                    .function_instance_item_with_arg_module(*def_id, *arg_module_id, args, &[])
                     .is_some_and(|function| function.is_extern)
             }
         }

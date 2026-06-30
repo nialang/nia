@@ -57,12 +57,27 @@ pub(super) fn substitute_ty_generics_in_interner(
             let value = substitute_ty_generics_in_interner(interner, value, lookup);
             interner.intern(TyKind::ErrorUnion { error, value })
         }
-        Some(TyKind::Nominal { def_id, args }) => {
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => {
             let args = args
                 .into_iter()
                 .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
                 .collect();
-            interner.intern(TyKind::Nominal { def_id, args })
+            let const_args = const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg
+                })
+                .collect();
+            interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            })
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args

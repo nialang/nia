@@ -196,8 +196,9 @@ fn pipeline_with_options(
                 continue;
             };
             let target_ty = normalization.normalize(target_ty);
+            let extend_generics = nia_ast::generic_param_names(&extend.generics);
             let Some(impl_signature) = signatures.trait_impls.iter().find(|signature| {
-                signature.generics == extend.generics
+                signature.generics == extend_generics
                     && normalization.normalize(signature.target_ty) == target_ty
             }) else {
                 continue;
@@ -212,7 +213,7 @@ fn pipeline_with_options(
                 if method_def.kind != DefKind::Method {
                     continue;
                 }
-                let mut effective_generics = extend.generics.clone();
+                let mut effective_generics = extend_generics.clone();
                 effective_generics.extend(method_def.generics.iter().cloned());
                 extensions.insert(
                     impl_signature.impl_id,
@@ -316,7 +317,9 @@ fn trait_id_and_args(
     ty: nia_ids::InternedTyId,
 ) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
     match interner.get(ty) {
-        Some(TyKind::Nominal { def_id, args }) => Some((TraitId::Source(*def_id), args.clone())),
+        Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some((TraitId::Source(*def_id), args.clone()))
+        }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             Some((TraitId::Builtin(*trait_id), args.clone()))
         }

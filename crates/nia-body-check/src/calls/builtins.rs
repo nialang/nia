@@ -248,9 +248,14 @@ impl<'a> BodyChecker<'a> {
                     type_args,
                     args,
                 ),
-            BuiltinFunction::Fence => {
-                self.check_fence_builtin_call(call_span, builtin_span, name, type_args, args)
-            }
+            BuiltinFunction::Fence => self.check_fence_builtin_call(
+                call_span,
+                builtin_span,
+                value_node,
+                name,
+                type_args,
+                args,
+            ),
         }
     }
 
@@ -1049,10 +1054,12 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         call_span: Span,
         builtin_span: Span,
+        value_node: &Expr,
         name: &str,
         type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
+        self.record_builtin_function_call(call_span, value_node, BuiltinFunction::Fence, None);
         self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(

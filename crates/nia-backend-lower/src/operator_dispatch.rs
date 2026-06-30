@@ -236,20 +236,24 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 } => FunctionExprKind::GlobalInstance {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 },
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
                 FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 } => FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 },
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
@@ -533,10 +537,12 @@ impl<'a> ModuleLowerer<'a> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             },
             FunctionCallee::Method {
                 def_id,
@@ -655,6 +661,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             args: instance_args,
+                            const_args: Vec::new(),
                         }
                     } else if self.trait_method_has_default(method_id) {
                         let default_self_ty =
@@ -666,6 +673,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: method_id,
                             arg_module_id: self.current_arg_module_id(),
                             args: instance_args,
+                            const_args: Vec::new(),
                         }
                     } else {
                         if self.trait_method_call_requires_concrete_impl(
@@ -767,10 +775,12 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 } => FunctionPlaceBase::GlobalInstance {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 },
                 FunctionPlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.resolve_builtin_operator_calls_in_expr(*expr),

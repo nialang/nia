@@ -102,19 +102,38 @@ impl<'a> TypeNormalizer<'a> {
                 let value = self.normalize_ty(value, stack);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.normalize_ty(arg, stack))
+                    .collect::<Vec<_>>();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty(arg.ty, stack);
+                        arg
+                    })
                     .collect::<Vec<_>>();
                 if def_id.module_id == self.module_id {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
                         self.normalize_alias(def_id.def_id, &alias, &args, stack)
                     } else {
-                        self.interner.intern(TyKind::Nominal { def_id, args })
+                        self.interner.intern(TyKind::Nominal {
+                            def_id,
+                            args,
+                            const_args,
+                        })
                     }
                 } else {
-                    self.interner.intern(TyKind::Nominal { def_id, args })
+                    self.interner.intern(TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    })
                 }
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -313,19 +332,38 @@ impl<'a> TypeNormalizer<'a> {
                 let value = self.normalize_ty_with_substitutions(value, substitutions, stack);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect::<Vec<_>>();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                        arg
+                    })
                     .collect::<Vec<_>>();
                 if def_id.module_id == self.module_id {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
                         self.normalize_alias(def_id.def_id, &alias, &args, stack)
                     } else {
-                        self.interner.intern(TyKind::Nominal { def_id, args })
+                        self.interner.intern(TyKind::Nominal {
+                            def_id,
+                            args,
+                            const_args,
+                        })
                     }
                 } else {
-                    self.interner.intern(TyKind::Nominal { def_id, args })
+                    self.interner.intern(TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    })
                 }
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -447,7 +485,10 @@ impl<'a> TypeNormalizer<'a> {
                 // array length positions.
                 ty: self.normalize_ty(ty, stack),
             },
-            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
+            ArrayLenTy::Infer
+            | ArrayLenTy::GenericParam(_)
+            | ArrayLenTy::ConstValue(_)
+            | ArrayLenTy::ConstExpr(_) => len,
         }
     }
 
@@ -462,7 +503,10 @@ impl<'a> TypeNormalizer<'a> {
                 builtin,
                 ty: self.normalize_ty_with_substitutions(ty, substitutions, stack),
             },
-            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
+            ArrayLenTy::Infer
+            | ArrayLenTy::GenericParam(_)
+            | ArrayLenTy::ConstValue(_)
+            | ArrayLenTy::ConstExpr(_) => len,
         }
     }
 }

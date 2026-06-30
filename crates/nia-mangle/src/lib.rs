@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
-use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind};
+use nia_ty::{
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TraitId, TyInterner,
+    TyKind,
+};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
@@ -32,6 +35,7 @@ pub fn mangle_instance_symbol<F, G>(
     def_id: GlobalDefId,
     name: &str,
     args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
     interner: &TyInterner,
     nominal_name: F,
     array_len: G,
@@ -42,7 +46,7 @@ where
 {
     let mut nominal_name = nominal_name;
     let mut array_len = array_len;
-    let args = args
+    let mut parts = args
         .iter()
         .map(|arg| {
             format!(
@@ -50,12 +54,21 @@ where
                 mangle_type_inner(interner, *arg, &mut nominal_name, &mut array_len)
             )
         })
-        .collect::<Vec<_>>()
-        .join("__");
-    if args.is_empty() {
+        .collect::<Vec<_>>();
+    parts.extend(const_args.iter().map(|arg| {
+        format!(
+            "c_{}",
+            mangle_const_generic_arg(interner, arg, &mut nominal_name, &mut array_len)
+        )
+    }));
+    if parts.is_empty() {
         mangle_base_symbol(def_id, name)
     } else {
-        format!("{}__inst__{}", mangle_base_symbol(def_id, name), args)
+        format!(
+            "{}__inst__{}",
+            mangle_base_symbol(def_id, name),
+            parts.join("__")
+        )
     }
 }
 
@@ -172,9 +185,13 @@ where
             }
             result
         }
-        Some(TyKind::Nominal { def_id, args }) => {
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => {
             let base = nominal_name(*def_id);
-            if args.is_empty() {
+            if args.is_empty() && const_args.is_empty() {
                 format!("nom__{base}")
             } else {
                 let args = args
@@ -182,7 +199,18 @@ where
                     .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                     .collect::<Vec<_>>()
                     .join("__");
-                format!("nom__{base}__argc{}__{}", args.len(), args)
+                let const_arg_parts = const_args
+                    .iter()
+                    .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                    .collect::<Vec<_>>();
+                let const_args = const_arg_parts.join("__");
+                format!(
+                    "nom__{base}__argc{}__{}__constargc{}__{}",
+                    args.len(),
+                    args,
+                    const_arg_parts.len(),
+                    const_args
+                )
             }
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -352,6 +380,7 @@ where
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
+        ArrayLenTy::GenericParam(name) => format!("gen_len__{}", sanitize_symbol_part(name)),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
         ArrayLenTy::ConstExpr(id) => array_len(*id)
             .map(|value| format!("len__{value}"))
@@ -370,6 +399,29 @@ where
             mangle_type_inner(interner, *ty, nominal_name, array_len)
         ),
     }
+}
+
+fn mangle_const_generic_arg<F, G>(
+    interner: &TyInterner,
+    arg: &ConstGenericArg,
+    nominal_name: &mut F,
+    array_len: &mut G,
+) -> String
+where
+    F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
+{
+    let ty = mangle_type_inner(interner, arg.ty, nominal_name, array_len);
+    let value = match &arg.value {
+        ConstGenericValue::GenericParam(name) => format!("g{}", sanitize_symbol_part(name)),
+        ConstGenericValue::Int(value) => {
+            let sign = if value.is_signed() { "i" } else { "u" };
+            format!("{sign}{}", value.bits())
+        }
+        ConstGenericValue::Bool(value) => format!("b{}", u8::from(*value)),
+        ConstGenericValue::Char(value) => format!("c{}", *value as u32),
+    };
+    format!("const__{ty}__{value}")
 }
 
 fn mangle_primitive(primitive: PrimitiveTy) -> String {

@@ -30,6 +30,48 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_comptime_generic_function_and_nominal_array_instances() {
+    let root = temp_dir("emits_comptime_generic_function_and_nominal_array_instances");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Buffer[T, N: usize] {
+    data: [N]T,
+}
+
+fn take[T, N: usize](items: [N]T) usize {
+    items.len()
+}
+
+fn make4() Buffer[u8, 4] {
+    { data: [1u8, 2u8, 3u8, 4u8] }
+}
+
+fn make8() Buffer[u8, 8] {
+    { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
+}
+
+fn main() usize {
+    let a = make4();
+    let b = make8();
+    take(a.data) + take(b.data)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("[4 x i8]"), "{ir}");
+    assert!(ir.contains("[8 x i8]"), "{ir}");
+}
+
+#[test]
 fn emits_inline_asm_inputs_outputs_and_clobbers() {
     let root = temp_dir("emits_inline_asm_inputs_outputs_and_clobbers");
     let main = root.join("main.nia");

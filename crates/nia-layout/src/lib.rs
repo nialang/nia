@@ -10,7 +10,10 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
+use nia_ty::{
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind,
+    TyInterner, TyKind,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
@@ -50,12 +53,14 @@ pub struct StructLayout {
 pub struct StructLayoutKey {
     pub def_id: DefId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct GlobalStructLayoutKey {
     def_id: GlobalDefId,
     args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +110,16 @@ impl Layouts {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<TypeLayout> {
-        if args.is_empty() {
+        self.nominal_type_layout_with_const_args(def_id, args, &[])
+    }
+
+    pub fn nominal_type_layout_with_const_args(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        if args.is_empty() && const_args.is_empty() {
             self.structs
                 .get(&def_id.def_id)
                 .map(|layout| layout.layout.clone())
@@ -118,6 +132,7 @@ impl Layouts {
             let key = StructLayoutKey {
                 def_id: def_id.def_id,
                 args: args.to_vec(),
+                const_args: const_args.to_vec(),
             };
             self.struct_instances
                 .get(&key)
@@ -136,13 +151,24 @@ impl Layouts {
         args: &[InternedTyId],
         field: GlobalDefId,
     ) -> Option<u64> {
-        self.nominal_struct_layout(def_id, args).and_then(|layout| {
-            layout
-                .fields
-                .iter()
-                .find(|candidate| candidate.def_id == field.def_id)
-                .map(|field| field.offset)
-        })
+        self.field_offset_with_const_args(def_id, args, &[], field)
+    }
+
+    pub fn field_offset_with_const_args(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        field: GlobalDefId,
+    ) -> Option<u64> {
+        self.nominal_struct_layout_with_const_args(def_id, args, const_args)
+            .and_then(|layout| {
+                layout
+                    .fields
+                    .iter()
+                    .find(|candidate| candidate.def_id == field.def_id)
+                    .map(|field| field.offset)
+            })
     }
 
     pub fn nominal_struct_layout(
@@ -150,7 +176,16 @@ impl Layouts {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&StructLayout> {
-        if args.is_empty() {
+        self.nominal_struct_layout_with_const_args(def_id, args, &[])
+    }
+
+    pub fn nominal_struct_layout_with_const_args(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<&StructLayout> {
+        if args.is_empty() && const_args.is_empty() {
             self.structs
                 .get(&def_id.def_id)
                 .or_else(|| self.unions.get(&def_id.def_id))
@@ -158,6 +193,7 @@ impl Layouts {
             let key = StructLayoutKey {
                 def_id: def_id.def_id,
                 args: args.to_vec(),
+                const_args: const_args.to_vec(),
             };
             self.struct_instances
                 .get(&key)
@@ -221,6 +257,7 @@ pub struct ProgramLayoutContext<'a> {
 pub struct InstanceLayoutRequest<'a> {
     pub def_id: GlobalDefId,
     pub args: &'a [InternedTyId],
+    pub const_args: &'a [ConstGenericArg],
 }
 
 #[derive(Clone, Copy)]
@@ -291,13 +328,19 @@ pub fn compute_struct_instance_layout_with_program_context(
         input.target,
         input.program,
     );
-    computer.nominal_layout(Span::default(), request.def_id, request.args)?;
+    computer.nominal_layout(
+        Span::default(),
+        request.def_id,
+        request.args,
+        request.const_args,
+    )?;
     if request.def_id.module_id != input.defs.module_id {
         return computer
             .external_struct_instances
             .get(&GlobalStructLayoutKey {
                 def_id: request.def_id,
                 args: request.args.to_vec(),
+                const_args: request.const_args.to_vec(),
             })
             .cloned();
     }
@@ -306,6 +349,7 @@ pub fn compute_struct_instance_layout_with_program_context(
         .get(&StructLayoutKey {
             def_id: request.def_id.def_id,
             args: request.args.to_vec(),
+            const_args: request.const_args.to_vec(),
         })
         .cloned()
 }
@@ -323,13 +367,19 @@ pub fn compute_union_instance_layout_with_program_context(
         input.target,
         input.program,
     );
-    computer.nominal_layout(Span::default(), request.def_id, request.args)?;
+    computer.nominal_layout(
+        Span::default(),
+        request.def_id,
+        request.args,
+        request.const_args,
+    )?;
     if request.def_id.module_id != input.defs.module_id {
         return computer
             .external_union_instances
             .get(&GlobalStructLayoutKey {
                 def_id: request.def_id,
                 args: request.args.to_vec(),
+                const_args: request.const_args.to_vec(),
             })
             .cloned();
     }
@@ -338,6 +388,7 @@ pub fn compute_union_instance_layout_with_program_context(
         .get(&StructLayoutKey {
             def_id: request.def_id.def_id,
             args: request.args.to_vec(),
+            const_args: request.const_args.to_vec(),
         })
         .cloned()
 }
@@ -420,7 +471,7 @@ impl<'a> LayoutComputer<'a> {
             .map(|(def_id, signature)| (*def_id, signature.clone()))
             .collect();
         for (def_id, signature) in struct_signatures {
-            self.struct_layout(signature.span, def_id, &signature, &[]);
+            self.struct_layout(signature.span, def_id, &signature, &[], &[]);
         }
         let union_signatures: Vec<(DefId, UnionSignature)> = self
             .signatures
@@ -430,7 +481,7 @@ impl<'a> LayoutComputer<'a> {
             .map(|(def_id, signature)| (*def_id, signature.clone()))
             .collect();
         for (def_id, signature) in union_signatures {
-            self.union_layout(signature.span, def_id, &signature, &[]);
+            self.union_layout(signature.span, def_id, &signature, &[], &[]);
         }
         self.finish()
     }
@@ -446,14 +497,14 @@ impl<'a> LayoutComputer<'a> {
             if let Some(signature) = self.signatures.structs.get(def_id).cloned()
                 && signature.generics.is_empty()
             {
-                self.struct_layout(signature.span, *def_id, &signature, &[]);
+                self.struct_layout(signature.span, *def_id, &signature, &[], &[]);
             }
         }
         for def_id in roots.unions {
             if let Some(signature) = self.signatures.unions.get(def_id).cloned()
                 && signature.generics.is_empty()
             {
-                self.union_layout(signature.span, *def_id, &signature, &[]);
+                self.union_layout(signature.span, *def_id, &signature, &[], &[]);
             }
         }
         self.finish()
@@ -512,7 +563,11 @@ impl<'a> LayoutComputer<'a> {
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.error_union_layout(span, error, value)
             }
-            Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => self.nominal_layout(span, def_id, &args, &const_args),
             Some(
                 TyKind::Error
                 | TyKind::ComptimeOnly
@@ -584,6 +639,14 @@ impl<'a> LayoutComputer<'a> {
                     codes::STATIC_CHECK,
                     span,
                     "array layout requires a concrete length",
+                ));
+                return None;
+            }
+            ArrayLenTy::GenericParam(name) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::STATIC_CHECK,
+                    span,
+                    format!("array layout requires concrete value for const generic `{name}`"),
                 ));
                 return None;
             }
@@ -672,15 +735,16 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         if def_id.module_id != self.module_id {
-            return self.external_nominal_layout(span, def_id, args);
+            return self.external_nominal_layout(span, def_id, args, const_args);
         }
         if let Some(signature) = self.signatures.structs.get(&def_id.def_id).cloned() {
-            return self.struct_layout(span, def_id.def_id, &signature, args);
+            return self.struct_layout(span, def_id.def_id, &signature, args, const_args);
         }
         if let Some(signature) = self.signatures.unions.get(&def_id.def_id).cloned() {
-            return self.union_layout(span, def_id.def_id, &signature, args);
+            return self.union_layout(span, def_id.def_id, &signature, args, const_args);
         }
         if let Some(signature) = self.signatures.enums.get(&def_id.def_id).cloned() {
             return self.enum_layout(span, &signature);
@@ -693,12 +757,14 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         if let Some(layouts) = self
             .program
             .layouts
             .and_then(|query| query(def_id.module_id))
-            && let Some(layout) = layouts.nominal_type_layout(def_id, args)
+            && let Some(layout) =
+                layouts.nominal_type_layout_with_const_args(def_id, args, const_args)
         {
             return Some(layout);
         }
@@ -706,25 +772,25 @@ impl<'a> LayoutComputer<'a> {
             && let Some(signature) = program_structs.get(&def_id).cloned()
         {
             let signature = import_struct_signature(&mut self.interner, &signature);
-            return self.external_struct_layout(span, def_id, &signature, args);
+            return self.external_struct_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_struct) = self.program.struct_
             && let Some(signature) = program_struct(def_id)
         {
             let signature = import_struct_signature(&mut self.interner, &signature);
-            return self.external_struct_layout(span, def_id, &signature, args);
+            return self.external_struct_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_unions) = self.program.unions
             && let Some(signature) = program_unions.get(&def_id).cloned()
         {
             let signature = import_union_signature(&mut self.interner, &signature);
-            return self.external_union_layout(span, def_id, &signature, args);
+            return self.external_union_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_union) = self.program.union
             && let Some(signature) = program_union(def_id)
         {
             let signature = import_union_signature(&mut self.interner, &signature);
-            return self.external_union_layout(span, def_id, &signature, args);
+            return self.external_union_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_enums) = self.program.enums
             && let Some(signature) = program_enums.get(&def_id).cloned()
@@ -768,7 +834,12 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
-        let target = substitute_generics(&mut self.interner, signature.target, &substitutions);
+        let target = substitute_generics(
+            &mut self.interner,
+            signature.target,
+            &substitutions,
+            &HashMap::new(),
+        );
         self.layout_ty(target, span)
     }
 
@@ -778,15 +849,17 @@ impl<'a> LayoutComputer<'a> {
         def_id: GlobalDefId,
         signature: &StructSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         let key = GlobalStructLayoutKey {
             def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
         if let Some(existing) = self.external_struct_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() {
+        if signature.generics.len() != args.len() + const_args.len() {
             return None;
         }
         let substitutions: HashMap<String, InternedTyId> = signature
@@ -795,14 +868,16 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
+        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let local_key = StructLayoutKey {
             def_id: def_id.def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
         let struct_layout = if signature.is_extern {
-            self.c_struct_layout(&local_key, signature, &substitutions)?
+            self.c_struct_layout(&local_key, signature, &substitutions, &const_substitutions)?
         } else {
-            self.nia_struct_layout(&local_key, signature, &substitutions)?
+            self.nia_struct_layout(&local_key, signature, &substitutions, &const_substitutions)?
         };
         let layout = struct_layout.layout.clone();
         self.external_struct_instances.insert(key, struct_layout);
@@ -815,15 +890,17 @@ impl<'a> LayoutComputer<'a> {
         def_id: GlobalDefId,
         signature: &UnionSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         let key = GlobalStructLayoutKey {
             def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
         if let Some(existing) = self.external_union_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() {
+        if signature.generics.len() != args.len() + const_args.len() {
             return None;
         }
         if signature.fields.is_empty() {
@@ -840,11 +917,14 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
+        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let local_key = StructLayoutKey {
             def_id: def_id.def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
-        let union_layout = self.union_field_layout(&local_key, signature, &substitutions)?;
+        let union_layout =
+            self.union_field_layout(&local_key, signature, &substitutions, &const_substitutions)?;
         let layout = union_layout.layout.clone();
         self.external_union_instances.insert(key, union_layout);
         Some(layout)
@@ -860,15 +940,17 @@ impl<'a> LayoutComputer<'a> {
         def_id: DefId,
         signature: &StructSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         let key = StructLayoutKey {
             def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
         if let Some(existing) = self.struct_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() {
+        if signature.generics.len() != args.len() + const_args.len() {
             return None;
         }
         if !self.visiting_structs.insert(key.clone()) {
@@ -885,13 +967,14 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
+        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
         let struct_layout = if signature.is_extern {
-            self.c_struct_layout(&key, signature, &substitutions)?
+            self.c_struct_layout(&key, signature, &substitutions, &const_substitutions)?
         } else {
-            self.nia_struct_layout(&key, signature, &substitutions)?
+            self.nia_struct_layout(&key, signature, &substitutions, &const_substitutions)?
         };
         let layout = struct_layout.layout.clone();
-        if key.args.is_empty() {
+        if key.args.is_empty() && key.const_args.is_empty() {
             self.structs.insert(def_id, struct_layout.clone());
         }
         self.struct_instances.insert(key.clone(), struct_layout);
@@ -905,15 +988,17 @@ impl<'a> LayoutComputer<'a> {
         def_id: DefId,
         signature: &UnionSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
         let key = StructLayoutKey {
             def_id,
             args: args.to_vec(),
+            const_args: const_args.to_vec(),
         };
         if let Some(existing) = self.union_instances.get(&key) {
             return Some(existing.layout.clone());
         }
-        if signature.generics.len() != args.len() {
+        if signature.generics.len() != args.len() + const_args.len() {
             return None;
         }
         if signature.fields.is_empty() {
@@ -938,9 +1023,11 @@ impl<'a> LayoutComputer<'a> {
             .cloned()
             .zip(args.iter().copied())
             .collect();
-        let union_layout = self.union_field_layout(&key, signature, &substitutions)?;
+        let const_substitutions = const_substitutions(&signature.generics, args.len(), const_args);
+        let union_layout =
+            self.union_field_layout(&key, signature, &substitutions, &const_substitutions)?;
         let layout = union_layout.layout.clone();
-        if key.args.is_empty() {
+        if key.args.is_empty() && key.const_args.is_empty() {
             self.unions.insert(def_id, union_layout.clone());
         }
         self.union_instances.insert(key.clone(), union_layout);
@@ -953,8 +1040,9 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         signature: &StructSignature,
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<StructLayout> {
-        self.sorted_field_layout(key, signature, substitutions)
+        self.sorted_field_layout(key, signature, substitutions, const_substitutions)
     }
 
     fn c_struct_layout(
@@ -962,8 +1050,9 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         signature: &StructSignature,
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<StructLayout> {
-        self.field_order_layout(key, signature, substitutions)
+        self.field_order_layout(key, signature, substitutions, const_substitutions)
     }
 
     fn field_order_layout(
@@ -971,8 +1060,10 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         signature: &StructSignature,
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<StructLayout> {
-        let fields = self.layout_fields(key, &signature.fields, substitutions)?;
+        let fields =
+            self.layout_fields(key, &signature.fields, substitutions, const_substitutions)?;
         Some(place_struct_fields(fields))
     }
 
@@ -981,8 +1072,10 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         signature: &StructSignature,
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<StructLayout> {
-        let mut fields = self.layout_fields(key, &signature.fields, substitutions)?;
+        let mut fields =
+            self.layout_fields(key, &signature.fields, substitutions, const_substitutions)?;
         fields.sort_by(|left, right| {
             right
                 .layout
@@ -999,11 +1092,17 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         fields: &[nia_item_signatures::FieldSignature],
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<Vec<PendingFieldLayout>> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(&mut self.interner, field_ty, substitutions);
+            let field_ty = substitute_generics(
+                &mut self.interner,
+                field_ty,
+                substitutions,
+                const_substitutions,
+            );
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_structs.remove(key);
                 return None;
@@ -1022,13 +1121,19 @@ impl<'a> LayoutComputer<'a> {
         key: &StructLayoutKey,
         signature: &UnionSignature,
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Option<StructLayout> {
         let mut fields = Vec::new();
         let mut max_size = 0u64;
         let mut max_align = 1u64;
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(&mut self.interner, field_ty, substitutions);
+            let field_ty = substitute_generics(
+                &mut self.interner,
+                field_ty,
+                substitutions,
+                const_substitutions,
+            );
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_unions.remove(key);
                 return None;
@@ -1156,20 +1261,22 @@ fn substitute_generics(
     interner: &mut TyInterner,
     ty: InternedTyId,
     substitutions: &HashMap<String, InternedTyId>,
+    const_substitutions: &HashMap<String, ConstGenericArg>,
 ) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
         Some(TyKind::Pointer { is_readonly, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions);
+            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
             interner.intern(TyKind::Pointer { is_readonly, elem })
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions);
+            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
             interner.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions);
-            let len = substitute_array_len_generics(interner, len, substitutions);
+            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
+            let len =
+                substitute_array_len_generics(interner, len, substitutions, const_substitutions);
             interner.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::FunctionPointer {
@@ -1179,9 +1286,12 @@ fn substitute_generics(
         }) => {
             let params = params
                 .into_iter()
-                .map(|param| substitute_generics(interner, param, substitutions))
+                .map(|param| {
+                    substitute_generics(interner, param, substitutions, const_substitutions)
+                })
                 .collect();
-            let return_type = substitute_generics(interner, return_type, substitutions);
+            let return_type =
+                substitute_generics(interner, return_type, substitutions, const_substitutions);
             interner.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -1189,25 +1299,41 @@ fn substitute_generics(
             })
         }
         Some(TyKind::Optional { elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions);
+            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
             interner.intern(TyKind::Optional { elem })
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            let error = substitute_generics(interner, error, substitutions);
-            let value = substitute_generics(interner, value, substitutions);
+            let error = substitute_generics(interner, error, substitutions, const_substitutions);
+            let value = substitute_generics(interner, value, substitutions, const_substitutions);
             interner.intern(TyKind::ErrorUnion { error, value })
         }
-        Some(TyKind::Nominal { def_id, args }) => {
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
                 .collect();
-            interner.intern(TyKind::Nominal { def_id, args })
+            let const_args = const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty =
+                        substitute_generics(interner, arg.ty, substitutions, const_substitutions);
+                    arg
+                })
+                .collect();
+            interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            })
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
                 .collect();
             interner.intern(TyKind::BuiltinTrait { trait_id, args })
         }
@@ -1217,10 +1343,11 @@ fn substitute_generics(
             trait_args,
             name,
         }) => {
-            let self_ty = substitute_generics(interner, self_ty, substitutions);
+            let self_ty =
+                substitute_generics(interner, self_ty, substitutions, const_substitutions);
             let trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
                 .collect();
             interner.intern(TyKind::Projection {
                 self_ty,
@@ -1237,13 +1364,41 @@ fn substitute_array_len_generics(
     interner: &mut TyInterner,
     len: ArrayLenTy,
     substitutions: &HashMap<String, InternedTyId>,
+    const_substitutions: &HashMap<String, ConstGenericArg>,
 ) -> ArrayLenTy {
     match len {
         ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
             builtin,
-            ty: substitute_generics(interner, ty, substitutions),
+            ty: substitute_generics(interner, ty, substitutions, const_substitutions),
         },
+        ArrayLenTy::GenericParam(name) => const_substitutions
+            .get(&name)
+            .and_then(array_len_from_const_arg)
+            .unwrap_or(ArrayLenTy::GenericParam(name)),
         ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
+    }
+}
+
+fn const_substitutions(
+    generics: &[String],
+    type_arg_count: usize,
+    const_args: &[ConstGenericArg],
+) -> HashMap<String, ConstGenericArg> {
+    generics
+        .iter()
+        .skip(type_arg_count)
+        .cloned()
+        .zip(const_args.iter().cloned())
+        .collect()
+}
+
+fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
+    match &arg.value {
+        ConstGenericValue::Int(value) => {
+            u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
+        }
+        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(name.clone())),
+        ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }
 }
 
@@ -1483,6 +1638,46 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
     }
 
     #[test]
+    fn substitutes_const_generic_array_lengths_in_struct_layouts() {
+        let (module, errors) = parse_module(
+            r#"
+struct Buffer[T, N: usize] {
+    data: [N]T,
+}
+
+fn main(buf: Buffer[u8, 4]) {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let layouts = compute_layouts_with_normalized_types(
+            &defs,
+            &lowered.interner,
+            &signatures,
+            &HashMap::new(),
+            &|id| comptime.array_lengths.get(&id).copied(),
+            TargetDataLayout::LP64,
+        );
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(layouts.struct_instances.iter().any(|(key, layout)| {
+            key.const_args
+                .iter()
+                .any(|arg| matches!(&arg.value, ConstGenericValue::Int(value) if value.bits() == 4))
+                && layout.layout == TypeLayout { size: 4, align: 1 }
+        }));
+    }
+
+    #[test]
     fn computes_empty_struct_layout() {
         let (module, errors) = parse_module(
             r#"
@@ -1654,6 +1849,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .get(&StructLayoutKey {
                 def_id: array_box_id,
                 args: vec![lowered.interner.primitive(PrimitiveTy::U8)],
+                const_args: Vec::new(),
             })
             .expect("ArrayBox[u8] layout");
         let i32_layout = layouts
@@ -1661,6 +1857,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .get(&StructLayoutKey {
                 def_id: array_box_id,
                 args: vec![lowered.interner.primitive(PrimitiveTy::I32)],
+                const_args: Vec::new(),
             })
             .expect("ArrayBox[i32] layout");
         assert_eq!(u8_layout.layout, TypeLayout { size: 3, align: 1 });
@@ -1697,6 +1894,7 @@ fn main(a: Bits[i32]) {}
             .get(&StructLayoutKey {
                 def_id: bits_id,
                 args: vec![lowered.interner.primitive(PrimitiveTy::I32)],
+                const_args: Vec::new(),
             })
             .expect("Bits[i32] layout");
         assert_eq!(bits_i32.layout, TypeLayout { size: 4, align: 4 });

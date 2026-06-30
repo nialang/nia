@@ -21,19 +21,20 @@ impl BackendValidator<'_> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
         message: &str,
     ) {
         for arg in args {
             self.validate_type(*arg, span);
         }
-        let key = (def_id, arg_module_id, args.to_vec());
+        let key = (def_id, arg_module_id, args.to_vec(), const_args.to_vec());
         let exists = if let Some(exists) = self.function_instance_ref_cache.borrow().get(&key) {
             *exists
         } else {
             let exists = self
                 .index
-                .function_instance(def_id, arg_module_id, args)
+                .function_instance(def_id, arg_module_id, args, const_args)
                 .is_some()
                 || self
                     .index
@@ -41,7 +42,10 @@ impl BackendValidator<'_> {
                     .get(&def_id)
                     .into_iter()
                     .flatten()
-                    .any(|item| self.same_type_args(&item.args, args));
+                    .any(|item| {
+                        self.same_type_args(&item.args, args)
+                            && item.const_args.as_slice() == const_args
+                    });
             self.function_instance_ref_cache
                 .borrow_mut()
                 .insert(key, exists);

@@ -20,7 +20,7 @@ mod type_context;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility};
+use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
     BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
@@ -720,7 +720,7 @@ impl ReachableAggregateRoots {
                 self.add_ty(lowerer, error);
                 self.add_ty(lowerer, value);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 self.add_struct(def_id);
                 self.add_union(def_id);
                 for arg in args {
@@ -833,10 +833,12 @@ impl ReachabilityWorklist {
                     def_id,
                     arg_module_id,
                     args,
+                    const_args,
                 } => self.enqueue_instances([FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
                     args: args.clone(),
+                    const_args: const_args.clone(),
                     arg_interner: None,
                     span: vtable.span,
                 }]),
@@ -868,6 +870,7 @@ pub(crate) struct TypeSubstitutionId(pub(crate) usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeSubstitutionKey {
     substitutions: Vec<(String, InternedTyId)>,
+    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -1136,6 +1139,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: inst.def_id,
                     arg_module_id: self.input.module_id,
                     args: inst.args.clone(),
+                    const_args: inst.const_args.clone(),
                     span: inst.span,
                     source_def_id: inst.source_def_id,
                 })
@@ -1157,7 +1161,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|def_id| {
                 let global_def_id = self.global_def_id(def_id);
                 !self
-                    .effective_generics(global_def_id, &function.generics)
+                    .effective_generics(global_def_id, &generic_param_names(&function.generics))
                     .is_empty()
             })
             .unwrap_or(false);
@@ -1371,7 +1375,8 @@ impl<'a> ModuleLowerer<'a> {
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
                 || (self.input.function_bodies.contains_key(&def_id)
-                    && !self.has_effective_generics(def_id, &function.generics));
+                    && !self
+                        .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
         let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
             return false;
@@ -1623,6 +1628,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
                     args: instance.args.clone(),
+                    const_args: instance.const_args.clone(),
                 })
                 .collect::<HashSet<_>>(),
         };
@@ -1791,6 +1797,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id: instance.def_id,
                 arg_module_id: instance.arg_module_id,
                 args: self.canonicalize_instance_args(&instance.args),
+                const_args: instance.const_args.clone(),
             })
             .collect::<HashSet<_>>();
         for instance in refs {
@@ -1800,10 +1807,12 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             let args = self.canonicalize_global_instance_ref_args(&instance);
+            let const_args = instance.const_args.clone();
             let key = BackendGlobalInstanceKey {
                 def_id: instance.def_id,
                 arg_module_id: instance.arg_module_id,
                 args: args.clone(),
+                const_args: const_args.clone(),
             };
             if !seen.insert(key) {
                 continue;
@@ -1815,9 +1824,12 @@ impl<'a> ModuleLowerer<'a> {
             }) {
                 continue;
             }
-            let Some(global) =
-                self.lower_planned_global_instance(instance.def_id, instance.arg_module_id, args)
-            else {
+            let Some(global) = self.lower_planned_global_instance(
+                instance.def_id,
+                instance.arg_module_id,
+                args,
+                const_args,
+            ) else {
                 continue;
             };
             instances.push(global);
@@ -1830,6 +1842,7 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<nia_ty::ConstGenericArg>,
     ) -> Option<BackendGlobalInstance> {
         let signature = self.input.signatures.globals.get(&def_id.def_id)?;
         if signature.is_extern {
@@ -1884,7 +1897,8 @@ impl<'a> ModuleLowerer<'a> {
             name: def.name.clone(),
             arg_module_id,
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
+            const_args: const_args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args, &const_args),
             ty,
             is_let: !signature.is_mutable,
             init,
@@ -2017,10 +2031,12 @@ impl<'a> ModuleLowerer<'a> {
                             def_id,
                             arg_module_id,
                             args,
+                            const_args,
                         } => refs.instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
                             args: args.clone(),
+                            const_args: const_args.clone(),
                             arg_interner: None,
                             span: vtable.span,
                         }),
@@ -2046,6 +2062,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id: instance.def_id,
                         arg_module_id: instance.arg_module_id,
                         args: instance.args.clone(),
+                        const_args: instance.const_args.clone(),
                     })
                     .collect::<HashSet<_>>(),
             };
@@ -2168,6 +2185,7 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         name: &str,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
         let defs = &self.input.defs.defs;
         let input = self.input;
@@ -2180,6 +2198,7 @@ impl<'a> ModuleLowerer<'a> {
             def_id,
             name,
             args,
+            const_args,
             &self.type_context.interner,
             |def_id| {
                 if let Some(name) = def_names.get(&def_id) {

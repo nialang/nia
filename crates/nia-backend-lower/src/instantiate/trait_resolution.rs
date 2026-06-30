@@ -405,7 +405,8 @@ impl<'a> ModuleLowerer<'a> {
                 source.target_ty,
             )
             .unwrap_or_else(|| (interner.clone(), source.target_ty));
-        let Some(TyKind::Nominal { def_id, args }) = target_interner.get(target_ty).cloned() else {
+        let Some(TyKind::Nominal { def_id, args, .. }) = target_interner.get(target_ty).cloned()
+        else {
             return None;
         };
         let args = args
@@ -519,7 +520,7 @@ impl<'a> ModuleLowerer<'a> {
         ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>)> {
         match interner.get(normalization.normalize(ty)) {
-            Some(TyKind::Nominal { def_id, args }) if program_traits.contains_key(def_id) => {
+            Some(TyKind::Nominal { def_id, args, .. }) if program_traits.contains_key(def_id) => {
                 Some((TraitId::Source(*def_id), args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

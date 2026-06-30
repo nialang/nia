@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ExtensionTraitMethodCandidate, ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId,
 };
+use nia_ast::generic_param_names;
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
@@ -24,6 +25,20 @@ struct ProjectionInstantiationKey {
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
     name: String,
+}
+
+fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
+    match &arg.value {
+        nia_ty::ConstGenericValue::Int(value) => value
+            .bits()
+            .try_into()
+            .ok()
+            .map(nia_ty::ArrayLenTy::ConstValue),
+        nia_ty::ConstGenericValue::GenericParam(name) => {
+            Some(nia_ty::ArrayLenTy::GenericParam(name.clone()))
+        }
+        nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
+    }
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -96,21 +111,18 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
         let alias = self.input.program_type_aliases.get(&def_id)?.clone();
-        if alias.signature.generics.len() != args.len() {
+        if alias.signature.generics.len() != args.len() + const_args.len() {
             return Some(self.type_context.interner.error());
         }
-        let alias_substitutions = alias
-            .signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect::<HashMap<_, _>>();
-        let alias_substitutions = self.intern_type_substitutions(&alias_substitutions);
+        let (alias_substitutions, alias_const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+        let alias_substitutions = self
+            .intern_type_and_const_substitutions(&alias_substitutions, &alias_const_substitutions);
         let target = self.import_normalized_type_from_module(
             def_id.module_id,
             &alias.interner,
@@ -152,6 +164,65 @@ impl<'a> ModuleLowerer<'a> {
         args: &[InternedTyId],
     ) -> HashMap<String, InternedTyId> {
         generics.iter().cloned().zip(args.iter().copied()).collect()
+    }
+
+    pub(crate) fn generic_substitutions_and_consts_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> (
+        HashMap<String, InternedTyId>,
+        HashMap<String, nia_ty::ConstGenericArg>,
+    ) {
+        let Some(def) = crate::program_def(self.input, def_id) else {
+            return (HashMap::new(), HashMap::new());
+        };
+        let mut type_index = 0;
+        let mut const_index = 0;
+        let mut substitutions = HashMap::new();
+        let mut const_substitutions = HashMap::new();
+        for generic in &def.generic_params {
+            match generic.kind {
+                nia_ast::GenericParamKind::Type => {
+                    if let Some(arg) = args.get(type_index).copied() {
+                        substitutions.insert(generic.name.clone(), arg);
+                    }
+                    type_index += 1;
+                }
+                nia_ast::GenericParamKind::Comptime { .. } => {
+                    if let Some(arg) = const_args.get(const_index).cloned() {
+                        const_substitutions.insert(generic.name.clone(), arg);
+                    }
+                    const_index += 1;
+                }
+            }
+        }
+        (substitutions, const_substitutions)
+    }
+
+    pub(crate) fn const_generic_substitutions_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> HashMap<String, nia_ty::ConstGenericArg> {
+        let Some(def) = crate::program_def(self.input, def_id) else {
+            return HashMap::new();
+        };
+        let mut const_index = 0;
+        let mut const_substitutions = HashMap::new();
+        for generic in &def.generic_params {
+            match generic.kind {
+                nia_ast::GenericParamKind::Type => {}
+                nia_ast::GenericParamKind::Comptime { .. } => {
+                    if let Some(arg) = const_args.get(const_index).cloned() {
+                        const_substitutions.insert(generic.name.clone(), arg);
+                    }
+                    const_index += 1;
+                }
+            }
+        }
+        const_substitutions
     }
 
     pub(crate) fn effective_generics(
@@ -302,12 +373,38 @@ impl<'a> ModuleLowerer<'a> {
         )
     }
 
-    pub(crate) fn instantiate_params(
+    pub(crate) fn import_const_generic_arg(
+        &mut self,
+        arg: &nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        nia_ty::ConstGenericArg {
+            ty: self.import_instance_arg_type(arg.ty),
+            value: arg.value.clone(),
+        }
+    }
+
+    fn instantiate_const_generic_arg_with_id(
+        &mut self,
+        arg: &nia_ty::ConstGenericArg,
+        substitutions: TypeSubstitutionId,
+        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+    ) -> nia_ty::ConstGenericArg {
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
+            && let Some(substituted) = self.const_substitution(substitutions, name)
+        {
+            return substituted;
+        }
+        nia_ty::ConstGenericArg {
+            ty: self.instantiate_ty_with_id_inner(arg.ty, substitutions, active_projections),
+            value: arg.value.clone(),
+        }
+    }
+
+    pub(crate) fn instantiate_params_with_id(
         &mut self,
         function: &BackendFunction,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> Vec<BackendParam> {
-        let substitutions = self.intern_type_substitutions(substitutions);
         function
             .params
             .iter()
@@ -331,9 +428,31 @@ impl<'a> ModuleLowerer<'a> {
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
+        self.instantiate_function_body_with_const_substitutions(
+            function,
+            instantiation_module_id,
+            is_instance,
+            type_arg_count,
+            body,
+            substitutions,
+            &HashMap::new(),
+        )
+    }
+
+    pub(crate) fn instantiate_function_body_with_const_substitutions(
+        &mut self,
+        function: nia_ids::GlobalDefId,
+        instantiation_module_id: ModuleId,
+        is_instance: bool,
+        type_arg_count: usize,
+        body: FunctionBody,
+        substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> FunctionBody {
         let instantiation_snapshot = self.instantiation.take_snapshot();
         let body_interner = self.type_context.function_body_interner(function.module_id);
-        let substitutions = self.intern_type_substitutions(substitutions);
+        let substitutions =
+            self.intern_type_and_const_substitutions(substitutions, const_substitutions);
         self.instantiation.set_instance_scope(
             function,
             instantiation_module_id,
@@ -743,6 +862,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Array { len, elem }) => {
+                let len = self.instantiate_array_len(len, substitutions);
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
                 let instantiated = self
@@ -802,7 +922,11 @@ impl<'a> ModuleLowerer<'a> {
                     .intern(TyKind::ErrorUnion { error, value });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .iter()
                     .copied()
@@ -810,18 +934,30 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
                     })
                     .collect::<Vec<_>>();
+                let const_args = const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 if let Some(instantiated) = self.instantiate_external_type_alias(
                     def_id,
                     &args,
+                    &const_args,
                     substitutions,
                     active_projections,
                 ) {
                     return self.finish_type_instantiation(key, instantiated, can_use_cache);
                 }
-                let instantiated = self
-                    .type_context
-                    .interner
-                    .intern(TyKind::Nominal { def_id, args });
+                let instantiated = self.type_context.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -997,12 +1133,26 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> TypeSubstitutionId {
+        self.intern_type_and_const_substitutions(substitutions, &HashMap::new())
+    }
+
+    pub(crate) fn intern_type_and_const_substitutions(
+        &mut self,
+        substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> TypeSubstitutionId {
         let mut substitutions = substitutions
             .iter()
             .map(|(name, ty)| (name.clone(), self.import_instance_arg_type(*ty)))
             .collect::<Vec<_>>();
         substitutions.sort_by(|left, right| left.0.cmp(&right.0));
-        self.type_context.intern_type_substitutions(substitutions)
+        let mut const_substitutions = const_substitutions
+            .iter()
+            .map(|(name, arg)| (name.clone(), self.import_const_generic_arg(arg)))
+            .collect::<Vec<_>>();
+        const_substitutions.sort_by(|left, right| left.0.cmp(&right.0));
+        self.type_context
+            .intern_type_substitutions(substitutions, const_substitutions)
     }
 
     pub(super) fn empty_type_substitution_id(&mut self) -> TypeSubstitutionId {
@@ -1022,16 +1172,41 @@ impl<'a> ModuleLowerer<'a> {
         self.type_context.type_substitution(substitutions, name)
     }
 
+    fn const_substitution(
+        &self,
+        substitutions: TypeSubstitutionId,
+        name: &str,
+    ) -> Option<nia_ty::ConstGenericArg> {
+        self.type_context.const_substitution(substitutions, name)
+    }
+
+    fn instantiate_array_len(
+        &self,
+        len: nia_ty::ArrayLenTy,
+        substitutions: TypeSubstitutionId,
+    ) -> nia_ty::ArrayLenTy {
+        match len {
+            nia_ty::ArrayLenTy::GenericParam(name) => self
+                .const_substitution(substitutions, &name)
+                .and_then(|arg| array_len_from_const_arg(&arg))
+                .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
+            len => len,
+        }
+    }
+
     pub(super) fn effective_instance_args_for_def(
         &mut self,
         def_id: GlobalDefId,
         substitutions: TypeSubstitutionId,
     ) -> Option<Vec<InternedTyId>> {
+        let local_generic_names;
         let own_generics = if def_id.module_id == self.input.module_id {
-            self.function_sources
+            local_generic_names = self
+                .function_sources
                 .get(&def_id)
-                .map(|source| source.function.generics.as_slice())
-                .unwrap_or(&[])
+                .map(|source| generic_param_names(&source.function.generics))
+                .unwrap_or_default();
+            local_generic_names.as_slice()
         } else {
             self.input
                 .program_functions
@@ -1329,9 +1504,15 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,
+                const_args: pattern_const_args,
             }) => match self.ty_kind(actual).cloned() {
-                Some(TyKind::Nominal { def_id, args })
-                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                Some(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                }) if pattern_def == def_id
+                    && pattern_const_args == const_args
+                    && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_extension_type_pattern(*pattern, actual, substitutions)
@@ -1687,13 +1868,16 @@ impl<'a> ModuleLowerer<'a> {
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
+                    const_args: left_const_args,
                 }),
                 Some(TyKind::Nominal {
                     def_id: right_def,
                     args: right_args,
+                    const_args: right_const_args,
                 }),
             ) => {
                 left_def == right_def
+                    && left_const_args == right_const_args
                     && left_args.len() == right_args.len()
                     && left_args
                         .iter()

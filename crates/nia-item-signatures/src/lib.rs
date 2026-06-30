@@ -2,9 +2,10 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    Attribute, AttributeKind, BindingItem, Block, EnumItem, ExtendItem, FunctionItem, Module,
-    Param, StmtKind, StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
-    type_ref_identity, where_clause_identity,
+    Attribute, AttributeKind, BindingItem, Block, EnumItem, ExtendItem, FunctionItem, GenericParam,
+    GenericParamKind, Module, Param, StmtKind, StructItem, TraitItem, TypeAliasItem, TypeRef,
+    UnionItem, WhereClause, generic_param_identities, generic_param_names, type_ref_identity,
+    where_clause_identity,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -95,6 +96,7 @@ pub struct ProgramTraitImplSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
     pub generics: Vec<String>,
+    pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub params: Vec<ParamSignature>,
     pub return_type: InternedTyId,
@@ -104,6 +106,18 @@ pub struct FunctionSignature {
     pub attributes: Vec<FunctionAttribute>,
     pub has_body: bool,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenericParamSignature {
+    pub name: String,
+    pub kind: GenericParamSignatureKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenericParamSignatureKind {
+    Type,
+    Comptime { ty: InternedTyId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,7 +215,7 @@ impl TraitImplIdentity {
         Self {
             target: type_ref_identity(&extend.target),
             trait_ref: extend.trait_ref.as_ref().map(type_ref_identity),
-            generics: extend.generics.clone(),
+            generics: generic_param_identities(&extend.generics),
             where_clause: where_clause_identity(&extend.where_clause),
             duplicate_ordinal: None,
         }
@@ -489,7 +503,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.structs.insert(
             def_id,
             StructSignature {
-                generics: item_struct.generics.clone(),
+                generics: generic_param_names(&item_struct.generics),
                 where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
                 is_extern: item_struct.is_extern,
@@ -524,7 +538,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.unions.insert(
             def_id,
             UnionSignature {
-                generics: item_union.generics.clone(),
+                generics: generic_param_names(&item_union.generics),
                 where_predicates: self.where_predicate_signatures(&item_union.where_clause),
                 fields,
                 is_extern: item_union.is_extern,
@@ -563,7 +577,7 @@ impl<'a> SignatureCollector<'a> {
         let impl_id = self.trait_impl_id(extend);
         signatures.trait_impls.push(TraitImplSignature {
             impl_id,
-            generics: extend.generics.clone(),
+            generics: generic_param_names(&extend.generics),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
                 .trait_ref
@@ -647,7 +661,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.traits.insert(
             def_id,
             TraitSignature {
-                generics: item_trait.generics.clone(),
+                generics: generic_param_names(&item_trait.generics),
                 where_predicates: self.where_predicate_signatures(&item_trait.where_clause),
                 supertraits: item_trait
                     .supertraits
@@ -730,7 +744,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.type_aliases.insert(
             def_id,
             TypeAliasSignature {
-                generics: alias.generics.clone(),
+                generics: generic_param_names(&alias.generics),
                 target: self.ty_for_type(&alias.ty),
                 span: item.span,
             },
@@ -875,7 +889,8 @@ impl<'a> SignatureCollector<'a> {
             None => self.primitive(PrimitiveTy::Void),
         };
         FunctionSignature {
-            generics: function.generics.clone(),
+            generics: generic_param_names(&function.generics),
+            generic_params: self.generic_param_signatures(&function.generics),
             where_predicates: self.where_predicate_signatures(&function.where_clause),
             params,
             return_type,
@@ -886,6 +901,24 @@ impl<'a> SignatureCollector<'a> {
             has_body: function.body.is_some(),
             span: function.span,
         }
+    }
+
+    fn generic_param_signatures(
+        &mut self,
+        generics: &[GenericParam],
+    ) -> Vec<GenericParamSignature> {
+        generics
+            .iter()
+            .map(|generic| GenericParamSignature {
+                name: generic.name.clone(),
+                kind: match &generic.kind {
+                    GenericParamKind::Type => GenericParamSignatureKind::Type,
+                    GenericParamKind::Comptime { ty } => GenericParamSignatureKind::Comptime {
+                        ty: self.ty_for_type(ty),
+                    },
+                },
+            })
+            .collect()
     }
 
     fn function_signature_with_attributes(

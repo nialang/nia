@@ -871,7 +871,11 @@ impl<'a> ValueResolver<'a> {
     fn nominal_extension_target_ty(&self, type_id: GlobalDefId) -> Option<nia_ids::InternedTyId> {
         let interner = self.extension_interner?;
         interner.iter().find_map(|(ty, kind)| match kind {
-            TyKind::Nominal { def_id, args } if *def_id == type_id && args.is_empty() => Some(ty),
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if *def_id == type_id && args.is_empty() && const_args.is_empty() => Some(ty),
             _ => None,
         })
     }

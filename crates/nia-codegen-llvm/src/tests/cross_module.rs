@@ -122,8 +122,8 @@ pub fn add(a: i32, b: i32) i32 {
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
     assert!(main_ir.ir.contains("external global i32"));
-    let base = mangled_symbol(&main_ir.ir, '@', 1, "base");
-    let add = mangled_symbol(&main_ir.ir, '@', 1, "add");
+    let base = mangled_symbol_any_module(&main_ir.ir, '@', "base");
+    let add = mangled_symbol_any_module(&main_ir.ir, '@', "add");
     assert!(main_ir.ir.contains(&format!("constant ptr {base}")));
     assert!(main_ir.ir.contains(&format!("call i32 {add}")));
 }
@@ -166,7 +166,7 @@ pub struct Point {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert_contains_mangled_symbol(&main_ir.ir, '%', 1, "Point");
+    let _ = mangled_symbol_any_module(&main_ir.ir, '%', "Point");
     assert!(main_ir.ir.contains("store i32 40"));
     assert!(main_ir.ir.contains("store i32 2"));
     assert!(main_ir.ir.contains("ret i32"));

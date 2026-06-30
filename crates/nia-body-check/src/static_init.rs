@@ -245,7 +245,7 @@ impl<'a> BodyChecker<'a> {
 
     fn static_field_ty(&mut self, ty: InternedTyId, name: &str) -> Option<InternedTyId> {
         let ty = self.normalization.normalize(ty);
-        let TyKind::Nominal { def_id, args } = self.interner.get(ty).cloned()? else {
+        let TyKind::Nominal { def_id, args, .. } = self.interner.get(ty).cloned()? else {
             return None;
         };
         let resolved = if self.is_union_def(def_id) {

@@ -590,8 +590,13 @@ impl Analyzer<'_> {
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let ty_module_id = self.type_owner(ty).module_id();
-        if let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty)
+        if let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(ty)
             && (def_id.module_id != module_id || ty_module_id != module_id)
+            && const_args.is_empty()
             && let Some(layouts) =
                 self.compute_program_layout(def_id.module_id, &layout_array_lengths)
             && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
@@ -677,12 +682,24 @@ impl Analyzer<'_> {
             },
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
-        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(ty)
+        else {
             return Err(ComptimeError {
                 span,
                 message: "builtin `offset` requires a struct or union type argument".to_string(),
             });
         };
+        if !const_args.is_empty() {
+            return Err(ComptimeError {
+                span,
+                message: "builtin `offset` does not support const generic nominal types yet"
+                    .to_string(),
+            });
+        }
         let Some(field_def) = self.field_def_for_nominal(def_id, field) else {
             return Err(ComptimeError {
                 span,
@@ -792,9 +809,16 @@ impl Analyzer<'_> {
                 }
                 self.collect_array_len_const_exprs_in_ty_inner(return_type, out, seen);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 for arg in args {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+                for arg in const_args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
                 }
                 let Some(signatures) = self.signatures_for_module(def_id.module_id) else {
                     return;

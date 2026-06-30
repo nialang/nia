@@ -158,6 +158,14 @@ impl<'a> BodyChecker<'a> {
                     elem: elem_ty,
                 })
             }
+            ArrayLenTy::GenericParam(_) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "array literal length cannot be checked against an unresolved const generic",
+                ));
+                elem_ty
+            }
             expected @ (ArrayLenTy::ConstValue(_)
             | ArrayLenTy::ConstExpr(_)
             | ArrayLenTy::Builtin { .. }) => {
@@ -234,8 +242,12 @@ impl<'a> BodyChecker<'a> {
             }
             return self.error();
         };
-        let (def_id, args) = match self.expect_ty_kind(aggregate_ty) {
-            TyKind::Nominal { def_id, args } => (*def_id, args.clone()),
+        let (def_id, args, const_args) = match self.expect_ty_kind(aggregate_ty) {
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => (*def_id, args.clone(), const_args.clone()),
             TyKind::Error => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -247,7 +259,14 @@ impl<'a> BodyChecker<'a> {
             }
         };
         if self.is_union_def(def_id) {
-            return self.check_union_literal(span, aggregate_ty, def_id, &args, fields);
+            return self.check_union_literal(
+                span,
+                aggregate_ty,
+                def_id,
+                &args,
+                &const_args,
+                fields,
+            );
         }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -257,15 +276,19 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let generics = resolved.signature.generics.clone();
         let signature_fields = resolved.signature.fields.clone();
-        let substitutions = self.generic_substitutions(&generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
         let field_tys: HashMap<&str, InternedTyId> = signature_fields
             .iter()
             .map(|field| {
                 (
                     field.name.as_str(),
-                    self.substitute_generics(field.ty, &substitutions),
+                    self.substitute_generics_and_consts(
+                        field.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    ),
                 )
             })
             .collect();
@@ -323,6 +346,7 @@ impl<'a> BodyChecker<'a> {
         union_ty: InternedTyId,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
@@ -348,9 +372,9 @@ impl<'a> BodyChecker<'a> {
             return union_ty;
         }
         let field = &fields[0];
-        let generics = resolved.signature.generics.clone();
         let signature_fields = resolved.signature.fields.clone();
-        let substitutions = self.generic_substitutions(&generics, args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
         let Some(signature_field) = signature_fields
             .iter()
             .find(|candidate| candidate.name == field.name)
@@ -363,7 +387,11 @@ impl<'a> BodyChecker<'a> {
             ));
             return union_ty;
         };
-        let expected = self.substitute_generics(signature_field.ty, &substitutions);
+        let expected = self.substitute_generics_and_consts(
+            signature_field.ty,
+            &substitutions,
+            &const_substitutions,
+        );
         let actual = self.check_expr_with_expected(&field.value, Some(expected));
         self.expect_expr_type(&field.value, expected, actual, "union literal field");
         union_ty
@@ -440,7 +468,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         name: &str,
     ) -> InternedTyId {
-        let Some((def_id, args)) = self.field_base_type(lhs_ty) else {
+        let Some((def_id, args, const_args)) = self.field_base_type(lhs_ty) else {
             if matches!(self.interner.get(lhs_ty), Some(TyKind::ComptimeOnly)) {
                 return lhs_ty;
             }
@@ -454,7 +482,7 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         if self.is_union_def(def_id) {
-            return self.check_union_field_access(span, def_id, &args, name);
+            return self.check_union_field_access(span, def_id, &args, &const_args, name);
         }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -464,7 +492,6 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let generics = resolved.signature.generics.clone();
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| field.name == name) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -474,8 +501,9 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let substitutions = self.generic_substitutions(&generics, &args);
-        self.substitute_generics(field.ty, &substitutions)
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions)
     }
 
     fn check_union_field_access(
@@ -483,6 +511,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         name: &str,
     ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
@@ -493,7 +522,6 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let generics = resolved.signature.generics.clone();
         let fields = resolved.signature.fields.clone();
         let Some(field) = fields.iter().find(|field| field.name == name) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -503,8 +531,9 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
-        let substitutions = self.generic_substitutions(&generics, args);
-        self.substitute_generics(field.ty, &substitutions)
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+        self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions)
     }
 
     pub(crate) fn qualified_global_type(&mut self, expr: &Expr) -> Option<InternedTyId> {
@@ -685,6 +714,7 @@ impl<'a> BodyChecker<'a> {
         Some(self.interner.intern(TyKind::Nominal {
             def_id: enum_id,
             args: Vec::new(),
+            const_args: Vec::new(),
         }))
     }
 
@@ -793,10 +823,17 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn field_base_type(&mut self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    fn field_base_type(
+        &mut self,
+        ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let ty = self.normalize_aliases_in_type(ty);
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Nominal { def_id, args }) => Some((def_id, args)),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => Some((def_id, args, const_args)),
             Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
                 self.field_base_type(elem)
             }

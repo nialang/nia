@@ -8,7 +8,7 @@ use nia_ids::{
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, IntConst, PrimitiveTy, TraitId};
+use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
@@ -290,6 +290,7 @@ pub struct TraitObjectUpcast {
 pub struct GenericInstantiation {
     pub def_id: GlobalDefId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub generics: Vec<String>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
@@ -300,6 +301,7 @@ pub struct FunctionReference {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,6 +315,7 @@ pub enum ResolvedCall {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     Method {
         def_id: GlobalDefId,

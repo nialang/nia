@@ -136,12 +136,15 @@ impl BackendValidator<'_> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => {
                 if !self
                     .index
                     .global_instances
                     .get(&(*def_id, *arg_module_id))
-                    .is_some_and(|instances| instances.contains_key(args.as_slice()))
+                    .is_some_and(|instances| {
+                        instances.contains_key(&(args.clone(), const_args.clone()))
+                    })
                 {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -163,11 +166,13 @@ impl BackendValidator<'_> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => {
                 self.validate_function_instance_ref(
                     *def_id,
                     *arg_module_id,
                     args,
+                    const_args,
                     expr.span,
                     "backend IR expression references missing function instance",
                 );
@@ -342,10 +347,12 @@ impl BackendValidator<'_> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => self.validate_function_instance_ref(
                 *def_id,
                 *arg_module_id,
                 args,
+                const_args,
                 span,
                 "backend IR call references missing function instance",
             ),
@@ -368,6 +375,7 @@ impl BackendValidator<'_> {
                         *def_id,
                         *arg_module_id,
                         args,
+                        &[],
                         span,
                         "backend IR method call references missing function instance",
                     );
@@ -493,12 +501,15 @@ impl BackendValidator<'_> {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => {
                 if !self
                     .index
                     .global_instances
                     .get(&(*def_id, *arg_module_id))
-                    .is_some_and(|instances| instances.contains_key(args.as_slice()))
+                    .is_some_and(|instances| {
+                        instances.contains_key(&(args.clone(), const_args.clone()))
+                    })
                 {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,

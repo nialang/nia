@@ -8,7 +8,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_llvm::{Attribute, AttributeLoc, module::Linkage, values::FunctionValue};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
 
 enum AdapterFunction<'a> {
     Function(&'a BackendFunction),
@@ -49,11 +49,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.struct_instances
                 .entry(item.def_id)
                 .or_default()
-                .insert(item.args.clone(), ty);
+                .insert((item.args.clone(), item.const_args.clone()), ty);
             self.struct_instances_by_def
                 .entry(item.def_id)
                 .or_default()
-                .push((item.args.clone(), ty));
+                .push((item.args.clone(), item.const_args.clone(), ty));
             self.struct_instance_type_lookups.borrow_mut().clear();
         }
         for item in self.program.unions.values() {
@@ -72,11 +72,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.union_instances
                 .entry(item.def_id)
                 .or_default()
-                .insert(item.args.clone(), ty);
+                .insert((item.args.clone(), item.const_args.clone()), ty);
             self.union_instances_by_def
                 .entry(item.def_id)
                 .or_default()
-                .push((item.args.clone(), ty));
+                .push((item.args.clone(), item.const_args.clone(), ty));
             self.union_instance_type_lookups.borrow_mut().clear();
         }
         Ok(())
@@ -94,7 +94,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ));
             };
             let mut fields = Vec::new();
-            for field in self.physical_struct_fields(item.def_id, &[], item.span)? {
+            for field in self.physical_struct_fields(item.def_id, &[], &[], item.span)? {
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,
@@ -111,13 +111,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(struct_ty) = self
                 .struct_instances
                 .get(&item.def_id)
-                .and_then(|instances| instances.get(item.args.as_slice()))
+                .and_then(|instances| instances.get(&(item.args.clone(), item.const_args.clone())))
                 .copied()
             else {
                 return Err(self.error(item.span, "missing LLVM struct instance"));
             };
             let mut fields = Vec::new();
-            for field in self.physical_struct_fields(item.def_id, &item.args, item.span)? {
+            for field in
+                self.physical_struct_fields(item.def_id, &item.args, &item.const_args, item.span)?
+            {
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,
@@ -134,7 +136,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 );
             };
             union_ty.set_body(
-                &self.union_storage_fields(item.def_id, &[], item.span)?,
+                &self.union_storage_fields(item.def_id, &[], &[], item.span)?,
                 false,
             );
         }
@@ -142,13 +144,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(union_ty) = self
                 .union_instances
                 .get(&item.def_id)
-                .and_then(|instances| instances.get(item.args.as_slice()))
+                .and_then(|instances| instances.get(&(item.args.clone(), item.const_args.clone())))
                 .copied()
             else {
                 return Err(self.error(item.span, "missing LLVM union instance"));
             };
             union_ty.set_body(
-                &self.union_storage_fields(item.def_id, &item.args, item.span)?,
+                &self.union_storage_fields(item.def_id, &item.args, &item.const_args, item.span)?,
                 false,
             );
         }
@@ -211,11 +213,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
                 .or_default()
-                .insert(instance.args.clone(), value);
+                .insert((instance.args.clone(), instance.const_args.clone()), value);
             self.function_instances_by_def
                 .entry(instance.def_id)
                 .or_default()
-                .push((instance.arg_module_id, instance.args.clone(), value));
+                .push((
+                    instance.arg_module_id,
+                    instance.args.clone(),
+                    instance.const_args.clone(),
+                    value,
+                ));
             self.function_instance_value_lookups.borrow_mut().clear();
         }
         Ok(())
@@ -278,7 +285,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 value.set_constant(true);
             }
             self.global_instances.insert(
-                (global.def_id, global.arg_module_id, global.args.clone()),
+                (
+                    global.def_id,
+                    global.arg_module_id,
+                    global.args.clone(),
+                    global.const_args.clone(),
+                ),
                 value,
             );
         }
@@ -327,7 +339,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
             let Some(value) = self
                 .global_instances
-                .get(&(global.def_id, global.arg_module_id, global.args.clone()))
+                .get(&(
+                    global.def_id,
+                    global.arg_module_id,
+                    global.args.clone(),
+                    global.const_args.clone(),
+                ))
                 .copied()
             else {
                 return Err(self.error(global.span, "missing global instance declaration"));
@@ -412,28 +429,43 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         entry: &BackendTraitObjectVtableEntry,
         span: Span,
     ) -> Result<FunctionValue<'ctx>, Diagnostic> {
-        let (def_id, arg_module_id, args, function) = match &entry.function {
+        let (def_id, arg_module_id, args, const_args, function) = match &entry.function {
             BackendTraitObjectVtableFunction::Function(def_id) => {
                 let function = self
                     .function(*def_id)
                     .ok_or_else(|| self.error(span, "missing vtable method function"))?;
-                (*def_id, self.source.id, Vec::new(), function)
+                (*def_id, self.source.id, Vec::new(), Vec::new(), function)
             }
             BackendTraitObjectVtableFunction::FunctionInstance {
                 def_id,
                 arg_module_id,
                 args,
+                const_args,
             } => {
                 let function = self
-                    .function_instance_value(*def_id, *arg_module_id, args)
+                    .function_instance_value(*def_id, *arg_module_id, args, const_args)
                     .ok_or_else(|| self.error(span, "missing vtable method function instance"))?;
-                (*def_id, *arg_module_id, args.clone(), function)
+                (
+                    *def_id,
+                    *arg_module_id,
+                    args.clone(),
+                    const_args.clone(),
+                    function,
+                )
             }
         };
         if !matches!(self.ty_kind(self_ty), Some(TyKind::SlicePointee { .. })) {
             return Ok(function);
         }
-        self.trait_object_slice_adapter(self_ty, def_id, arg_module_id, &args, function, span)
+        self.trait_object_slice_adapter(
+            self_ty,
+            def_id,
+            arg_module_id,
+            &args,
+            &const_args,
+            function,
+            span,
+        )
     }
 
     fn trait_object_slice_adapter(
@@ -442,17 +474,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
         target: FunctionValue<'ctx>,
         span: Span,
     ) -> Result<FunctionValue<'ctx>, Diagnostic> {
-        let key = (self_ty, def_id, arg_module_id, args.to_vec());
+        let key = (
+            self_ty,
+            def_id,
+            arg_module_id,
+            args.to_vec(),
+            const_args.to_vec(),
+        );
         if let Some(function) = self.trait_object_adapters.borrow().get(&key).copied() {
             return Ok(function);
         }
-        let Some(item) = (if args.is_empty() {
+        let Some(item) = (if args.is_empty() && const_args.is_empty() {
             self.function_item(def_id).map(AdapterFunction::Function)
         } else {
-            self.function_instance_item_with_arg_module(def_id, arg_module_id, args)
+            self.function_instance_item_with_arg_module(def_id, arg_module_id, args, const_args)
                 .map(AdapterFunction::Instance)
         }) else {
             return Err(self.error(span, "missing vtable adapter target"));

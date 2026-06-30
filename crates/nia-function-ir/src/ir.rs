@@ -2,7 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, IntConst, TraitId};
+use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -222,12 +222,14 @@ pub enum FunctionExprKind {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     EnumVariant(nia_ids::GlobalDefId),
     BuiltinValue(FunctionBuiltinValue),
@@ -499,6 +501,7 @@ pub enum FunctionCallee {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     Method {
         def_id: nia_ids::GlobalDefId,
@@ -630,6 +633,7 @@ pub enum FunctionPlaceBase {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     Deref(Box<FunctionExpr>),
     Error,

@@ -49,6 +49,16 @@ impl<'a> BodyChecker<'a> {
             );
         }
         if let Some(resolved) = self.qualified_callee_signature(callee) {
+            if let Some(builtin) = function_calls::builtin_function(&resolved.signature) {
+                return self.check_builtin_function_call(
+                    span,
+                    callee.span,
+                    expr,
+                    builtin,
+                    BuiltinCallTypeArgs::Bracket(&[]),
+                    args,
+                );
+            }
             return self.check_function_signature_call(expr, &resolved, args, expected);
         }
         if let ExprKind::Field { lhs, name } = &callee.kind
@@ -62,6 +72,16 @@ impl<'a> BodyChecker<'a> {
             return return_type;
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
+            if let Some(builtin) = function_calls::builtin_function(&resolved.signature) {
+                return self.check_builtin_function_call(
+                    span,
+                    callee.span,
+                    expr,
+                    builtin,
+                    BuiltinCallTypeArgs::Bracket(&[]),
+                    args,
+                );
+            }
             return self.check_function_signature_call(expr, &resolved, args, expected);
         }
         if let ExprKind::Ident(name) = &callee.kind

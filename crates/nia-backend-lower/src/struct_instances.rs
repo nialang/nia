@@ -15,7 +15,9 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
+
+type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct_instances(
@@ -45,16 +47,25 @@ impl<'a> ModuleLowerer<'a> {
             if self.instance_args_contain_generic_param(&key.args) {
                 continue;
             }
-            let substitutions =
-                ModuleLowerer::generic_substitutions(&signature.generics, &key.args);
+            let global_def_id = self.global_def_id(def_id);
+            let (substitutions, const_substitutions) = self
+                .generic_substitutions_and_consts_for_def(
+                    global_def_id,
+                    &key.args,
+                    &key.const_args,
+                );
+            let substitution_id =
+                self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
             instances.push(BackendStructInstance {
-                def_id: self.global_def_id(def_id),
+                def_id: global_def_id,
                 name: item.name.clone(),
                 args: key.args.clone(),
+                const_args: key.const_args.clone(),
                 symbol: self.mangle_instance_symbol(
                     self.global_def_id(def_id),
                     &item.name,
                     &key.args,
+                    &key.const_args,
                 ),
                 fields: signature
                     .fields
@@ -62,7 +73,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|field| BackendField {
                         def_id: self.global_def_id(field.def_id),
                         name: field.name.clone(),
-                        ty: self.instantiate_ty(field.ty, &substitutions),
+                        ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                         span: field.span,
                     })
                     .collect(),
@@ -100,16 +111,25 @@ impl<'a> ModuleLowerer<'a> {
             if self.instance_args_contain_generic_param(&key.args) {
                 continue;
             }
-            let substitutions =
-                ModuleLowerer::generic_substitutions(&signature.generics, &key.args);
+            let global_def_id = self.global_def_id(def_id);
+            let (substitutions, const_substitutions) = self
+                .generic_substitutions_and_consts_for_def(
+                    global_def_id,
+                    &key.args,
+                    &key.const_args,
+                );
+            let substitution_id =
+                self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
             instances.push(BackendUnionInstance {
-                def_id: self.global_def_id(def_id),
+                def_id: global_def_id,
                 name: item.name.clone(),
                 args: key.args.clone(),
+                const_args: key.const_args.clone(),
                 symbol: self.mangle_instance_symbol(
                     self.global_def_id(def_id),
                     &item.name,
                     &key.args,
+                    &key.const_args,
                 ),
                 fields: signature
                     .fields
@@ -117,7 +137,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|field| BackendField {
                         def_id: self.global_def_id(field.def_id),
                         name: field.name.clone(),
-                        ty: self.instantiate_ty(field.ty, &substitutions),
+                        ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                         span: field.span,
                     })
                     .collect(),
@@ -137,11 +157,11 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         let mut seen = struct_instances
             .iter()
-            .map(|item| (item.def_id, item.args.clone()))
+            .map(|item| (item.def_id, item.args.clone(), item.const_args.clone()))
             .collect::<HashSet<_>>();
         let mut seen_unions = union_instances
             .iter()
-            .map(|item| (item.def_id, item.args.clone()))
+            .map(|item| (item.def_id, item.args.clone(), item.const_args.clone()))
             .collect::<HashSet<_>>();
         for function in functions {
             self.collect_struct_instance_ty(function.return_type, &mut seen, struct_instances);
@@ -196,7 +216,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_body(
         &mut self,
         body: &FunctionBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(body.ty, seen, out);
@@ -214,7 +234,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_defer_body(
         &mut self,
         body: &FunctionDeferBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         for block in &body.blocks {
@@ -228,7 +248,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_op(
         &mut self,
         op: &FunctionOp,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match op {
@@ -260,7 +280,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_terminator(
         &mut self,
         terminator: &FunctionTerminator,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match terminator {
@@ -293,7 +313,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_for_header(
         &mut self,
         header: &FunctionForHeader,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match header {
@@ -307,7 +327,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_expr(
         &mut self,
         expr: &FunctionExpr,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(expr.ty, seen, out);
@@ -452,7 +472,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_atomic(
         &mut self,
         atomic: &nia_function_ir::FunctionAtomic,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match atomic {
@@ -485,7 +505,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_callee(
         &mut self,
         callee: &FunctionCallee,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match callee {
@@ -571,7 +591,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_place(
         &mut self,
         place: &FunctionPlace,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(place.ty, seen, out);
@@ -605,7 +625,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instance_ty(
         &mut self,
         ty: InternedTyId,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match self.type_context.interner.get(ty).cloned() {
@@ -636,13 +656,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(error, seen, out);
                 self.collect_struct_instance_ty(value, seen, out);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 for arg in &args {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
-                if seen.insert((def_id, args.clone())) {
-                    if !args.is_empty() {
-                        if let Some(item) = self.lower_struct_instance(def_id, args) {
+                if seen.insert((def_id, args.clone(), const_args.clone())) {
+                    if !args.is_empty() || !const_args.is_empty() {
+                        if let Some(item) = self.lower_struct_instance(def_id, args, const_args) {
                             out.push(item);
                         }
                     } else {
@@ -702,24 +726,31 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     ) -> Option<BackendStructInstance> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
         if def_id.module_id != self.input.module_id {
-            return self.lower_foreign_struct_instance(def_id, args);
+            return self.lower_foreign_struct_instance(def_id, args, const_args);
         }
         let signature = self.input.signatures.structs.get(&def_id.def_id)?.clone();
-        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+        if signature.generics.is_empty()
+            || signature.generics.len() != args.len() + const_args.len()
+        {
             return None;
         }
         let def = self.input.defs.defs.get(def_id.def_id)?;
-        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let substitution_id =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendStructInstance {
             def_id,
             name: def.name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
+            const_args: const_args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -729,7 +760,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id: field.def_id,
                     },
                     name: field.name.clone(),
-                    ty: self.instantiate_ty(field.ty, &substitutions),
+                    ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                     span: field.span,
                 })
                 .collect(),
@@ -766,22 +797,29 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     ) -> Option<BackendStructInstance> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
         let program_signature = self.input.program_structs.get(&def_id)?.clone();
         let signature = program_signature.signature;
-        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+        if signature.generics.is_empty()
+            || signature.generics.len() != args.len() + const_args.len()
+        {
             return None;
         }
         let name = self.def_name(def_id);
-        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let substitution_id =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendStructInstance {
             def_id,
             name: name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &name, &args),
+            const_args: const_args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -797,7 +835,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: field.def_id,
                         },
                         name: field.name.clone(),
-                        ty: self.instantiate_ty(ty, &substitutions),
+                        ty: self.instantiate_ty_with_id(ty, substitution_id),
                         span: field.span,
                     }
                 })
@@ -810,7 +848,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_body(
         &mut self,
         body: &FunctionBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(body.ty, seen, out);
@@ -828,7 +866,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_defer_body(
         &mut self,
         body: &FunctionDeferBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         for block in &body.blocks {
@@ -842,7 +880,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_op(
         &mut self,
         op: &FunctionOp,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match op {
@@ -874,7 +912,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_terminator(
         &mut self,
         terminator: &FunctionTerminator,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match terminator {
@@ -907,7 +945,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_for_header(
         &mut self,
         header: &FunctionForHeader,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match header {
@@ -921,7 +959,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_expr(
         &mut self,
         expr: &FunctionExpr,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(expr.ty, seen, out);
@@ -1066,7 +1104,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_atomic(
         &mut self,
         atomic: &nia_function_ir::FunctionAtomic,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match atomic {
@@ -1099,7 +1137,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_callee(
         &mut self,
         callee: &FunctionCallee,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match callee {
@@ -1185,7 +1223,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_place(
         &mut self,
         place: &FunctionPlace,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(place.ty, seen, out);
@@ -1219,7 +1257,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instance_ty(
         &mut self,
         ty: InternedTyId,
-        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match self.type_context.interner.get(ty).cloned() {
@@ -1250,13 +1288,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_union_instance_ty(error, seen, out);
                 self.collect_union_instance_ty(value, seen, out);
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 for arg in &args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
-                if seen.insert((def_id, args.clone())) {
-                    if !args.is_empty() {
-                        if let Some(item) = self.lower_union_instance(def_id, args) {
+                if seen.insert((def_id, args.clone(), const_args.clone())) {
+                    if !args.is_empty() || !const_args.is_empty() {
+                        if let Some(item) = self.lower_union_instance(def_id, args, const_args) {
                             out.push(item);
                         }
                     } else {
@@ -1316,24 +1358,31 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     ) -> Option<BackendUnionInstance> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
         if def_id.module_id != self.input.module_id {
-            return self.lower_foreign_union_instance(def_id, args);
+            return self.lower_foreign_union_instance(def_id, args, const_args);
         }
         let signature = self.input.signatures.unions.get(&def_id.def_id)?.clone();
-        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+        if signature.generics.is_empty()
+            || signature.generics.len() != args.len() + const_args.len()
+        {
             return None;
         }
         let def = self.input.defs.defs.get(def_id.def_id)?;
-        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let substitution_id =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendUnionInstance {
             def_id,
             name: def.name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &def.name, &args),
+            const_args: const_args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &def.name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -1343,7 +1392,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id: field.def_id,
                     },
                     name: field.name.clone(),
-                    ty: self.instantiate_ty(field.ty, &substitutions),
+                    ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                     span: field.span,
                 })
                 .collect(),
@@ -1380,22 +1429,29 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     ) -> Option<BackendUnionInstance> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
         let program_signature = self.input.program_unions.get(&def_id)?.clone();
         let signature = program_signature.signature;
-        if signature.generics.is_empty() || signature.generics.len() != args.len() {
+        if signature.generics.is_empty()
+            || signature.generics.len() != args.len() + const_args.len()
+        {
             return None;
         }
         let name = self.def_name(def_id);
-        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let substitution_id =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendUnionInstance {
             def_id,
             name: name.clone(),
             args: args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &name, &args),
+            const_args: const_args.clone(),
+            symbol: self.mangle_instance_symbol(def_id, &name, &args, &const_args),
             fields: signature
                 .fields
                 .iter()
@@ -1411,7 +1467,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: field.def_id,
                         },
                         name: field.name.clone(),
-                        ty: self.instantiate_ty(ty, &substitutions),
+                        ty: self.instantiate_ty_with_id(ty, substitution_id),
                         span: field.span,
                     }
                 })

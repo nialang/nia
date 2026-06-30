@@ -3,9 +3,9 @@ use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, AttributeKind, AttributeMeta, BinaryOp,
     BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind, ExprStub,
-    ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, IfPatternArm,
-    IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern, PatternKind,
-    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
+    ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam,
+    IfPatternArm, IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern,
+    PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
     SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
     TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
     UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
@@ -61,7 +61,7 @@ pub struct Parser {
 
 struct FunctionParts {
     name: String,
-    generics: Vec<String>,
+    generics: Vec<GenericParam>,
     where_clause: WhereClause,
     params: Vec<Param>,
     return_type: Option<TypeRef>,

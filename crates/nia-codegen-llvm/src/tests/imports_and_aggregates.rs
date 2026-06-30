@@ -588,8 +588,9 @@ extend Box {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
+    let make = mangled_symbol_any_module(&main_ir.ir, '@', "make");
     assert!(
-        main_ir.ir.contains("call void @nia__m1__"),
+        main_ir.ir.contains(&format!("call void {make}")),
         "{}",
         main_ir.ir
     );

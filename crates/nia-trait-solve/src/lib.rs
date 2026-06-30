@@ -1294,13 +1294,16 @@ where
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
+                    const_args: left_const_args,
                 }),
                 Some(TyKind::Nominal {
                     def_id: right_def,
                     args: right_args,
+                    const_args: right_const_args,
                 }),
             ) => {
                 left_def == right_def
+                    && left_const_args == right_const_args
                     && left_args.len() == right_args.len()
                     && left_args.iter().zip(&right_args).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
@@ -1697,11 +1700,19 @@ where
                 }
                 _ => false,
             },
-            Some(TyKind::Nominal { def_id, args }) => match self.interner.get(actual).cloned() {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::Nominal {
                     def_id: actual_def,
                     args: actual_args,
-                }) if def_id == actual_def && args.len() == actual_args.len() => {
+                    const_args: actual_const_args,
+                }) if def_id == actual_def
+                    && const_args == actual_const_args
+                    && args.len() == actual_args.len() =>
+                {
                     args.iter().zip(actual_args).all(|(arg, actual_arg)| {
                         self.match_impl_pattern(*arg, actual_arg, substitutions)
                     })
@@ -1893,12 +1904,27 @@ where
                 let value = self.substitute_ty(value, substitutions);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
                     .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -1993,7 +2019,7 @@ where
 
     fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
         match self.interner.get(self.normalize(ty)) {
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 Some((TraitId::Source(*def_id), args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -2049,7 +2075,7 @@ where
             return true;
         }
         match self.kind(ty) {
-            Some(TyKind::Nominal { def_id, args }) => {
+            Some(TyKind::Nominal { def_id, args, .. }) => {
                 layouts.nominal_type_layout(*def_id, args).is_some()
             }
             _ => false,
@@ -2239,13 +2265,16 @@ where
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
+                    const_args: left_const_args,
                 }),
                 Some(TyKind::Nominal {
                     def_id: right_def,
                     args: right_args,
+                    const_args: right_const_args,
                 }),
             ) => {
                 left_def == right_def
+                    && left_const_args == right_const_args
                     && self.type_slices_equivalent_in_layout_interner(
                         left_args, right_args, layouts, seen,
                     )

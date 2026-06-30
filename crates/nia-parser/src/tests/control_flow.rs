@@ -16,7 +16,7 @@ pub extern union Bits[T] {
         panic!("expected union item");
     };
     assert_eq!(item.name, "Bits");
-    assert_eq!(item.generics, ["T"]);
+    assert_eq!(nia_ast::generic_param_names(&item.generics), ["T"]);
     assert_eq!(item.fields.len(), 2);
     assert!(item.is_extern);
 }

@@ -486,6 +486,7 @@ impl<'a> ModuleLowerer<'a> {
                     def_id,
                     arg_module_id: self.input.module_id,
                     args,
+                    const_args: Vec::new(),
                 }
             };
             entries.push(BackendTraitObjectVtableEntry {
@@ -508,6 +509,7 @@ impl<'a> ModuleLowerer<'a> {
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
+                ..
             }) = self.type_context.interner.get(supertrait).cloned()
             else {
                 continue;

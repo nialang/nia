@@ -7,37 +7,54 @@ use nia_backend_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
-use nia_ty::{TraitId, TyKind};
+use nia_ty::{ConstGenericArg, TraitId, TyKind};
 
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
-    pub(super) struct_instances:
-        HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendStructInstance>>,
-    pub(super) union_instances:
-        HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendUnionInstance>>,
+    pub(super) struct_instances: HashMap<
+        GlobalDefId,
+        HashMap<
+            (Vec<InternedTyId>, Vec<ConstGenericArg>),
+            &'a nia_backend_ir::BackendStructInstance,
+        >,
+    >,
+    pub(super) union_instances: HashMap<
+        GlobalDefId,
+        HashMap<
+            (Vec<InternedTyId>, Vec<ConstGenericArg>),
+            &'a nia_backend_ir::BackendUnionInstance,
+        >,
+    >,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) enum_variants: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnumVariant>,
     pub(super) enum_variant_infos: HashMap<GlobalDefId, EnumVariantInfo<'a>>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) global_instances: HashMap<
         (GlobalDefId, ModuleId),
-        HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendGlobalInstance>,
+        HashMap<
+            (Vec<InternedTyId>, Vec<ConstGenericArg>),
+            &'a nia_backend_ir::BackendGlobalInstance,
+        >,
     >,
     pub(super) global_instances_by_def:
         HashMap<GlobalDefId, Vec<&'a nia_backend_ir::BackendGlobalInstance>>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
-    pub(super) function_instances:
-        HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, &'a BackendFunctionInstance>>,
+    pub(super) function_instances: HashMap<
+        (GlobalDefId, ModuleId),
+        HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a BackendFunctionInstance>,
+    >,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
     trait_object_vtables_by_trait: HashMap<TraitId, Vec<&'a BackendTraitObjectVtable>>,
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
-    struct_instance_layouts: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a StructLayout>>,
-    union_instance_layouts: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a StructLayout>>,
+    struct_instance_layouts:
+        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a StructLayout>>,
+    union_instance_layouts:
+        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a StructLayout>>,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     union_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     pub(super) struct_instances_by_def:
@@ -102,7 +119,7 @@ impl<'a> ProgramIndex<'a> {
                     .struct_instance_layouts
                     .entry(key.def_id)
                     .or_default()
-                    .insert(key.args.clone(), layout);
+                    .insert((key.args.clone(), key.const_args.clone()), layout);
                 index
                     .struct_instance_layouts_by_def
                     .entry(key.def_id)
@@ -114,7 +131,7 @@ impl<'a> ProgramIndex<'a> {
                     .union_instance_layouts
                     .entry(key.def_id)
                     .or_default()
-                    .insert(key.args.clone(), layout);
+                    .insert((key.args.clone(), key.const_args.clone()), layout);
                 index
                     .union_instance_layouts_by_def
                     .entry(key.def_id)
@@ -132,7 +149,7 @@ impl<'a> ProgramIndex<'a> {
                     .struct_instances
                     .entry(item.def_id)
                     .or_default()
-                    .insert(item.args.clone(), item);
+                    .insert((item.args.clone(), item.const_args.clone()), item);
                 index
                     .struct_instances_by_def
                     .entry(item.def_id)
@@ -144,7 +161,7 @@ impl<'a> ProgramIndex<'a> {
                     .union_instances
                     .entry(item.def_id)
                     .or_default()
-                    .insert(item.args.clone(), item);
+                    .insert((item.args.clone(), item.const_args.clone()), item);
                 index
                     .union_instances_by_def
                     .entry(item.def_id)
@@ -173,7 +190,7 @@ impl<'a> ProgramIndex<'a> {
                     .global_instances
                     .entry((item.def_id, item.arg_module_id))
                     .or_default()
-                    .insert(item.args.clone(), item);
+                    .insert((item.args.clone(), item.const_args.clone()), item);
                 index
                     .global_instances_by_def
                     .entry(item.def_id)
@@ -188,7 +205,7 @@ impl<'a> ProgramIndex<'a> {
                     .function_instances
                     .entry((item.def_id, item.arg_module_id))
                     .or_default()
-                    .insert(item.args.clone(), item);
+                    .insert((item.args.clone(), item.const_args.clone()), item);
                 index
                     .function_instances_by_def
                     .entry(item.def_id)
@@ -235,10 +252,11 @@ impl<'a> ProgramIndex<'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&'a StructLayout> {
         self.struct_instance_layouts
             .get(&def_id)
-            .and_then(|layouts| layouts.get(args))
+            .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -246,10 +264,11 @@ impl<'a> ProgramIndex<'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&'a StructLayout> {
         self.union_instance_layouts
             .get(&def_id)
-            .and_then(|layouts| layouts.get(args))
+            .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -257,10 +276,11 @@ impl<'a> ProgramIndex<'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&'a nia_backend_ir::BackendStructInstance> {
         self.struct_instances
             .get(&def_id)
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -268,10 +288,11 @@ impl<'a> ProgramIndex<'a> {
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&'a nia_backend_ir::BackendUnionInstance> {
         self.union_instances
             .get(&def_id)
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -280,10 +301,11 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<&'a BackendFunctionInstance> {
         self.function_instances
             .get(&(def_id, arg_module_id))
-            .and_then(|instances| instances.get(args))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -363,6 +385,7 @@ mod tests {
         let struct_key = BackendStructInstanceKey {
             def_id: struct_def,
             args: vec![i32_ty],
+            const_args: Vec::new(),
         };
         let struct_layout = StructLayout {
             layout: TypeLayout { size: 4, align: 4 },
@@ -373,6 +396,7 @@ mod tests {
             name: "id".to_string(),
             arg_module_id: module_id,
             args: vec![i32_ty],
+            const_args: Vec::new(),
             symbol: "id_i32".to_string(),
             params: vec![BackendParam {
                 local_id: None,
@@ -422,6 +446,7 @@ mod tests {
                     def_id: struct_def,
                     name: "Box".to_string(),
                     args: vec![i32_ty],
+                    const_args: Vec::new(),
                     symbol: "Box_i32".to_string(),
                     fields: Vec::new(),
                     is_extern: false,
@@ -465,13 +490,13 @@ mod tests {
             Some(&TypeLayout { size: 4, align: 4 })
         );
         assert_eq!(
-            index.struct_instance_layout(struct_def, &[i32_ty]),
+            index.struct_instance_layout(struct_def, &[i32_ty], &[]),
             Some(&struct_layout)
         );
-        assert!(index.struct_instance(struct_def, &[i32_ty]).is_some());
+        assert!(index.struct_instance(struct_def, &[i32_ty], &[]).is_some());
         assert!(
             index
-                .function_instance(function_def, module_id, &[i32_ty])
+                .function_instance(function_def, module_id, &[i32_ty], &[])
                 .is_some()
         );
         let variant_info = index

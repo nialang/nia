@@ -365,13 +365,31 @@ extend[T] Box[T] {
     let ItemKind::Struct(item) = &module.items[0].kind else {
         panic!("expected struct");
     };
-    assert_eq!(item.generics, vec!["T"]);
+    assert_eq!(nia_ast::generic_param_names(&item.generics), vec!["T"]);
     assert_eq!(item.fields.len(), 1);
     let ItemKind::Extend(extend) = &module.items[1].kind else {
         panic!("expected extend");
     };
-    assert_eq!(extend.generics, vec!["T"]);
+    assert_eq!(nia_ast::generic_param_names(&extend.generics), vec!["T"]);
     assert_eq!(extend.methods.len(), 1);
+}
+
+#[test]
+fn parses_comptime_generic_params() {
+    let (module, errors) = parse_module(
+        r#"
+struct Buffer[T, N: usize] {
+    data: [N]T,
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Struct(item) = &module.items[0].kind else {
+        panic!("expected struct");
+    };
+    assert_eq!(nia_ast::generic_param_names(&item.generics), vec!["T", "N"]);
+    assert!(item.generics[0].is_type());
+    assert!(item.generics[1].is_comptime());
 }
 
 #[test]

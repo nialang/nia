@@ -13,7 +13,7 @@ pub use nia_sema_ir::{
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::IntConst;
-use nia_ty::{BuiltinTrait, TraitId, TyInterner};
+use nia_ty::{BuiltinTrait, ConstGenericArg, TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
@@ -211,6 +211,7 @@ pub enum TypedExprKind {
         def_id: GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     EnumVariant(GlobalDefId),
     BuiltinValue(BuiltinConst),
@@ -492,6 +493,7 @@ pub enum TypedCallee {
         def_id: GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
     Method {
         def_id: GlobalDefId,

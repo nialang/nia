@@ -10,6 +10,7 @@ use nia_function_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_opt::{InlineThreshold, SpecializationPolicy};
+use nia_ty::ConstGenericArg;
 
 pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
 
@@ -18,6 +19,7 @@ struct FunctionInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +140,7 @@ impl<'a> ModuleLowerer<'a> {
                             def_id: instance.def_id,
                             arg_module_id: instance.arg_module_id,
                             args: instance.args.clone(),
+                            const_args: instance.const_args.clone(),
                         },
                         InlineCandidate::Instance {
                             function: instance.def_id,
@@ -548,10 +551,12 @@ fn inline_candidate_for_callee<'a>(
             def_id,
             arg_module_id,
             args,
+            const_args,
         } => instance_candidates.get(&FunctionInstanceKey {
             def_id: *def_id,
             arg_module_id: *arg_module_id,
             args: args.clone(),
+            const_args: const_args.clone(),
         }),
         FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }

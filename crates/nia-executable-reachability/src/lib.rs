@@ -2125,11 +2125,19 @@ fn match_type_pattern(
             }
             _ => false,
         },
-        TyKind::Nominal { def_id, args } => match interner.get(actual) {
+        TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } => match interner.get(actual) {
             Some(TyKind::Nominal {
                 def_id: actual_def_id,
                 args: actual_args,
-            }) if def_id == actual_def_id && args.len() == actual_args.len() => {
+                const_args: actual_const_args,
+            }) if def_id == actual_def_id
+                && args.len() == actual_args.len()
+                && const_args == actual_const_args =>
+            {
                 args.iter().zip(actual_args).all(|(arg, actual_arg)| {
                     match_type_pattern(interner, *arg, *actual_arg, substitutions)
                 })
@@ -2163,7 +2171,7 @@ fn trait_id_and_args(
     ty: InternedTyId,
 ) -> Option<(TraitId, Vec<InternedTyId>)> {
     match interner.get(ty)? {
-        TyKind::Nominal { def_id, args } => Some((TraitId::Source(*def_id), args.clone())),
+        TyKind::Nominal { def_id, args, .. } => Some((TraitId::Source(*def_id), args.clone())),
         TyKind::BuiltinTrait { trait_id, args } => {
             Some((TraitId::Builtin(*trait_id), args.clone()))
         }
@@ -2231,12 +2239,27 @@ fn substitute_ty(
             let value = substitute_ty(interner, value, substitutions)?;
             Some(interner.intern(TyKind::ErrorUnion { error, value }))
         }
-        TyKind::Nominal { def_id, args } => {
+        TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } => {
             let args = args
                 .into_iter()
                 .map(|arg| substitute_ty(interner, arg, substitutions))
                 .collect::<Option<Vec<_>>>()?;
-            Some(interner.intern(TyKind::Nominal { def_id, args }))
+            let const_args = const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty(interner, arg.ty, substitutions)?;
+                    Some(arg)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }))
         }
         TyKind::BuiltinTrait { trait_id, args } => {
             let args = args
@@ -2516,10 +2539,12 @@ fn collect_resolved_call_owner_modules(
             def_id,
             arg_module_id,
             args,
+            const_args,
         } => {
             add_reachable_module(def_id.module_id, modules, pending_modules);
             add_reachable_module(*arg_module_id, modules, pending_modules);
             type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
         }
         nia_sema_ir::ResolvedCall::Method { def_id, args, .. } => {
             add_reachable_module(def_id.module_id, modules, pending_modules);
@@ -2705,7 +2730,7 @@ fn collect_ty_owner_modules<'a>(
     traits: &mut ReachableTraitRefs,
 ) {
     match ty {
-        TyKind::Nominal { def_id, args } => {
+        TyKind::Nominal { def_id, args, .. } => {
             add_reachable_type_module(def_id.module_id, type_modules);
             push_tys(type_ids, args.iter().copied());
             collect_nominal_signature_owner_type_ids(*def_id, program_signatures, type_ids);

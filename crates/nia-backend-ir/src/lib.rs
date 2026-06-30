@@ -6,7 +6,7 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, R
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
-use nia_ty::{TraitId, TyInterner};
+use nia_ty::{ConstGenericArg, TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendProgram {
@@ -52,6 +52,7 @@ pub struct BackendLayouts {
 pub struct BackendStructInstanceKey {
     pub def_id: GlobalDefId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 impl BackendLayouts {
@@ -121,6 +122,7 @@ impl BackendStructInstanceKey {
                 def_id: key.def_id,
             },
             args: key.args.clone(),
+            const_args: key.const_args.clone(),
         }
     }
 }
@@ -150,6 +152,7 @@ pub struct BackendStructInstance {
     pub def_id: GlobalDefId,
     pub name: String,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -161,6 +164,7 @@ pub struct BackendUnionInstance {
     pub def_id: GlobalDefId,
     pub name: String,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -208,6 +212,7 @@ pub struct BackendGlobalInstanceKey {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -216,6 +221,7 @@ pub struct BackendGlobalInstance {
     pub name: String,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
     pub ty: InternedTyId,
     pub is_let: bool,
@@ -248,6 +254,7 @@ pub struct BackendFunctionInstance {
     pub name: String,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
     pub params: Vec<BackendParam>,
     pub return_type: InternedTyId,
@@ -289,6 +296,7 @@ pub enum BackendTraitObjectVtableFunction {
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
+        const_args: Vec<ConstGenericArg>,
     },
 }
 
@@ -297,6 +305,7 @@ pub struct BackendGenericInstantiation {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
 }

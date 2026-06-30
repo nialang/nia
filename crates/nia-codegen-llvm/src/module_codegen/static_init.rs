@@ -190,6 +190,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         instance.def_id,
                         instance.arg_module_id,
                         &instance.args,
+                        &instance.const_args,
                     )
                 })
         }
@@ -327,7 +328,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let struct_ty = self
             .llvm_basic_type_in(ty, span, interner, layouts)?
             .into_struct_type()?;
-        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(ty)
+        else {
             return Err(self.error(span, "struct static initializer target is not nominal"));
         };
         if self.is_union_def(*def_id) {
@@ -349,7 +355,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             return Ok(struct_ty.const_named_struct(&values).into());
         }
-        let struct_fields = self.physical_struct_fields(*def_id, args, span)?;
+        let struct_fields = self.physical_struct_fields(*def_id, args, const_args, span)?;
         let values = struct_fields
             .iter()
             .map(|field| {

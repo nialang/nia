@@ -109,7 +109,7 @@ impl BackendValidator<'_> {
                 }
                 self.validate_type(return_type, span);
             }
-            TyKind::Nominal { def_id, args } => {
+            TyKind::Nominal { def_id, args, .. } => {
                 if self.index.module(def_id.module_id).is_none() {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -239,6 +239,13 @@ impl BackendValidator<'_> {
             ArrayLenTy::Builtin { ty, .. } => {
                 self.validate_runtime_type(*ty, span);
             }
+            ArrayLenTy::GenericParam(name) => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    format!("backend IR array length const generic `{name}` reached LLVM codegen"),
+                ));
+            }
             ArrayLenTy::Infer => {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -326,9 +333,13 @@ impl BackendValidator<'_> {
                 let value_layout = self.layout_of_with_active(*value, active)?;
                 Some(tagged_union_layout(&[error_layout, value_layout]))
             }
-            TyKind::Nominal { def_id, args } => {
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => {
                 self.index.module(def_id.module_id)?;
-                if args.is_empty() {
+                if args.is_empty() && const_args.is_empty() {
                     self.index
                         .struct_layout(*def_id)
                         .or_else(|| self.index.union_layout(*def_id))
@@ -349,31 +360,35 @@ impl BackendValidator<'_> {
                         })
                 } else {
                     self.index
-                        .struct_instance_layout(*def_id, args)
+                        .struct_instance_layout(*def_id, args, const_args)
                         .map(|layout| layout.layout.clone())
                         .or_else(|| {
                             self.index
-                                .union_instance_layout(*def_id, args)
+                                .union_instance_layout(*def_id, args, const_args)
                                 .map(|layout| layout.layout.clone())
                         })
                         .or_else(|| {
                             self.index
                                 .struct_instance_layouts(*def_id)
                                 .find_map(|item| {
-                                    self.same_type_args(&item.key.args, args)
-                                        .then_some(item.layout.layout.clone())
+                                    (self.same_type_args(&item.key.args, args)
+                                        && item.key.const_args.as_slice() == const_args.as_slice())
+                                    .then_some(item.layout.layout.clone())
                                 })
                         })
                         .or_else(|| {
                             self.index.union_instance_layouts(*def_id).find_map(|item| {
-                                self.same_type_args(&item.key.args, args)
-                                    .then_some(item.layout.layout.clone())
+                                (self.same_type_args(&item.key.args, args)
+                                    && item.key.const_args.as_slice() == const_args.as_slice())
+                                .then_some(item.layout.layout.clone())
                             })
                         })
                         .or_else(|| {
-                            self.index.struct_instance(*def_id, args).and_then(|item| {
-                                self.zero_sized_aggregate_layout(&item.fields, active)
-                            })
+                            self.index
+                                .struct_instance(*def_id, args, const_args)
+                                .and_then(|item| {
+                                    self.zero_sized_aggregate_layout(&item.fields, active)
+                                })
                         })
                         .or_else(|| {
                             self.index
@@ -381,7 +396,10 @@ impl BackendValidator<'_> {
                                 .get(def_id)
                                 .into_iter()
                                 .flatten()
-                                .find(|item| self.same_type_args(&item.args, args))
+                                .find(|item| {
+                                    self.same_type_args(&item.args, args)
+                                        && item.const_args.as_slice() == const_args.as_slice()
+                                })
                                 .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)
                                 })
@@ -392,9 +410,11 @@ impl BackendValidator<'_> {
                             })
                         })
                         .or_else(|| {
-                            self.index.union_instance(*def_id, args).and_then(|item| {
-                                self.zero_sized_aggregate_layout(&item.fields, active)
-                            })
+                            self.index
+                                .union_instance(*def_id, args, const_args)
+                                .and_then(|item| {
+                                    self.zero_sized_aggregate_layout(&item.fields, active)
+                                })
                         })
                         .or_else(|| {
                             self.index
@@ -402,7 +422,10 @@ impl BackendValidator<'_> {
                                 .get(def_id)
                                 .into_iter()
                                 .flatten()
-                                .find(|item| self.same_type_args(&item.args, args))
+                                .find(|item| {
+                                    self.same_type_args(&item.args, args)
+                                        && item.const_args.as_slice() == const_args.as_slice()
+                                })
                                 .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)
                                 })
@@ -461,6 +484,7 @@ impl BackendValidator<'_> {
                     LayoutBuiltin::Align => Some(layout.align),
                 }
             }
+            ArrayLenTy::GenericParam(_) => None,
             ArrayLenTy::Infer => None,
         }
     }
