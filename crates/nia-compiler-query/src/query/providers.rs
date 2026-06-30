@@ -4723,7 +4723,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     Some(state) => extend_executable_checked_module_state(
                         state,
                         module,
-                        checked_this_round,
+                        checked_this_round.clone(),
                         module_globals,
                     ),
                     None => {
@@ -4731,7 +4731,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                             module_id,
                             ExecutableCheckedModuleState {
                                 module,
-                                checked_functions: checked_this_round,
+                                checked_functions: checked_this_round.clone(),
                                 checked_globals: module_globals,
                             },
                         );
@@ -4764,11 +4764,14 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                             trait_: &trait_signature,
                             trait_default_method: &trait_default_method,
                         },
+                        &extension_methods.methods,
+                        &program_trait_impls,
                         checked_inputs
                             .iter()
                             .copied()
                             .find(|input| input.module_id == module_id)
                             .expect("just-checked module must have a reachable input"),
+                        &checked_this_round,
                         &checked_inputs,
                     )
                 },

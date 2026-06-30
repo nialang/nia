@@ -8,10 +8,17 @@ use super::BackendValidator;
 impl BackendValidator<'_> {
     pub(super) fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
         if !self.index.functions.contains_key(&def_id) {
+            let module_name = self
+                .index
+                .modules
+                .get(&def_id.module_id)
+                .map(|module| module.name.as_str())
+                .unwrap_or("<missing module>");
+            let current_item = self.current_item.as_deref().unwrap_or("<unknown item>");
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
-                format!("{message} {def_id:?}"),
+                format!("{message} {def_id:?} in `{module_name}` while validating {current_item}"),
             ));
         }
     }
