@@ -39,6 +39,7 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     let root = temp_dir("emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler");
     let main = root.join("main.nia");
     let std_root = root.join("custom_std/std.nia");
+    let std_builtin = root.join("custom_std/std/builtin.nia");
     let std_process = root.join("custom_std/std/process.nia");
     let std_start = root.join("custom_std/std/start.nia");
     let std_start_freestanding = root.join("custom_std/std/start/freestanding.nia");
@@ -47,7 +48,21 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
         .expect("create custom std dir");
-    std::fs::write(&std_root, "").expect("write custom std root");
+    std::fs::write(
+        &std_root,
+        r#"
+pub module builtin;
+"#,
+    )
+    .expect("write custom std root");
+    std::fs::write(
+        &std_builtin,
+        r#"
+@[builtin("asm")]
+pub fn asm(config: void) void;
+"#,
+    )
+    .expect("write custom std builtin");
     std::fs::write(&std_process, "").expect("write custom std process");
     std::fs::write(
         &std_start,
