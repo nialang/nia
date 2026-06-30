@@ -122,6 +122,9 @@ impl ComptimeModuleLowerer<'_> {
     }
 
     fn lower_function(&mut self, function: &nia_ast::FunctionItem) {
+        if function.body.is_none() {
+            return;
+        }
         let Some(def_id) =
             self.def_id_for_node(&function.node_key, function.span, DefKind::Function)
         else {

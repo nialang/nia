@@ -1777,9 +1777,6 @@ impl<'a> BodyChecker<'a> {
         value: &Expr,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        if !is_embed_builtin_call(value) {
-            return None;
-        }
         let comptime_expr = self.lower_comptime_expr(value).ok()?;
         let ty = self.comptime_expr_type_for_ir_with_expected(&comptime_expr, expected)?;
         match ty {
@@ -3212,14 +3209,6 @@ impl<'a> BodyChecker<'a> {
             }
         }
     }
-}
-
-fn is_embed_builtin_call(expr: &Expr) -> bool {
-    let ExprKind::Call { callee, .. } = &expr.kind else {
-        return false;
-    };
-    calls::std_builtin_function(callee)
-        .is_some_and(|builtin| builtin == nia_ids::BuiltinFunction::Embed)
 }
 
 pub(crate) fn generic_inst_base(expr: &Expr) -> &Expr {

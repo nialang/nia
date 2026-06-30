@@ -1,0 +1,16 @@
+// Iteration builtin traits.
+
+@[builtin("Iterable")]
+pub trait Iterable {
+    type Item;
+    type Iter;
+
+    fn iter(&self) [Self as Iterable]::Iter;
+}
+
+@[builtin("Iterator")]
+pub trait Iterator {
+    type Item;
+
+    fn next(&mut self) ?[Self as Iterator]::Item;
+}

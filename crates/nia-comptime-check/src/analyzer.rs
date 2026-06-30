@@ -25,11 +25,12 @@ use nia_comptime_ir::{
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinAssociatedType, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
-    LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+    BuiltinAssociatedType, BuiltinFunction, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId,
+    InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
-    FunctionSignature, ItemSignatures, ProgramEnumSignature, WherePredicateSignature,
+    FunctionAttribute, FunctionSignature, ItemSignatures, ProgramEnumSignature,
+    WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
 use nia_sema::{

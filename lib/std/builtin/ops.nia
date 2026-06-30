@@ -1,0 +1,108 @@
+// Operator builtin traits.
+
+@[builtin("Add")]
+pub trait Add[Rhs] {
+    type Output;
+
+    fn add(self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+}
+
+@[builtin("Sub")]
+pub trait Sub[Rhs] {
+    type Output;
+
+    fn sub(self, rhs: Rhs) [Self as Sub[Rhs]]::Output;
+}
+
+@[builtin("Mul")]
+pub trait Mul[Rhs] {
+    type Output;
+
+    fn mul(self, rhs: Rhs) [Self as Mul[Rhs]]::Output;
+}
+
+@[builtin("Div")]
+pub trait Div[Rhs] {
+    type Output;
+
+    fn div(self, rhs: Rhs) [Self as Div[Rhs]]::Output;
+}
+
+@[builtin("Rem")]
+pub trait Rem[Rhs] {
+    type Output;
+
+    fn rem(self, rhs: Rhs) [Self as Rem[Rhs]]::Output;
+}
+
+@[builtin("Neg")]
+pub trait Neg {
+    type Output;
+
+    fn neg(self) [Self as Neg]::Output;
+}
+
+@[builtin("Not")]
+pub trait Not {
+    fn logical_not(self) bool;
+}
+
+@[builtin("BitNot")]
+pub trait BitNot {
+    type Output;
+
+    fn bit_not(self) [Self as BitNot]::Output;
+}
+
+@[builtin("BitAnd")]
+pub trait BitAnd[Rhs] {
+    type Output;
+
+    fn bit_and(self, rhs: Rhs) [Self as BitAnd[Rhs]]::Output;
+}
+
+@[builtin("BitOr")]
+pub trait BitOr[Rhs] {
+    type Output;
+
+    fn bit_or(self, rhs: Rhs) [Self as BitOr[Rhs]]::Output;
+}
+
+@[builtin("BitXor")]
+pub trait BitXor[Rhs] {
+    type Output;
+
+    fn bit_xor(self, rhs: Rhs) [Self as BitXor[Rhs]]::Output;
+}
+
+@[builtin("Shl")]
+pub trait Shl[Rhs] {
+    type Output;
+
+    fn shl(self, rhs: Rhs) [Self as Shl[Rhs]]::Output;
+}
+
+@[builtin("Shr")]
+pub trait Shr[Rhs] {
+    type Output;
+
+    fn shr(self, rhs: Rhs) [Self as Shr[Rhs]]::Output;
+}
+
+@[builtin("Eq")]
+pub trait Eq[Rhs] {
+    fn eq(self, rhs: Rhs) bool;
+
+    fn ne(self, rhs: Rhs) bool;
+}
+
+@[builtin("Ord")]
+pub trait Ord[Rhs] {
+    fn lt(self, rhs: Rhs) bool;
+
+    fn le(self, rhs: Rhs) bool;
+
+    fn gt(self, rhs: Rhs) bool;
+
+    fn ge(self, rhs: Rhs) bool;
+}

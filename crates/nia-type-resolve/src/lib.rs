@@ -11,7 +11,7 @@ use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
-    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME,
+    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
@@ -839,6 +839,9 @@ impl<'a> TypeResolver<'a> {
                 module_id: item.target_module,
                 def_id: item.target_def_id,
             };
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+                return TypeNameResolution::BuiltinTrait(trait_id);
+            }
             self.node_qualified_type_names
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
@@ -883,6 +886,11 @@ impl<'a> TypeResolver<'a> {
         ) {
             return TypeNameResolution::Error;
         }
+        if let Some(trait_id) =
+            self.canonical_builtin_trait(GlobalDefId { module_id, def_id }, &def.name)
+        {
+            return TypeNameResolution::BuiltinTrait(trait_id);
+        }
         self.node_qualified_type_names
             .insert(node_key.site().clone(), GlobalDefId { module_id, def_id });
         if module_id == self.defs.module_id {
@@ -907,9 +915,6 @@ impl<'a> TypeResolver<'a> {
         if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
             return TypeNameResolution::Primitive(primitive);
         }
-        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
-            return TypeNameResolution::BuiltinTrait(trait_id);
-        }
         if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return TypeNameResolution::Error;
@@ -922,6 +927,15 @@ impl<'a> TypeResolver<'a> {
                     | DefKind::Enum
                     | DefKind::TypeAlias
             ) {
+                if let Some(trait_id) = self.canonical_builtin_trait(
+                    GlobalDefId {
+                        module_id: self.defs.module_id,
+                        def_id,
+                    },
+                    &def.name,
+                ) {
+                    return TypeNameResolution::BuiltinTrait(trait_id);
+                }
                 return TypeNameResolution::Def(def_id);
             }
         }
@@ -933,6 +947,9 @@ impl<'a> TypeResolver<'a> {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
             };
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+                return TypeNameResolution::BuiltinTrait(trait_id);
+            }
             self.node_qualified_type_names
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
@@ -942,6 +959,9 @@ impl<'a> TypeResolver<'a> {
             .is_some_and(|scope| scope.has_unresolved_name(&segment.name))
         {
             return TypeNameResolution::Error;
+        }
+        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
+            return TypeNameResolution::BuiltinTrait(trait_id);
         }
         if !self.suppress_unknown_type_errors {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -998,6 +1018,30 @@ impl<'a> TypeResolver<'a> {
         } else {
             Some(ModuleDefs::Owned((self.program_defs.defs?)(module_id)?))
         }
+    }
+
+    fn canonical_builtin_trait(
+        &self,
+        global: GlobalDefId,
+        expected_name: &str,
+    ) -> Option<BuiltinTrait> {
+        let graph = self.graph()?;
+        let module = graph.get(global.module_id)?;
+        if module.module_path.package != STD_MODULE_MAP_NAME
+            || module
+                .module_path
+                .segments
+                .first()
+                .is_none_or(|segment| segment != "builtin")
+        {
+            return None;
+        }
+        let target_defs = self.defs_for_module(global.module_id)?;
+        let def = target_defs.as_ref().defs.get(global.def_id)?;
+        if def.kind != DefKind::Trait || def.name != expected_name {
+            return None;
+        }
+        BuiltinTrait::from_name(&def.name)
     }
 }
 
@@ -1123,6 +1167,39 @@ extend Buffer : Reader {
             .filter(|resolution| matches!(resolution, TypeNameResolution::AssociatedType))
             .count();
         assert_eq!(associated_type_count, 2);
+    }
+
+    #[test]
+    fn local_types_shadow_builtin_trait_fallback_names() {
+        let (module, errors) = parse_module(
+            r#"
+type Ptr[T] = &T;
+
+fn id(value: Ptr[u8]) Ptr[u8] {
+    value
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        assert!(
+            resolved
+                .node_type_names
+                .values()
+                .any(|resolution| matches!(resolution, TypeNameResolution::Def(_)))
+        );
+        assert!(
+            !resolved.node_type_names.values().any(|resolution| matches!(
+                resolution,
+                TypeNameResolution::BuiltinTrait(BuiltinTrait::Ptr)
+            ))
+        );
     }
 
     #[test]

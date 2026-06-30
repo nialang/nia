@@ -1,0 +1,81 @@
+// Place, pointer, indexing, slicing, and scalar helper builtin traits.
+
+@[builtin("Deref")]
+pub trait Deref {
+    type Target;
+
+    fn deref(&self) &[Self as Deref]::Target;
+}
+
+@[builtin("DerefMut")]
+pub trait DerefMut : Deref {
+    type Target;
+
+    fn deref_mut(&mut self) &mut [Self as DerefMut]::Target;
+}
+
+@[builtin("Index")]
+pub trait Index[R] {
+    type Output;
+
+    fn index(&self, index: R) &[Self as Index[R]]::Output;
+}
+
+@[builtin("IndexMut")]
+pub trait IndexMut[R] : Index[R] {
+    type Output;
+
+    fn index_mut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
+}
+
+@[builtin("Slice")]
+pub trait Slice[R] {
+    type Output;
+
+    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+}
+
+@[builtin("SliceMut")]
+pub trait SliceMut[R] : Slice[R] {
+    type Output;
+
+    fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
+}
+
+@[builtin("Ptr")]
+pub trait Ptr {
+    type Target;
+
+    fn ptr(&self) &[Self as Ptr]::Target;
+}
+
+@[builtin("PtrMut")]
+pub trait PtrMut : Ptr {
+    type Target;
+
+    fn ptr_mut(&mut self) &mut [Self as PtrMut]::Target;
+}
+
+@[builtin("Len")]
+pub trait Len {
+    fn len(&self) usize;
+}
+
+@[builtin("Start")]
+pub trait Start {
+    type Output;
+
+    fn start(&self) [Self as Start]::Output;
+}
+
+@[builtin("End")]
+pub trait End {
+    type Output;
+
+    fn end(&self) [Self as End]::Output;
+}
+
+@[builtin("Char")]
+pub trait Char {
+    fn char(self) ?char;
+}

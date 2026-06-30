@@ -1037,8 +1037,14 @@ fn main() i32 {
         .result
         .expect("driver facade should emit llvm ir without diagnostics");
 
-    assert_eq!(artifact.modules.len(), 1);
-    assert!(artifact.modules[0].ir.contains("define i32 @"));
+    assert!(
+        artifact
+            .modules
+            .iter()
+            .any(|module| module.ir.contains("define i32 @")),
+        "{:?}",
+        artifact.modules
+    );
 }
 
 #[test]
@@ -1116,7 +1122,14 @@ fn main() i32 {
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert_eq!(program.modules.len(), 1);
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().ends_with("main.nia")),
+        "{:?}",
+        program.modules
+    );
 }
 
 #[test]

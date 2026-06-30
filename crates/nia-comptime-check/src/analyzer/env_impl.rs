@@ -12,7 +12,10 @@ use nia_comptime_ir::{
     ResolvedComptimeBinding, ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
 use nia_defs::DefKind;
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin};
+use nia_ids::{
+    BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+};
+use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalKind;
 use nia_sema_ir::BuiltinAssociatedValue;
 use nia_span::Span;
@@ -325,6 +328,11 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 None,
             )?
         };
+        if let Some(value) =
+            self.try_call_builtin_function(span, &signature, type_args, arg_exprs, &args)?
+        {
+            return Ok(value);
+        }
         let return_ty = self
             .substitute_ty_into_current_module(
                 function_id.module_id,
@@ -405,6 +413,124 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 self.assign_local_value(span, *local_id, name, value)
             }
         }
+    }
+}
+
+impl Analyzer<'_> {
+    fn try_call_builtin_function(
+        &mut self,
+        span: Span,
+        signature: &FunctionSignature,
+        type_args: &[ResolvedComptimeTypeArg],
+        _arg_exprs: &[ResolvedComptimeExpr],
+        args: &[ComptimeValue],
+    ) -> Result<Option<ComptimeValue>, ComptimeError> {
+        let Some(builtin) = builtin_function(signature) else {
+            return Ok(None);
+        };
+        match builtin {
+            BuiltinFunction::ComptimeError => {
+                if !type_args.is_empty() || args.len() != 1 {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `error` expects exactly one message argument".to_string(),
+                    });
+                }
+                let Some(message) = comptime_string_message(&args[0]) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `error` requires a comptime string message".to_string(),
+                    });
+                };
+                Err(ComptimeError { span, message })
+            }
+            BuiltinFunction::Embed => {
+                if !type_args.is_empty() || args.len() != 1 {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `embed` expects exactly one path argument".to_string(),
+                    });
+                }
+                let Some(path) = comptime_string_message(&args[0]) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `embed` requires a comptime string path".to_string(),
+                    });
+                };
+                self.resolve_embed(span, &path).map(Some)
+            }
+            BuiltinFunction::SizeOf | BuiltinFunction::AlignOf => {
+                if !args.is_empty() || type_args.len() != 1 {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!(
+                            "builtin `{}` expects exactly one type argument and no value arguments",
+                            builtin.name()
+                        ),
+                    });
+                }
+                let layout_builtin = match builtin {
+                    BuiltinFunction::SizeOf => LayoutBuiltin::Size,
+                    BuiltinFunction::AlignOf => LayoutBuiltin::Align,
+                    _ => unreachable!(),
+                };
+                self.resolve_resolved_layout_builtin(span, layout_builtin, &type_args[0])
+                    .map(Some)
+            }
+            BuiltinFunction::Offset => {
+                if type_args.len() != 1 || args.len() != 1 {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `offset` expects one type argument and one field name"
+                            .to_string(),
+                    });
+                }
+                let Some(field) = comptime_string_message(&args[0]) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin `offset` requires a comptime string field name"
+                            .to_string(),
+                    });
+                };
+                self.resolve_resolved_field_offset_builtin(span, &type_args[0], &field)
+                    .map(Some)
+            }
+            _ => Err(ComptimeError {
+                span,
+                message: format!(
+                    "builtin `{}` is not supported in comptime function-call form",
+                    builtin.name()
+                ),
+            }),
+        }
+    }
+}
+
+fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
+    signature
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            FunctionAttribute::Builtin(builtin) => Some(*builtin),
+            FunctionAttribute::Naked => None,
+        })
+}
+
+fn comptime_string_message(value: &ComptimeValue) -> Option<String> {
+    match value {
+        ComptimeValue::String(value) => Some(value.clone()),
+        ComptimeValue::Array(values) => values
+            .iter()
+            .map(|value| match value {
+                ComptimeValue::Int(value) => {
+                    let scalar = u32::try_from(value.bits()).ok()?;
+                    char::from_u32(scalar)
+                }
+                _ => None,
+            })
+            .collect(),
+        ComptimeValue::Pointer(value) => comptime_string_message(value),
+        _ => None,
     }
 }
 

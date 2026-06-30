@@ -1,0 +1,7 @@
+// Builtin marker traits.
+
+@[builtin("Sized")]
+pub trait Sized {}
+
+@[builtin("Unsized")]
+pub trait Unsized {}

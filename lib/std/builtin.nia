@@ -1,102 +1,75 @@
 // Compiler-backed operations exposed through the standard library.
 //
-// These declarations describe source-level API shape and documentation. Their
-// behavior is provided by the compiler through `@[builtin(...)]`.
+// Submodules hold the source-level API shape and documentation. The root
+// module re-exports the public builtin vocabulary so callers can use stable
+// paths such as `std::builtin::size`.
 
-// Terminates the current execution path immediately.
-//
-// `trap` returns `never`, so it can be used in branches that do not continue.
-@[builtin("trap")]
-pub extern fn trap() never;
+pub module atomic;
+pub module bits;
+pub module control;
+pub module iter;
+pub module layout;
+pub module marker;
+pub module mem;
+pub module ops;
+pub module place;
+pub module primitive;
+pub module simd;
 
-// Emits a compile-time diagnostic with a comptime string message.
-@[builtin("error")]
-pub extern fn error(message: &[char]) never;
+using pkg::builtin::atomic;
+using pkg::builtin::bits;
+using pkg::builtin::control;
+using pkg::builtin::iter;
+using pkg::builtin::layout;
+using pkg::builtin::marker;
+using pkg::builtin::mem;
+using pkg::builtin::ops;
+using pkg::builtin::place;
+using pkg::builtin::simd;
 
-// Embeds a file at comptime.
-@[builtin("embed")]
-pub extern fn embed(path: &[char]) void;
-
-// Returns the ABI size of `T` in bytes.
-@[builtin("size")]
-pub extern fn size[T]() usize;
-
-// Returns the ABI alignment of `T` in bytes.
-@[builtin("align")]
-pub extern fn align[T]() usize;
-
-// Returns the byte offset of a struct or union field.
-@[builtin("offset")]
-pub extern fn offset[T](field: &[char]) usize;
-
-// Emits target inline assembly from a compiler-checked configuration literal.
-@[builtin("asm")]
-pub extern fn asm(config: void) void;
-
-// Copies memory between non-overlapping slices.
-@[builtin("memcpy")]
-pub extern fn memcpy(dest: void, source: void) void;
-
-// Moves memory between possibly overlapping slices.
-@[builtin("memmove")]
-pub extern fn memmove(dest: void, source: void) void;
-
-// Sets bytes in a mutable byte slice.
-@[builtin("memset")]
-pub extern fn memset(dest: void, value: u8) void;
-
-// Loads `T` from a byte pointer without requiring alignment.
-@[builtin("load_unaligned")]
-pub extern fn load_unaligned[T](ptr: &u8) T;
-
-// Creates a SIMD vector by splatting one lane value.
-@[builtin("splat")]
-pub extern fn splat[T](value: void) T;
-
-// Extracts a SIMD lane.
-@[builtin("extract")]
-pub extern fn extract(vector: void, index: usize) void;
-
-// Inserts a SIMD lane.
-@[builtin("insert")]
-pub extern fn insert(vector: void, index: usize, value: void) void;
-
-// Converts a SIMD bool mask vector into a bitmask.
-@[builtin("bitmask")]
-pub extern fn bitmask(vector: void) usize;
-
-// Counts trailing zero bits.
-@[builtin("ctz")]
-pub extern fn ctz[T](value: T) T;
-
-// Counts leading zero bits.
-@[builtin("clz")]
-pub extern fn clz[T](value: T) T;
-
-// Counts one bits.
-@[builtin("popcount")]
-pub extern fn popcount[T](value: T) T;
-
-// Atomic load.
-@[builtin("atomic_load")]
-pub extern fn atomic_load[T](ptr: &T, order: usize) T;
-
-// Atomic store.
-@[builtin("atomic_store")]
-pub extern fn atomic_store[T](ptr: &mut T, value: T, order: usize) void;
-
-// Atomic read-modify-write.
-@[builtin("atomic_rmw")]
-pub extern fn atomic_rmw[T](ptr: &mut T, op: usize, value: T, order: usize) T;
-
-// Strong atomic compare-and-exchange.
-@[builtin("cmpxchg_strong")]
-pub extern fn cmpxchg_strong[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
-
-// Weak atomic compare-and-exchange.
-@[builtin("cmpxchg_weak")]
-pub extern fn cmpxchg_weak[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
-
-// Atomic fence.
-@[builtin("fence")]
-pub extern fn fence(order: usize) void;
+pub using atomic::{
+    atomic_load,
+    atomic_rmw,
+    atomic_store,
+    cmpxchg_strong,
+    cmpxchg_weak,
+    fence,
+};
+pub using bits::{clz, ctz, popcount};
+pub using control::{asm, embed, error, trap};
+pub using iter::{Iterable, Iterator};
+pub using layout::{align, offset, size};
+pub using marker::{Sized, Unsized};
+pub using mem::{load_unaligned, memcpy, memmove, memset};
+pub using ops::{
+    Add,
+    BitAnd,
+    BitNot,
+    BitOr,
+    BitXor,
+    Div,
+    Eq,
+    Mul,
+    Neg,
+    Not,
+    Ord,
+    Rem,
+    Shl,
+    Shr,
+    Sub,
+};
+pub using place::{
+    Char,
+    Deref,
+    DerefMut,
+    End,
+    Index,
+    IndexMut,
+    Len,
+    Ptr,
+    PtrMut,
+    Slice,
+    SliceMut,
+    Start,
+};
+pub using simd::{bitmask, extract, insert, splat};

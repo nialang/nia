@@ -1,0 +1,17 @@
+// Memory compiler intrinsics.
+
+// Copies memory between non-overlapping slices.
+@[builtin("memcpy")]
+pub fn memcpy(dest: void, source: void) void;
+
+// Moves memory between possibly overlapping slices.
+@[builtin("memmove")]
+pub fn memmove(dest: void, source: void) void;
+
+// Sets bytes in a mutable byte slice.
+@[builtin("memset")]
+pub fn memset(dest: void, value: u8) void;
+
+// Loads `T` from a byte pointer without requiring alignment.
+@[builtin("load_unaligned")]
+pub fn load_unaligned[T](ptr: &u8) T;
