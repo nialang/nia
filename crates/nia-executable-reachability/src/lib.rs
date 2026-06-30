@@ -400,31 +400,21 @@ fn extend_reachability_from_unscanned_items(
     program_signatures: ExecutableSignatureIndex<'_>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    let new_functions = state
-        .reachability
-        .functions
-        .iter()
+    let present_functions = module
+        .body_ir
+        .function_bodies
+        .keys()
         .copied()
-        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| state.reachability.functions.contains(def_id))
         .filter(|def_id| !state.scanned_functions.contains(def_id))
         .collect::<HashSet<_>>();
-    let new_globals = state
-        .reachability
-        .globals
-        .iter()
+    let present_globals = module
+        .body_ir
+        .global_inits
+        .keys()
         .copied()
-        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| state.reachability.globals.contains(def_id))
         .filter(|def_id| !state.scanned_globals.contains(def_id))
-        .collect::<HashSet<_>>();
-    let present_functions = new_functions
-        .iter()
-        .copied()
-        .filter(|def_id| module.body_ir.function_bodies.contains_key(def_id))
-        .collect::<HashSet<_>>();
-    let present_globals = new_globals
-        .iter()
-        .copied()
-        .filter(|def_id| module.body_ir.global_inits.contains_key(def_id))
         .collect::<HashSet<_>>();
     if present_functions.is_empty() && present_globals.is_empty() {
         return;
@@ -958,14 +948,33 @@ fn typed_body_refs_for_items(
     globals: &HashSet<GlobalDefId>,
 ) -> TypedBodyRefs {
     let mut refs = TypedBodyRefs::default();
-    for (def_id, body) in &module.body_ir.function_bodies {
-        if functions.contains(def_id) {
+    if functions.len() <= module.body_ir.function_bodies.len() {
+        for def_id in functions {
+            if let Some(body) = module.body_ir.function_bodies.get(def_id) {
+                collect_typed_body_refs(module, body, &mut refs);
+                collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
+            }
+        }
+    } else {
+        for (def_id, body) in &module.body_ir.function_bodies {
+            if !functions.contains(def_id) {
+                continue;
+            }
             collect_typed_body_refs(module, body, &mut refs);
             collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
         }
     }
-    for (def_id, init) in &module.body_ir.global_inits {
-        if globals.contains(def_id) {
+    if globals.len() <= module.body_ir.global_inits.len() {
+        for def_id in globals {
+            if let Some(init) = module.body_ir.global_inits.get(def_id) {
+                collect_static_init_refs(init, &mut refs);
+            }
+        }
+    } else {
+        for (def_id, init) in &module.body_ir.global_inits {
+            if !globals.contains(def_id) {
+                continue;
+            }
             collect_static_init_refs(init, &mut refs);
         }
     }
@@ -978,18 +987,7 @@ fn collect_reachable_body_trait_ids(
     reachable_globals: &HashSet<GlobalDefId>,
     traits: &mut ReachableTraitRefs,
 ) {
-    let mut refs = TypedBodyRefs::default();
-    for (def_id, body) in &module.body_ir.function_bodies {
-        if reachable_functions.contains(def_id) {
-            collect_typed_body_refs(module, body, &mut refs);
-            collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
-        }
-    }
-    for (def_id, init) in &module.body_ir.global_inits {
-        if reachable_globals.contains(def_id) {
-            collect_static_init_refs(init, &mut refs);
-        }
-    }
+    let refs = typed_body_refs_for_items(module, reachable_functions, reachable_globals);
     traits.extend(refs.traits);
 }
 

@@ -745,7 +745,7 @@ impl<'a> BodyChecker<'a> {
         {
             return self.local_trait_impl_context(&signature);
         }
-        let lookup = self.extension_methods_by_id.get(&method_id)?;
+        let lookup = self.extension_method_lookup_for_id(method_id)?;
         let impl_signature = self
             .program_trait_impls
             .iter()

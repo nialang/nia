@@ -62,7 +62,7 @@ impl<'a> BodyChecker<'a> {
             )
             && matches!(self.local_use(callee), None | Some(LocalUse::Unresolved))
             && let Some(current_def_id) = self.current_def_id
-            && let Some(lookup) = self.extension_methods_by_id.get(&current_def_id)
+            && let Some(lookup) = self.extension_method_lookup_for_id(current_def_id)
         {
             let target_ty = lookup.target_ty;
             if let Some(return_type) =

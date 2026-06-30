@@ -173,25 +173,27 @@ pub enum BodyCheckFilter<'a> {
 }
 
 #[derive(Debug, Clone)]
-enum ActiveBodyCheckFilter {
+enum ActiveBodyCheckFilter<'a> {
     All,
     ReachableItems {
-        functions: HashSet<GlobalDefId>,
-        globals: HashSet<GlobalDefId>,
-        already_checked_functions: HashSet<GlobalDefId>,
-        already_checked_globals: HashSet<GlobalDefId>,
+        functions: &'a HashSet<GlobalDefId>,
+        globals: &'a HashSet<GlobalDefId>,
+        already_checked_functions: Option<&'a HashSet<GlobalDefId>>,
+        already_checked_globals: Option<&'a HashSet<GlobalDefId>>,
+        discovered_functions: HashSet<GlobalDefId>,
     },
 }
 
-impl ActiveBodyCheckFilter {
-    fn from_filter(filter: BodyCheckFilter<'_>) -> Self {
+impl<'a> ActiveBodyCheckFilter<'a> {
+    fn from_filter(filter: BodyCheckFilter<'a>) -> Self {
         match filter {
             BodyCheckFilter::All => Self::All,
             BodyCheckFilter::ReachableFunctions(functions) => Self::ReachableItems {
-                functions: functions.iter().copied().collect(),
-                globals: HashSet::new(),
-                already_checked_functions: HashSet::new(),
-                already_checked_globals: HashSet::new(),
+                functions,
+                globals: empty_global_def_ids(),
+                already_checked_functions: None,
+                already_checked_globals: None,
+                discovered_functions: HashSet::new(),
             },
             BodyCheckFilter::ReachableItems {
                 functions,
@@ -199,16 +201,11 @@ impl ActiveBodyCheckFilter {
                 already_checked_functions,
                 already_checked_globals,
             } => Self::ReachableItems {
-                functions: functions.iter().copied().collect(),
-                globals: globals.iter().copied().collect(),
-                already_checked_functions: already_checked_functions
-                    .into_iter()
-                    .flat_map(|functions| functions.iter().copied())
-                    .collect(),
-                already_checked_globals: already_checked_globals
-                    .into_iter()
-                    .flat_map(|globals| globals.iter().copied())
-                    .collect(),
+                functions,
+                globals,
+                already_checked_functions,
+                already_checked_globals,
+                discovered_functions: HashSet::new(),
             },
         }
     }
@@ -219,8 +216,12 @@ impl ActiveBodyCheckFilter {
             Self::ReachableItems {
                 functions,
                 already_checked_functions,
+                discovered_functions,
                 ..
-            } => functions.contains(&def_id) && !already_checked_functions.contains(&def_id),
+            } => {
+                (functions.contains(&def_id) || discovered_functions.contains(&def_id))
+                    && already_checked_functions.is_none_or(|checked| !checked.contains(&def_id))
+            }
         }
     }
 
@@ -231,7 +232,10 @@ impl ActiveBodyCheckFilter {
                 globals,
                 already_checked_globals,
                 ..
-            } => globals.contains(&def_id) && !already_checked_globals.contains(&def_id),
+            } => {
+                globals.contains(&def_id)
+                    && already_checked_globals.is_none_or(|checked| !checked.contains(&def_id))
+            }
         }
     }
 
@@ -241,12 +245,16 @@ impl ActiveBodyCheckFilter {
             Self::ReachableItems {
                 functions,
                 already_checked_functions,
+                discovered_functions,
                 ..
             } => {
-                if already_checked_functions.contains(&def_id) {
+                if already_checked_functions.is_some_and(|checked| checked.contains(&def_id)) {
                     return false;
                 }
-                functions.insert(def_id)
+                if functions.contains(&def_id) {
+                    return false;
+                }
+                discovered_functions.insert(def_id)
             }
         }
     }
@@ -264,11 +272,18 @@ impl ActiveBodyCheckFilter {
             } => functions
                 .iter()
                 .copied()
-                .filter(|def_id| !already_checked_functions.contains(def_id))
+                .filter(|def_id| {
+                    already_checked_functions.is_none_or(|checked| !checked.contains(def_id))
+                })
                 .filter(|def_id| available.contains_key(def_id))
                 .collect(),
         }
     }
+}
+
+fn empty_global_def_ids() -> &'static HashSet<GlobalDefId> {
+    static EMPTY: std::sync::OnceLock<HashSet<GlobalDefId>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(HashSet::new)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -687,22 +702,36 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         .seed_interner
         .clone()
         .unwrap_or_else(|| input.normalization.interner.clone());
-    let extension_methods_by_id = BodyChecker::extension_method_lookup(
+    let extension_methods_by_id = time_body_stage(
+        timing,
+        "body_check.extension_method_lookup",
         module_id,
-        input.defs,
-        input.signatures,
-        input.extensions,
-        input.program_extension_methods,
-        &mut interner,
-        &input.lowered.interner,
-        input.normalization,
-        input.extension_interner,
-        input.program.extension_type_normalizations,
+        || {
+            BodyChecker::extension_method_lookup(
+                module_id,
+                input.defs,
+                input.signatures,
+                input.extensions,
+                input.program_extension_methods,
+                &mut interner,
+                &input.lowered.interner,
+                input.normalization,
+                input.extension_interner,
+                input.program.extension_type_normalizations,
+            )
+        },
     );
-    let extensions = import_visible_extensions_into_working_interner(
-        input.extensions,
-        input.extension_interner,
-        &mut interner,
+    let extensions = time_body_stage(
+        timing,
+        "body_check.import_visible_extensions",
+        module_id,
+        || {
+            import_visible_extensions_into_working_interner(
+                input.extensions,
+                input.extension_interner,
+                &mut interner,
+            )
+        },
     );
     let void_ty = interner.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
@@ -746,6 +775,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,
         extension_methods_by_id,
+        extension_method_lookup_cache: HashMap::new(),
         callable_extension_methods_by_name: HashMap::new(),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
@@ -888,6 +918,7 @@ struct BodyChecker<'a> {
     program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
     source_path: &'a SourcePath,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
+    extension_method_lookup_cache: HashMap<GlobalDefId, ExtensionMethodLookup>,
     callable_extension_methods_by_name: HashMap<String, CallableExtensionMethods>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
@@ -921,7 +952,7 @@ struct BodyChecker<'a> {
     current_param_locals: Vec<LocalId>,
     comptime_context_depth: usize,
     comptime_call_locals: Vec<ComptimeCallFrame>,
-    body_filter: ActiveBodyCheckFilter,
+    body_filter: ActiveBodyCheckFilter<'a>,
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: BodyCheckProfile,
@@ -1085,12 +1116,12 @@ impl<'a> BodyChecker<'a> {
         defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
         extensions: &VisibleExtensionMethods,
-        program_extensions: &ExtensionMethods,
+        _program_extensions: &ExtensionMethods,
         interner: &mut TyInterner,
         local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
         extension_interner: Option<&TyInterner>,
-        program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
+        _program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
         for impl_signature in signatures.trait_impls {
@@ -1143,37 +1174,42 @@ impl<'a> BodyChecker<'a> {
                     });
             }
         }
-        if let Some(program_normalizations) = program_normalizations {
-            for method in program_extensions.all_methods() {
-                if method.trait_id.is_some() || methods.contains_key(&method.def_id) {
-                    continue;
-                }
-                if method.def_id.module_id != module_id && method.visibility != Visibility::Public {
-                    continue;
-                }
-                let Some(normalization) = program_normalizations(method.def_id.module_id) else {
-                    continue;
-                };
-                let source_interner = &normalization.interner;
-                let target_ty = normalization.normalize(method.target_ty);
-                let target_ty = nia_ty::import_type_into(interner, source_interner, target_ty);
-                let where_predicates = import_where_predicates_between_interners(
-                    interner,
-                    source_interner,
-                    &method.where_predicates,
-                );
-                methods.insert(
-                    method.def_id,
-                    ExtensionMethodLookup {
-                        target_ty,
-                        impl_id: method.impl_id,
-                        effective_generics: method.effective_generics.clone(),
-                        where_predicates,
-                    },
-                );
-            }
-        }
         Arc::new(methods)
+    }
+
+    fn extension_method_lookup_for_id(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<&ExtensionMethodLookup> {
+        self.extension_method_lookup_cache
+            .get(&method_id)
+            .or_else(|| self.extension_methods_by_id.get(&method_id))
+    }
+
+    fn import_program_extension_method_lookup(
+        &mut self,
+        method: &nia_defs::ExtensionMethod,
+    ) -> Option<ExtensionMethodLookup> {
+        if method.def_id.module_id != self.defs.module_id && method.visibility != Visibility::Public
+        {
+            return None;
+        }
+        let program_normalizations = self.program.extension_type_normalizations?;
+        let normalization = program_normalizations(method.def_id.module_id)?;
+        let source_interner = &normalization.interner;
+        let target_ty = normalization.normalize(method.target_ty);
+        let target_ty = nia_ty::import_type_into(&mut self.interner, source_interner, target_ty);
+        let where_predicates = import_where_predicates_between_interners(
+            &mut self.interner,
+            source_interner,
+            &method.where_predicates,
+        );
+        Some(ExtensionMethodLookup {
+            target_ty,
+            impl_id: method.impl_id,
+            effective_generics: method.effective_generics.clone(),
+            where_predicates,
+        })
     }
 
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
