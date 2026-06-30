@@ -57,7 +57,7 @@ fn comptime_error_builtin_reports_message() {
     write(
         &root.join("main.nia"),
         r#"
-comptime n: usize = @error("unsupported target");
+comptime n: usize = std::builtin::error("unsupported target");
 
 fn main() i32 { 0 }
 "#,
@@ -84,7 +84,7 @@ comptime fn selected() usize {
     if true {
         return 4usize;
     }
-    @error("unreachable comptime branch")
+    std::builtin::error("unreachable comptime branch")
 }
 
 comptime n: usize = selected();
@@ -103,7 +103,7 @@ fn comptime_error_builtin_requires_string_message() {
     write(
         &root.join("main.nia"),
         r#"
-comptime n: usize = @error(10usize);
+comptime n: usize = std::builtin::error(10usize);
 
 fn main() i32 { 0 }
 "#,
@@ -127,7 +127,7 @@ fn error_builtin_is_not_runtime_panic() {
         &root.join("main.nia"),
         r#"
 fn main() usize {
-    @error("runtime panic")
+    std::builtin::error("runtime panic")
 }
 "#,
     );
@@ -150,7 +150,7 @@ fn trap_builtin_is_never_typed() {
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    @trap()
+    std::builtin::trap()
 }
 "#,
     );
@@ -166,7 +166,7 @@ fn trap_builtin_must_be_called() {
         &root.join("main.nia"),
         r#"
 fn main() void {
-    @trap;
+    std::builtin::trap;
 }
 "#,
     );
@@ -176,7 +176,7 @@ fn main() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("builtin `@trap` must be called")),
+            .contains("builtin `trap` must be called")),
         "{:?}",
         program.diagnostics
     );
@@ -189,11 +189,11 @@ fn trap_builtin_rejects_arguments() {
         &root.join("main.nia"),
         r#"
 fn value_arg() void {
-    @trap(1);
+    std::builtin::trap(1);
 }
 
 fn type_arg() void {
-    @trap[usize]();
+    std::builtin::trap[usize]();
 }
 "#,
     );
@@ -203,7 +203,7 @@ fn type_arg() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("builtin `@trap` does not take value arguments")),
+            .contains("builtin `trap` does not take value arguments")),
         "{:?}",
         program.diagnostics
     );
@@ -211,7 +211,7 @@ fn type_arg() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("builtin `@trap` does not take a type argument")),
+            .contains("builtin `trap` does not take a type argument")),
         "{:?}",
         program.diagnostics
     );

@@ -117,7 +117,7 @@ where T: Sized
 
     pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
         let len = self.len();
-        if @size[T]() == 0usize {
+        if std::builtin::size[T]() == 0usize {
             self.items = raw::dangling_slice[T](0);
             self.capacity = 0;
             return !raw::dangling_slice[T](len);
@@ -163,7 +163,7 @@ where T: Sized
 
     pub fn to_owned_slice(&self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
         let len = self.len();
-        if len == 0usize or @size[T]() == 0usize {
+        if len == 0usize or std::builtin::size[T]() == 0usize {
             return !raw::dangling_slice[T](len);
         }
 
@@ -492,10 +492,10 @@ where T: Sized
         let new_len = if ?value = old_len.checked_add(count) {
             value
         } or null {
-            @trap()
+            std::builtin::trap()
         };
         if new_len > self.capacity() {
-            @trap()
+            std::builtin::trap()
         }
         let mut items = self.allocated_items();
         self.items = &mut items[0..new_len];
@@ -521,15 +521,15 @@ where T: Sized
     pub fn add_many_at_assume_capacity(&mut self, index: usize, count: usize) &mut [T] {
         let len = self.len();
         if index > len {
-            @trap()
+            std::builtin::trap()
         }
         let new_len = if ?value = len.checked_add(count) {
             value
         } or null {
-            @trap()
+            std::builtin::trap()
         };
         if new_len > self.capacity() {
-            @trap()
+            std::builtin::trap()
         }
         let mut items = self.allocated_items();
         if count != 0usize and index < len {
@@ -573,7 +573,7 @@ where T: Sized
         if new_capacity < len {
             self.shrink_retaining_capacity(new_capacity);
         }
-        if @size[T]() == 0usize {
+        if std::builtin::size[T]() == 0usize {
             self.capacity = usize::MAX;
             return !{};
         }
@@ -623,10 +623,10 @@ where T: Sized
     }
 
     fn grown_capacity(&self, needed: usize) mem::Error!usize {
-        if @size[T]() == 0usize {
+        if std::builtin::size[T]() == 0usize {
             return !usize::MAX;
         }
-        let elem_len = @size[T]();
+        let elem_len = std::builtin::size[T]();
         let mut init_capacity = 1usize;
         init_capacity = 64usize / elem_len;
         if init_capacity == 0usize {
@@ -646,7 +646,7 @@ where T: Sized
     }
 
     fn grow_to_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
-        if @size[T]() == 0usize {
+        if std::builtin::size[T]() == 0usize {
             self.capacity = usize::MAX;
             return !{};
         }
@@ -674,7 +674,7 @@ where T: Sized
     }
 
     fn free_items(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
-        if self.capacity() == 0usize or @size[T]() == 0usize {
+        if self.capacity() == 0usize or std::builtin::size[T]() == 0usize {
             return !{};
         }
         let block = self.allocated_block().?;
@@ -699,11 +699,11 @@ where T: Sized
     }
 
     fn slice_points_into_allocation(&self, items: &[T]) bool {
-        if items.len() == 0usize or self.capacity == 0usize or @size[T]() == 0usize {
+        if items.len() == 0usize or self.capacity == 0usize or std::builtin::size[T]() == 0usize {
             return false;
         }
 
-        let item_size = @size[T]();
+        let item_size = std::builtin::size[T]();
         let base = self.items.ptr_mut() as usize;
         let ptr = items.ptr() as usize;
         if ptr < base {

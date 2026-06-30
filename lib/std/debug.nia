@@ -9,11 +9,11 @@ pub fn print(template: &[char], args: &[&fmt::Format]) void {
     if !ok = stderr.print(template, args) {
         _ = ok;
     } or error! {
-        @trap();
+        std::builtin::trap();
     }
     if !ok = stderr.flush() {
         _ = ok;
     } or error! {
-        @trap();
+        std::builtin::trap();
     }
 }

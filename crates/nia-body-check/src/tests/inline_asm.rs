@@ -7,7 +7,7 @@ fn checks_inline_asm_configuration() {
         r#"
 fn main() void {
     let mut ret: i64 = 0;
-    @asm({
+    std::builtin::asm({
         code: b"syscall",
         outputs: { rax: ret },
         inputs: { rax: 39 },
@@ -22,7 +22,7 @@ fn main() void {
     let bad = pipeline(
         r#"
 fn main() void {
-    @asm({
+    std::builtin::asm({
         code: 1,
         outputs: { rax: 10 },
         clobbers: [1],
@@ -56,14 +56,14 @@ fn main() void {
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("unknown `@asm` option")),
+            .any(|diagnostic| diagnostic.summary.contains("unknown `asm` option")),
         "{:?}",
         bad.diagnostics
     );
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("unknown `@asm` field")),
+            .any(|diagnostic| diagnostic.summary.contains("unknown `asm` field")),
         "{:?}",
         bad.diagnostics
     );
@@ -72,7 +72,7 @@ fn main() void {
         r#"
 fn main() void {
     let mut volatile = 0;
-    @asm({
+    std::builtin::asm({
         code: b"nop",
         options: [volatile],
     });
@@ -94,7 +94,7 @@ struct Pair { x: i64 }
 
 fn main() void {
     let mut pair: Pair = { x: 1 };
-    @asm({
+    std::builtin::asm({
         code: b"nop",
         inputs: { rax: pair },
         outputs: { rax: pair },

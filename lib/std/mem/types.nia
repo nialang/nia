@@ -38,19 +38,19 @@ extend Layout {
     pub fn of[T]() Error!Layout
     where T: Sized
     {
-        Layout::init(@size[T](), @align[T]())
+        Layout::init(std::builtin::size[T](), std::builtin::align[T]())
     }
 
     pub fn array[T](count: usize) Error!Layout
     where T: Sized
     {
-        let elem_len = @size[T]();
+        let elem_len = std::builtin::size[T]();
         let size = if ?value = elem_len.checked_mul(count) {
             value
         } or null {
             return Error::OutOfMemory!;
         };
-        Layout::init(size, @align[T]())
+        Layout::init(size, std::builtin::align[T]())
     }
 
     pub fn size(&self) usize {
@@ -103,7 +103,7 @@ extend Block {
     where T: Sized
     {
         let mut ptr = self.ptr as &mut T;
-        let elem_size = @size[T]();
+        let elem_size = std::builtin::size[T]();
         if elem_size == 0usize {
             &mut ptr[0..0]
         } else {

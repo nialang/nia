@@ -38,7 +38,7 @@ fn emits_inline_asm_inputs_outputs_and_clobbers() {
         r#"
 fn main() i32 {
     let mut value: i64 = 0;
-    @asm({
+    std::builtin::asm({
         code:
             b\\mov rax, rax
             \\add rax, 0
@@ -102,11 +102,36 @@ fn emits_trap_builtin_as_llvm_trap() {
         &main,
         r#"
 fn main() i32 {
-    @trap()
+    std::builtin::trap()
 }
 
 fn statement() void {
-    @trap();
+    std::builtin::trap();
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void @llvm.trap()"), "{ir}");
+    assert!(ir.contains("declare void @llvm.trap()"), "{ir}");
+    assert!(ir.contains("unreachable"), "{ir}");
+}
+
+#[test]
+fn emits_std_builtin_trap_as_llvm_trap() {
+    let root = temp_dir("emits_std_builtin_trap_as_llvm_trap");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    std::builtin::trap()
 }
 "#,
     )

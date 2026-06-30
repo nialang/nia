@@ -706,7 +706,6 @@ impl Parser {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Underscore))
             }
-            TokenKind::At => self.parse_builtin_expr(),
             TokenKind::LBracket => self.parse_bracket_primary(),
             TokenKind::LParen => {
                 self.bump();
@@ -868,33 +867,6 @@ impl Parser {
             }
             offset += 1;
         }
-    }
-
-    fn parse_builtin_expr(&mut self) -> Option<Expr> {
-        let start = self.expect(TokenKind::At, "expected `@`")?.start;
-        let name = self.expect_text(TokenKind::Ident, "expected builtin name")?;
-        let type_arg = if self.eat(TokenKind::LBracket).is_some() {
-            let ty = self.parse_type()?;
-            self.expect(
-                TokenKind::RBracket,
-                "expected `]` after builtin type argument",
-            )?;
-            Some(ty)
-        } else {
-            None
-        };
-        if self.eat(TokenKind::LBracket).is_some() {
-            self.error_here("builtin calls accept at most one type argument");
-            self.collect_until(&[TokenKind::RBracket])?;
-            self.expect(
-                TokenKind::RBracket,
-                "expected `]` after builtin type argument",
-            )?;
-        }
-        Some(self.make_expr(
-            Span::new(start, self.previous_end()),
-            ExprKind::Builtin { name, type_arg },
-        ))
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {

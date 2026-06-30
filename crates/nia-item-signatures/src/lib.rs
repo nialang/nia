@@ -109,7 +109,10 @@ pub struct FunctionSignature {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionAttribute {
     Naked,
+    Builtin(BuiltinFunction),
 }
+
+pub use nia_ids::BuiltinFunction;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSignature {
@@ -921,6 +924,58 @@ impl<'a> SignatureCollector<'a> {
                     }
                     out.push(FunctionAttribute::Naked);
                 }
+                [name] if name == "builtin" => {
+                    let builtin_name = match meta.args.as_slice() {
+                        [arg] => match &arg.kind {
+                            nia_ast::ExprKind::String(text) if text.parts.len() == 1 => {
+                                if let Some(name) = builtin_attribute_name(&text.parts[0]) {
+                                    Some(name)
+                                } else {
+                                    self.diagnostics.push(Diagnostic::user_error_at(
+                                        codes::ITEM_SIGNATURE,
+                                        arg.span,
+                                        "`@[builtin]` expects a plain string literal name",
+                                    ));
+                                    None
+                                }
+                            }
+                            _ => {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::ITEM_SIGNATURE,
+                                    arg.span,
+                                    "`@[builtin]` expects a single string literal name",
+                                ));
+                                None
+                            }
+                        },
+                        _ => {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::ITEM_SIGNATURE,
+                                attribute.span,
+                                "`@[builtin]` expects exactly one string literal name",
+                            ));
+                            None
+                        }
+                    };
+                    if let Some(builtin_name) = builtin_name {
+                        if let Some(builtin) = BuiltinFunction::from_name(builtin_name) {
+                            out.push(FunctionAttribute::Builtin(builtin));
+                        } else {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::ITEM_SIGNATURE,
+                                attribute.span,
+                                format!("unknown builtin function `{builtin_name}`"),
+                            ));
+                        }
+                    }
+                    if !function.is_extern || function.body.is_some() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            attribute.span,
+                            "`@[builtin]` is only valid on bodyless `extern fn` declarations",
+                        ));
+                    }
+                }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
@@ -1087,6 +1142,10 @@ impl<'a> SignatureCollector<'a> {
     }
 }
 
+fn builtin_attribute_name(text: &str) -> Option<&str> {
+    text.strip_prefix('"')?.strip_suffix('"')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1238,6 +1297,27 @@ extend[T] & Box[ T ] {
         assert_eq!(before.trait_impls.len(), 1);
         assert_eq!(after.trait_impls.len(), 1);
         assert_eq!(before.trait_impls[0].impl_id, after.trait_impls[0].impl_id);
+    }
+
+    #[test]
+    fn records_builtin_function_attributes() {
+        let signatures = signatures_ok(
+            r#"
+@[builtin("trap")]
+pub extern fn trap() never;
+"#,
+        );
+
+        assert_eq!(signatures.functions.len(), 1);
+        let signature = signatures
+            .functions
+            .values()
+            .next()
+            .expect("trap signature");
+        assert_eq!(
+            signature.attributes,
+            vec![FunctionAttribute::Builtin(BuiltinFunction::Trap)]
+        );
     }
 
     fn signatures_ok(source: &str) -> ItemSignatures {

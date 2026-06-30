@@ -179,7 +179,7 @@ fn eval_resolved_comptime_expr_flow(
         ResolvedComptimeExprKind::Embed { path } => {
             let path = eval_string_literal(path).ok_or_else(|| ComptimeError {
                 span,
-                message: "invalid `@embed` path literal".to_string(),
+                message: "invalid `embed` path literal".to_string(),
             })?;
             env.resolve_embed(span, &path)?
         }
@@ -240,7 +240,7 @@ fn eval_resolved_comptime_expr_flow(
             let Some(message) = comptime_error_message(&value) else {
                 return Err(ComptimeError {
                     span,
-                    message: "builtin `@error` requires a comptime string message".to_string(),
+                    message: "builtin `error` requires a comptime string message".to_string(),
                 });
             };
             return Err(ComptimeError { span, message });
@@ -252,7 +252,7 @@ fn eval_resolved_comptime_expr_flow(
             let Some(field) = eval_string_literal(field) else {
                 return Err(ComptimeError {
                     span,
-                    message: "invalid string literal in `@offset` field name".to_string(),
+                    message: "invalid string literal in `offset` field name".to_string(),
                 });
             };
             env.resolve_resolved_field_offset_builtin(span, type_arg, &field)?
@@ -427,7 +427,7 @@ fn eval_comptime_expr_flow(
         EarlyComptimeExprKind::Embed { path } => {
             let path = eval_string_literal(path).ok_or_else(|| ComptimeError {
                 span: expr.span,
-                message: "invalid `@embed` path literal".to_string(),
+                message: "invalid `embed` path literal".to_string(),
             })?;
             env.resolve_embed(expr.span, &path)?
         }
@@ -492,7 +492,7 @@ fn eval_comptime_expr_flow(
             let Some(message) = comptime_error_message(&value) else {
                 return Err(ComptimeError {
                     span: expr.span,
-                    message: "builtin `@error` requires a comptime string message".to_string(),
+                    message: "builtin `error` requires a comptime string message".to_string(),
                 });
             };
             return Err(ComptimeError {
@@ -507,7 +507,7 @@ fn eval_comptime_expr_flow(
             let Some(field) = eval_string_literal(field) else {
                 return Err(ComptimeError {
                     span: expr.span,
-                    message: "invalid string literal in `@offset` field name".to_string(),
+                    message: "invalid string literal in `offset` field name".to_string(),
                 });
             };
             env.resolve_field_offset_builtin(expr.span, type_arg, &field)?

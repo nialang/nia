@@ -8,7 +8,9 @@ mod methods;
 mod signature_import;
 
 use crate::BodyChecker;
+use builtins::BuiltinCallTypeArgs;
 use nia_ast::{Expr, ExprKind};
+use nia_ids::BuiltinFunction;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_value_resolve::ValueNameResolution;
@@ -22,8 +24,15 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        if let ExprKind::Builtin { name, type_arg } = &callee.kind {
-            return self.check_builtin_call(span, callee, name, type_arg, args);
+        if let Some(builtin) = std_builtin_function(callee) {
+            return self.check_builtin_function_call(
+                span,
+                callee.span,
+                expr,
+                builtin,
+                BuiltinCallTypeArgs::Bracket(&[]),
+                args,
+            );
         }
         if let ExprKind::BracketSuffix {
             callee: generic_callee,
@@ -74,4 +83,23 @@ impl<'a> BodyChecker<'a> {
         let callee_ty = self.check_expr(callee);
         self.check_function_pointer_call_with_callee_ty(expr, callee_ty, args)
     }
+}
+
+pub(super) fn std_builtin_function(expr: &Expr) -> Option<BuiltinFunction> {
+    let ExprKind::Qualified { lhs, name } = &expr.kind else {
+        return None;
+    };
+    let ExprKind::Qualified {
+        lhs: std_expr,
+        name: builtin_segment,
+    } = &lhs.kind
+    else {
+        return None;
+    };
+    let ExprKind::Ident(root) = &std_expr.kind else {
+        return None;
+    };
+    (root == "std" && builtin_segment == "builtin")
+        .then(|| BuiltinFunction::from_name(name))
+        .flatten()
 }

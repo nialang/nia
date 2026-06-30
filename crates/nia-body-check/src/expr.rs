@@ -52,7 +52,6 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Null => self.check_null_expr(expr.span, expected),
             ExprKind::Underscore => self.error(),
             ExprKind::Ident(_) => self.ident_type(expr),
-            ExprKind::Builtin { name, type_arg } => self.check_builtin(expr, name, type_arg),
             ExprKind::TypeTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
@@ -223,7 +222,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Call { callee, args } => self.check_call(expr, callee, args, expected),
             ExprKind::Field { lhs, name } => self.check_field_access(expr, lhs, name),
             ExprKind::Qualified { lhs, name } => {
-                if let Some(ty) = self.check_builtin_associated_value(expr) {
+                if let Some(builtin) = crate::calls::std_builtin_function(expr) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        format!("builtin `{}` must be called", builtin.name()),
+                    ));
+                    self.error()
+                } else if let Some(ty) = self.check_builtin_associated_value(expr) {
                     ty
                 } else if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
                     ty
@@ -1308,7 +1314,6 @@ fn expr_allows_expected_comptime_projection(expr: &Expr) -> bool {
             | ExprKind::Bool(_)
             | ExprKind::Null
             | ExprKind::Ident(_)
-            | ExprKind::Builtin { .. }
             | ExprKind::TypeTarget { .. }
             | ExprKind::Underscore
             | ExprKind::Error

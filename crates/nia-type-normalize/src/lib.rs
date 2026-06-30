@@ -548,7 +548,7 @@ fn id(p: RawPtr[u8]) &u8 { p }
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
-fn id(x: [@size[Byte]()]u8) [@size[u8]()]u8 { x }
+fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -590,8 +590,8 @@ fn id(x: [@size[Byte]()]u8) [@size[u8]()]u8 { x }
     fn substitutes_layout_builtin_array_length_operand_in_generic_alias() {
         let (module, errors) = parse_module(
             r#"
-type SizedBytes[T] = [@size[T]()]u8;
-fn id(x: SizedBytes[u16]) [@size[u16]()]u8 { x }
+type SizedBytes[T] = [std::builtin::size[T]()]u8;
+fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

@@ -56,7 +56,7 @@ extend Allocator {
     fn alloc_slice[T](&mut self, len: usize) i32
     where T: Sized
     {
-        self.alloc(len * @size[T]())
+        self.alloc(len * std::builtin::size[T]())
     }
 }
 

@@ -179,39 +179,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let mut ints: [3]i32 = [0, 0, 0];
     let source_ints: [3]i32 = [7, 8, 9];
-    @memcpy(&mut ints[..], &source_ints[..]);
+    std::builtin::memcpy(&mut ints[..], &source_ints[..]);
     if ints[0] != 7 or ints[1] != 8 or ints[2] != 9 {
         return (1 as process::ExitCode)!;
     }
 
     let mut wide: [5]i32 = [0, 0, 0, 44, 55];
     let short: [3]i32 = [11, 22, 33];
-    @memcpy(&mut wide[..], &short[..]);
+    std::builtin::memcpy(&mut wide[..], &short[..]);
     if wide[0] != 11 or wide[1] != 22 or wide[2] != 33 or wide[3] != 44 or wide[4] != 55 {
         return (4 as process::ExitCode)!;
     }
 
     let mut narrow: [4]u8 = [0, 0, 77, 88];
     let long: [4]u8 = [10, 20, 30, 40];
-    @memcpy(&mut narrow[0..2], &long[..]);
+    std::builtin::memcpy(&mut narrow[0..2], &long[..]);
     if narrow[0] != 10 or narrow[1] != 20 or narrow[2] != 77 or narrow[3] != 88 {
         return (5 as process::ExitCode)!;
     }
 
     let mut overlap: [5]u8 = [1, 2, 3, 4, 5];
-    @memmove(&mut overlap[1..], &overlap[0..4]);
+    std::builtin::memmove(&mut overlap[1..], &overlap[0..4]);
     if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
         return (2 as process::ExitCode)!;
     }
 
     let mut short_move: [4]u8 = [9, 8, 7, 6];
-    @memmove(&mut short_move[0..2], &short_move[1..4]);
+    std::builtin::memmove(&mut short_move[0..2], &short_move[1..4]);
     if short_move[0] != 8 or short_move[1] != 7 or short_move[2] != 7 or short_move[3] != 6 {
         return (6 as process::ExitCode)!;
     }
 
     let mut bytes: [4]u8 = [1, 2, 3, 4];
-    @memset(&mut bytes[1..3], 9);
+    std::builtin::memset(&mut bytes[1..3], 9);
     if bytes[0] != 1 or bytes[1] != 9 or bytes[2] != 9 or bytes[3] != 4 {
         return (3 as process::ExitCode)!;
     }
@@ -252,7 +252,7 @@ fn emit_exe_cross_module_generic_memory_intrinsic_keeps_param_locals() {
 pub fn copy_prefix[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
-    @memcpy(to, from);
+    std::builtin::memcpy(to, from);
 }
 "#,
     )
@@ -332,7 +332,7 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * @size[T]()) as &T;
+            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &T;
             self.index += 1usize;
             ?item
         }

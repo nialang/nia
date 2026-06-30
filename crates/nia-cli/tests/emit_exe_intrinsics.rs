@@ -18,13 +18,13 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    let values: u8x16 = @insert(@insert(@insert(@splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
-    let mask = @bitmask(values == @splat[u8x16](7u8));
+    let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
+    let mask = std::builtin::bitmask(values == std::builtin::splat[u8x16](7u8));
     if mask != 0x8012usize {
         return (1 as process::ExitCode)!;
     }
 
-    let other = @bitmask(values == @splat[u8x16](0u8));
+    let other = std::builtin::bitmask(values == std::builtin::splat[u8x16](0u8));
     if other != 0x7fedusize {
         return (2 as process::ExitCode)!;
     }
@@ -66,19 +66,19 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
-    if @ctz[usize](0usize) != 64usize {
+    if std::builtin::ctz[usize](0usize) != 64usize {
         return (1 as process::ExitCode)!;
     }
-    if @clz[usize](0usize) != 64usize {
+    if std::builtin::clz[usize](0usize) != 64usize {
         return (2 as process::ExitCode)!;
     }
-    if @ctz[usize](0x8010usize) != 4usize {
+    if std::builtin::ctz[usize](0x8010usize) != 4usize {
         return (3 as process::ExitCode)!;
     }
-    if @clz[usize](0x8010usize) != 48usize {
+    if std::builtin::clz[usize](0x8010usize) != 48usize {
         return (4 as process::ExitCode)!;
     }
-    if @popcount[usize](0x8010usize) != 2usize {
+    if std::builtin::popcount[usize](0x8010usize) != 2usize {
         return (5 as process::ExitCode)!;
     }
 
@@ -215,14 +215,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
 
     let bytes: [10]u8 = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
-    let vec = @load_unaligned[u8x8](&bytes[1]);
-    if @extract(vec, 0usize) != 1u8 {
+    let vec = std::builtin::load_unaligned[u8x8](&bytes[1]);
+    if std::builtin::extract(vec, 0usize) != 1u8 {
         return (1 as process::ExitCode)!;
     }
-    if @extract(vec, 7usize) != 8u8 {
+    if std::builtin::extract(vec, 7usize) != 8u8 {
         return (2 as process::ExitCode)!;
     }
-    let mask = @bitmask(vec == @splat[u8x8](4u8));
+    let mask = std::builtin::bitmask(vec == std::builtin::splat[u8x8](4u8));
     if mask != 0x08usize {
         return (3 as process::ExitCode)!;
     }

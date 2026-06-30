@@ -473,7 +473,7 @@ struct Pair {
 }
 
 comptime fn size_of[T]() usize {
-    @size[T]()
+    std::builtin::size[T]()
 }
 
 comptime n: usize = size_of[Pair]();
@@ -516,7 +516,7 @@ fn main() i32 {
         &root.join("layout.nia"),
         r#"
 pub comptime fn size_of[T]() usize {
-    @size[T]()
+    std::builtin::size[T]()
 }
 "#,
     );
@@ -536,7 +536,7 @@ pub struct Pair {
     b: i32,
 }
 
-pub comptime pair_size: usize = @size[Pair]();
+pub comptime pair_size: usize = std::builtin::size[Pair]();
 "#,
     );
     write(
@@ -577,7 +577,7 @@ pub struct Packet {
 module config;
 using entry::config;
 
-comptime n: usize = @size[config::Packet]();
+comptime n: usize = std::builtin::size[config::Packet]();
 
 fn main() i32 {
     let mut bytes: [n]u8 = [0; n];
@@ -602,7 +602,7 @@ struct Pair {
 }
 
 comptime fn size_of[T]() usize {
-    @size[T]()
+    std::builtin::size[T]()
 }
 
 fn main() i32 {

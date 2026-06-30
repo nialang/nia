@@ -165,12 +165,12 @@ extend ArenaAllocator : Allocator {
 extend ArenaAllocator {
     fn allocate_chunk(&mut self, layout: Layout, prev_capacity: usize) Error!&mut ArenaChunk {
         let payload_capacity = chunk_capacity_for(layout, prev_capacity).?;
-        let total_size = if ?value = @size[ArenaChunk]().checked_add(payload_capacity) {
+        let total_size = if ?value = std::builtin::size[ArenaChunk]().checked_add(payload_capacity) {
             value
         } or null {
             return Error::OutOfMemory!;
         };
-        let block_align = max_usize(@align[ArenaChunk](), layout.align());
+        let block_align = max_usize(std::builtin::align[ArenaChunk](), layout.align());
         let block_layout = Layout::init(total_size, block_align).?;
         let block = self.child.alloc(block_layout).?;
         let mut chunk = block.ptr() as &mut ArenaChunk;
@@ -261,7 +261,7 @@ extend ArenaAllocator {
         if end <= chunk_payload_capacity(chunk) {
             return true;
         }
-        let new_size = if ?value = @size[ArenaChunk]().checked_add(end) {
+        let new_size = if ?value = std::builtin::size[ArenaChunk]().checked_add(end) {
             value
         } or null {
             return false;
@@ -539,14 +539,14 @@ fn chunk_owns_block(chunk: &mut ArenaChunk, block: Block) bool {
 }
 
 fn chunk_payload_base(chunk: &mut ArenaChunk) usize {
-    chunk.block.ptr() as usize + @size[ArenaChunk]()
+    chunk.block.ptr() as usize + std::builtin::size[ArenaChunk]()
 }
 
 fn chunk_payload_capacity(chunk: &mut ArenaChunk) usize {
-    if chunk.block.size() <= @size[ArenaChunk]() {
+    if chunk.block.size() <= std::builtin::size[ArenaChunk]() {
         0usize
     } else {
-        chunk.block.size() - @size[ArenaChunk]()
+        chunk.block.size() - std::builtin::size[ArenaChunk]()
     }
 }
 

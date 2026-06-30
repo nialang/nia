@@ -420,7 +420,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         match self.module.ty_kind(elem_ty) {
             Some(TyKind::Primitive(PrimitiveTy::U8)) => Ok(()),
-            _ => Err(self.error(span, "@memset destination element must be u8")),
+            _ => Err(self.error(span, "std::builtin::memset destination element must be u8")),
         }
     }
 }

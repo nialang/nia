@@ -35,7 +35,6 @@ pub struct ValueResolution {
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the module alias.
     pub node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
-    pub node_builtins: HashMap<VersionedNodeKey, BuiltinResolution>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -46,35 +45,6 @@ pub enum ValueNameResolution {
     Module,
     LocalDeferred,
     Error,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinResolution {
-    ComptimeError,
-    Trap,
-    SizeOf,
-    AlignOf,
-    Offset,
-    Asm,
-    MemCopy,
-    MemMove,
-    MemSet,
-    LoadUnaligned,
-    Splat,
-    Extract,
-    Insert,
-    Bitmask,
-    Ctz,
-    Clz,
-    Popcount,
-    AtomicLoad,
-    AtomicStore,
-    AtomicRmw,
-    CmpxchgStrong,
-    CmpxchgWeak,
-    Fence,
-    Embed,
-    Reserved,
 }
 
 #[derive(Clone, Copy)]
@@ -320,7 +290,6 @@ struct ValueResolver<'a> {
     node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
     node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
-    node_builtins: HashMap<VersionedNodeKey, BuiltinResolution>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -339,7 +308,6 @@ impl ValueResolver<'_> {
             node_builtin_associated_values: HashMap::new(),
             node_variant_enums: HashMap::new(),
             node_qualified_type_prefixes: HashMap::new(),
-            node_builtins: HashMap::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -351,7 +319,6 @@ impl ValueResolver<'_> {
             node_builtin_associated_values: self.node_builtin_associated_values,
             node_variant_enums: self.node_variant_enums,
             node_qualified_type_prefixes: self.node_qualified_type_prefixes,
-            node_builtins: self.node_builtins,
             diagnostics: self.diagnostics,
         }
     }
@@ -468,25 +435,8 @@ impl<'ast> Visitor<'ast> for ValueResolver<'_> {
                 }
                 self.insert_name(&expr.node_key, resolution);
             }
-            ExprKind::Builtin { name, .. } => {
-                let resolution = self.resolve_builtin(name, expr.span);
-                self.node_builtins.insert(expr.node_key.clone(), resolution);
-                walk_expr(self, expr);
-            }
             ExprKind::TypeTarget { .. } => {
                 walk_expr(self, expr);
-            }
-            ExprKind::Call { callee, args } => {
-                if let ExprKind::Builtin { name, .. } = &callee.kind
-                    && name == "asm"
-                {
-                    self.visit_expr(callee);
-                    for arg in args {
-                        self.visit_asm_config(arg);
-                    }
-                } else {
-                    walk_expr(self, expr);
-                }
             }
             ExprKind::BracketSuffix { callee, args } => {
                 self.visit_expr(callee);
@@ -573,20 +523,6 @@ impl<'a> ValueResolver<'a> {
             ItemTreeNodeKind::TypeAlias(alias) => {
                 walk_where_clause(self, &alias.where_clause);
                 self.visit_type(&alias.ty);
-            }
-        }
-    }
-
-    fn visit_asm_config(&mut self, expr: &Expr) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
-            self.visit_expr(expr);
-            return;
-        };
-        for field in fields {
-            match field.name.as_str() {
-                "inputs" | "outputs" => self.visit_expr(&field.value),
-                "code" | "clobbers" => {}
-                _ => self.visit_expr(&field.value),
             }
         }
     }
@@ -989,43 +925,6 @@ impl<'a> ValueResolver<'a> {
         ValueNameResolution::LocalDeferred
     }
 
-    fn resolve_builtin(&mut self, name: &str, span: Span) -> BuiltinResolution {
-        match name {
-            "error" => BuiltinResolution::ComptimeError,
-            "trap" => BuiltinResolution::Trap,
-            "size" => BuiltinResolution::SizeOf,
-            "align" => BuiltinResolution::AlignOf,
-            "offset" => BuiltinResolution::Offset,
-            "asm" => BuiltinResolution::Asm,
-            "memcpy" => BuiltinResolution::MemCopy,
-            "memmove" => BuiltinResolution::MemMove,
-            "memset" => BuiltinResolution::MemSet,
-            "load_unaligned" => BuiltinResolution::LoadUnaligned,
-            "splat" => BuiltinResolution::Splat,
-            "extract" => BuiltinResolution::Extract,
-            "insert" => BuiltinResolution::Insert,
-            "bitmask" => BuiltinResolution::Bitmask,
-            "ctz" => BuiltinResolution::Ctz,
-            "clz" => BuiltinResolution::Clz,
-            "popcount" => BuiltinResolution::Popcount,
-            "atomic_load" => BuiltinResolution::AtomicLoad,
-            "atomic_store" => BuiltinResolution::AtomicStore,
-            "atomic_rmw" => BuiltinResolution::AtomicRmw,
-            "cmpxchg_strong" => BuiltinResolution::CmpxchgStrong,
-            "cmpxchg_weak" => BuiltinResolution::CmpxchgWeak,
-            "fence" => BuiltinResolution::Fence,
-            "embed" => BuiltinResolution::Embed,
-            _ => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    span,
-                    format!("unknown builtin `@{name}`"),
-                ));
-                BuiltinResolution::Reserved
-            }
-        }
-    }
-
     fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs<'_>> {
         if module_id == self.defs.module_id {
             Some(ModuleDefs::Borrowed(self.defs))
@@ -1159,51 +1058,25 @@ fn main() i32 {
     }
 
     #[test]
-    fn validates_builtin_names_only() {
+    fn treats_std_builtin_paths_as_regular_qualified_values() {
         let (module, errors) = parse_module(
             r#"
 fn main() usize {
-    let mut a = @size[usize]();
-    let mut b = @align[usize]();
-    let mut c = @unknown[usize]();
-    comptime d: usize = @error("bad");
-    @trap();
-    a + b + c
+    let mut a = std::builtin::size[usize]();
+    let mut b = std::builtin::align[usize]();
+    comptime d: usize = std::builtin::error("bad");
+    std::builtin::trap();
+    a + b + d
 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_values(&module, &defs);
-        assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
-            resolved.diagnostics[0]
-                .summary
-                .contains("unknown builtin `@unknown`")
-        );
-        assert!(
-            resolved
-                .node_builtins
-                .values()
-                .any(|builtin| matches!(builtin, BuiltinResolution::SizeOf))
-        );
-        assert!(
-            resolved
-                .node_builtins
-                .values()
-                .any(|builtin| matches!(builtin, BuiltinResolution::AlignOf))
-        );
-        assert!(
-            resolved
-                .node_builtins
-                .values()
-                .any(|builtin| matches!(builtin, BuiltinResolution::Trap))
-        );
-        assert!(
-            resolved
-                .node_builtins
-                .values()
-                .any(|builtin| matches!(builtin, BuiltinResolution::ComptimeError))
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
         );
     }
 
@@ -1213,11 +1086,11 @@ fn main() usize {
             r#"
 @[if false]
 fn skipped() usize {
-    @unknown[usize]()
+    unknown()
 }
 @[if true]
 fn selected() usize {
-    @size[usize]()
+    std::builtin::size[usize]()
 }
 "#,
         );
@@ -1237,12 +1110,6 @@ fn selected() usize {
             resolved.diagnostics.is_empty(),
             "{:?}",
             resolved.diagnostics
-        );
-        assert!(
-            resolved
-                .node_builtins
-                .values()
-                .any(|builtin| matches!(builtin, BuiltinResolution::SizeOf))
         );
     }
 

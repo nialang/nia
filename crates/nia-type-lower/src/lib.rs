@@ -1673,14 +1673,31 @@ fn layout_builtin_array_len(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
 }
 
 fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
-    let ExprKind::Builtin {
-        name,
-        type_arg: Some(type_arg),
-    } = &expr.kind
+    let ExprKind::BracketSuffix { callee, args } = &expr.kind else {
+        return None;
+    };
+    let [arg] = args.as_slice() else {
+        return None;
+    };
+    let type_arg = arg.ty.as_ref()?;
+    let ExprKind::Qualified { lhs, name } = &callee.kind else {
+        return None;
+    };
+    let ExprKind::Qualified {
+        lhs: std_expr,
+        name: builtin_segment,
+    } = &lhs.kind
     else {
         return None;
     };
-    LayoutBuiltin::from_name(name).map(|builtin| (builtin, type_arg))
+    let ExprKind::Ident(root) = &std_expr.kind else {
+        return None;
+    };
+    if root == "std" && builtin_segment == "builtin" {
+        LayoutBuiltin::from_name(name).map(|builtin| (builtin, type_arg))
+    } else {
+        None
+    }
 }
 
 fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {

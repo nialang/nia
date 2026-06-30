@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
-use nia_ast::{Expr, ExprKind, TypeRef};
+use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
+use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
 use nia_sema_ir::BuiltinValue;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
-use nia_value_resolve::BuiltinResolution;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CheckedAtomicOrder {
@@ -33,164 +32,37 @@ pub(crate) enum CheckedAtomicRmwOp {
     UMin,
 }
 
-impl<'a> BodyChecker<'a> {
-    pub(crate) fn check_builtin(
-        &mut self,
-        expr: &Expr,
-        name: &str,
-        type_arg: &Option<TypeRef>,
-    ) -> InternedTyId {
-        let span = expr.span;
-        let Some(resolution) = self.builtin_resolution(expr) else {
-            return self.error();
-        };
-        if matches!(resolution, BuiltinResolution::ComptimeError) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "builtin `@error` must be called with a message",
-            ));
-            return self.error();
-        }
-        if matches!(resolution, BuiltinResolution::Trap) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "builtin `@trap` must be called",
-            ));
-            return self.error();
-        }
-        if matches!(resolution, BuiltinResolution::Embed) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                "builtin `@embed` can only be evaluated at comptime",
-            ));
-            return self.error();
-        }
-        if matches!(
-            resolution,
-            BuiltinResolution::Offset
-                | BuiltinResolution::Extract
-                | BuiltinResolution::Insert
-                | BuiltinResolution::Bitmask
-        ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("builtin `@{name}` must be called with value arguments"),
-            ));
-            return self.error();
-        }
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("builtin `@{name}` requires a type argument"),
-            ));
-            return self.primitive(PrimitiveTy::Usize);
-        };
-        let ty = self.ty_for_type(type_arg);
-        let builtin = match resolution {
-            BuiltinResolution::ComptimeError
-            | BuiltinResolution::Trap
-            | BuiltinResolution::Embed => {
-                return self.error();
-            }
-            BuiltinResolution::SizeOf => {
-                self.require_sized_type(type_arg.span, ty, name);
-                LayoutBuiltin::Size
-            }
-            BuiltinResolution::AlignOf => {
-                self.require_sized_type(type_arg.span, ty, name);
-                LayoutBuiltin::Align
-            }
-            BuiltinResolution::Offset => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "builtin `@offset` must be called with a field name",
-                ));
-                return self.error();
-            }
-            BuiltinResolution::Asm => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("builtin `@{name}` must be called with value arguments"),
-                ));
-                return self.error();
-            }
-            BuiltinResolution::MemCopy
-            | BuiltinResolution::MemMove
-            | BuiltinResolution::MemSet
-            | BuiltinResolution::LoadUnaligned
-            | BuiltinResolution::Splat
-            | BuiltinResolution::Extract
-            | BuiltinResolution::Insert
-            | BuiltinResolution::Bitmask
-            | BuiltinResolution::Ctz
-            | BuiltinResolution::Clz
-            | BuiltinResolution::Popcount => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("builtin `@{name}` must be called with value arguments"),
-                ));
-                return self.error();
-            }
-            BuiltinResolution::AtomicLoad
-            | BuiltinResolution::AtomicStore
-            | BuiltinResolution::AtomicRmw
-            | BuiltinResolution::CmpxchgStrong
-            | BuiltinResolution::CmpxchgWeak
-            | BuiltinResolution::Fence => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    format!("builtin `@{name}` must be called with value arguments"),
-                ));
-                return self.error();
-            }
-            BuiltinResolution::Reserved => return self.error(),
-        };
-        if let Some(layout) = self.layout_of(ty) {
-            self.record_builtin_node_value(
-                expr,
-                BuiltinValue::Usize(layout.builtin_value(builtin)),
-            );
-        } else {
-            self.record_builtin_node_value(expr, BuiltinValue::Layout { builtin, ty });
-        }
-        self.primitive(PrimitiveTy::Usize)
-    }
+#[derive(Clone, Copy)]
+pub(super) enum BuiltinCallTypeArgs<'a> {
+    Bracket(&'a [BracketArg]),
+}
 
-    pub(super) fn check_builtin_call(
+#[derive(Clone, Copy)]
+struct CheckedBuiltinTypeArg {
+    ty: InternedTyId,
+    span: Span,
+}
+
+impl<'a> BodyChecker<'a> {
+    pub(super) fn check_builtin_function_call(
         &mut self,
         call_span: Span,
-        builtin: &Expr,
-        name: &str,
-        type_arg: &Option<TypeRef>,
+        builtin_span: Span,
+        value_node: &Expr,
+        builtin: BuiltinFunction,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let builtin_span = builtin.span;
-        let Some(resolution) = self.builtin_resolution(builtin) else {
-            return self.error();
-        };
-        match resolution {
-            BuiltinResolution::ComptimeError => {
-                if type_arg.is_some() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        builtin_span,
-                        "builtin `@error` does not take a type argument",
-                    ));
-                }
+        let name = builtin.name();
+        match builtin {
+            BuiltinFunction::ComptimeError => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
                 if args.len() != 1 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         call_span,
-                        "builtin `@error` requires exactly one message argument",
+                        "builtin `error` requires exactly one message argument",
                     ));
                 }
                 for arg in args {
@@ -199,23 +71,18 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     call_span,
-                    "builtin `@error` can only be evaluated at comptime",
+                    "builtin `error` can only be evaluated at comptime",
                 ));
                 self.error()
             }
-            BuiltinResolution::Trap => {
-                if type_arg.is_some() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        builtin_span,
-                        "builtin `@trap` does not take a type argument",
-                    ));
-                }
+            BuiltinFunction::Trap => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
                 if !args.is_empty() {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         call_span,
-                        "builtin `@trap` does not take value arguments",
+                        "builtin `trap` does not take value arguments",
                     ));
                     for arg in args {
                         self.check_expr(arg);
@@ -223,19 +90,14 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.never()
             }
-            BuiltinResolution::Embed => {
-                if type_arg.is_some() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        builtin_span,
-                        "builtin `@embed` does not take a type argument",
-                    ));
-                }
+            BuiltinFunction::Embed => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
                 if args.len() != 1 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         call_span,
-                        "builtin `@embed` requires exactly one path argument",
+                        "builtin `embed` requires exactly one path argument",
                     ));
                 }
                 for arg in args {
@@ -244,79 +106,215 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     call_span,
-                    "builtin `@embed` can only be evaluated at comptime",
+                    "builtin `embed` can only be evaluated at comptime",
                 ));
                 self.error()
             }
-            BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
+            BuiltinFunction::SizeOf | BuiltinFunction::AlignOf => {
                 if !args.is_empty() {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         call_span,
-                        format!("builtin `@{name}` does not take value arguments"),
+                        format!("builtin `{name}` does not take value arguments"),
                     ));
                     for arg in args {
                         self.check_expr(arg);
                     }
                 }
-                self.check_builtin(builtin, name, type_arg)
+                let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args)
+                else {
+                    return self.primitive(PrimitiveTy::Usize);
+                };
+                self.record_builtin_function_call(
+                    call_span,
+                    value_node,
+                    builtin,
+                    Some(type_arg.ty),
+                );
+                let layout_builtin = match builtin {
+                    BuiltinFunction::SizeOf => LayoutBuiltin::Size,
+                    BuiltinFunction::AlignOf => LayoutBuiltin::Align,
+                    _ => unreachable!(),
+                };
+                self.require_sized_type(type_arg.span, type_arg.ty, name);
+                if let Some(layout) = self.layout_of(type_arg.ty) {
+                    self.record_builtin_node_value(
+                        value_node,
+                        BuiltinValue::Usize(layout.builtin_value(layout_builtin)),
+                    );
+                } else {
+                    self.record_builtin_node_value(
+                        value_node,
+                        BuiltinValue::Layout {
+                            builtin: layout_builtin,
+                            ty: type_arg.ty,
+                        },
+                    );
+                }
+                self.primitive(PrimitiveTy::Usize)
             }
-            BuiltinResolution::Offset => self.check_offset_builtin_call(
+            BuiltinFunction::Offset => self.check_offset_builtin_call(
                 call_span,
-                builtin,
+                value_node,
                 builtin_span,
                 name,
-                type_arg,
+                type_args,
                 args,
             ),
-            BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
-            BuiltinResolution::MemCopy => {
-                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::Asm => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
+                self.check_asm_builtin_call(call_span, builtin_span, args)
             }
-            BuiltinResolution::MemMove => {
-                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::MemCopy => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::MemSet => {
-                self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::MemMove => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::LoadUnaligned => self.check_load_unaligned_builtin_call(
+            BuiltinFunction::MemSet => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_memory_set_builtin_call(call_span, builtin_span, name, type_args, args)
+            }
+            BuiltinFunction::LoadUnaligned => self.check_load_unaligned_builtin_call(
                 call_span,
+                value_node,
                 builtin_span,
                 name,
-                type_arg,
+                type_args,
                 args,
             ),
-            BuiltinResolution::Splat => {
-                self.check_splat_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::Splat => self.check_splat_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
+            BuiltinFunction::Extract => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_extract_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::Extract => {
-                self.check_extract_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::Insert => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_insert_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::Insert => {
-                self.check_insert_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::Bitmask => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.check_bitmask_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::Bitmask => {
-                self.check_bitmask_builtin_call(call_span, builtin_span, name, type_arg, args)
+            BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => self
+                .check_bit_intrinsic_builtin_call(
+                    call_span,
+                    value_node,
+                    builtin_span,
+                    name,
+                    type_args,
+                    args,
+                ),
+            BuiltinFunction::AtomicLoad => self.check_atomic_load_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
+            BuiltinFunction::AtomicStore => self.check_atomic_store_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
+            BuiltinFunction::AtomicRmw => self.check_atomic_rmw_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                name,
+                type_args,
+                args,
+            ),
+            BuiltinFunction::CmpxchgStrong | BuiltinFunction::CmpxchgWeak => self
+                .check_cmpxchg_builtin_call(
+                    call_span,
+                    value_node,
+                    builtin_span,
+                    name,
+                    type_args,
+                    args,
+                ),
+            BuiltinFunction::Fence => {
+                self.check_fence_builtin_call(call_span, builtin_span, name, type_args, args)
             }
-            BuiltinResolution::Ctz | BuiltinResolution::Clz | BuiltinResolution::Popcount => {
-                self.check_bit_intrinsic_builtin_call(call_span, builtin_span, name, type_arg, args)
+        }
+    }
+
+    fn require_builtin_type_arg(
+        &mut self,
+        span: Span,
+        name: &str,
+        type_args: BuiltinCallTypeArgs<'_>,
+    ) -> Option<CheckedBuiltinTypeArg> {
+        match type_args {
+            BuiltinCallTypeArgs::Bracket(args) => {
+                let lowered = self.lower_bracket_type_args(args);
+                if lowered.len() != 1 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!("builtin `{name}` requires exactly one type argument"),
+                    ));
+                    return None;
+                }
+                Some(CheckedBuiltinTypeArg {
+                    ty: lowered[0],
+                    span: args.first().map_or(span, |arg| arg.span),
+                })
             }
-            BuiltinResolution::AtomicLoad => {
-                self.check_atomic_load_builtin_call(call_span, builtin_span, name, type_arg, args)
+        }
+    }
+
+    fn record_builtin_function_call(
+        &mut self,
+        span: Span,
+        value_node: &Expr,
+        builtin: BuiltinFunction,
+        type_arg: Option<InternedTyId>,
+    ) {
+        self.record_resolved_node_call(
+            span,
+            &value_node.node_key,
+            nia_sema_ir::ResolvedCall::BuiltinFunction { builtin, type_arg },
+        );
+    }
+
+    fn reject_builtin_type_arg(
+        &mut self,
+        span: Span,
+        name: &str,
+        type_args: BuiltinCallTypeArgs<'_>,
+    ) {
+        let has_type_arg = match type_args {
+            BuiltinCallTypeArgs::Bracket(args) => {
+                if args.is_empty() {
+                    false
+                } else {
+                    let _ = self.lower_bracket_type_args(args);
+                    true
+                }
             }
-            BuiltinResolution::AtomicStore => {
-                self.check_atomic_store_builtin_call(call_span, builtin_span, name, type_arg, args)
-            }
-            BuiltinResolution::AtomicRmw => {
-                self.check_atomic_rmw_builtin_call(call_span, builtin_span, name, type_arg, args)
-            }
-            BuiltinResolution::CmpxchgStrong | BuiltinResolution::CmpxchgWeak => {
-                self.check_cmpxchg_builtin_call(call_span, builtin_span, name, type_arg, args)
-            }
-            BuiltinResolution::Fence => {
-                self.check_fence_builtin_call(call_span, builtin_span, name, type_arg, args)
-            }
-            BuiltinResolution::Reserved => self.error(),
+        };
+        if has_type_arg {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("builtin `{name}` does not take a type argument"),
+            ));
         }
     }
 
@@ -326,25 +324,26 @@ impl<'a> BodyChecker<'a> {
         builtin: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                builtin_span,
-                format!("builtin `@{name}` requires an aggregate type argument"),
-            ));
+        let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args) else {
             for arg in args {
                 self.check_expr(arg);
             }
             return self.primitive(PrimitiveTy::Usize);
         };
+        self.record_builtin_function_call(
+            call_span,
+            builtin,
+            BuiltinFunction::Offset,
+            Some(type_arg.ty),
+        );
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly one field name argument"),
+                format!("builtin `{name}` requires exactly one field name argument"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -352,7 +351,7 @@ impl<'a> BodyChecker<'a> {
             return self.primitive(PrimitiveTy::Usize);
         }
 
-        let ty = self.ty_for_type(type_arg);
+        let ty = type_arg.ty;
         let Some(field_name) = self.offset_field_name(&args[0]) else {
             self.check_expr(&args[0]);
             return self.primitive(PrimitiveTy::Usize);
@@ -373,7 +372,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 arg.span,
-                "builtin `@offset` field name must be a string literal",
+                "builtin `offset` field name must be a string literal",
             ));
             return None;
         };
@@ -381,7 +380,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 arg.span,
-                "invalid string literal in `@offset` field name",
+                "invalid string literal in `offset` field name",
             ));
             return None;
         };
@@ -391,7 +390,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     arg.span,
-                    "invalid string scalar in `@offset` field name",
+                    "invalid string scalar in `offset` field name",
                 ));
                 return None;
             };
@@ -415,7 +414,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "builtin `@offset` requires a struct or union type argument",
+                "builtin `offset` requires a struct or union type argument",
             ));
             return None;
         };
@@ -423,7 +422,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                format!("type has no field `{name}` for builtin `@offset`"),
+                format!("type has no field `{name}` for builtin `offset`"),
             ));
             return None;
         };
@@ -454,23 +453,25 @@ impl<'a> BodyChecker<'a> {
     fn check_splat_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                builtin_span,
-                format!("builtin `@{name}` requires a vector type argument"),
-            ));
+        let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args) else {
             for arg in args {
                 self.check_expr(arg);
             }
             return self.error();
         };
-        let vector_ty = self.ty_for_type(type_arg);
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::Splat,
+            Some(type_arg.ty),
+        );
+        let vector_ty = type_arg.ty;
         let lane_ty = match self.interner.get(vector_ty).cloned() {
             Some(TyKind::Vector { elem, .. }) => self.primitive(elem),
             Some(_) => {
@@ -478,7 +479,7 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     type_arg.span,
                     format!(
-                        "builtin `@{name}` requires a SIMD vector type, got {}",
+                        "builtin `{name}` requires a SIMD vector type, got {}",
                         self.ty_name(vector_ty)
                     ),
                 ));
@@ -490,7 +491,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly one value argument"),
+                format!("builtin `{name}` requires exactly one value argument"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -507,15 +508,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly two value arguments"),
+                format!("builtin `{name}` requires exactly two value arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -534,15 +535,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 3 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly three value arguments"),
+                format!("builtin `{name}` requires exactly three value arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -563,15 +564,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_simd_lane_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly one value argument"),
+                format!("builtin `{name}` requires exactly one value argument"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -588,7 +589,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         args[0].span,
-                        "builtin `@bitmask` supports at most 64 SIMD mask lanes",
+                        "builtin `bitmask` supports at most 64 SIMD mask lanes",
                     ));
                 }
             }
@@ -597,7 +598,7 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     args[0].span,
                     format!(
-                        "builtin `@{name}` requires a bool SIMD mask vector, got {}",
+                        "builtin `{name}` requires a bool SIMD mask vector, got {}",
                         self.ty_name(vector_ty)
                     ),
                 ));
@@ -607,7 +608,7 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     args[0].span,
                     format!(
-                        "builtin `@{name}` requires a SIMD vector argument, got {}",
+                        "builtin `{name}` requires a SIMD vector argument, got {}",
                         self.ty_name(vector_ty)
                     ),
                 ));
@@ -620,29 +621,31 @@ impl<'a> BodyChecker<'a> {
     fn check_load_unaligned_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                builtin_span,
-                format!("builtin `@{name}` requires a type argument"),
-            ));
+        let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args) else {
             for arg in args {
                 self.check_expr(arg);
             }
             return self.error();
         };
-        let ty = self.ty_for_type(type_arg);
+        let ty = type_arg.ty;
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::LoadUnaligned,
+            Some(ty),
+        );
         self.require_sized_type(type_arg.span, ty, name);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly one pointer argument"),
+                format!("builtin `{name}` requires exactly one pointer argument"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -658,7 +661,7 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     args[0].span,
                     format!(
-                        "builtin `@{name}` requires a byte pointer argument, got {}",
+                        "builtin `{name}` requires a byte pointer argument, got {}",
                         self.ty_name(ptr_ty)
                     ),
                 ));
@@ -671,17 +674,20 @@ impl<'a> BodyChecker<'a> {
     fn check_bit_intrinsic_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let result_ty = self.check_integer_builtin_type_arg(builtin_span, name, type_arg);
+        let result_ty = self.check_integer_builtin_type_arg(builtin_span, name, type_args);
+        let builtin = BuiltinFunction::from_name(name).unwrap_or(BuiltinFunction::Ctz);
+        self.record_builtin_function_call(call_span, value_node, builtin, Some(result_ty));
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly one value argument"),
+                format!("builtin `{name}` requires exactly one value argument"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -697,17 +703,12 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
     ) -> InternedTyId {
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                builtin_span,
-                format!("builtin `@{name}` requires an integer type argument"),
-            ));
+        let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args) else {
             return self.error();
         };
-        let ty = self.ty_for_type(type_arg);
+        let ty = type_arg.ty;
         match self.interner.get(ty).cloned() {
             Some(TyKind::Primitive(primitive)) if primitive.is_integer() => ty,
             Some(TyKind::Primitive(_)) | Some(_) => {
@@ -715,28 +716,13 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     type_arg.span,
                     format!(
-                        "builtin `@{name}` requires an integer type argument, got {}",
+                        "builtin `{name}` requires an integer type argument, got {}",
                         self.ty_name(ty)
                     ),
                 ));
                 self.error()
             }
             None => self.error(),
-        }
-    }
-
-    fn reject_simd_lane_builtin_type_arg(
-        &mut self,
-        builtin_span: Span,
-        name: &str,
-        type_arg: &Option<TypeRef>,
-    ) {
-        if type_arg.is_some() {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                builtin_span,
-                format!("builtin `@{name}` does not take a type argument"),
-            ));
         }
     }
 
@@ -748,7 +734,7 @@ impl<'a> BodyChecker<'a> {
                     codes::TYPE_CHECK,
                     span,
                     format!(
-                        "builtin `@{name}` requires a SIMD vector argument, got {}",
+                        "builtin `{name}` requires a SIMD vector argument, got {}",
                         self.ty_name(vector_ty)
                     ),
                 ));
@@ -770,7 +756,7 @@ impl<'a> BodyChecker<'a> {
             codes::TYPE_CHECK,
             span,
             format!(
-                "builtin `@{builtin_name}` requires {}: Sized",
+                "builtin `{builtin_name}` requires {}: Sized",
                 self.ty_name(ty)
             ),
         ));
@@ -781,15 +767,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly two arguments"),
+                format!("builtin `{name}` requires exactly two arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -834,15 +820,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                "builtin `@memset` requires exactly two arguments",
+                "builtin `memset` requires exactly two arguments",
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -873,22 +859,6 @@ impl<'a> BodyChecker<'a> {
         let value_actual = self.check_expr_with_expected(&args[1], Some(u8_ty));
         self.expect_expr_type(&args[1], u8_ty, value_actual, "memory intrinsic byte value");
         self.void()
-    }
-
-    fn reject_memory_builtin_type_arg(
-        &mut self,
-        builtin_span: Span,
-        name: &str,
-        type_arg: &Option<TypeRef>,
-    ) {
-        if type_arg.is_none() {
-            return;
-        }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            builtin_span,
-            format!("builtin `@{name}` does not take a type argument"),
-        ));
     }
 
     fn memory_dest_slice_expected(
@@ -934,17 +904,24 @@ impl<'a> BodyChecker<'a> {
     fn check_atomic_load_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        let ty = self.atomic_type_arg(builtin_span, name, type_args);
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::AtomicLoad,
+            Some(ty),
+        );
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly two arguments"),
+                format!("builtin `{name}` requires exactly two arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -960,17 +937,24 @@ impl<'a> BodyChecker<'a> {
     fn check_atomic_store_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        let ty = self.atomic_type_arg(builtin_span, name, type_args);
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::AtomicStore,
+            Some(ty),
+        );
         if args.len() != 3 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly three arguments"),
+                format!("builtin `{name}` requires exactly three arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -988,17 +972,24 @@ impl<'a> BodyChecker<'a> {
     fn check_atomic_rmw_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        let ty = self.atomic_type_arg(builtin_span, name, type_args);
+        self.record_builtin_function_call(
+            call_span,
+            value_node,
+            BuiltinFunction::AtomicRmw,
+            Some(ty),
+        );
         if args.len() != 4 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly four arguments"),
+                format!("builtin `{name}` requires exactly four arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -1017,18 +1008,21 @@ impl<'a> BodyChecker<'a> {
     fn check_cmpxchg_builtin_call(
         &mut self,
         call_span: Span,
+        value_node: &Expr,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        let ty = self.atomic_type_arg(builtin_span, name, type_arg);
+        let ty = self.atomic_type_arg(builtin_span, name, type_args);
+        let builtin = BuiltinFunction::from_name(name).unwrap_or(BuiltinFunction::CmpxchgStrong);
+        self.record_builtin_function_call(call_span, value_node, builtin, Some(ty));
         let optional_ty = self.interner.intern(TyKind::Optional { elem: ty });
         if args.len() != 5 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                format!("builtin `@{name}` requires exactly five arguments"),
+                format!("builtin `{name}` requires exactly five arguments"),
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -1056,15 +1050,15 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        self.reject_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call_span,
-                "builtin `@fence` requires exactly one argument",
+                "builtin `fence` requires exactly one argument",
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -1079,17 +1073,12 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         name: &str,
-        type_arg: &Option<TypeRef>,
+        type_args: BuiltinCallTypeArgs<'_>,
     ) -> InternedTyId {
-        let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!("builtin `@{name}` requires a type argument"),
-            ));
+        let Some(type_arg) = self.require_builtin_type_arg(span, name, type_args) else {
             return self.error();
         };
-        self.ty_for_type(type_arg)
+        type_arg.ty
     }
 
     fn check_atomic_ptr_arg(
@@ -1114,7 +1103,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    format!("builtin `@{name}` pointer argument must be mutable"),
+                    format!("builtin `{name}` pointer argument must be mutable"),
                 ));
             }
             Some(TyKind::Error) => {}
@@ -1135,7 +1124,7 @@ impl<'a> BodyChecker<'a> {
         self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
             span,
             format!(
-                "builtin `@{name}` supports only bool, integer, enum, and pointer types up to the native pointer width"
+                "builtin `{name}` supports only bool, integer, enum, and pointer types up to the native pointer width"
             ),
         ));
     }
@@ -1190,7 +1179,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    format!("invalid atomic ordering `{value}` for builtin `@{name}`"),
+                    format!("invalid atomic ordering `{value}` for builtin `{name}`"),
                 ));
                 return None;
             }
@@ -1234,7 +1223,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    format!("invalid atomic RMW operation `{value}` for builtin `@{name}`"),
+                    format!("invalid atomic RMW operation `{value}` for builtin `{name}`"),
                 ));
                 return None;
             }

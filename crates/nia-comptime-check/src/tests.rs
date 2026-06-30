@@ -182,7 +182,7 @@ extern struct Pair {
     b: u32,
 }
 
-comptime OFF: usize = @offset[Pair]("b");
+comptime OFF: usize = std::builtin::offset[Pair]("b");
 "#,
     );
     assert!(

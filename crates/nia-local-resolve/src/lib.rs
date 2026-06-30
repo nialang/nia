@@ -360,7 +360,6 @@ impl LocalDefinitionAllocator {
     fn allocate_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Ident(_)
-            | ExprKind::Builtin { .. }
             | ExprKind::TypeTarget { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
@@ -823,8 +822,7 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Ident(name) => {
                 self.resolve_ident(name, expr.node_key.clone());
             }
-            ExprKind::Builtin { .. }
-            | ExprKind::TypeTarget { .. }
+            ExprKind::TypeTarget { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -876,16 +874,8 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Cast { expr, .. } => self.resolve_expr(expr),
             ExprKind::Call { callee, args } => {
                 self.resolve_callee(callee);
-                if let ExprKind::Builtin { name, .. } = &callee.kind
-                    && name == "asm"
-                {
-                    for arg in args {
-                        self.resolve_asm_config(arg);
-                    }
-                } else {
-                    for arg in args {
-                        self.resolve_expr(arg);
-                    }
+                for arg in args {
+                    self.resolve_expr(arg);
                 }
             }
             ExprKind::Qualified { lhs, .. } => self.resolve_type_qualified_lhs(lhs),
@@ -1011,20 +1001,6 @@ impl<'a> LocalResolver<'a> {
             PatternKind::Range { start, end, .. } => {
                 self.resolve_expr(start);
                 self.resolve_expr(end);
-            }
-        }
-    }
-
-    fn resolve_asm_config(&mut self, expr: &Expr) {
-        let ExprKind::StructLiteral { fields } = &expr.kind else {
-            self.resolve_expr(expr);
-            return;
-        };
-        for field in fields {
-            match field.name.as_str() {
-                "inputs" | "outputs" => self.resolve_expr(&field.value),
-                "code" | "clobbers" => {}
-                _ => self.resolve_expr(&field.value),
             }
         }
     }

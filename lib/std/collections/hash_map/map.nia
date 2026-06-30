@@ -417,7 +417,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     fn insert_new_uninitialized_index_assume_capacity(&mut self, key: K) usize {
         if self.growth_left == 0usize {
-            @trap()
+            std::builtin::trap()
         }
         let value_hash = self.hash_key(&key);
         let slot = self.find_insert_index(value_hash);
@@ -538,7 +538,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             cursor.advance_group();
         }
 
-        @trap()
+        std::builtin::trap()
     }
 
     fn grow_for_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {

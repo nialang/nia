@@ -33,7 +33,7 @@ pub trait ComptimeCommonEnv {
         let _ = path;
         Err(ComptimeError {
             span,
-            message: "builtin `@embed` is not available in this context".to_string(),
+            message: "builtin `embed` is not available in this context".to_string(),
         })
     }
 

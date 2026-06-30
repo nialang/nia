@@ -638,27 +638,6 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.lower_ident_expr(expr)
             }
-            ExprKind::Builtin { .. } => match self.builtin_value(expr) {
-                Some(BuiltinValue::Int(value)) => {
-                    TypedExprKind::BuiltinValue(BuiltinConst::Int(*value))
-                }
-                Some(BuiltinValue::Usize(value)) => {
-                    TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
-                }
-                Some(BuiltinValue::Layout { builtin, ty }) => {
-                    TypedExprKind::BuiltinValue(BuiltinConst::Layout {
-                        builtin: *builtin,
-                        ty: *ty,
-                    })
-                }
-                Some(BuiltinValue::FieldOffset { ty, field }) => {
-                    TypedExprKind::BuiltinValue(BuiltinConst::FieldOffset {
-                        ty: *ty,
-                        field: *field,
-                    })
-                }
-                None => TypedExprKind::Error,
-            },
             ExprKind::Qualified { .. } if self.builtin_value(expr).is_some() => {
                 match self.builtin_value(expr) {
                     Some(BuiltinValue::Int(value)) => {
@@ -918,125 +897,10 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                if let ExprKind::Builtin { name, .. } = &callee.kind {
-                    match (name.as_str(), args.as_slice()) {
-                        ("trap", []) => TypedExprKind::Trap,
-                        (_, []) => self.lower_expr(callee).kind,
-                        ("offset", [_]) => self.lower_expr(callee).kind,
-                        ("asm", [arg]) => self.lower_inline_asm(arg),
-                        ("memcpy", [dest, source]) => {
-                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
-                                op: MemoryIntrinsicOp::Copy,
-                                elem_ty: self.memory_intrinsic_elem_ty(expr),
-                                dest: Box::new(self.lower_expr(dest)),
-                                source: TypedMemoryIntrinsicSource::Slice(Box::new(
-                                    self.lower_expr(source),
-                                )),
-                            })
-                        }
-                        ("memmove", [dest, source]) => {
-                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
-                                op: MemoryIntrinsicOp::Move,
-                                elem_ty: self.memory_intrinsic_elem_ty(expr),
-                                dest: Box::new(self.lower_expr(dest)),
-                                source: TypedMemoryIntrinsicSource::Slice(Box::new(
-                                    self.lower_expr(source),
-                                )),
-                            })
-                        }
-                        ("memset", [dest, value]) => {
-                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
-                                op: MemoryIntrinsicOp::Set,
-                                elem_ty: self.memory_intrinsic_elem_ty(expr),
-                                dest: Box::new(self.lower_expr(dest)),
-                                source: TypedMemoryIntrinsicSource::Byte(Box::new(
-                                    self.lower_expr(value),
-                                )),
-                            })
-                        }
-                        ("load_unaligned", [ptr]) => TypedExprKind::LoadUnaligned {
-                            ty: self.builtin_atomic_type_arg(callee),
-                            ptr: Box::new(self.lower_expr(ptr)),
-                        },
-                        ("splat", [value]) => TypedExprKind::Splat {
-                            value: Box::new(self.lower_expr(value)),
-                        },
-                        ("extract", [vector, index]) => TypedExprKind::ExtractElement {
-                            vector: Box::new(self.lower_expr(vector)),
-                            index: Box::new(self.lower_expr(index)),
-                        },
-                        ("insert", [vector, index, value]) => TypedExprKind::InsertElement {
-                            vector: Box::new(self.lower_expr(vector)),
-                            index: Box::new(self.lower_expr(index)),
-                            value: Box::new(self.lower_expr(value)),
-                        },
-                        ("bitmask", [vector]) => TypedExprKind::Bitmask {
-                            vector: Box::new(self.lower_expr(vector)),
-                        },
-                        ("ctz", [value]) => TypedExprKind::BitIntrinsic {
-                            op: nia_body_ir::TypedBitIntrinsicOp::Ctz,
-                            value: Box::new(self.lower_expr(value)),
-                        },
-                        ("clz", [value]) => TypedExprKind::BitIntrinsic {
-                            op: nia_body_ir::TypedBitIntrinsicOp::Clz,
-                            value: Box::new(self.lower_expr(value)),
-                        },
-                        ("popcount", [value]) => TypedExprKind::BitIntrinsic {
-                            op: nia_body_ir::TypedBitIntrinsicOp::Popcount,
-                            value: Box::new(self.lower_expr(value)),
-                        },
-                        ("atomic_load", [ptr, order]) => TypedExprKind::Atomic(TypedAtomic::Load {
-                            ty: self.builtin_atomic_type_arg(callee),
-                            ptr: Box::new(self.lower_expr(ptr)),
-                            order: self.lower_atomic_order(order),
-                        }),
-                        ("atomic_store", [ptr, value, order]) => {
-                            TypedExprKind::Atomic(TypedAtomic::Store {
-                                ty: self.builtin_atomic_type_arg(callee),
-                                ptr: Box::new(self.lower_expr(ptr)),
-                                value: Box::new(self.lower_expr(value)),
-                                order: self.lower_atomic_order(order),
-                            })
-                        }
-                        ("atomic_rmw", [ptr, op, value, order]) => {
-                            TypedExprKind::Atomic(TypedAtomic::Rmw {
-                                ty: self.builtin_atomic_type_arg(callee),
-                                ptr: Box::new(self.lower_expr(ptr)),
-                                op: self.lower_atomic_rmw_op(op),
-                                value: Box::new(self.lower_expr(value)),
-                                order: self.lower_atomic_order(order),
-                            })
-                        }
-                        ("cmpxchg_strong", [ptr, expected, desired, success, failure]) => {
-                            TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
-                                ty: self.builtin_atomic_type_arg(callee),
-                                ptr: Box::new(self.lower_expr(ptr)),
-                                expected: Box::new(self.lower_expr(expected)),
-                                desired: Box::new(self.lower_expr(desired)),
-                                success: self.lower_atomic_order(success),
-                                failure: self.lower_atomic_order(failure),
-                                weak: false,
-                            })
-                        }
-                        ("cmpxchg_weak", [ptr, expected, desired, success, failure]) => {
-                            TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
-                                ty: self.builtin_atomic_type_arg(callee),
-                                ptr: Box::new(self.lower_expr(ptr)),
-                                expected: Box::new(self.lower_expr(expected)),
-                                desired: Box::new(self.lower_expr(desired)),
-                                success: self.lower_atomic_order(success),
-                                failure: self.lower_atomic_order(failure),
-                                weak: true,
-                            })
-                        }
-                        ("fence", [order]) => TypedExprKind::Atomic(TypedAtomic::Fence {
-                            order: self.lower_atomic_order(order),
-                        }),
-                        _ => TypedExprKind::Call {
-                            callee: self.lower_callee(expr, callee, args),
-                            args: self.lower_call_args(expr, callee, args),
-                        },
-                    }
+                if let Some(ResolvedCall::BuiltinFunction { builtin, type_arg }) =
+                    self.resolved_call(expr)
+                {
+                    self.lower_builtin_function_call(expr, builtin, type_arg, args)
                 } else if let Some(ResolvedCall::BuiltinPlaceMethod {
                     trait_id,
                     method,
@@ -1199,15 +1063,155 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn builtin_atomic_type_arg(&mut self, builtin: &Expr) -> nia_ids::InternedTyId {
-        let ExprKind::Builtin {
-            type_arg: Some(type_arg),
-            ..
-        } = &builtin.kind
-        else {
-            return self.error();
-        };
-        self.ty_for_type(type_arg)
+    fn lower_builtin_function_call(
+        &mut self,
+        expr: &Expr,
+        builtin: nia_ids::BuiltinFunction,
+        type_arg: Option<nia_ids::InternedTyId>,
+        args: &[Expr],
+    ) -> TypedExprKind {
+        match (builtin, args) {
+            (nia_ids::BuiltinFunction::Trap, []) => TypedExprKind::Trap,
+            (nia_ids::BuiltinFunction::SizeOf | nia_ids::BuiltinFunction::AlignOf, []) => {
+                self.lower_builtin_value_expr(expr)
+            }
+            (nia_ids::BuiltinFunction::Offset, [_]) => self.lower_builtin_value_expr(expr),
+            (nia_ids::BuiltinFunction::Asm, [arg]) => self.lower_inline_asm(arg),
+            (nia_ids::BuiltinFunction::MemCopy, [dest, source]) => {
+                TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                    op: MemoryIntrinsicOp::Copy,
+                    elem_ty: self.memory_intrinsic_elem_ty(expr),
+                    dest: Box::new(self.lower_expr(dest)),
+                    source: TypedMemoryIntrinsicSource::Slice(Box::new(self.lower_expr(source))),
+                })
+            }
+            (nia_ids::BuiltinFunction::MemMove, [dest, source]) => {
+                TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                    op: MemoryIntrinsicOp::Move,
+                    elem_ty: self.memory_intrinsic_elem_ty(expr),
+                    dest: Box::new(self.lower_expr(dest)),
+                    source: TypedMemoryIntrinsicSource::Slice(Box::new(self.lower_expr(source))),
+                })
+            }
+            (nia_ids::BuiltinFunction::MemSet, [dest, value]) => {
+                TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                    op: MemoryIntrinsicOp::Set,
+                    elem_ty: self.memory_intrinsic_elem_ty(expr),
+                    dest: Box::new(self.lower_expr(dest)),
+                    source: TypedMemoryIntrinsicSource::Byte(Box::new(self.lower_expr(value))),
+                })
+            }
+            (nia_ids::BuiltinFunction::LoadUnaligned, [ptr]) => TypedExprKind::LoadUnaligned {
+                ty: type_arg.unwrap_or_else(|| self.error()),
+                ptr: Box::new(self.lower_expr(ptr)),
+            },
+            (nia_ids::BuiltinFunction::Splat, [value]) => TypedExprKind::Splat {
+                value: Box::new(self.lower_expr(value)),
+            },
+            (nia_ids::BuiltinFunction::Extract, [vector, index]) => TypedExprKind::ExtractElement {
+                vector: Box::new(self.lower_expr(vector)),
+                index: Box::new(self.lower_expr(index)),
+            },
+            (nia_ids::BuiltinFunction::Insert, [vector, index, value]) => {
+                TypedExprKind::InsertElement {
+                    vector: Box::new(self.lower_expr(vector)),
+                    index: Box::new(self.lower_expr(index)),
+                    value: Box::new(self.lower_expr(value)),
+                }
+            }
+            (nia_ids::BuiltinFunction::Bitmask, [vector]) => TypedExprKind::Bitmask {
+                vector: Box::new(self.lower_expr(vector)),
+            },
+            (nia_ids::BuiltinFunction::Ctz, [value]) => TypedExprKind::BitIntrinsic {
+                op: nia_body_ir::TypedBitIntrinsicOp::Ctz,
+                value: Box::new(self.lower_expr(value)),
+            },
+            (nia_ids::BuiltinFunction::Clz, [value]) => TypedExprKind::BitIntrinsic {
+                op: nia_body_ir::TypedBitIntrinsicOp::Clz,
+                value: Box::new(self.lower_expr(value)),
+            },
+            (nia_ids::BuiltinFunction::Popcount, [value]) => TypedExprKind::BitIntrinsic {
+                op: nia_body_ir::TypedBitIntrinsicOp::Popcount,
+                value: Box::new(self.lower_expr(value)),
+            },
+            (nia_ids::BuiltinFunction::AtomicLoad, [ptr, order]) => {
+                TypedExprKind::Atomic(TypedAtomic::Load {
+                    ty: type_arg.unwrap_or_else(|| self.error()),
+                    ptr: Box::new(self.lower_expr(ptr)),
+                    order: self.lower_atomic_order(order),
+                })
+            }
+            (nia_ids::BuiltinFunction::AtomicStore, [ptr, value, order]) => {
+                TypedExprKind::Atomic(TypedAtomic::Store {
+                    ty: type_arg.unwrap_or_else(|| self.error()),
+                    ptr: Box::new(self.lower_expr(ptr)),
+                    value: Box::new(self.lower_expr(value)),
+                    order: self.lower_atomic_order(order),
+                })
+            }
+            (nia_ids::BuiltinFunction::AtomicRmw, [ptr, op, value, order]) => {
+                TypedExprKind::Atomic(TypedAtomic::Rmw {
+                    ty: type_arg.unwrap_or_else(|| self.error()),
+                    ptr: Box::new(self.lower_expr(ptr)),
+                    op: self.lower_atomic_rmw_op(op),
+                    value: Box::new(self.lower_expr(value)),
+                    order: self.lower_atomic_order(order),
+                })
+            }
+            (
+                nia_ids::BuiltinFunction::CmpxchgStrong,
+                [ptr, expected, desired, success, failure],
+            ) => TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
+                ty: type_arg.unwrap_or_else(|| self.error()),
+                ptr: Box::new(self.lower_expr(ptr)),
+                expected: Box::new(self.lower_expr(expected)),
+                desired: Box::new(self.lower_expr(desired)),
+                success: self.lower_atomic_order(success),
+                failure: self.lower_atomic_order(failure),
+                weak: false,
+            }),
+            (nia_ids::BuiltinFunction::CmpxchgWeak, [ptr, expected, desired, success, failure]) => {
+                TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
+                    ty: type_arg.unwrap_or_else(|| self.error()),
+                    ptr: Box::new(self.lower_expr(ptr)),
+                    expected: Box::new(self.lower_expr(expected)),
+                    desired: Box::new(self.lower_expr(desired)),
+                    success: self.lower_atomic_order(success),
+                    failure: self.lower_atomic_order(failure),
+                    weak: true,
+                })
+            }
+            (nia_ids::BuiltinFunction::Fence, [order]) => {
+                TypedExprKind::Atomic(TypedAtomic::Fence {
+                    order: self.lower_atomic_order(order),
+                })
+            }
+            _ => TypedExprKind::Error,
+        }
+    }
+
+    fn lower_builtin_value_expr(&mut self, expr: &Expr) -> TypedExprKind {
+        match self.builtin_value(expr) {
+            Some(BuiltinValue::Int(value)) => {
+                TypedExprKind::BuiltinValue(BuiltinConst::Int(*value))
+            }
+            Some(BuiltinValue::Usize(value)) => {
+                TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
+            }
+            Some(BuiltinValue::Layout { builtin, ty }) => {
+                TypedExprKind::BuiltinValue(BuiltinConst::Layout {
+                    builtin: *builtin,
+                    ty: *ty,
+                })
+            }
+            Some(BuiltinValue::FieldOffset { ty, field }) => {
+                TypedExprKind::BuiltinValue(BuiltinConst::FieldOffset {
+                    ty: *ty,
+                    field: *field,
+                })
+            }
+            None => TypedExprKind::Error,
+        }
     }
 
     fn lower_atomic_order(&mut self, expr: &Expr) -> AtomicOrder {
@@ -1891,6 +1895,7 @@ impl<'a> BodyChecker<'a> {
             resolved,
             ResolvedCall::Method { .. }
                 | ResolvedCall::TraitMethod { .. }
+                | ResolvedCall::BuiltinFunction { .. }
                 | ResolvedCall::BuiltinTraitMethod { .. }
                 | ResolvedCall::BuiltinMethod { .. }
                 | ResolvedCall::BuiltinPlaceMethod { .. }
@@ -1985,6 +1990,7 @@ impl<'a> BodyChecker<'a> {
         resolved: ResolvedCall,
     ) -> Option<Vec<nia_ids::InternedTyId>> {
         match resolved {
+            ResolvedCall::BuiltinFunction { .. } => None,
             ResolvedCall::Function(def_id) => Some(
                 self.resolved_function_signature(def_id)?
                     .signature
@@ -2182,6 +2188,9 @@ impl<'a> BodyChecker<'a> {
         resolved: ResolvedCall,
     ) -> TypedCallee {
         match resolved {
+            ResolvedCall::BuiltinFunction { .. } => {
+                TypedCallee::FunctionPointer(Box::new(self.error_expr(callee.span)))
+            }
             ResolvedCall::Function(def_id) => TypedCallee::Function(def_id),
             ResolvedCall::FunctionInstance {
                 def_id,

@@ -231,7 +231,6 @@ impl StaticChecker<'_> {
             },
             ExprKind::Binary { .. } => self.static_int_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
-            ExprKind::Builtin { .. } => None,
             ExprKind::TypeTarget { .. } => Some("type target is not static data"),
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {

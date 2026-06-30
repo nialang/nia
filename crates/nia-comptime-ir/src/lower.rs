@@ -1,6 +1,6 @@
 use crate::*;
 
-use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
+use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
@@ -257,30 +257,6 @@ fn lower_expr_internal(
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
-        nia_ast::ExprKind::Builtin { name, type_arg } => {
-            if let Some(type_arg) = type_arg {
-                let Some(builtin) = LayoutBuiltin::from_name(name) else {
-                    return Err(ComptimeLowerError {
-                        span: expr.span,
-                        message: format!("unsupported builtin in comptime expression: @{name}"),
-                    });
-                };
-                EarlyComptimeExprKind::LayoutBuiltin {
-                    builtin,
-                    type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
-                }
-            } else {
-                let Some(builtin) = ValueBuiltin::from_name(name) else {
-                    return Err(ComptimeLowerError {
-                        span: expr.span,
-                        message: format!(
-                            "unsupported builtin value in comptime expression: @{name}"
-                        ),
-                    });
-                };
-                EarlyComptimeExprKind::BuiltinValue(builtin)
-            }
-        }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => EarlyComptimeExprKind::Unary {
             op: lower_unary_op(*op),
@@ -421,42 +397,60 @@ fn lower_call_with_context(
     args: &[nia_ast::Expr],
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
-    if let nia_ast::ExprKind::Builtin { name, type_arg } = &callee.kind {
+    if let Some((name, type_arg, builtin_span)) = std_builtin_call(callee) {
         if name == "error" {
             if type_arg.is_some() {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@error` does not take a type argument".to_string(),
+                    span: builtin_span,
+                    message: "builtin `error` does not take a type argument".to_string(),
                 });
             }
             if args.len() != 1 {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@error` requires exactly one message argument".to_string(),
+                    span: builtin_span,
+                    message: "builtin `error` requires exactly one message argument".to_string(),
                 });
             }
             return Ok(EarlyComptimeExprKind::CompileError {
                 message: Box::new(lower_expr_internal(&args[0], context)?),
             });
         }
+        if let Some(builtin) = LayoutBuiltin::from_name(name) {
+            let Some(type_arg) = type_arg else {
+                return Err(ComptimeLowerError {
+                    span: builtin_span,
+                    message: format!("builtin `{name}` requires a type argument"),
+                });
+            };
+            if !args.is_empty() {
+                return Err(ComptimeLowerError {
+                    span: builtin_span,
+                    message: format!("builtin `{name}` does not take value arguments"),
+                });
+            }
+            return Ok(EarlyComptimeExprKind::LayoutBuiltin {
+                builtin,
+                type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
+            });
+        }
         if name == "offset" {
             let Some(type_arg) = type_arg else {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@offset` requires an aggregate type argument".to_string(),
+                    span: builtin_span,
+                    message: "builtin `offset` requires an aggregate type argument".to_string(),
                 });
             };
             let [arg] = args else {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@offset` requires exactly one field name argument"
+                    span: builtin_span,
+                    message: "builtin `offset` requires exactly one field name argument"
                         .to_string(),
                 });
             };
             let nia_ast::ExprKind::String(field) = &arg.kind else {
                 return Err(ComptimeLowerError {
                     span: arg.span,
-                    message: "builtin `@offset` field name must be a string literal".to_string(),
+                    message: "builtin `offset` field name must be a string literal".to_string(),
                 });
             };
             return Ok(EarlyComptimeExprKind::FieldOffsetBuiltin {
@@ -467,30 +461,24 @@ fn lower_call_with_context(
         if name == "embed" {
             if type_arg.is_some() {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@embed` does not take a type argument".to_string(),
+                    span: builtin_span,
+                    message: "builtin `embed` does not take a type argument".to_string(),
                 });
             }
             let [arg] = args else {
                 return Err(ComptimeLowerError {
-                    span: callee.span,
-                    message: "builtin `@embed` requires exactly one path argument".to_string(),
+                    span: builtin_span,
+                    message: "builtin `embed` requires exactly one path argument".to_string(),
                 });
             };
             let nia_ast::ExprKind::String(path) = &arg.kind else {
                 return Err(ComptimeLowerError {
                     span: arg.span,
-                    message: "builtin `@embed` path must be a string literal".to_string(),
+                    message: "builtin `embed` path must be a string literal".to_string(),
                 });
             };
             return Ok(EarlyComptimeExprKind::Embed {
                 path: lower_string_literal(path),
-            });
-        }
-        if type_arg.is_none() && ValueBuiltin::from_name(name).is_none() {
-            return Err(ComptimeLowerError {
-                span: callee.span,
-                message: format!("unsupported builtin call in comptime expression: @{name}"),
             });
         }
     }
@@ -521,6 +509,32 @@ fn lower_call_with_context(
             .map(|arg| lower_expr_internal(arg, context))
             .collect::<Result<Vec<_>, _>>()?,
     })
+}
+
+fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(&str, Option<&nia_ast::TypeRef>, Span)> {
+    if let nia_ast::ExprKind::BracketSuffix { callee, args } = &callee.kind {
+        let [arg] = args.as_slice() else {
+            return None;
+        };
+        let (name, None, span) = std_builtin_call(callee)? else {
+            return None;
+        };
+        return Some((name, arg.ty.as_ref(), span));
+    }
+    let nia_ast::ExprKind::Qualified { lhs, name } = &callee.kind else {
+        return None;
+    };
+    let nia_ast::ExprKind::Qualified {
+        lhs: std_expr,
+        name: builtin_segment,
+    } = &lhs.kind
+    else {
+        return None;
+    };
+    let nia_ast::ExprKind::Ident(root) = &std_expr.kind else {
+        return None;
+    };
+    (root == "std" && builtin_segment == "builtin").then_some((name.as_str(), None, callee.span))
 }
 
 fn comptime_builtin_method_name(name: &str) -> Option<BuiltinTraitMethod> {

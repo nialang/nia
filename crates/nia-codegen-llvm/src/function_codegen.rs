@@ -501,7 +501,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let lanes = match self.module.ty_kind(expr.ty) {
             Some(TyKind::Vector { lanes, .. }) => *lanes,
-            _ => return Err(self.error(expr.span, "@splat result type is not a SIMD vector")),
+            _ => {
+                return Err(self.error(
+                    expr.span,
+                    "std::builtin::splat result type is not a SIMD vector",
+                ));
+            }
         };
         let vector_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let zero = vector_ty
@@ -577,11 +582,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 lanes,
             }) => *lanes,
             _ => {
-                return Err(self.error(expr.span, "@bitmask argument must be a SIMD bool vector"));
+                return Err(self.error(
+                    expr.span,
+                    "std::builtin::bitmask argument must be a SIMD bool vector",
+                ));
             }
         };
         if lanes > 64 {
-            return Err(self.error(expr.span, "@bitmask supports at most 64 SIMD mask lanes"));
+            return Err(self.error(
+                expr.span,
+                "std::builtin::bitmask supports at most 64 SIMD mask lanes",
+            ));
         }
         let vector = self.emit_expr(vector)?;
         let packed_ty = self.module.context.custom_width_int_type(lanes);

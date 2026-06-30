@@ -35,310 +35,310 @@ where T: Sized
     }
 
     pub fn load_unordered(&self) T {
-        @atomic_load[T](&self.value, Unordered)
+        std::builtin::atomic_load[T](&self.value, Unordered)
     }
 
     pub fn load_monotonic(&self) T {
-        @atomic_load[T](&self.value, Monotonic)
+        std::builtin::atomic_load[T](&self.value, Monotonic)
     }
 
     pub fn load_acquire(&self) T {
-        @atomic_load[T](&self.value, Acquire)
+        std::builtin::atomic_load[T](&self.value, Acquire)
     }
 
     pub fn load_seq_cst(&self) T {
-        @atomic_load[T](&self.value, SeqCst)
+        std::builtin::atomic_load[T](&self.value, SeqCst)
     }
 
     pub fn store_unordered(&mut self, value: T) void {
-        @atomic_store[T](&mut self.value, value, Unordered)
+        std::builtin::atomic_store[T](&mut self.value, value, Unordered)
     }
 
     pub fn store_monotonic(&mut self, value: T) void {
-        @atomic_store[T](&mut self.value, value, Monotonic)
+        std::builtin::atomic_store[T](&mut self.value, value, Monotonic)
     }
 
     pub fn store_release(&mut self, value: T) void {
-        @atomic_store[T](&mut self.value, value, Release)
+        std::builtin::atomic_store[T](&mut self.value, value, Release)
     }
 
     pub fn store_seq_cst(&mut self, value: T) void {
-        @atomic_store[T](&mut self.value, value, SeqCst)
+        std::builtin::atomic_store[T](&mut self.value, value, SeqCst)
     }
 
     pub fn swap_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xchg, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Xchg, value, Monotonic)
     }
 
     pub fn swap_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xchg, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Xchg, value, Acquire)
     }
 
     pub fn swap_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xchg, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Xchg, value, Release)
     }
 
     pub fn swap_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xchg, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Xchg, value, AcqRel)
     }
 
     pub fn swap_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xchg, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Xchg, value, SeqCst)
     }
 
     pub fn cmpxchg_strong_monotonic(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_strong[T](&mut self.value, expected, desired, Monotonic, Monotonic)
+        std::builtin::cmpxchg_strong[T](&mut self.value, expected, desired, Monotonic, Monotonic)
     }
 
     pub fn cmpxchg_strong_acquire(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_strong[T](&mut self.value, expected, desired, Acquire, Acquire)
+        std::builtin::cmpxchg_strong[T](&mut self.value, expected, desired, Acquire, Acquire)
     }
 
     pub fn cmpxchg_strong_release(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_strong[T](&mut self.value, expected, desired, Release, Monotonic)
+        std::builtin::cmpxchg_strong[T](&mut self.value, expected, desired, Release, Monotonic)
     }
 
     pub fn cmpxchg_strong_acq_rel(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_strong[T](&mut self.value, expected, desired, AcqRel, Acquire)
+        std::builtin::cmpxchg_strong[T](&mut self.value, expected, desired, AcqRel, Acquire)
     }
 
     pub fn cmpxchg_strong_seq_cst(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_strong[T](&mut self.value, expected, desired, SeqCst, SeqCst)
+        std::builtin::cmpxchg_strong[T](&mut self.value, expected, desired, SeqCst, SeqCst)
     }
 
     pub fn cmpxchg_weak_monotonic(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_weak[T](&mut self.value, expected, desired, Monotonic, Monotonic)
+        std::builtin::cmpxchg_weak[T](&mut self.value, expected, desired, Monotonic, Monotonic)
     }
 
     pub fn cmpxchg_weak_acquire(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_weak[T](&mut self.value, expected, desired, Acquire, Acquire)
+        std::builtin::cmpxchg_weak[T](&mut self.value, expected, desired, Acquire, Acquire)
     }
 
     pub fn cmpxchg_weak_release(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_weak[T](&mut self.value, expected, desired, Release, Monotonic)
+        std::builtin::cmpxchg_weak[T](&mut self.value, expected, desired, Release, Monotonic)
     }
 
     pub fn cmpxchg_weak_acq_rel(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_weak[T](&mut self.value, expected, desired, AcqRel, Acquire)
+        std::builtin::cmpxchg_weak[T](&mut self.value, expected, desired, AcqRel, Acquire)
     }
 
     pub fn cmpxchg_weak_seq_cst(&mut self, expected: T, desired: T) ?T {
-        @cmpxchg_weak[T](&mut self.value, expected, desired, SeqCst, SeqCst)
+        std::builtin::cmpxchg_weak[T](&mut self.value, expected, desired, SeqCst, SeqCst)
     }
 
     pub fn fetch_add_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Add, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Add, value, Monotonic)
     }
 
     pub fn fetch_add_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Add, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Add, value, Acquire)
     }
 
     pub fn fetch_add_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Add, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Add, value, Release)
     }
 
     pub fn fetch_add_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Add, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Add, value, AcqRel)
     }
 
     pub fn fetch_add_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Add, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Add, value, SeqCst)
     }
 
     pub fn fetch_sub_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Sub, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Sub, value, Monotonic)
     }
 
     pub fn fetch_sub_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Sub, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Sub, value, Acquire)
     }
 
     pub fn fetch_sub_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Sub, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Sub, value, Release)
     }
 
     pub fn fetch_sub_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Sub, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Sub, value, AcqRel)
     }
 
     pub fn fetch_sub_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Sub, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Sub, value, SeqCst)
     }
 
     pub fn fetch_and_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, And, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, And, value, Monotonic)
     }
 
     pub fn fetch_and_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, And, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, And, value, Acquire)
     }
 
     pub fn fetch_and_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, And, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, And, value, Release)
     }
 
     pub fn fetch_and_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, And, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, And, value, AcqRel)
     }
 
     pub fn fetch_and_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, And, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, And, value, SeqCst)
     }
 
     pub fn fetch_nand_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Nand, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Nand, value, Monotonic)
     }
 
     pub fn fetch_nand_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Nand, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Nand, value, Acquire)
     }
 
     pub fn fetch_nand_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Nand, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Nand, value, Release)
     }
 
     pub fn fetch_nand_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Nand, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Nand, value, AcqRel)
     }
 
     pub fn fetch_nand_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Nand, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Nand, value, SeqCst)
     }
 
     pub fn fetch_or_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Or, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Or, value, Monotonic)
     }
 
     pub fn fetch_or_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Or, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Or, value, Acquire)
     }
 
     pub fn fetch_or_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Or, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Or, value, Release)
     }
 
     pub fn fetch_or_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Or, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Or, value, AcqRel)
     }
 
     pub fn fetch_or_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Or, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Or, value, SeqCst)
     }
 
     pub fn fetch_xor_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xor, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Xor, value, Monotonic)
     }
 
     pub fn fetch_xor_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xor, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Xor, value, Acquire)
     }
 
     pub fn fetch_xor_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xor, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Xor, value, Release)
     }
 
     pub fn fetch_xor_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xor, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Xor, value, AcqRel)
     }
 
     pub fn fetch_xor_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Xor, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Xor, value, SeqCst)
     }
 
     pub fn fetch_max_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Max, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Max, value, Monotonic)
     }
 
     pub fn fetch_max_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Max, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Max, value, Acquire)
     }
 
     pub fn fetch_max_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Max, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Max, value, Release)
     }
 
     pub fn fetch_max_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Max, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Max, value, AcqRel)
     }
 
     pub fn fetch_max_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Max, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Max, value, SeqCst)
     }
 
     pub fn fetch_min_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Min, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, Min, value, Monotonic)
     }
 
     pub fn fetch_min_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Min, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, Min, value, Acquire)
     }
 
     pub fn fetch_min_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Min, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, Min, value, Release)
     }
 
     pub fn fetch_min_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Min, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, Min, value, AcqRel)
     }
 
     pub fn fetch_min_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, Min, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, Min, value, SeqCst)
     }
 
     pub fn fetch_umax_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMax, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, UMax, value, Monotonic)
     }
 
     pub fn fetch_umax_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMax, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, UMax, value, Acquire)
     }
 
     pub fn fetch_umax_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMax, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, UMax, value, Release)
     }
 
     pub fn fetch_umax_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMax, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, UMax, value, AcqRel)
     }
 
     pub fn fetch_umax_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMax, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, UMax, value, SeqCst)
     }
 
     pub fn fetch_umin_monotonic(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMin, value, Monotonic)
+        std::builtin::atomic_rmw[T](&mut self.value, UMin, value, Monotonic)
     }
 
     pub fn fetch_umin_acquire(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMin, value, Acquire)
+        std::builtin::atomic_rmw[T](&mut self.value, UMin, value, Acquire)
     }
 
     pub fn fetch_umin_release(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMin, value, Release)
+        std::builtin::atomic_rmw[T](&mut self.value, UMin, value, Release)
     }
 
     pub fn fetch_umin_acq_rel(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMin, value, AcqRel)
+        std::builtin::atomic_rmw[T](&mut self.value, UMin, value, AcqRel)
     }
 
     pub fn fetch_umin_seq_cst(&mut self, value: T) T {
-        @atomic_rmw[T](&mut self.value, UMin, value, SeqCst)
+        std::builtin::atomic_rmw[T](&mut self.value, UMin, value, SeqCst)
     }
 }
 
 pub fn fence_acquire() void {
-    @fence(Acquire)
+    std::builtin::fence(Acquire)
 }
 
 pub fn fence_release() void {
-    @fence(Release)
+    std::builtin::fence(Release)
 }
 
 pub fn fence_acq_rel() void {
-    @fence(AcqRel)
+    std::builtin::fence(AcqRel)
 }
 
 pub fn fence_seq_cst() void {
-    @fence(SeqCst)
+    std::builtin::fence(SeqCst)
 }

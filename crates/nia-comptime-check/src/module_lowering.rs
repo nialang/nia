@@ -379,7 +379,6 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::ExprKind::Bool(_)
             | nia_ast::ExprKind::Null
             | nia_ast::ExprKind::Underscore
-            | nia_ast::ExprKind::Builtin { .. }
             | nia_ast::ExprKind::TypeTarget { .. } => {}
         }
     }
