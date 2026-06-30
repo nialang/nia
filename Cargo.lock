@@ -388,6 +388,7 @@ dependencies = [
  "nia-imports",
  "nia-item-signatures",
  "nia-sema-ir",
+ "nia-span",
  "nia-static-ir",
  "nia-ty",
  "nia-type-lower",
