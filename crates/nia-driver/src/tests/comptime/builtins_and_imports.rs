@@ -83,6 +83,104 @@ fn main() i32 {
 }
 
 #[test]
+fn std_prelude_exposes_builtin_functions() {
+    let root = temp_dir("std_prelude_exposes_builtin_functions");
+    std::fs::create_dir_all(root.join("assets")).expect("create assets dir");
+    std::fs::write(root.join("assets/payload.bin"), [b'n', b'i', b'a']).expect("write payload");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    tag: u8,
+    value: u32,
+}
+
+comptime word_size: usize = size[usize]();
+comptime word_align: usize = align[usize]();
+comptime value_offset: usize = offset[Pair]("value");
+comptime payload = embed("assets/payload.bin");
+comptime payload_len: usize = payload.len();
+
+fn main() usize {
+    word_size + word_align + value_offset + payload_len
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_prelude_exposes_builtin_traits() {
+    let root = temp_dir("std_prelude_exposes_builtin_traits");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {
+    next_value: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    fn next(&mut self) ?usize {
+        if self.next_value >= self.end {
+            null
+        } else {
+            let value = self.next_value;
+            self.next_value += 1usize;
+            ?value
+        }
+    }
+}
+
+fn count[I](iter: I) usize
+where I: Iterator {
+    let mut values = iter;
+    let mut total = 0usize;
+    let mut done = false;
+    while not done {
+        if ?value = values.next() {
+            _ = value;
+            total += 1usize;
+        } or null {
+            done = true;
+        }
+    }
+    total
+}
+
+fn main() usize {
+    count(Counter { next_value: 0usize, end: 3usize })
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn local_type_alias_shadows_prelude_builtin_trait_names() {
+    let root = temp_dir("local_type_alias_shadows_prelude_builtin_trait_names");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Ptr[T] = &T;
+
+fn read(value: Ptr[u8]) u8 {
+    value.*
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_function_rejects_structural_array_field_assignment_type_mismatch() {
     let root =
         temp_dir("comptime_function_rejects_structural_array_field_assignment_type_mismatch");

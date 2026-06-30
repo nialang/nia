@@ -248,6 +248,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let mut graph = ModuleGraph::new(db.context().entry_path.clone());
         inject_entry_runtime(db, &mut graph);
+        inject_std_prelude(db, &mut graph);
         let mut index = 0;
         while index < graph.modules().count() {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -502,6 +503,37 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
                 graph.push_diagnostic(path, diagnostic);
             }
         }
+    }
+}
+
+fn inject_std_prelude(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
+    let Some(std_path) = db
+        .context()
+        .module_map
+        .get(nia_imports::STD_MODULE_MAP_NAME)
+    else {
+        return;
+    };
+    if std_path.as_str() != default_std_module_path().as_str() {
+        return;
+    }
+    let std_root = graph
+        .package_root(nia_imports::STD_MODULE_MAP_NAME)
+        .or_else(|| {
+            Some(graph.intern_package_root(nia_imports::STD_MODULE_MAP_NAME, std_path.clone()))
+        });
+    let Some(std_root) = std_root else { return };
+    if let Err(diagnostic) = graph.intern_declared_child(
+        std_root,
+        "prelude",
+        nia_imports::Visibility::Public,
+        Span::default(),
+    ) {
+        let path = graph
+            .get(std_root)
+            .map(|node| node.path.clone())
+            .unwrap_or_else(default_std_module_path);
+        graph.push_diagnostic(path, diagnostic);
     }
 }
 
@@ -1253,8 +1285,11 @@ mod tests {
         let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 4);
-        assert_eq!(program.graph.modules().count(), 4);
+        assert_eq!(program.modules.len(), program.graph.modules().count());
+        assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
+        assert_module_loaded(&program, root.join("a.nia").to_string_lossy().as_ref());
+        assert_module_loaded(&program, root.join("a/b.nia").to_string_lossy().as_ref());
+        assert_module_loaded(&program, root.join("b.nia").to_string_lossy().as_ref());
     }
 
     #[test]
@@ -1289,7 +1324,11 @@ module present;
         let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 2);
+        assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
+        assert_module_loaded(
+            &program,
+            root.join("present.nia").to_string_lossy().as_ref(),
+        );
         let root_module = program
             .graph
             .get(program.graph.entry())
@@ -1315,7 +1354,11 @@ module present;
         let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 2);
+        assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
+        assert_module_loaded(
+            &program,
+            root.join("present.nia").to_string_lossy().as_ref(),
+        );
         let root_module = program
             .graph
             .get(program.graph.entry())
@@ -1570,8 +1613,9 @@ fn main(value: std::fmt::Value) void {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(!program.graph.package_facade_active("std"));
-        assert!(program.graph.package_root("std").is_none());
-        assert_eq!(program.modules.len(), 3);
+        assert!(program.graph.package_root("std").is_some());
+        assert_module_loaded(&program, "lib/std/prelude.nia");
+        assert_module_loaded(&program, "lib/std/builtin.nia");
         assert_module_not_loaded(&program, "lib/std/fmt.nia");
     }
 
@@ -1585,7 +1629,8 @@ fn main(value: std::fmt::Value) void {
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 2);
+        assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
+        assert_module_loaded(&program, root.join("defs.nia").to_string_lossy().as_ref());
         let root_module = program
             .graph
             .get(program.graph.entry())
@@ -1609,7 +1654,6 @@ fn main(value: std::fmt::Value) void {
         let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 2);
         assert!(program.modules.iter().any(|module| {
             module.path.as_str() == "main.nia"
                 && module.item_tree.items.iter().any(|item| {
@@ -1740,14 +1784,14 @@ fn main(value: std::fmt::Value) void {
 
         let first = db.query(LoadedProgramQuery);
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        assert_eq!(first.modules.len(), 1);
+        assert_module_loaded(&first, "main.nia");
+        assert_module_not_loaded(&first, "defs.nia");
 
         sources.set_source(main.clone(), "module defs;");
         db.invalidate(SourceTextQuery(main));
 
         let second = db.query(LoadedProgramQuery);
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-        assert_eq!(second.modules.len(), 2);
         assert!(
             second
                 .modules

@@ -1,0 +1,19 @@
+// Control-flow and compile-time builtin functions.
+
+// Terminates the current execution path immediately.
+//
+// `trap` returns `never`, so it can be used in branches that do not continue.
+@[builtin("trap")]
+pub fn trap() never;
+
+// Emits a compile-time diagnostic with a comptime string message.
+@[builtin("error")]
+pub comptime fn error(message: &[char]) never;
+
+// Embeds a file at comptime.
+@[builtin("embed")]
+pub comptime fn embed(path: &[char]) void;
+
+// Emits target inline assembly from a compiler-checked configuration literal.
+@[builtin("asm")]
+pub fn asm(config: void) void;

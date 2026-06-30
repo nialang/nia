@@ -248,6 +248,37 @@ fn main() i32 {
 }
 
 #[test]
+fn builtin_not_trait_uses_non_keyword_method_name() {
+    let root = temp_dir("builtin_not_trait_uses_non_keyword_method_name");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Flag {
+    value: bool,
+}
+
+extend Flag : Not {
+    fn logical_not(self) bool {
+        not self.value
+    }
+}
+
+fn flip[T](value: T) bool
+where T: Not {
+    not value
+}
+
+fn main() bool {
+    flip(Flag { value: false })
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn builtin_sized_trait_allows_generic_layout_builtins() {
     let root = temp_dir("builtin_sized_trait_allows_generic_layout_builtins");
     write(

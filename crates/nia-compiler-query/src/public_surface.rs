@@ -280,10 +280,83 @@ pub(crate) fn compute_public_surfaces(
                 }
             }
         }
+        add_std_prelude_entries(&defs_by_id, graph, &surfaces, defs.module_id, &mut scope);
         using_scopes.insert(defs.module_id, scope);
     }
 
     (surfaces, using_scopes, diagnostics)
+}
+
+fn add_std_prelude_entries(
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    graph: &ModuleGraph,
+    surfaces: &PublicSurfaces,
+    accessing_module: ModuleId,
+    scope: &mut ModuleUsingScope,
+) {
+    if module_defines_std_prelude_surface(graph, accessing_module) {
+        return;
+    }
+    let Some(std_root) = graph.package_root(STD_MODULE_MAP_NAME) else {
+        return;
+    };
+    let Some(prelude_module) = graph
+        .get(std_root)
+        .and_then(|node| node.children.get("prelude").copied())
+    else {
+        return;
+    };
+    let context = UsingExpansionContext {
+        defs_by_module,
+        graph,
+        accessing_module,
+        surfaces,
+        mode: UsingLookupMode::PublicOnly,
+    };
+    let selector = UsingSelector::Wildcard {
+        span: Span::default(),
+    };
+    let source = PublicSource::PubUsing {
+        directive_span: Span::default(),
+    };
+    let UsingExpansion::Resolved(entries) =
+        expand_module_host(&context, prelude_module, &selector, source)
+    else {
+        return;
+    };
+    for entry in entries {
+        match entry.kind {
+            ResolvedEntryKind::Module(module_id) => {
+                scope.modules.entry(entry.name).or_insert(module_id);
+            }
+            ResolvedEntryKind::Item(item) => {
+                let using_entry = UsingEntry {
+                    target_module: item.target_module,
+                    target_def_id: item.target_def_id,
+                    namespace: item.namespace,
+                    directive_span: Span::default(),
+                    name_span: entry.name_span,
+                    parent_enum: item.parent_enum,
+                };
+                let table = match item.namespace {
+                    PublicNamespace::Value => &mut scope.values,
+                    PublicNamespace::Type => &mut scope.types,
+                };
+                table.entry(entry.name).or_insert(using_entry);
+            }
+        }
+    }
+}
+
+fn module_defines_std_prelude_surface(graph: &ModuleGraph, module_id: ModuleId) -> bool {
+    let Some(module) = graph.get(module_id) else {
+        return false;
+    };
+    if module.module_path.package != STD_MODULE_MAP_NAME {
+        return false;
+    }
+    let segments = module.module_path.segments.as_slice();
+    segments == ["prelude"] || segments.first().is_some_and(|segment| segment == "builtin")
 }
 
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
@@ -1480,6 +1553,15 @@ mod tests {
         graph
     }
 
+    fn graph_with_std_prelude() -> ModuleGraph {
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let std_root = graph.intern_package_root(STD_MODULE_MAP_NAME, SourcePath::new("std.nia"));
+        graph
+            .intern_declared_child(std_root, "prelude", Visibility::Public, Span::default())
+            .expect("std prelude declaration");
+        graph
+    }
+
     #[test]
     fn wildcard_reexports_preserve_item_name_spans_for_duplicate_diagnostics() {
         let main = defs(
@@ -1504,5 +1586,54 @@ using { left::*, right::* };
                 .contains("duplicate using name `value`")
         );
         assert_ne!(diagnostics[0].1.primary_span(), Some(Span::default()));
+    }
+
+    #[test]
+    fn std_prelude_is_added_to_using_scopes_at_low_priority() {
+        let main = defs(ModuleId(0), "fn main() i32 { answer() }");
+        let std_root = defs(ModuleId(1), "");
+        let prelude = defs(ModuleId(2), "pub fn answer() i32 { 1 }");
+        let graph = graph_with_std_prelude();
+
+        let (_, using_scopes, diagnostics) =
+            compute_public_surfaces(&[main, std_root, prelude], &graph);
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let entry = using_scopes
+            .get(&ModuleId(0))
+            .and_then(|scope| scope.lookup_value("answer"))
+            .expect("prelude answer");
+        assert_eq!(entry.target_module, ModuleId(2));
+    }
+
+    #[test]
+    fn explicit_using_wins_over_std_prelude() {
+        let main = defs(
+            ModuleId(0),
+            r#"
+module local;
+using local::answer;
+"#,
+        );
+        let local = defs(ModuleId(1), "pub fn answer() i32 { 2 }");
+        let std_root = defs(ModuleId(2), "");
+        let prelude = defs(ModuleId(3), "pub fn answer() i32 { 1 }");
+        let mut graph = graph_with_public_children(&["local"]);
+        let std_root_id =
+            graph.intern_package_root(STD_MODULE_MAP_NAME, SourcePath::new("std.nia"));
+        assert_eq!(std_root_id, ModuleId(2));
+        graph
+            .intern_declared_child(std_root_id, "prelude", Visibility::Public, Span::default())
+            .expect("std prelude declaration");
+
+        let (_, using_scopes, diagnostics) =
+            compute_public_surfaces(&[main, local, std_root, prelude], &graph);
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let entry = using_scopes
+            .get(&ModuleId(0))
+            .and_then(|scope| scope.lookup_value("answer"))
+            .expect("explicit answer");
+        assert_eq!(entry.target_module, ModuleId(1));
     }
 }

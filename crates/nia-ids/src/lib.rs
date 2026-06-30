@@ -382,7 +382,7 @@ impl BuiltinTraitMethod {
         ),
         (
             Self::Not,
-            BuiltinTraitMethodDescriptor::value_operator("not", BuiltinTrait::Not, 1),
+            BuiltinTraitMethodDescriptor::value_operator("logical_not", BuiltinTrait::Not, 1),
         ),
         (
             Self::BitNot,

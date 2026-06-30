@@ -19,7 +19,7 @@ fn rejects_builtin_function_pointers() {
     let checked = pipeline(
         r#"
 @[builtin("trap")]
-pub extern fn trap() never;
+pub fn trap() never;
 
 fn main() void {
     _ = &trap;

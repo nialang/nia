@@ -19,6 +19,7 @@ pub module iter;
 pub module math;
 pub module mem;
 pub module os;
+pub module prelude;
 pub module process;
 pub module slice;
 pub module string;

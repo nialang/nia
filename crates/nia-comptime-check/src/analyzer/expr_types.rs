@@ -335,11 +335,54 @@ impl Analyzer<'_> {
             .ok()?;
         self.resolved_call_type_substitutions
             .insert(span, substitutions.clone());
+        if let Some(return_ty) = self.builtin_function_call_return_type(&signature, args, expected)
+        {
+            return Some(return_ty);
+        }
         self.substitute_ty_into_current_module(
             function_id.module_id,
             signature.return_type,
             &substitutions,
         )
+    }
+
+    fn builtin_function_call_return_type(
+        &mut self,
+        signature: &FunctionSignature,
+        args: &[ResolvedComptimeExpr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let builtin = signature
+            .attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                FunctionAttribute::Builtin(builtin) => Some(*builtin),
+                FunctionAttribute::Naked => None,
+            })?;
+        match builtin {
+            BuiltinFunction::ComptimeError => expected,
+            BuiltinFunction::Embed => {
+                let [path] = args else {
+                    return None;
+                };
+                let ResolvedComptimeExprKind::String(path) = path.kind() else {
+                    return None;
+                };
+                let path = nia_comptime_engine::eval_string_literal(path)?;
+                let resolved = super::env_impl::resolve_embed_path(
+                    self.current_execution_source_path()?.as_str(),
+                    &path,
+                );
+                let len = std::fs::metadata(resolved).ok()?.len();
+                self.comptime_byte_string_literal_type(len).and_then(|ty| {
+                    let ComptimeValueType::Runtime(ty) = ty else {
+                        return None;
+                    };
+                    Some(ty)
+                })
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn substitute_ty_into_current_module(

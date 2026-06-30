@@ -1,0 +1,13 @@
+// Type-layout compiler intrinsics.
+
+// Returns the ABI size of `T` in bytes.
+@[builtin("size")]
+pub comptime fn size[T]() usize;
+
+// Returns the ABI alignment of `T` in bytes.
+@[builtin("align")]
+pub comptime fn align[T]() usize;
+
+// Returns the byte offset of a struct or union field.
+@[builtin("offset")]
+pub comptime fn offset[T](field: &[char]) usize;

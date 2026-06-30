@@ -1,0 +1,5 @@
+// Future home for source-visible primitive type builtin declarations.
+//
+// Primitive scalar types are still language primitives. Associated values such
+// as `i32::MIN` and `i32::MAX` should eventually be declared here with builtin
+// inherent extensions once the language can express that shape directly.

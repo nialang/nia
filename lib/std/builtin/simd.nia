@@ -1,0 +1,17 @@
+// SIMD compiler intrinsics.
+
+// Creates a SIMD vector by splatting one lane value.
+@[builtin("splat")]
+pub fn splat[T](value: void) T;
+
+// Extracts a SIMD lane.
+@[builtin("extract")]
+pub fn extract(vector: void, index: usize) void;
+
+// Inserts a SIMD lane.
+@[builtin("insert")]
+pub fn insert(vector: void, index: usize, value: void) void;
+
+// Converts a SIMD bool mask vector into a bitmask.
+@[builtin("bitmask")]
+pub fn bitmask(vector: void) usize;

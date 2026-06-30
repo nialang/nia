@@ -679,11 +679,15 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
                     .collect();
+                let trait_id = trait_signature
+                    .builtin
+                    .map(TraitId::Builtin)
+                    .unwrap_or(TraitId::Source(trait_id));
                 Some(TraitObligation {
                     self_ty: self
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string())),
-                    trait_id: TraitId::Source(trait_id),
+                    trait_id,
                     trait_args,
                     associated_type_bindings: Vec::new(),
                 })

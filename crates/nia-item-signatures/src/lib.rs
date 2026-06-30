@@ -112,7 +112,7 @@ pub enum FunctionAttribute {
     Builtin(BuiltinFunction),
 }
 
-pub use nia_ids::BuiltinFunction;
+pub use nia_ids::{BuiltinFunction, BuiltinTrait};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSignature {
@@ -147,6 +147,7 @@ pub struct TraitSignature {
     pub supertraits: Vec<TraitSupertraitSignature>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
     pub methods: Vec<TraitMethodSignature>,
+    pub builtin: Option<BuiltinTrait>,
     pub span: Span,
 }
 
@@ -658,6 +659,7 @@ impl<'a> SignatureCollector<'a> {
                     .collect(),
                 associated_types,
                 methods,
+                builtin: self.builtin_trait_attribute(&item.attributes),
                 span: item.span,
             },
         );
@@ -880,7 +882,7 @@ impl<'a> SignatureCollector<'a> {
             is_extern: function.is_extern,
             is_comptime: function.is_comptime,
             is_variadic: function.is_variadic,
-            attributes: self.function_attributes(&[], function),
+            attributes: Vec::new(),
             has_body: function.body.is_some(),
             span: function.span,
         }
@@ -968,11 +970,11 @@ impl<'a> SignatureCollector<'a> {
                             ));
                         }
                     }
-                    if !function.is_extern || function.body.is_some() {
+                    if function.is_extern || function.body.is_some() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::ITEM_SIGNATURE,
                             attribute.span,
-                            "`@[builtin]` is only valid on bodyless `extern fn` declarations",
+                            "`@[builtin]` is only valid on bodyless non-extern function declarations",
                         ));
                     }
                 }
@@ -985,7 +987,98 @@ impl<'a> SignatureCollector<'a> {
                 }
             }
         }
+        if !function.is_extern
+            && function.body.is_none()
+            && !out
+                .iter()
+                .any(|attribute| matches!(attribute, FunctionAttribute::Builtin(_)))
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::ITEM_SIGNATURE,
+                function.span,
+                "bodyless non-extern functions require `@[builtin]`",
+            ));
+        }
         out
+    }
+
+    fn builtin_trait_attribute(&mut self, attributes: &[Attribute]) -> Option<BuiltinTrait> {
+        let mut out = None;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            match meta.path.as_slice() {
+                [name] if name == "builtin" => {
+                    let builtin_name =
+                        self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
+                    if let Some(builtin_name) = builtin_name {
+                        if let Some(builtin) = BuiltinTrait::from_name(builtin_name) {
+                            if out.replace(builtin).is_some() {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::ITEM_SIGNATURE,
+                                    attribute.span,
+                                    "duplicate `@[builtin]` trait attribute",
+                                ));
+                            }
+                        } else {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::ITEM_SIGNATURE,
+                                attribute.span,
+                                format!("unknown builtin trait `{builtin_name}`"),
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        format!("unknown trait attribute `@[{}]`", meta.path.join(".")),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    fn parse_builtin_attribute_name<'attr>(
+        &mut self,
+        attribute: &Attribute,
+        args: &'attr [nia_ast::Expr],
+    ) -> Option<&'attr str> {
+        match args {
+            [arg] => match &arg.kind {
+                nia_ast::ExprKind::String(text) if text.parts.len() == 1 => {
+                    if let Some(name) = builtin_attribute_name(&text.parts[0]) {
+                        Some(name)
+                    } else {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            arg.span,
+                            "`@[builtin]` expects a plain string literal name",
+                        ));
+                        None
+                    }
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        arg.span,
+                        "`@[builtin]` expects a single string literal name",
+                    ));
+                    None
+                }
+            },
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    "`@[builtin]` expects exactly one string literal name",
+                ));
+                None
+            }
+        }
     }
 
     fn param_signature(&mut self, param: &Param) -> ParamSignature {
@@ -1304,7 +1397,7 @@ extend[T] & Box[ T ] {
         let signatures = signatures_ok(
             r#"
 @[builtin("trap")]
-pub extern fn trap() never;
+pub fn trap() never;
 "#,
         );
 
@@ -1318,6 +1411,42 @@ pub extern fn trap() never;
             signature.attributes,
             vec![FunctionAttribute::Builtin(BuiltinFunction::Trap)]
         );
+    }
+
+    #[test]
+    fn records_builtin_trait_attributes() {
+        let signatures = signatures_ok(
+            r#"
+@[builtin("Iterator")]
+pub trait Iterator {
+    type Item;
+}
+"#,
+        );
+
+        assert_eq!(signatures.traits.len(), 1);
+        let signature = signatures
+            .traits
+            .values()
+            .next()
+            .expect("iterator signature");
+        assert_eq!(signature.builtin, Some(BuiltinTrait::Iterator));
+    }
+
+    #[test]
+    fn bodyless_non_extern_functions_require_builtin_attribute() {
+        let (module, errors) = parse_module("fn missing_body() void;");
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowering = lower_module_types(&module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowering);
+
+        assert!(signatures.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("bodyless non-extern functions require `@[builtin]`")
+        }));
     }
 
     fn signatures_ok(source: &str) -> ItemSignatures {
