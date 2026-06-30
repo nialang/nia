@@ -318,6 +318,43 @@ pub fn compute_executable_reachability_incremental(
     state.reachability.clone()
 }
 
+pub fn extend_incremental_executable_reachability_from_checked_module(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    program_signatures: ExecutableSignatureIndex<'_>,
+    module: ReachableModuleInput<'_>,
+    checked_modules: &[ReachableModuleInput<'_>],
+) -> ExecutableReachability {
+    let modules_by_id = checked_modules
+        .iter()
+        .map(|checked_module| (checked_module.module_id, *checked_module))
+        .collect::<HashMap<_, _>>();
+    let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
+
+    loop {
+        let before = incremental_reachability_key(state);
+        let mut pending_modules = VecDeque::new();
+        extend_reachability_from_unscanned_items(
+            state,
+            &module,
+            program_signatures,
+            &mut pending_modules,
+        );
+        while let Some(module_id) = pending_modules.pop_front() {
+            if parse_ok_set.contains(&module_id) {
+                state.reachability.modules.insert(module_id);
+            }
+        }
+
+        if before == incremental_reachability_key(state) {
+            break;
+        }
+    }
+
+    state.reachability.stats = reachability_stats(&modules_by_id, &state.reachability.functions);
+    state.reachability.clone()
+}
+
 fn incremental_reachability_key(
     state: &IncrementalExecutableReachability,
 ) -> (usize, usize, usize, usize, usize, usize, usize) {

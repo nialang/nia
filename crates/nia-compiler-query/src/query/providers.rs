@@ -3,7 +3,9 @@ use super::*;
 use nia_defs::DefKind;
 use nia_executable_reachability::{
     ExecutableRootDefs, IncrementalExecutableReachability, ReachableModuleInput,
-    compute_executable_reachability_incremental, filter_semantic_facts_for_reachable_items,
+    compute_executable_reachability_incremental,
+    extend_incremental_executable_reachability_from_checked_module,
+    filter_semantic_facts_for_reachable_items,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -4741,6 +4743,61 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     }
                 },
             );
+            let checked_inputs = checked_by_id
+                .values()
+                .map(|state| ReachableModuleInput {
+                    module_id: state.module.id,
+                    defs: &state.module.defs,
+                    body_ir: &state.module.body_ir,
+                    semantic_facts: &state.module.semantic_facts,
+                    type_lowering: &state.module.type_lowering,
+                    type_normalization: &state.module.type_normalization,
+                })
+                .collect::<Vec<_>>();
+            reachability = time_module_provider(
+                db,
+                "executable_checked_modules.incremental_extend",
+                module_id,
+                || {
+                    extend_incremental_executable_reachability_from_checked_module(
+                        &mut reachability_state,
+                        &parse_ok,
+                        nia_executable_reachability::ExecutableSignatureIndex {
+                            function: &function_signature,
+                            struct_: &struct_signature,
+                            union: &union_signature,
+                            trait_: &trait_signature,
+                            trait_default_method: &trait_default_method,
+                        },
+                        checked_inputs
+                            .iter()
+                            .copied()
+                            .find(|input| input.module_id == module_id)
+                            .expect("just-checked module must have a reachable input"),
+                        &checked_inputs,
+                    )
+                },
+            );
+            for next_module_id in parse_ok.iter().copied() {
+                if !reachability.modules.contains(&next_module_id) {
+                    continue;
+                }
+                let is_stale = match checked_by_id.get(&next_module_id) {
+                    Some(state) => {
+                        reachability.functions.iter().any(|def_id| {
+                            def_id.module_id == next_module_id
+                                && !state.checked_functions.contains(def_id)
+                        }) || reachability.globals.iter().any(|def_id| {
+                            def_id.module_id == next_module_id
+                                && !state.checked_globals.contains(def_id)
+                        })
+                    }
+                    None => true,
+                };
+                if is_stale && next_module_id != module_id && !stale.contains(&next_module_id) {
+                    stale.push_back(next_module_id);
+                }
+            }
         }
         reachability_state.replace_reachability(reachability);
     };
