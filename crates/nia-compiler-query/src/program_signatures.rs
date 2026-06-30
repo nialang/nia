@@ -18,7 +18,9 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
     ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
-use nia_trait_solve::IntrinsicOverlap;
+use nia_trait_solve::{
+    AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
+};
 use nia_ty::{
     ArrayLenTy, ConstExprSummary, PrimitiveTy, TraitId, TyInterner, TyKind, TypeEquivalence,
     import_type_into,
@@ -914,7 +916,18 @@ fn validate_trait_impl(
             trait_id,
             impl_signature,
         });
-        if !trait_method_signature_matches(&required_signature, &actual_signature) {
+        if !trait_method_signature_matches(
+            module,
+            trait_impls,
+            &mut comparison_interner,
+            target_ty,
+            TraitId::Source(trait_id),
+            &trait_args,
+            impl_signature,
+            &trait_signatures,
+            &required_signature,
+            &actual_signature,
+        ) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
@@ -1156,6 +1169,9 @@ fn builtin_trait_method_signature_matches(
         (BuiltinTrait::Char, BuiltinTraitMethod::Char) => {
             builtin_char_method_signature_matches(module, actual)
         }
+        (BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter) => {
+            builtin_iterable_method_signature_matches(module, impl_signature, actual)
+        }
         _ => true,
     }
 }
@@ -1242,6 +1258,20 @@ fn builtin_iterator_method_signature_matches(
         return false;
     };
     types_equivalent(module.lowering, *elem, item)
+}
+
+fn builtin_iterable_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    actual: &FunctionSignature,
+) -> bool {
+    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
+        return false;
+    }
+    let Some(iter) = associated_type_ty(impl_signature, BuiltinTrait::ITER_ASSOC_TYPE) else {
+        return false;
+    };
+    types_equivalent(module.lowering, actual.return_type, iter)
 }
 
 fn builtin_len_method_signature_matches(
@@ -1968,9 +1998,61 @@ fn substitute_imported_type(
 }
 
 fn trait_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    trait_impls: &[ProgramTraitImplSignature],
+    interner: &mut TyInterner,
+    self_ty: nia_ids::InternedTyId,
+    trait_id: TraitId,
+    trait_args: &[nia_ids::InternedTyId],
+    impl_signature: &TraitImplSignature,
+    trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
     required: &nia_item_signatures::FunctionSignature,
     actual: &nia_item_signatures::FunctionSignature,
 ) -> bool {
+    let mut assumptions = vec![TraitGoal {
+        self_ty,
+        trait_id,
+        trait_args: trait_args.to_vec(),
+    }];
+    let mut associated_type_assumptions = impl_signature
+        .associated_types
+        .iter()
+        .map(|associated_type| AssociatedTypeProjectionEq {
+            goal: TraitGoal {
+                self_ty,
+                trait_id,
+                trait_args: trait_args.to_vec(),
+            },
+            name: associated_type.name.clone(),
+            ty: import_type_into(
+                interner,
+                &module.normalization.interner,
+                module.normalization.normalize(associated_type.ty),
+            ),
+        })
+        .collect::<Vec<_>>();
+    push_where_predicate_solver_assumptions(
+        module,
+        interner,
+        &impl_signature.where_predicates,
+        trait_signatures,
+        &mut assumptions,
+        &mut associated_type_assumptions,
+    );
+    let context = TraitSolverContext {
+        normalization: module.normalization,
+        trait_impls,
+        layouts: None,
+        local_module_id: module.module_id,
+        local_enums: &module.signatures.enums,
+        program_enums: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver_with_associated_type_assumptions(
+        interner,
+        &assumptions,
+        &associated_type_assumptions,
+    );
     required.generics == actual.generics
         && required.where_predicates == actual.where_predicates
         && required.params.len() == actual.params.len()
@@ -1979,10 +2061,168 @@ fn trait_method_signature_matches(
             .iter()
             .zip(actual.params.iter())
             .all(|(required, actual)| {
-                required.receiver == actual.receiver && required.ty == actual.ty
+                required.receiver == actual.receiver
+                    && solver.types_equivalent(required.ty, actual.ty)
             })
-        && required.return_type == actual.return_type
+        && solver.types_equivalent(required.return_type, actual.return_type)
         && required.is_variadic == actual.is_variadic
+}
+
+fn push_where_predicate_solver_assumptions(
+    module: &ExtensionModuleInput<'_>,
+    interner: &mut TyInterner,
+    predicates: &[WherePredicateSignature],
+    trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
+    assumptions: &mut Vec<TraitGoal>,
+    associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
+) {
+    for predicate in predicates {
+        let self_ty = import_type_into(
+            interner,
+            &module.normalization.interner,
+            module.normalization.normalize(predicate.ty),
+        );
+        for bound in &predicate.bounds {
+            let trait_ty = import_type_into(
+                interner,
+                &module.normalization.interner,
+                module.normalization.normalize(bound.trait_ty),
+            );
+            let Some((trait_id, trait_args)) = trait_id_and_args(interner, trait_ty) else {
+                continue;
+            };
+            push_trait_goal_assumption_with_supertraits(
+                module,
+                interner,
+                trait_signatures,
+                self_ty,
+                trait_id,
+                trait_args.clone(),
+                assumptions,
+            );
+            for binding in &bound.associated_type_bindings {
+                let ty = import_type_into(
+                    interner,
+                    &module.normalization.interner,
+                    module.normalization.normalize(binding.ty),
+                );
+                associated_type_assumptions.push(AssociatedTypeProjectionEq {
+                    goal: TraitGoal {
+                        self_ty,
+                        trait_id,
+                        trait_args: trait_args.clone(),
+                    },
+                    name: binding.name.clone(),
+                    ty,
+                });
+            }
+        }
+    }
+}
+
+fn push_trait_goal_assumption_with_supertraits(
+    module: &ExtensionModuleInput<'_>,
+    interner: &mut TyInterner,
+    trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
+    self_ty: InternedTyId,
+    trait_id: TraitId,
+    trait_args: Vec<InternedTyId>,
+    assumptions: &mut Vec<TraitGoal>,
+) {
+    push_trait_goal_assumption_with_supertraits_inner(
+        module,
+        interner,
+        trait_signatures,
+        self_ty,
+        trait_id,
+        trait_args,
+        assumptions,
+        &mut HashSet::new(),
+    );
+}
+
+fn push_trait_goal_assumption_with_supertraits_inner(
+    module: &ExtensionModuleInput<'_>,
+    interner: &mut TyInterner,
+    trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
+    self_ty: InternedTyId,
+    trait_id: TraitId,
+    trait_args: Vec<InternedTyId>,
+    assumptions: &mut Vec<TraitGoal>,
+    visited: &mut HashSet<(TraitId, Vec<InternedTyId>)>,
+) {
+    if !visited.insert((trait_id, trait_args.clone())) {
+        return;
+    }
+    if !assumptions.iter().any(|assumption| {
+        assumption.self_ty == self_ty
+            && assumption.trait_id == trait_id
+            && assumption.trait_args == trait_args
+    }) {
+        assumptions.push(TraitGoal {
+            self_ty,
+            trait_id,
+            trait_args: trait_args.clone(),
+        });
+    }
+    match trait_id {
+        TraitId::Builtin(trait_id) => {
+            for supertrait in trait_id.supertraits() {
+                let supertrait_args = if supertrait.preserves_trait_args {
+                    trait_args.clone()
+                } else {
+                    Vec::new()
+                };
+                push_trait_goal_assumption_with_supertraits_inner(
+                    module,
+                    interner,
+                    trait_signatures,
+                    self_ty,
+                    TraitId::Builtin(supertrait.trait_id),
+                    supertrait_args,
+                    assumptions,
+                    visited,
+                );
+            }
+        }
+        TraitId::Source(trait_id) => {
+            let Some(trait_signature) = trait_signatures.get(&trait_id).copied() else {
+                return;
+            };
+            let substitutions = trait_signature
+                .signature
+                .generics
+                .iter()
+                .zip(&trait_args)
+                .map(|(generic, arg)| (generic.clone(), *arg))
+                .collect::<HashMap<_, _>>();
+            for supertrait in &trait_signature.signature.supertraits {
+                let supertrait = substitute_imported_type(
+                    interner,
+                    module,
+                    trait_signature.interner,
+                    supertrait.ty,
+                    &substitutions,
+                    None,
+                );
+                let Some((supertrait_id, supertrait_args)) =
+                    trait_id_and_args(interner, supertrait)
+                else {
+                    continue;
+                };
+                push_trait_goal_assumption_with_supertraits_inner(
+                    module,
+                    interner,
+                    trait_signatures,
+                    self_ty,
+                    supertrait_id,
+                    supertrait_args,
+                    assumptions,
+                    visited,
+                );
+            }
+        }
+    }
 }
 
 fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {

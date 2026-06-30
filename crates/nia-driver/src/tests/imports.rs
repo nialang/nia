@@ -793,7 +793,7 @@ using std::*;
 
 fn main() usize {
     let mut total = 0usize;
-    for i in std::range(0usize..4usize) {
+    for i in 0usize..4usize {
         total += i;
     }
     total
@@ -806,28 +806,62 @@ fn main() usize {
 }
 
 #[test]
-fn std_facade_range_function_can_be_imported_directly() {
-    let root = temp_dir("std_facade_range_function_can_be_imported_directly");
+fn std_facade_for_in_iterates_range_literals() {
+    let root = temp_dir("std_facade_for_in_iterates_range_literals");
     write(
         &root.join("main.nia"),
         r#"
 using std;
 using std::*;
 
-fn sum_to(count: usize) usize {
+fn main() usize {
     let mut total = 0usize;
-    for i in range(0..count) {
+    let mut naked_count = 0usize;
+    for i in 0..10 {
+        naked_count += 1usize;
+    }
+    total += naked_count;
+    for i in 0usize..4usize {
         total += i;
+    }
+    for i in 2usize..=4usize {
+        total += i;
+    }
+    let mut count = 0usize;
+    for i in 5usize.. {
+        total += i;
+        count += 1usize;
+        if count == 3usize {
+            break;
+        }
     }
     total
 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_facade_iterator_adaptors_work_on_range_literals() {
+    let root = temp_dir("std_facade_iterator_adaptors_work_on_range_literals");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std;
+using std::*;
 
 fn main() usize {
     let mut total = 0usize;
-    for i in range(0..4usize) {
+    for i in (0usize..10usize).iter().take(3usize) {
         total += i;
     }
-    total + sum_to(4usize)
+    for i in (1usize..=3usize).iter().rev() {
+        total = total * 10usize + i;
+    }
+    total + (20usize..25usize).iter().count()
 }
 "#,
     );
@@ -847,7 +881,7 @@ using std::*;
 
 fn main() i64 {
     let mut total = 0i64;
-    for i in std::range[i64](1..4) {
+    for i in 1i64..4i64 {
         total += i;
     }
     total
@@ -870,7 +904,7 @@ using std::*;
 
 fn main() i32 {
     let mut total = 0i32;
-    for i in std::inclusive[i32](2..=4) {
+    for i in 2i32..=4i32 {
         total += i;
     }
     total
@@ -893,12 +927,11 @@ using std::*;
 
 fn main() usize {
     let mut total = 0usize;
-    for i in std::inclusive(2usize..=4usize) {
+    for i in 2usize..=4usize {
         total += i;
     }
-    let mut from = std::from(5usize..);
     let mut count = 0usize;
-    for i in from {
+    for i in 5usize.. {
         total += i;
         count += 1usize;
         if count == 3usize {
@@ -915,8 +948,8 @@ fn main() usize {
 }
 
 #[test]
-fn std_facade_exposes_range_constructors() {
-    let root = temp_dir("std_facade_exposes_range_constructors");
+fn std_facade_exposes_iter_range_types_under_iter_namespace() {
+    let root = temp_dir("std_facade_exposes_iter_range_types_under_iter_namespace");
     write(
         &root.join("main.nia"),
         r#"
@@ -924,7 +957,7 @@ using std;
 using std::*;
 
 fn main() usize {
-    let mut iter: std::Range[usize] = std::range(1usize..3usize);
+    let mut iter: std::iter::Range[usize] = (1usize..3usize).iter();
     let mut total = 0usize;
     for i in iter {
         total += i;
@@ -947,7 +980,7 @@ fn std_facade_does_not_reexport_range_module_namespace() {
 using std;
 
 fn main() void {
-    let mut iter: std::range::Range[usize] = std::range(1usize..3usize);
+    let mut iter: std::range::Range[usize] = (1usize..3usize).iter();
     _ = iter;
 }
 "#,
@@ -958,7 +991,7 @@ fn main() void {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("module namespace `range` is private")),
+            .contains("unknown namespace `range`")),
         "{:?}",
         program.diagnostics
     );
@@ -1185,7 +1218,7 @@ fn main() void {}
         &["hash", "traits"],
         &["hash", "impls"],
         &["fmt", "core"],
-        &["range"],
+        &["iter", "range"],
     ] {
         assert_eq!(
             std_module_declaration_visibility(&program.graph, path),

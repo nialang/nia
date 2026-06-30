@@ -128,6 +128,7 @@ pub enum BuiltinTrait {
     Start,
     End,
     Char,
+    Iterable,
     Iterator,
 }
 
@@ -207,6 +208,7 @@ pub enum BuiltinTraitMethod {
     Start,
     End,
     Char,
+    IterableIter,
     IteratorNext,
 }
 
@@ -222,6 +224,7 @@ pub enum BuiltinAssociatedType {
     Output,
     Target,
     Item,
+    Iter,
 }
 
 impl BuiltinAssociatedType {
@@ -230,6 +233,7 @@ impl BuiltinAssociatedType {
             "Output" => Some(Self::Output),
             "Target" => Some(Self::Target),
             "Item" => Some(Self::Item),
+            "Iter" => Some(Self::Iter),
             _ => None,
         }
     }
@@ -239,6 +243,7 @@ impl BuiltinAssociatedType {
             Self::Output => "Output",
             Self::Target => "Target",
             Self::Item => "Item",
+            Self::Iter => "Iter",
         }
     }
 }
@@ -455,6 +460,15 @@ impl BuiltinTraitMethod {
             ),
         ),
         (
+            Self::IterableIter,
+            BuiltinTraitMethodDescriptor::method(
+                "iter",
+                BuiltinTrait::Iterable,
+                1,
+                ReceiverKind::RefReadOnly,
+            ),
+        ),
+        (
             Self::IteratorNext,
             BuiltinTraitMethodDescriptor::place(
                 "next",
@@ -565,6 +579,7 @@ impl BuiltinTrait {
     pub const OUTPUT_ASSOC_TYPE: &'static str = "Output";
     pub const TARGET_ASSOC_TYPE: &'static str = "Target";
     pub const ITEM_ASSOC_TYPE: &'static str = "Item";
+    pub const ITER_ASSOC_TYPE: &'static str = "Iter";
 
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
@@ -599,10 +614,13 @@ impl BuiltinTrait {
     const START_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Start];
     const END_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::End];
     const CHAR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Char];
+    const ITERABLE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IterableIter];
     const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
+    const ITERABLE_ASSOC_TYPES: [BuiltinAssociatedType; 2] =
+        [BuiltinAssociatedType::Item, BuiltinAssociatedType::Iter];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::Deref,
@@ -622,7 +640,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -652,6 +670,7 @@ impl BuiltinTrait {
         Self::Start,
         Self::End,
         Self::Char,
+        Self::Iterable,
         Self::Iterator,
     ];
 
@@ -886,6 +905,14 @@ impl BuiltinTrait {
             0,
             &Self::NO_ASSOC_TYPES,
             &Self::CHAR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Iterable,
+            "Iterable",
+            0,
+            &Self::ITERABLE_ASSOC_TYPES,
+            &Self::ITERABLE_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
         Self::descriptor_entry(

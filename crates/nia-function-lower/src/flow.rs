@@ -2,6 +2,7 @@
 use super::support::{LoweringContext, PatternConditionContext, SwitchStmtArmContext};
 use super::*;
 use nia_ids::TyInternerIndex;
+use nia_ids::{BuiltinTrait, BuiltinTraitMethod};
 
 impl FunctionLowerer {
     pub(super) fn lower_body_into(
@@ -679,13 +680,22 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) {
-        let iter_value = self.lower_value_expr(&for_stmt.iter, scope, current, ops, blocks);
-        let iter_local = self.alloc_temp_local(for_stmt.iter.span, for_stmt.iter.ty);
+        let iterable_value = self.lower_value_expr(&for_stmt.iter, scope, current, ops, blocks);
+        let iterable_local = self.alloc_temp_local(for_stmt.iter.span, for_stmt.iter.ty);
+        ops.push(FunctionOp::Binding(FunctionBinding {
+            local_id: iterable_local,
+            name: "__for_iterable".to_string(),
+            ty: for_stmt.iter.ty,
+            value: Some(iterable_value),
+            is_let: false,
+        }));
+        let iterator_value = self.iterable_iter_expr(span, iterable_local, for_stmt);
+        let iter_local = self.alloc_temp_local(span, for_stmt.iterator_ty);
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: iter_local,
             name: "__for_iter".to_string(),
-            ty: for_stmt.iter.ty,
-            value: Some(iter_value),
+            ty: for_stmt.iterator_ty,
+            value: Some(iterator_value),
             is_let: false,
         }));
 
@@ -706,13 +716,8 @@ impl FunctionLowerer {
         let header_current = loop_header;
         let optional_item_ty = self.optional_ty(for_stmt.item_ty);
         let next_local = self.alloc_temp_local(span, optional_item_ty);
-        let next_value = self.iterator_next_expr(
-            span,
-            iter_local,
-            for_stmt.iter.ty,
-            for_stmt.iter_self_ty,
-            optional_item_ty,
-        );
+        let next_value =
+            self.iterator_next_expr(span, iter_local, for_stmt.iterator_ty, optional_item_ty);
         header_ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: next_local,
             name: "__for_next".to_string(),
@@ -794,7 +799,6 @@ impl FunctionLowerer {
         span: Span,
         iter_local: nia_ids::LocalId,
         receiver_ty: nia_ids::InternedTyId,
-        iter_self_ty: nia_ids::InternedTyId,
         optional_item_ty: nia_ids::InternedTyId,
     ) -> FunctionExpr {
         FunctionExpr {
@@ -804,12 +808,36 @@ impl FunctionLowerer {
                 callee: FunctionCallee::BuiltinPlaceMethod {
                     trait_id: BuiltinTrait::Iterator,
                     method: BuiltinTraitMethod::IteratorNext,
-                    self_ty: iter_self_ty,
+                    self_ty: receiver_ty,
                     trait_args: Vec::new(),
                     receiver: Box::new(FunctionExpr {
                         span,
                         ty: receiver_ty,
                         kind: FunctionExprKind::Local(iter_local),
+                    }),
+                },
+                args: Vec::new(),
+            },
+        }
+    }
+
+    fn iterable_iter_expr(
+        &self,
+        span: Span,
+        iterable_local: nia_ids::LocalId,
+        for_stmt: &TypedForIn,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span,
+            ty: for_stmt.iterator_ty,
+            kind: FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinMethod {
+                    method: FunctionBuiltinMethod::Iter,
+                    self_ty: for_stmt.iterable_self_ty,
+                    receiver: Box::new(FunctionExpr {
+                        span,
+                        ty: for_stmt.iter.ty,
+                        kind: FunctionExprKind::Local(iterable_local),
                     }),
                 },
                 args: Vec::new(),

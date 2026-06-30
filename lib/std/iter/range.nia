@@ -1,5 +1,11 @@
+using super::{DoubleEndedIterator, Rev};
+
 pub trait Step {
     fn forward_checked(self) ?Self;
+}
+
+pub trait StepBack {
+    fn backward_checked(self) ?Self;
 }
 
 pub struct Range[T] {
@@ -23,7 +29,7 @@ extend[T] Range[T] {
         { start: start, end: end }
     }
 
-    pub fn from(bounds: T..T) Range[T] {
+    pub fn from_bounds(bounds: T..T) Range[T] {
         Range[T]::init(bounds.start(), bounds.end())
     }
 
@@ -56,6 +62,42 @@ where T: Step + Ord[T]
     }
 }
 
+extend[T] Range[T] : DoubleEndedIterator
+where T: Step + StepBack + Ord[T]
+{
+    pub fn next_back(&mut self) ?T {
+        if self.start >= self.end {
+            null
+        } else {
+            self.end = if ?previous = self.end.backward_checked() {
+                previous
+            } or null {
+                self.start
+            };
+            ?self.end
+        }
+    }
+}
+
+extend[T] Range[T]
+where T: Step + StepBack + Ord[T]
+{
+    pub fn rev(self) Rev[Range[T]] {
+        Rev[Range[T]]::init(self)
+    }
+}
+
+extend[T] T..T : Iterable
+where T: Step + Ord[T]
+{
+    type Item = T;
+    type Iter = Range[T];
+
+    pub fn iter(&self) Range[T] {
+        Range[T]::from_bounds(self.*)
+    }
+}
+
 extend[T] RangeInclusive[T]
 where T: Ord[T]
 {
@@ -63,7 +105,7 @@ where T: Ord[T]
         { current: start, end: end, done: start > end }
     }
 
-    pub fn from(bounds: T..=T) RangeInclusive[T] {
+    pub fn from_bounds(bounds: T..=T) RangeInclusive[T] {
         RangeInclusive[T]::init(bounds.start(), bounds.end())
     }
 
@@ -100,12 +142,53 @@ where T: Step + Ord[T] + Eq[T]
     }
 }
 
+extend[T] RangeInclusive[T] : DoubleEndedIterator
+where T: Step + StepBack + Ord[T] + Eq[T]
+{
+    pub fn next_back(&mut self) ?T {
+        if self.done {
+            return null;
+        }
+        let value = self.end;
+        if value == self.current {
+            self.done = true;
+        } else {
+            self.end = if ?previous = self.end.backward_checked() {
+                previous
+            } or null {
+                    self.done = true;
+                    self.current
+            };
+        }
+        ?value
+    }
+}
+
+extend[T] RangeInclusive[T]
+where T: Step + StepBack + Ord[T] + Eq[T]
+{
+    pub fn rev(self) Rev[RangeInclusive[T]] {
+        Rev[RangeInclusive[T]]::init(self)
+    }
+}
+
+extend[T] T..=T : Iterable
+where T: Step + Ord[T] + Eq[T]
+{
+    type Item = T;
+    type Iter = RangeInclusive[T];
+
+    pub fn iter(&self) RangeInclusive[T] {
+        RangeInclusive[T]::from_bounds(self.*)
+    }
+}
+
 extend[T] RangeFrom[T] {
     pub fn init(start: T) RangeFrom[T] {
         { current: start, done: false }
     }
 
-    pub fn from(bounds: T..) RangeFrom[T] {
+    pub fn from_bounds(bounds: T..) RangeFrom[T] {
         RangeFrom[T]::init(bounds.start())
     }
 
@@ -134,27 +217,26 @@ where T: Step
     }
 }
 
-pub fn range[T](bounds: T..T) Range[T]
-where T: Step + Ord[T]
-{
-    Range[T]::from(bounds)
-}
-
-pub fn inclusive[T](bounds: T..=T) RangeInclusive[T]
-where T: Step + Ord[T] + Eq[T]
-{
-    RangeInclusive[T]::from(bounds)
-}
-
-pub fn from[T](bounds: T..) RangeFrom[T]
+extend[T] T.. : Iterable
 where T: Step
 {
-    RangeFrom[T]::from(bounds)
+    type Item = T;
+    type Iter = RangeFrom[T];
+
+    pub fn iter(&self) RangeFrom[T] {
+        RangeFrom[T]::from_bounds(self.*)
+    }
 }
 
 extend i8 : Step {
     pub fn forward_checked(self) ?i8 {
         if self == i8::MAX { null } else { ?(self + 1i8) }
+    }
+}
+
+extend i8 : StepBack {
+    pub fn backward_checked(self) ?i8 {
+        if self == i8::MIN { null } else { ?(self - 1i8) }
     }
 }
 
@@ -164,9 +246,21 @@ extend i16 : Step {
     }
 }
 
+extend i16 : StepBack {
+    pub fn backward_checked(self) ?i16 {
+        if self == i16::MIN { null } else { ?(self - 1i16) }
+    }
+}
+
 extend i32 : Step {
     pub fn forward_checked(self) ?i32 {
         if self == i32::MAX { null } else { ?(self + 1i32) }
+    }
+}
+
+extend i32 : StepBack {
+    pub fn backward_checked(self) ?i32 {
+        if self == i32::MIN { null } else { ?(self - 1i32) }
     }
 }
 
@@ -176,9 +270,21 @@ extend i64 : Step {
     }
 }
 
+extend i64 : StepBack {
+    pub fn backward_checked(self) ?i64 {
+        if self == i64::MIN { null } else { ?(self - 1i64) }
+    }
+}
+
 extend i128 : Step {
     pub fn forward_checked(self) ?i128 {
         if self == i128::MAX { null } else { ?(self + 1i128) }
+    }
+}
+
+extend i128 : StepBack {
+    pub fn backward_checked(self) ?i128 {
+        if self == i128::MIN { null } else { ?(self - 1i128) }
     }
 }
 
@@ -188,9 +294,21 @@ extend isize : Step {
     }
 }
 
+extend isize : StepBack {
+    pub fn backward_checked(self) ?isize {
+        if self == isize::MIN { null } else { ?(self - 1isize) }
+    }
+}
+
 extend u8 : Step {
     pub fn forward_checked(self) ?u8 {
         if self == u8::MAX { null } else { ?(self + 1u8) }
+    }
+}
+
+extend u8 : StepBack {
+    pub fn backward_checked(self) ?u8 {
+        if self == 0u8 { null } else { ?(self - 1u8) }
     }
 }
 
@@ -200,9 +318,21 @@ extend u16 : Step {
     }
 }
 
+extend u16 : StepBack {
+    pub fn backward_checked(self) ?u16 {
+        if self == 0u16 { null } else { ?(self - 1u16) }
+    }
+}
+
 extend u32 : Step {
     pub fn forward_checked(self) ?u32 {
         if self == u32::MAX { null } else { ?(self + 1u32) }
+    }
+}
+
+extend u32 : StepBack {
+    pub fn backward_checked(self) ?u32 {
+        if self == 0u32 { null } else { ?(self - 1u32) }
     }
 }
 
@@ -212,8 +342,20 @@ extend u64 : Step {
     }
 }
 
+extend u64 : StepBack {
+    pub fn backward_checked(self) ?u64 {
+        if self == 0u64 { null } else { ?(self - 1u64) }
+    }
+}
+
 extend usize : Step {
     pub fn forward_checked(self) ?usize {
         if self == usize::MAX { null } else { ?(self + 1usize) }
+    }
+}
+
+extend usize : StepBack {
+    pub fn backward_checked(self) ?usize {
+        if self == 0usize { null } else { ?(self - 1usize) }
     }
 }

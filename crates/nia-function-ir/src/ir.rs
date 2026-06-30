@@ -565,6 +565,7 @@ pub enum FunctionBuiltinMethod {
     Start,
     End,
     Char,
+    Iter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -8,9 +8,9 @@ use nia_body_ir::{
     TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
     TypedSwitchPatternKind, TypedWhile,
 };
-use nia_ids::{BuiltinTraitMethod, InternedTyId, LocalId, ModuleId};
+use nia_ids::{InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,

@@ -72,6 +72,235 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_goal_args_normalize_associated_type_projections() {
+    let root = temp_dir("trait_goal_args_normalize_associated_type_projections");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+}
+
+trait Back[Item] {
+    fn back(& self) Item;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Source {
+    type Item = T;
+}
+
+extend[T] Box[T] : Back[T] {
+    fn back(& self) T {
+        self.value
+    }
+}
+
+fn read[B](value: & B) [B as Source]::Item
+where B: Source + Back[[B as Source]::Item]
+{
+    value.back()
+}
+
+fn main() i32 {
+    let box = Box[i32] { value: 7 };
+    read[Box[i32]](&box)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn subtrait_methods_can_return_inherited_associated_type_projection() {
+    let root = temp_dir("subtrait_methods_can_return_inherited_associated_type_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fn next(&mut self) ?[Self as Source]::Item;
+}
+
+trait Back : Source {
+    fn next_back(&mut self) ?[Self as Source]::Item;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        ?self.value
+    }
+}
+
+extend Counter : Back {
+    fn next_back(&mut self) ?i32 {
+        ?self.value
+    }
+}
+
+fn read_back[B](value: &mut B) ?[B as Source]::Item
+where B: Back
+{
+    value.next_back()
+}
+
+fn main() i32 {
+    let mut counter: Counter = { value: 7 };
+    if ?value = read_back[Counter](&mut counter) {
+        value
+    } or null {
+        0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_subtrait_methods_can_return_inherited_associated_type_projection() {
+    let root = temp_dir("generic_subtrait_methods_can_return_inherited_associated_type_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+}
+
+trait Back : Source {
+    fn next_back(&mut self) ?[Self as Source]::Item;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Source {
+    type Item = T;
+}
+
+extend[T] Box[T] : Back {
+    fn next_back(&mut self) ?T {
+        ?self.value
+    }
+}
+
+fn main() i32 {
+    let mut value: Box[i32] = { value: 7 };
+    if ?item = value.next_back() {
+        item
+    } or null {
+        0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn source_subtrait_methods_can_return_builtin_associated_type_projection() {
+    let root = temp_dir("source_subtrait_methods_can_return_builtin_associated_type_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Back : Iterator {
+    fn next_back(&mut self) ?[Self as Iterator]::Item;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Iterator {
+    type Item = T;
+
+    fn next(&mut self) ?T {
+        ?self.value
+    }
+}
+
+extend[T] Box[T] : Back {
+    fn next_back(&mut self) ?T {
+        self.next()
+    }
+}
+
+fn main() i32 {
+    let mut value: Box[i32] = { value: 7 };
+    if ?item = value.next_back() {
+        item
+    } or null {
+        0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_wrapper_impl_can_return_where_bound_builtin_associated_projection() {
+    let root =
+        temp_dir("generic_wrapper_impl_can_return_where_bound_builtin_associated_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Back : Iterator {
+    fn next_back(&mut self) ?[Self as Iterator]::Item;
+}
+
+struct Rev[I]
+where I: Back
+{
+    iter: I,
+}
+
+extend[I] Rev[I] : Iterator
+where I: Back
+{
+    type Item = [I as Iterator]::Item;
+
+    fn next(&mut self) ?[I as Iterator]::Item {
+        self.iter.next_back()
+    }
+}
+
+extend[I] Rev[I] : Back
+where I: Back
+{
+    fn next_back(&mut self) ?[I as Iterator]::Item {
+        self.iter.next()
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn associated_type_shorthand_normalizes_nested_generic_wrapper_calls() {
     let root = temp_dir("associated_type_shorthand_normalizes_nested_generic_wrapper_calls");
     write(

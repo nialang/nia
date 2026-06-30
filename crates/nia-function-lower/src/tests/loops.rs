@@ -275,7 +275,8 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
                     },
                 },
                 item_ty,
-                iter_self_ty: item_ty,
+                iterable_self_ty: item_ty,
+                iterator_ty: item_ty,
                 iter: TypedExpr {
                     span,
                     ty: item_ty,

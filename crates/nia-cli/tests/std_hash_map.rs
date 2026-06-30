@@ -527,6 +527,16 @@ fn run(init: process::Init) mem::Error!void {
     if entry_count != map.len() {
         return mem::Error::Invalid!;
     }
+    let mut direct_entry_count = 0usize;
+    for entry in map {
+        direct_entry_count += 1usize;
+        if entry.key().* == 42 and entry.value().* != 12 {
+            return mem::Error::Invalid!;
+        }
+    }
+    if direct_entry_count != map.len() {
+        return mem::Error::Invalid!;
+    }
 
     if ?entry = map.remove_entry(&42) { if entry.key().* != 42 or entry.value().* != 12 {
                 return mem::Error::Invalid!;

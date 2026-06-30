@@ -209,12 +209,13 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Continue => TypedStmtKind::Continue,
             StmtKind::Defer(expr) => TypedStmtKind::Defer(self.lower_expr(expr)),
             StmtKind::ForIn(for_stmt) => {
-                let iter_self_ty = self.expr_ty(&for_stmt.iter).unwrap_or_else(|| self.error());
-                let item_ty = self.lower_for_iterator_item_type(iter_self_ty);
+                let iterable_self_ty = self.expr_ty(&for_stmt.iter).unwrap_or_else(|| self.error());
+                let (item_ty, iterator_ty) = self.lower_for_iterable_parts(iterable_self_ty);
                 TypedStmtKind::ForIn(Box::new(TypedForIn {
                     pattern: self.lower_pattern(&for_stmt.pattern, item_ty),
                     item_ty,
-                    iter_self_ty,
+                    iterable_self_ty,
+                    iterator_ty,
                     iter: self.lower_expr(&for_stmt.iter),
                     body: self.lower_body(&for_stmt.body),
                 }))
