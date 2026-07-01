@@ -10,7 +10,7 @@ use nia_ast::{
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{InternedTyId, ReceiverKind, TraitImplId, Visibility};
+use nia_ids::{BuiltinType, InternedTyId, ReceiverKind, TraitImplId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -781,10 +781,28 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TypeAliasSignature {
                 generics: generic_param_names(&alias.generics),
-                target: self.ty_for_type(&alias.ty),
+                target: self.type_alias_target(item, alias),
                 span: item.span,
             },
         );
+    }
+
+    fn type_alias_target(&mut self, item: &ItemTreeNode, alias: &TypeAliasItem) -> InternedTyId {
+        if let Some(ty) = &alias.ty {
+            return self.ty_for_type(ty);
+        }
+        let Some(builtin) = self.builtin_type_attribute(&item.attributes) else {
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    codes::ITEM_SIGNATURE_LOWERED_TYPE,
+                    "bodyless type alias without valid builtin attribute reached item signatures",
+                )
+                .primary(item.span, "this type alias has no target type")
+                .finish(),
+            );
+            return self.error();
+        };
+        self.lowered.interner.builtin_type(builtin)
     }
 
     fn collect_function(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
@@ -1104,6 +1122,46 @@ impl<'a> SignatureCollector<'a> {
                         codes::ITEM_SIGNATURE,
                         attribute.span,
                         format!("unknown trait attribute `@[{}]`", meta.path.join(".")),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    fn builtin_type_attribute(&mut self, attributes: &[Attribute]) -> Option<BuiltinType> {
+        let mut out = None;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            match meta.path.as_slice() {
+                [name] if name == "builtin" => {
+                    let builtin_name =
+                        self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
+                    if let Some(builtin_name) = builtin_name {
+                        if let Some(builtin) = BuiltinType::from_name(builtin_name) {
+                            if out.replace(builtin).is_some() {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::ITEM_SIGNATURE,
+                                    attribute.span,
+                                    "duplicate `@[builtin]` type attribute",
+                                ));
+                            }
+                        } else {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::ITEM_SIGNATURE,
+                                attribute.span,
+                                format!("unknown builtin type `{builtin_name}`"),
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        format!("unknown type attribute `@[{}]`", meta.path.join(".")),
                     ));
                 }
             }
@@ -1598,6 +1656,17 @@ extend[T, N: usize] [N]T : Len {
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_traits, expected_traits);
 
+        let expected_types = BuiltinType::ALL
+            .iter()
+            .map(|builtin| builtin.name())
+            .collect::<BTreeSet<_>>();
+        let actual_types = declarations
+            .types
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_types, expected_types);
+
         let expected_extends = [
             "i8",
             "i16",
@@ -1757,6 +1826,7 @@ extend[T, N: usize] [N]T : Len {
     #[derive(Debug, Default)]
     struct SourceBuiltinDeclarations {
         functions: Vec<String>,
+        types: Vec<String>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
         extends: BTreeMap<String, Vec<String>>,
     }
@@ -1814,6 +1884,30 @@ extend[T, N: usize] [N]T : Len {
                                 path.display()
                             );
                             out.functions.push(name);
+                        }
+                    }
+                    nia_ast::ItemKind::TypeAlias(alias) => {
+                        if let Some(name) = builtin_attribute(&item.attributes) {
+                            assert!(
+                                BuiltinType::from_name(&name).is_some(),
+                                "unknown builtin type `{name}` in {}",
+                                path.display()
+                            );
+                            assert_eq!(
+                                alias.name, name,
+                                "builtin type source item name must match `@[builtin]` name"
+                            );
+                            assert!(
+                                alias.ty.is_none(),
+                                "builtin type declaration `{name}` in {} must be bodyless",
+                                path.display()
+                            );
+                            assert!(
+                                !out.types.contains(&name),
+                                "duplicate builtin type declaration `{name}` in {}",
+                                path.display()
+                            );
+                            out.types.push(name);
                         }
                     }
                     nia_ast::ItemKind::Trait(item_trait) => {

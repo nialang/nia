@@ -406,6 +406,14 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use trait type directly"),
             )),
+            Some(TyKind::BuiltinType(builtin)) => self.diagnostics.push(Diagnostic::user_error_at(
+                codes::STATIC_CHECK,
+                span,
+                format!(
+                    "{context_desc} cannot use builtin type `{}` directly",
+                    builtin.name()
+                ),
+            )),
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 span,

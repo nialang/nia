@@ -805,7 +805,11 @@ impl<'a> BodyChecker<'a> {
                         .any(|arg| self.type_contains_generic_param(*arg))
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. },
             )
             | None => false,
         }
@@ -839,6 +843,7 @@ impl<'a> BodyChecker<'a> {
                     substitutions.insert(name, actual);
                 }
             }
+            Some(TyKind::BuiltinType(_)) => {}
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,

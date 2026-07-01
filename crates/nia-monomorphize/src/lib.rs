@@ -368,9 +368,11 @@ impl MonoCollector<'_> {
                         .iter()
                         .any(|arg| self.ty_contains_generic_param(module_id, *arg))
             }
-            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ComptimeOnly | TyKind::Error => {
-                false
-            }
+            TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. }
+            | TyKind::ComptimeOnly
+            | TyKind::Error => false,
         }
     }
 
@@ -592,6 +594,7 @@ impl MonoCollector<'_> {
             }
             TyKind::GenericParam(_)
             | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ComptimeOnly
             | TyKind::Error => false,
@@ -662,6 +665,7 @@ impl MonoCollector<'_> {
                 .and_then(|substitutions| substitutions.get(&name))
                 .copied()
                 .unwrap_or(ty),
+            TyKind::BuiltinType(_) => ty,
             TyKind::Pointer { is_readonly, elem } => {
                 let elem =
                     self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
@@ -1090,6 +1094,7 @@ impl MonoCollector<'_> {
             TyKind::Error => TyKind::Error,
             TyKind::ComptimeOnly => TyKind::ComptimeOnly,
             TyKind::Primitive(primitive) => TyKind::Primitive(primitive),
+            TyKind::BuiltinType(builtin) => TyKind::BuiltinType(builtin),
             TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
             TyKind::GenericParam(name) => TyKind::GenericParam(name),
             TyKind::Pointer { is_readonly, elem } => TyKind::Pointer {

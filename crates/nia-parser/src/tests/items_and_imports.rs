@@ -447,3 +447,31 @@ extend usize {
         "{errors:?}"
     );
 }
+
+#[test]
+fn bodyless_type_aliases_require_builtin_attribute() {
+    let (module, errors) = parse_module(
+        r#"
+@[builtin("AsmConfig")]
+pub type AsmConfig;
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::TypeAlias(alias) = &module.items[0].kind else {
+        panic!("expected type alias");
+    };
+    assert_eq!(alias.name, "AsmConfig");
+    assert!(alias.ty.is_none());
+
+    let (_, errors) = parse_module(
+        r#"
+type Token;
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected `=` in type alias")),
+        "{errors:?}"
+    );
+}

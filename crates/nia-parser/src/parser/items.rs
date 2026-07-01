@@ -44,7 +44,7 @@ impl Parser {
         } else if self.at(TokenKind::Enum) {
             ItemKind::Enum(self.parse_enum()?)
         } else if self.at(TokenKind::Type) {
-            ItemKind::TypeAlias(self.parse_type_alias()?)
+            ItemKind::TypeAlias(self.parse_type_alias(item_has_builtin_attribute(&attributes))?)
         } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
             ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
         } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Static) {
@@ -642,13 +642,23 @@ impl Parser {
         })
     }
 
-    fn parse_type_alias(&mut self) -> Option<TypeAliasItem> {
+    fn parse_type_alias(&mut self, is_builtin_type: bool) -> Option<TypeAliasItem> {
+        let start = self.peek().span.start;
         self.expect(TokenKind::Type, "expected `type`")?;
         let name = self.expect_text(TokenKind::Ident, "expected type alias name")?;
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
-        self.expect(TokenKind::Eq, "expected `=` in type alias")?;
-        let ty = self.parse_type_until(&[TokenKind::Semicolon])?;
+        let ty = if self.eat(TokenKind::Eq).is_some() {
+            Some(self.parse_type_until(&[TokenKind::Semicolon])?)
+        } else if is_builtin_type {
+            None
+        } else {
+            self.error_at(
+                Span::new(start, self.previous_end()),
+                "expected `=` in type alias",
+            );
+            return None;
+        };
         self.expect(TokenKind::Semicolon, "expected `;` after type alias")?;
         Some(TypeAliasItem {
             name,

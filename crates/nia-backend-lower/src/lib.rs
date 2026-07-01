@@ -772,6 +772,7 @@ impl ReachableAggregateRoots {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. },
             )

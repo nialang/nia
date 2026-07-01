@@ -951,6 +951,10 @@ impl<'a> BodyChecker<'a> {
                 self.interner.get(specific).cloned(),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
+            Some(TyKind::BuiltinType(general_builtin)) => matches!(
+                self.interner.get(specific).cloned(),
+                Some(TyKind::BuiltinType(specific_builtin)) if general_builtin == specific_builtin
+            ),
             Some(TyKind::Vector {
                 elem: general_elem,
                 lanes: general_lanes,
@@ -1394,6 +1398,9 @@ impl<'a> BodyChecker<'a> {
                     substitutions.insert(name.clone(), actual);
                     true
                 }
+            }
+            Some(TyKind::BuiltinType(pattern_builtin)) => {
+                matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
             }
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,

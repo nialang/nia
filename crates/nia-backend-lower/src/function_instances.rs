@@ -370,6 +370,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             TyKind::GenericParam(_)
             | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
             | TyKind::ComptimeOnly
             | TyKind::Error => false,
@@ -897,7 +898,11 @@ pub(crate) fn contains_generic_param(
                     .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
         }
         Some(
-            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ComptimeOnly | TyKind::Error,
+            TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. }
+            | TyKind::ComptimeOnly
+            | TyKind::Error,
         )
         | None => false,
     };
@@ -964,7 +969,11 @@ pub(crate) fn contains_unresolved_projection(
         }
         Some(TyKind::GenericParam(_))
         | Some(
-            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            TyKind::Error
+            | TyKind::ComptimeOnly
+            | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. },
         )
         | None => false,
     }
@@ -1041,7 +1050,12 @@ pub(crate) fn contains_error(
                     .any(|arg| contains_error(arg, ty_kind, None))
         }
         Some(TyKind::GenericParam(_))
-        | Some(TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. })
+        | Some(
+            TyKind::ComptimeOnly
+            | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. },
+        )
         | None => false,
     };
     if let Some(cache) = cache {

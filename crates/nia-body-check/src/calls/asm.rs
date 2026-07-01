@@ -153,6 +153,16 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Nominal { .. },
             ) => {}
+            Some(TyKind::BuiltinType(builtin)) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "{context} cannot use builtin type `{}` directly",
+                        builtin.name()
+                    ),
+                ));
+            }
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::Projection { .. }

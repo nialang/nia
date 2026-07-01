@@ -2065,6 +2065,7 @@ fn substitute_imported_type(
                 args,
             })
         }
+        Some(TyKind::BuiltinType(builtin)) => target_interner.intern(TyKind::BuiltinType(*builtin)),
         Some(TyKind::TraitObject {
             is_readonly,
             trait_id,
@@ -2640,6 +2641,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }
+            | TyKind::BuiltinType(_)
             | TyKind::BuiltinTrait { .. }
             | TyKind::SlicePointee { .. }
             | TyKind::TraitObject { .. }

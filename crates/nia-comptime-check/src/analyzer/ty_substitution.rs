@@ -206,7 +206,11 @@ pub(super) fn substitute_ty_generics_in_interner(
             })
         }
         Some(
-            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+            TyKind::Error
+            | TyKind::ComptimeOnly
+            | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. },
         )
         | None => ty,
     }

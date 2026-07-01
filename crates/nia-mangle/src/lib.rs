@@ -213,6 +213,9 @@ where
                 )
             }
         }
+        Some(TyKind::BuiltinType(builtin)) => {
+            format!("builtin_type__{}", sanitize_symbol_part(builtin.name()))
+        }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let base = sanitize_symbol_part(trait_id.name());
             if args.is_empty() {

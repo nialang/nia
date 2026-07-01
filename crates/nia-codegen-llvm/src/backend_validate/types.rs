@@ -164,6 +164,14 @@ impl BackendValidator<'_> {
                 span,
                 format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
             )),
+            TyKind::BuiltinType(builtin) => self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR type {ty:?} is builtin type `{}` before LLVM codegen",
+                    builtin.name()
+                ),
+            )),
             TyKind::Vector { elem, lanes } => self.validate_vector_type(ty, span, elem, lanes),
             TyKind::Error => {
                 let subject = self
@@ -439,6 +447,7 @@ impl BackendValidator<'_> {
             }
             TyKind::BuiltinTrait { .. } => Some(TypeLayout { size: 0, align: 1 }),
             TyKind::ComptimeOnly
+            | TyKind::BuiltinType(_)
             | TyKind::Projection { .. }
             | TyKind::GenericParam(_)
             | TyKind::Error => None,

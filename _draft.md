@@ -20,6 +20,11 @@ The first builtin-source pass is mostly complete:
 - `Simd` and `SimdMask` are source-declared builtin traits over native vector
   types. SIMD builtin function declarations now use `[V as Simd]::Lane` instead
   of `void` placeholders.
+- Primitive integer associated values such as `i32::MIN` and `usize::MAX` are
+  declared as bodyless builtin inherent associated comptimes in
+  `std::builtin::primitive`.
+- `std::builtin::AsmConfig` is a source-visible bodyless builtin type, and
+  `std::builtin::asm` now takes `AsmConfig` rather than a `void` placeholder.
 
 This draft now tracks the remaining design holes rather than the completed
 module split.
@@ -88,15 +93,10 @@ builtin associated comptime projections their declared type. Lowering concrete
 `[u8x16 as Simd]::Lanes` to a comptime value remains separate future work,
 needed before lane-count constraints can be expressed in source signatures.
 
-## Open: Inline Assembly Config
+## Completed: Inline Assembly Config
 
-`std::builtin::asm` still uses a `void` parameter placeholder because the
-argument is not an ordinary runtime value. The checker currently accepts only an
-untyped struct literal with compiler-validated fields.
-
-Do not change this to `&void`: that would suggest runtime reference semantics
-where none exist. The cleaner long-term shape is probably an opaque builtin
-config type:
+`std::builtin::asm` accepts a compiler-checked configuration literal. The source
+API now names that special shape explicitly:
 
 ```nia
 @[builtin("AsmConfig")]
@@ -106,22 +106,23 @@ pub type AsmConfig;
 pub fn asm(config: AsmConfig) void;
 ```
 
-That should remain lower priority than the SIMD/associated-comptime design.
+`AsmConfig` is an opaque builtin type in the compiler type model. It has no
+runtime layout and should not reach backend IR except through the dedicated
+inline-asm expression lowering path.
 
-## Open: Primitive Associated Values
+## Completed: Primitive Associated Values
 
-Primitive scalar types remain language primitives, but associated values such as
-`i32::MIN` and `i32::MAX` should get source-visible declarations. Existing
-`extend` associated comptime values are likely the right source shape:
+Primitive scalar types remain language primitives, but integer associated values
+are now source-visible declarations:
 
 ```nia
 @[builtin("i32")]
 extend i32 {
-    pub comptime MIN: i32 = -2147483648i32;
-    pub comptime MAX: i32 = 2147483647i32;
+    pub comptime MIN: i32;
+    pub comptime MAX: i32;
 }
 ```
 
-This should be revisited after trait associated comptime values are designed, so
-primitive inherent comptime values and trait associated comptime values share
-one coherent model.
+The actual values remain target-aware compiler semantics, especially for
+`usize` and `isize`; the std declarations provide the source shape and
+documentation anchor.

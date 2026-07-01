@@ -1014,6 +1014,7 @@ impl<'a> ModuleLowerer<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
+            Some(TyKind::BuiltinType(_)) => self.finish_type_instantiation(key, ty, can_use_cache),
             Some(TyKind::TraitObject {
                 is_readonly,
                 trait_id,
@@ -1518,6 +1519,9 @@ impl<'a> ModuleLowerer<'a> {
                     true
                 }
             }
+            Some(TyKind::BuiltinType(pattern_builtin)) => {
+                matches!(self.ty_kind(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
+            }
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
@@ -1848,7 +1852,11 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. },
             )
             | None => true,
         }
@@ -1930,7 +1938,11 @@ impl<'a> ModuleLowerer<'a> {
                         .any(|arg| self.extension_pattern_contains_generic(arg.ty))
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. },
             )
             | None => false,
         }

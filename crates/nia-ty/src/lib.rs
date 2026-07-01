@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-pub use nia_ids::{BuiltinTrait, LayoutBuiltin, TraitId};
+pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
 };
@@ -56,6 +56,7 @@ pub enum TyKind {
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
+    BuiltinType(BuiltinType),
     BuiltinTrait {
         trait_id: BuiltinTrait,
         args: Vec<InternedTyId>,
@@ -230,6 +231,7 @@ pub struct TyInterner {
     map: HashMap<TyKind, TyInternerIndex>,
     error_ty: TyInternerIndex,
     primitive_tys: HashMap<PrimitiveTy, TyInternerIndex>,
+    builtin_tys: HashMap<BuiltinType, TyInternerIndex>,
 }
 
 impl Default for TyInterner {
@@ -250,12 +252,17 @@ impl TyInterner {
             map: HashMap::new(),
             error_ty: TyInternerIndex::from_interner_index(0),
             primitive_tys: HashMap::new(),
+            builtin_tys: HashMap::new(),
         };
         let error_ty = interner.intern_local(TyKind::Error);
         interner.error_ty = error_ty;
         for primitive in PrimitiveTy::ALL {
             let ty = interner.intern_local(TyKind::Primitive(primitive));
             interner.primitive_tys.insert(primitive, ty);
+        }
+        for builtin in BuiltinType::ALL {
+            let ty = interner.intern_local(TyKind::BuiltinType(builtin));
+            interner.builtin_tys.insert(builtin, ty);
         }
         interner
     }
@@ -312,6 +319,16 @@ impl TyInterner {
         )
     }
 
+    pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
+        InternedTyId::new(
+            self.interner_id,
+            *self
+                .builtin_tys
+                .get(&builtin)
+                .expect("builtin type must be preinterned"),
+        )
+    }
+
     pub fn len(&self) -> usize {
         self.tys.len()
     }
@@ -343,7 +360,12 @@ impl TyInterner {
         }
         match self.get(id) {
             None | Some(TyKind::Error) => true,
-            Some(TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::GenericParam(_)) => false,
+            Some(
+                TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::GenericParam(_),
+            ) => false,
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -520,6 +542,7 @@ pub fn try_import_type_into(
                 const_args,
             }))
         }
+        Some(TyKind::BuiltinType(builtin)) => Ok(target.intern(TyKind::BuiltinType(builtin))),
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
                 .into_iter()
@@ -716,6 +739,7 @@ pub trait TypeEquivalence {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+            (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
             (
                 Some(TyKind::Pointer {
                     is_readonly: left_const,

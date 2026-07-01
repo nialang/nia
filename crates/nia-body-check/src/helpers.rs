@@ -565,6 +565,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::BuiltinType(_)) => ty,
             Some(TyKind::TraitObject {
                 is_readonly,
                 trait_id,

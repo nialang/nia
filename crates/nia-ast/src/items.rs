@@ -241,7 +241,7 @@ pub struct TypeAliasItem {
     pub name: String,
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
-    pub ty: TypeRef,
+    pub ty: Option<TypeRef>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

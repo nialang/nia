@@ -571,6 +571,7 @@ impl<'a> LayoutComputer<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ComptimeOnly
+                | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. },
@@ -613,7 +614,7 @@ impl<'a> LayoutComputer<'a> {
             Some(TyKind::Array { len, elem }) => {
                 self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
             }
-            Some(TyKind::Vector { .. } | TyKind::Primitive(_)) => false,
+            Some(TyKind::Vector { .. } | TyKind::Primitive(_) | TyKind::BuiltinType(_)) => false,
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }
