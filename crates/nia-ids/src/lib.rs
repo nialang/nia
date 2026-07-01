@@ -166,6 +166,33 @@ pub enum BuiltinFunction {
 }
 
 impl BuiltinFunction {
+    pub const ALL: [Self; 24] = [
+        Self::ComptimeError,
+        Self::Trap,
+        Self::SizeOf,
+        Self::AlignOf,
+        Self::Offset,
+        Self::Asm,
+        Self::MemCopy,
+        Self::MemMove,
+        Self::MemSet,
+        Self::LoadUnaligned,
+        Self::Splat,
+        Self::Extract,
+        Self::Insert,
+        Self::Bitmask,
+        Self::Ctz,
+        Self::Clz,
+        Self::Popcount,
+        Self::AtomicLoad,
+        Self::AtomicStore,
+        Self::AtomicRmw,
+        Self::CmpxchgStrong,
+        Self::CmpxchgWeak,
+        Self::Fence,
+        Self::Embed,
+    ];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "error" => Some(Self::ComptimeError),

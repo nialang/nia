@@ -1278,6 +1278,10 @@ fn builtin_attribute_name(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
     use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
@@ -1470,6 +1474,118 @@ pub trait Iterator {
     }
 
     #[test]
+    fn std_builtin_source_declarations_match_rust_descriptors() {
+        let declarations = std_builtin_source_declarations();
+
+        let expected_functions = BuiltinFunction::ALL
+            .iter()
+            .map(|builtin| builtin.name())
+            .collect::<BTreeSet<_>>();
+        let actual_functions = declarations
+            .functions
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_functions, expected_functions);
+
+        let expected_traits = BuiltinTrait::ALL
+            .iter()
+            .map(|builtin| builtin.name())
+            .collect::<BTreeSet<_>>();
+        let actual_traits = declarations
+            .traits
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_traits, expected_traits);
+
+        for builtin in BuiltinTrait::ALL {
+            let descriptor = builtin.descriptor();
+            let source = declarations
+                .traits
+                .get(descriptor.name)
+                .unwrap_or_else(|| panic!("missing source declaration for {}", descriptor.name));
+            assert_eq!(
+                source.item_name, descriptor.name,
+                "builtin trait source item name must match `@[builtin]` name"
+            );
+            assert_eq!(
+                source.generic_count, descriptor.generic_count,
+                "generic count drift for {}",
+                descriptor.name
+            );
+            assert_eq!(
+                source.associated_types,
+                descriptor
+                    .associated_types
+                    .iter()
+                    .map(|associated_type| associated_type.name().to_string())
+                    .collect::<Vec<_>>(),
+                "associated type drift for {}",
+                descriptor.name
+            );
+            assert_eq!(
+                source
+                    .methods
+                    .iter()
+                    .map(|method| method.name.as_str())
+                    .collect::<Vec<_>>(),
+                descriptor
+                    .required_methods
+                    .iter()
+                    .map(|method| method.name())
+                    .collect::<Vec<_>>(),
+                "required method drift for {}",
+                descriptor.name
+            );
+            for method in descriptor.required_methods {
+                let source_method = source
+                    .methods
+                    .iter()
+                    .find(|candidate| candidate.name == method.name())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing source method {}::{}",
+                            descriptor.name,
+                            method.name()
+                        )
+                    });
+                assert_eq!(
+                    source_method.param_count,
+                    method.param_count(),
+                    "parameter count drift for {}::{}",
+                    descriptor.name,
+                    method.name()
+                );
+                assert_eq!(
+                    source_method.receiver,
+                    Some(
+                        method
+                            .place_receiver_kind()
+                            .unwrap_or(method.receiver_kind())
+                    ),
+                    "receiver drift for {}::{}",
+                    descriptor.name,
+                    method.name()
+                );
+            }
+            assert_eq!(
+                source.supertraits,
+                descriptor
+                    .supertraits
+                    .iter()
+                    .map(|supertrait| SourceBuiltinSupertrait {
+                        name: supertrait.trait_id.name().to_string(),
+                        preserves_trait_args: supertrait.preserves_trait_args,
+                    })
+                    .collect::<Vec<_>>(),
+                "supertrait drift for {}",
+                descriptor.name
+            );
+        }
+    }
+
+    #[test]
     fn bodyless_non_extern_functions_require_builtin_attribute() {
         let (module, errors) = parse_module("fn missing_body() void;");
         assert!(errors.is_empty(), "{errors:?}");
@@ -1483,6 +1599,231 @@ pub trait Iterator {
                 .summary
                 .contains("bodyless non-extern functions require `@[builtin]`")
         }));
+    }
+
+    #[derive(Debug, Default)]
+    struct SourceBuiltinDeclarations {
+        functions: Vec<String>,
+        traits: BTreeMap<String, SourceBuiltinTrait>,
+    }
+
+    #[derive(Debug)]
+    struct SourceBuiltinTrait {
+        item_name: String,
+        generic_count: usize,
+        associated_types: Vec<String>,
+        methods: Vec<SourceBuiltinMethod>,
+        supertraits: Vec<SourceBuiltinSupertrait>,
+    }
+
+    #[derive(Debug)]
+    struct SourceBuiltinMethod {
+        name: String,
+        param_count: usize,
+        receiver: Option<ReceiverKind>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct SourceBuiltinSupertrait {
+        name: String,
+        preserves_trait_args: bool,
+    }
+
+    fn std_builtin_source_declarations() -> SourceBuiltinDeclarations {
+        let mut out = SourceBuiltinDeclarations::default();
+        for path in std_builtin_source_files() {
+            let source = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+            let (module, errors) = parse_module(&source);
+            assert!(
+                errors.is_empty(),
+                "failed to parse {}: {errors:?}",
+                path.display()
+            );
+            for item in module.items {
+                match item.kind {
+                    nia_ast::ItemKind::Function(function) => {
+                        if let Some(name) = builtin_attribute(&item.attributes) {
+                            assert!(
+                                BuiltinFunction::from_name(&name).is_some(),
+                                "unknown builtin function `{name}` in {}",
+                                path.display()
+                            );
+                            assert_eq!(
+                                function.name, name,
+                                "builtin function source item name must match `@[builtin]` name"
+                            );
+                            assert!(
+                                !out.functions.contains(&name),
+                                "duplicate builtin function declaration `{name}` in {}",
+                                path.display()
+                            );
+                            out.functions.push(name);
+                        }
+                    }
+                    nia_ast::ItemKind::Trait(item_trait) => {
+                        if let Some(name) = builtin_attribute(&item.attributes) {
+                            assert!(
+                                BuiltinTrait::from_name(&name).is_some(),
+                                "unknown builtin trait `{name}` in {}",
+                                path.display()
+                            );
+                            let previous = out
+                                .traits
+                                .insert(name.clone(), source_builtin_trait(name, item_trait));
+                            assert!(
+                                previous.is_none(),
+                                "duplicate builtin trait declaration in {}",
+                                path.display()
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        out
+    }
+
+    fn std_builtin_source_files() -> Vec<PathBuf> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("lib/std/builtin");
+        let mut files = fs::read_dir(&root)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()))
+            .map(|entry| {
+                entry
+                    .unwrap_or_else(|error| panic!("failed to read builtin entry: {error}"))
+                    .path()
+            })
+            .filter(|path| path.extension().is_some_and(|extension| extension == "nia"))
+            .collect::<Vec<_>>();
+        files.sort();
+        files
+    }
+
+    fn source_builtin_trait(
+        builtin_name: String,
+        item_trait: nia_ast::TraitItem,
+    ) -> SourceBuiltinTrait {
+        let generic_names = item_trait
+            .generics
+            .iter()
+            .map(|generic| generic.name.clone())
+            .collect::<Vec<_>>();
+        let out = SourceBuiltinTrait {
+            item_name: item_trait.name,
+            generic_count: item_trait.generics.len(),
+            associated_types: item_trait
+                .associated_types
+                .into_iter()
+                .map(|associated_type| associated_type.name)
+                .collect(),
+            methods: item_trait
+                .methods
+                .into_iter()
+                .map(|method| SourceBuiltinMethod {
+                    name: method.function.name,
+                    param_count: method.function.params.len(),
+                    receiver: method
+                        .function
+                        .params
+                        .first()
+                        .and_then(|param| param.receiver),
+                })
+                .collect(),
+            supertraits: item_trait
+                .supertraits
+                .iter()
+                .map(|supertrait| source_builtin_supertrait(supertrait, &generic_names))
+                .collect(),
+        };
+        assert_eq!(
+            out.item_name, builtin_name,
+            "builtin trait source item name must match `@[builtin]` name"
+        );
+        out
+    }
+
+    fn source_builtin_supertrait(
+        ty: &nia_ast::TypeRef,
+        generic_names: &[String],
+    ) -> SourceBuiltinSupertrait {
+        let nia_ast::TypeKind::Path { segments } = &ty.kind else {
+            panic!(
+                "builtin supertrait must be a direct trait path: {}",
+                ty.text
+            );
+        };
+        assert_eq!(
+            segments.len(),
+            1,
+            "builtin supertrait must be unqualified: {}",
+            ty.text
+        );
+        let segment = &segments[0];
+        SourceBuiltinSupertrait {
+            name: segment.name.clone(),
+            preserves_trait_args: source_supertrait_preserves_trait_args(segment, generic_names),
+        }
+    }
+
+    fn source_supertrait_preserves_trait_args(
+        segment: &nia_ast::TypePathSegment,
+        generic_names: &[String],
+    ) -> bool {
+        if generic_names.is_empty() {
+            return false;
+        }
+        if segment.args.len() != generic_names.len() {
+            return false;
+        }
+        segment
+            .args
+            .iter()
+            .zip(generic_names)
+            .all(|(arg, generic_name)| match arg {
+                nia_ast::TypeArg::Type(ty) | nia_ast::TypeArg::TypeOrConst { ty, .. } => {
+                    let nia_ast::TypeKind::Path { segments } = &ty.kind else {
+                        return false;
+                    };
+                    matches!(
+                        segments.as_slice(),
+                        [segment] if segment.name == *generic_name && segment.args.is_empty()
+                    )
+                }
+                _ => false,
+            })
+    }
+
+    fn builtin_attribute(attributes: &[Attribute]) -> Option<String> {
+        let mut out = None;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            if meta.path != ["builtin"] {
+                continue;
+            }
+            let [arg] = meta.args.as_slice() else {
+                panic!("`@[builtin]` source declaration must have one argument");
+            };
+            let nia_ast::ExprKind::String(text) = &arg.kind else {
+                panic!("`@[builtin]` source declaration must use a string literal");
+            };
+            assert_eq!(
+                text.parts.len(),
+                1,
+                "`@[builtin]` source declaration must use a plain string literal"
+            );
+            let name = builtin_attribute_name(&text.parts[0])
+                .unwrap_or_else(|| panic!("invalid builtin attribute string {}", text.parts[0]));
+            assert!(
+                out.replace(name.to_string()).is_none(),
+                "duplicate `@[builtin]` source declaration"
+            );
+        }
+        out
     }
 
     fn signatures_ok(source: &str) -> ItemSignatures {
