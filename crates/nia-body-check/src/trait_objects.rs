@@ -119,11 +119,14 @@ impl<'a> BodyChecker<'a> {
                         },
                         effective_target_args,
                     )
-                    && if source_binding.trait_id.is_some() {
-                        &source_binding.trait_const_args
-                    } else {
-                        target_const_args
-                    } == effective_target_const_args
+                    && self.const_generic_arg_slices_match(
+                        if source_binding.trait_id.is_some() {
+                            &source_binding.trait_const_args
+                        } else {
+                            target_const_args
+                        },
+                        effective_target_const_args,
+                    )
                     && self.types_match(source_binding.ty, target_binding.ty)
             })
         })
@@ -1089,7 +1092,7 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         if source_trait == target_trait
             && source_args.len() == target_args.len()
-            && source_const_args == target_const_args
+            && self.const_generic_arg_slices_match(source_const_args, target_const_args)
             && source_args
                 .iter()
                 .zip(target_args.iter())

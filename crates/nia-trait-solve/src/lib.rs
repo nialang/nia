@@ -1385,8 +1385,12 @@ where
                 }),
             ) => {
                 left_def == right_def
-                    && left_const_args == right_const_args
+                    && left_const_args.len() == right_const_args.len()
                     && left_args.len() == right_args.len()
+                    && left_const_args
+                        .iter()
+                        .zip(&right_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
                     && left_args.iter().zip(&right_args).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
                     })

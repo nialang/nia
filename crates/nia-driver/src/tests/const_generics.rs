@@ -859,6 +859,80 @@ fn main() usize {
 }
 
 #[test]
+fn const_generic_expression_normalizes_for_extension_method_specificity() {
+    let root = temp_dir("const_generic_expression_normalizes_for_extension_method_specificity");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn plus_one(value: usize) usize {
+    value + 1usize
+}
+
+struct Buffer[N: usize] {
+    values: [N]i32,
+}
+
+extend[N: usize] Buffer[N] {
+    fn rank(& self) i32 {
+        1
+    }
+}
+
+extend Buffer[plus_one(2usize)] {
+    fn rank(& self) i32 {
+        2
+    }
+}
+
+fn main() i32 {
+    let buffer: Buffer[3] = { values: [1, 2, 3] };
+    buffer.rank()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_expression_normalizes_for_projection_equivalence() {
+    let root = temp_dir("const_generic_expression_normalizes_for_projection_equivalence");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn plus_one(value: usize) usize {
+    value + 1usize
+}
+
+trait Slot[N: usize] {
+    type Item;
+}
+
+struct Store {}
+
+extend Store : Slot[3] {
+    type Item = i32;
+}
+
+comptime WIDTH: usize = plus_one(2usize);
+
+fn read[S](value: [S as Slot[3]]::Item) [S as Slot[WIDTH]]::Item
+where S: Slot[3] {
+    value
+}
+
+fn main() i32 {
+    read[Store](7)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_generic_u8_expression_rejects_out_of_range_value() {
     let root = temp_dir("const_generic_u8_expression_rejects_out_of_range_value");
     write(
