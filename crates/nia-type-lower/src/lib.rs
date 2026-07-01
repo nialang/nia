@@ -1173,10 +1173,11 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn lower_type_or_const_type_arg(&mut self, ty: &TypeRef) -> InternedTyId {
-        if !self
-            .resolved
-            .node_type_names
-            .contains_key(ty.node_key.site())
+        if matches!(ty.kind, TypeKind::Path { .. })
+            && !self
+                .resolved
+                .node_type_names
+                .contains_key(ty.node_key.site())
         {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_NORMALIZATION,
