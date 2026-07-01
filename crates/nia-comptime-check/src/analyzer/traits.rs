@@ -194,6 +194,122 @@ impl Analyzer<'_> {
         solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
+    pub(super) fn resolve_associated_comptime_projection(
+        &mut self,
+        projection: &AssociatedComptimeProjection,
+    ) -> Option<nia_trait_solve::AssociatedComptimeResolution> {
+        let (type_substitutions, const_substitutions) = self.current_substitution_maps();
+        let self_ty = self.substitute_ty_generics_from_map(projection.self_ty, &type_substitutions);
+        let trait_args = projection
+            .trait_args
+            .iter()
+            .map(|arg| self.substitute_ty_generics_from_map(*arg, &type_substitutions))
+            .collect::<Vec<_>>();
+        let trait_const_args = projection
+            .trait_const_args
+            .iter()
+            .cloned()
+            .map(|arg| {
+                self.substitute_const_generic_arg_from_maps(
+                    arg,
+                    &type_substitutions,
+                    &const_substitutions,
+                )
+            })
+            .collect::<Vec<_>>();
+        let module_id = self.ensure_trait_solver_module(self_ty, &trait_args)?;
+        let assumptions = self.current_trait_goals();
+        let program_enums = self.program_enum_signatures();
+        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
+        let local_enums = self
+            .signatures_for_module(module_id)
+            .map(|signatures| signatures.enums.clone())
+            .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let interner = self.working_interners.get_mut(&module_id)?;
+        let normalization = nia_type_normalize::TypeNormalization {
+            interner: interner.clone(),
+            normalized,
+            diagnostics: Vec::new(),
+        };
+        let visible_extensions = self
+            .input
+            .program
+            .visible_extensions
+            .and_then(|visible_extensions| visible_extensions(module_id));
+        let impl_is_visible = |impl_module_id, impl_id| {
+            impl_module_id == module_id
+                || visible_extensions
+                    .as_ref()
+                    .is_none_or(|visible_extensions| {
+                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
+                    })
+        };
+        let context = TraitSolverContext {
+            normalization: &normalization,
+            trait_impls: self.input.program.trait_impls,
+            layouts: None,
+            local_module_id: module_id,
+            local_enums: &local_enums,
+            program_enums: Some(&program_enums),
+            const_expr_value: None,
+            impl_is_visible: Some(&impl_is_visible),
+        };
+        let mut solver = context.solver(interner, &assumptions);
+        solver.resolve_associated_comptime(
+            self_ty,
+            projection.trait_id,
+            &trait_args,
+            &trait_const_args,
+            &projection.name,
+        )
+    }
+
+    pub(super) fn associated_comptime_projection_type(
+        &mut self,
+        projection: &AssociatedComptimeProjection,
+    ) -> Option<InternedTyId> {
+        match projection.trait_id {
+            TraitId::Builtin(trait_id) => trait_id
+                .has_associated_comptime(&projection.name)
+                .then(|| self.primitive_ty_for_current_module(PrimitiveTy::Usize)),
+            TraitId::Source(trait_def_id) => {
+                let signature = self.signatures_for_module(trait_def_id.module_id)?;
+                let associated_value = signature
+                    .traits
+                    .get(&trait_def_id.def_id)?
+                    .associated_values
+                    .iter()
+                    .find(|value| value.name == projection.name)?;
+                self.import_ty_into_module_or_none(
+                    associated_value.ty,
+                    self.current_execution_module_id(),
+                )
+            }
+        }
+    }
+
+    fn current_substitution_maps(
+        &self,
+    ) -> (
+        HashMap<String, InternedTyId>,
+        HashMap<String, ConstGenericArg>,
+    ) {
+        let mut type_substitutions = HashMap::new();
+        let mut const_substitutions = HashMap::new();
+        for frame in &self.call_locals {
+            type_substitutions.extend(frame.type_substitutions.clone());
+            const_substitutions.extend(frame.const_substitutions.clone());
+        }
+        (type_substitutions, const_substitutions)
+    }
+
+    fn primitive_ty_for_current_module(&mut self, primitive: PrimitiveTy) -> InternedTyId {
+        let module_id = self.current_execution_module_id();
+        self.source_interner_for_module(module_id)
+            .unwrap_or_else(|| self.input.interner.clone())
+            .primitive(primitive)
+    }
+
     pub(super) fn ensure_trait_solver_module(
         &mut self,
         self_ty: InternedTyId,
@@ -224,13 +340,25 @@ impl Analyzer<'_> {
             .find(|frame| frame.function_id == Some(function_id))
             .map(|frame| frame.type_substitutions.clone())
             .unwrap_or_default();
-        self.trait_goals_from_where_predicates(&signature.where_predicates, &substitutions)
+        let const_substitutions = self
+            .call_locals
+            .iter()
+            .rev()
+            .find(|frame| frame.function_id == Some(function_id))
+            .map(|frame| frame.const_substitutions.clone())
+            .unwrap_or_default();
+        self.trait_goals_from_where_predicates(
+            &signature.where_predicates,
+            &substitutions,
+            &const_substitutions,
+        )
     }
 
     pub(super) fn trait_goals_from_where_predicates(
         &mut self,
         predicates: &[WherePredicateSignature],
         substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
     ) -> Vec<TraitGoal> {
         let mut goals = Vec::new();
         for predicate in predicates {
@@ -246,7 +374,16 @@ impl Analyzer<'_> {
                     self_ty,
                     trait_id,
                     trait_args,
-                    trait_const_args,
+                    trait_const_args: trait_const_args
+                        .into_iter()
+                        .map(|arg| {
+                            self.substitute_const_generic_arg_from_maps(
+                                arg,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        .collect(),
                 });
             }
         }
@@ -267,6 +404,21 @@ impl Analyzer<'_> {
             .get_mut(&module_id)
             .expect("working interner must exist");
         substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
+    }
+
+    pub(super) fn substitute_const_generic_arg_from_maps(
+        &mut self,
+        mut arg: ConstGenericArg,
+        substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
+    ) -> ConstGenericArg {
+        arg.ty = self.substitute_ty_generics_from_map(arg.ty, substitutions);
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
+            && let Some(resolved) = const_substitutions.get(name)
+        {
+            arg = resolved.clone();
+        }
+        arg
     }
 
     pub(super) fn trait_id_and_args(

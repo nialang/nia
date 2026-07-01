@@ -63,6 +63,21 @@ pub struct UserImpl {
     pub const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
+#[derive(Debug, Clone)]
+pub enum AssociatedComptimeResolution {
+    User(UserAssociatedComptime),
+    Const(ConstGenericArg),
+}
+
+#[derive(Debug, Clone)]
+pub struct UserAssociatedComptime {
+    pub def_id: GlobalDefId,
+    pub substitutions: HashMap<String, InternedTyId>,
+    pub const_substitutions: HashMap<String, ConstGenericArg>,
+    pub impl_module_id: ModuleId,
+    pub resolution_interner: TyInterner,
+}
+
 pub struct TraitSolver<'a, F>
 where
     F: Fn(InternedTyId) -> bool,
@@ -268,6 +283,8 @@ where
             BuiltinTrait::Char => self.can_convert_to_char(self_ty),
             BuiltinTrait::Iterable => false,
             BuiltinTrait::Iterator => false,
+            BuiltinTrait::Simd => self.can_be_simd(self_ty),
+            BuiltinTrait::SimdMask => self.can_be_simd_mask(self_ty),
         }
     }
 
@@ -408,6 +425,24 @@ where
         matches!(
             self.interner.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
+    }
+
+    fn can_be_simd(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::GenericParam(_)) | Some(TyKind::Vector { .. })
+        )
+    }
+
+    fn can_be_simd_mask(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::GenericParam(_))
+                | Some(TyKind::Vector {
+                    elem: PrimitiveTy::Bool,
+                    lanes: 0..=64
+                })
         )
     }
 
@@ -617,6 +652,57 @@ where
             name,
             &mut HashSet::new(),
         )
+    }
+
+    pub fn resolve_associated_comptime(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        name: &str,
+    ) -> Option<AssociatedComptimeResolution> {
+        let goal = self.normalize_goal(TraitGoal {
+            self_ty,
+            trait_id,
+            trait_args: trait_args.to_vec(),
+            trait_const_args: trait_const_args.to_vec(),
+        });
+        let resolution = match self.select_user_impl_for_normalized_goal(&goal) {
+            TraitSelection::User(user_impl) => TraitResolution::User(user_impl),
+            TraitSelection::Ambiguous => TraitResolution::Ambiguous,
+            TraitSelection::Unsatisfied => self.resolve(goal.clone()),
+        };
+        match resolution {
+            TraitResolution::User(user_impl) => {
+                let impl_signature = &self.trait_impls[user_impl.impl_index];
+                let associated_value = impl_signature
+                    .associated_values
+                    .iter()
+                    .find(|associated_value| associated_value.name == name)?;
+                Some(AssociatedComptimeResolution::User(UserAssociatedComptime {
+                    def_id: GlobalDefId {
+                        module_id: impl_signature.module_id,
+                        def_id: associated_value.def_id,
+                    },
+                    substitutions: user_impl.substitutions,
+                    const_substitutions: user_impl.const_substitutions,
+                    impl_module_id: impl_signature.module_id,
+                    resolution_interner: self.interner.clone(),
+                }))
+            }
+            TraitResolution::Intrinsic(intrinsic) => self
+                .resolve_intrinsic_associated_comptime(
+                    intrinsic.goal.self_ty,
+                    intrinsic.goal.trait_id,
+                    &intrinsic.goal.trait_args,
+                    name,
+                )
+                .map(AssociatedComptimeResolution::Const),
+            TraitResolution::Assumed(_)
+            | TraitResolution::Unsatisfied
+            | TraitResolution::Ambiguous => None,
+        }
     }
 
     fn resolve_associated_type_inner(
@@ -876,6 +962,20 @@ where
                     )
             }
             BuiltinTrait::Iterator => false,
+            BuiltinTrait::Simd => {
+                goal.trait_args.is_empty()
+                    && matches!(self.kind(self_ty), Some(TyKind::Vector { .. }))
+            }
+            BuiltinTrait::SimdMask => {
+                goal.trait_args.is_empty()
+                    && matches!(
+                        self.kind(self_ty),
+                        Some(TyKind::Vector {
+                            elem: PrimitiveTy::Bool,
+                            lanes
+                        }) if *lanes <= 64
+                    )
+            }
         }
     }
 
@@ -989,6 +1089,41 @@ where
             }
             (BuiltinTrait::Iterable, BuiltinAssociatedType::Iter) => {
                 trait_args.is_empty().then_some(self.normalize(self_ty))
+            }
+            (BuiltinTrait::Simd, BuiltinAssociatedType::Lane) => {
+                trait_args.is_empty().then_some(())?;
+                match self.kind(self_ty) {
+                    Some(TyKind::Vector { elem, .. }) => Some(self.interner.primitive(*elem)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn resolve_intrinsic_associated_comptime(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<ConstGenericArg> {
+        let TraitId::Builtin(trait_id) = trait_id else {
+            return None;
+        };
+        match (
+            trait_id,
+            nia_ids::BuiltinAssociatedComptime::from_name(name)?,
+        ) {
+            (BuiltinTrait::Simd, nia_ids::BuiltinAssociatedComptime::Lanes) => {
+                trait_args.is_empty().then_some(())?;
+                let Some(TyKind::Vector { lanes, .. }) = self.kind(self_ty) else {
+                    return None;
+                };
+                Some(ConstGenericArg {
+                    ty: self.interner.primitive(PrimitiveTy::Usize),
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(u128::from(*lanes))),
+                })
             }
             _ => None,
         }

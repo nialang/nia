@@ -361,6 +361,7 @@ impl LocalDefinitionAllocator {
         match &expr.kind {
             ExprKind::Ident(_)
             | ExprKind::TypeTarget { .. }
+            | ExprKind::TraitTarget { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -843,6 +844,7 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_ident(name, expr.node_key.clone());
             }
             ExprKind::TypeTarget { .. }
+            | ExprKind::TraitTarget { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -1054,7 +1056,10 @@ impl<'a> LocalResolver<'a> {
         if let ExprKind::BracketSuffix { callee, .. } = &expr.kind {
             return self.try_resolve_type_prefix(callee);
         }
-        if matches!(expr.kind, ExprKind::TypeTarget { .. }) {
+        if matches!(
+            expr.kind,
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. }
+        ) {
             self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
             return true;
         }
@@ -1131,7 +1136,7 @@ impl<'a> LocalResolver<'a> {
                         .node_qualified_type_prefixes
                         .contains_key(&callee.node_key)
             }
-            ExprKind::TypeTarget { .. } => true,
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => true,
             ExprKind::Field { .. } => true,
             ExprKind::BracketSuffix { callee, .. } => self.bracket_suffix_can_be_generic(callee),
             _ => false,

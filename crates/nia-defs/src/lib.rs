@@ -6,8 +6,9 @@ mod public_surface;
 
 use nia_ast::{
     BindingItem, Block, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem,
-    FunctionItem, GenericParam, Module, StmtKind, StructItem, TraitAssociatedType, TypeAliasItem,
-    UnionItem, UsingItem, generic_param_identities, type_ref_identity, where_clause_identity,
+    FunctionItem, GenericParam, Module, StmtKind, StructItem, TraitAssociatedType,
+    TraitAssociatedValue, TypeAliasItem, UnionItem, UsingItem, generic_param_identities,
+    type_ref_identity, where_clause_identity,
 };
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
@@ -771,6 +772,14 @@ impl Collector {
                 associated_type,
             );
         }
+        for associated_value in &item_trait.associated_values {
+            self.collect_trait_associated_value(
+                &identity,
+                Some(trait_id),
+                &mut members,
+                associated_value,
+            );
+        }
         for method in &item_trait.methods {
             self.collect_trait_method(&identity, Some(trait_id), &mut members, &method.function);
         }
@@ -800,6 +809,32 @@ impl Collector {
             associated_type_id,
             associated_type.span,
             "duplicate trait associated type",
+        );
+    }
+
+    fn collect_trait_associated_value(
+        &mut self,
+        owner_identity: &DefIdentity,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        associated_value: &TraitAssociatedValue,
+    ) {
+        let value_id = self.push_member_def(
+            owner_identity.child(DefKind::Comptime, &associated_value.name),
+            parent,
+            associated_value.name.clone(),
+            DefKind::Comptime,
+            Visibility::Public,
+            associated_value.span,
+        );
+        self.def_nodes
+            .insert(associated_value.node_key.clone(), value_id);
+        self.insert_member(
+            &mut members.values,
+            associated_value.name.clone(),
+            value_id,
+            associated_value.span,
+            "duplicate trait associated comptime",
         );
     }
 

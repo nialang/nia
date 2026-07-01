@@ -130,6 +130,8 @@ pub enum BuiltinTrait {
     Char,
     Iterable,
     Iterator,
+    Simd,
+    SimdMask,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -341,6 +343,7 @@ pub enum BuiltinAssociatedType {
     Target,
     Item,
     Iter,
+    Lane,
 }
 
 impl BuiltinAssociatedType {
@@ -350,6 +353,7 @@ impl BuiltinAssociatedType {
             "Target" => Some(Self::Target),
             "Item" => Some(Self::Item),
             "Iter" => Some(Self::Iter),
+            "Lane" => Some(Self::Lane),
             _ => None,
         }
     }
@@ -360,6 +364,27 @@ impl BuiltinAssociatedType {
             Self::Target => "Target",
             Self::Item => "Item",
             Self::Iter => "Iter",
+            Self::Lane => "Lane",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinAssociatedComptime {
+    Lanes,
+}
+
+impl BuiltinAssociatedComptime {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Lanes" => Some(Self::Lanes),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Lanes => "Lanes",
         }
     }
 }
@@ -696,6 +721,8 @@ impl BuiltinTrait {
     pub const TARGET_ASSOC_TYPE: &'static str = "Target";
     pub const ITEM_ASSOC_TYPE: &'static str = "Item";
     pub const ITER_ASSOC_TYPE: &'static str = "Iter";
+    pub const LANE_ASSOC_TYPE: &'static str = "Lane";
+    pub const LANES_ASSOC_COMPTIME: &'static str = "Lanes";
 
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
@@ -735,9 +762,13 @@ impl BuiltinTrait {
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
+    const LANE_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Lane];
     const ITERABLE_ASSOC_TYPES: [BuiltinAssociatedType; 2] =
         [BuiltinAssociatedType::Item, BuiltinAssociatedType::Iter];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
+    const LANES_ASSOC_COMPTIMES: [BuiltinAssociatedComptime; 1] =
+        [BuiltinAssociatedComptime::Lanes];
+    const NO_ASSOC_COMPTIMES: [BuiltinAssociatedComptime; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::Deref,
         preserves_trait_args: false,
@@ -754,9 +785,13 @@ impl BuiltinTrait {
         trait_id: Self::Ptr,
         preserves_trait_args: false,
     }];
+    const SIMD_MASK_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
+        trait_id: Self::Simd,
+        preserves_trait_args: false,
+    }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 33] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -788,6 +823,8 @@ impl BuiltinTrait {
         Self::Char,
         Self::Iterable,
         Self::Iterator,
+        Self::Simd,
+        Self::SimdMask,
     ];
 
     const DESCRIPTORS: &'static [(Self, BuiltinTraitDescriptor)] = &[
@@ -1039,6 +1076,22 @@ impl BuiltinTrait {
             &Self::ITERATOR_METHODS,
             &Self::NO_SUPERTRAITS,
         ),
+        Self::descriptor_entry(
+            Self::Simd,
+            "Simd",
+            0,
+            &Self::LANE_ASSOC_TYPES,
+            &Self::NO_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::SimdMask,
+            "SimdMask",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::NO_METHODS,
+            &Self::SIMD_MASK_SUPERTRAITS,
+        ),
     ];
 
     const fn descriptor_entry(
@@ -1090,6 +1143,19 @@ impl BuiltinTrait {
 
     pub fn associated_types(self) -> &'static [BuiltinAssociatedType] {
         self.descriptor().associated_types
+    }
+
+    pub fn has_associated_comptime(self, name: &str) -> bool {
+        self.associated_comptimes()
+            .iter()
+            .any(|associated_comptime| associated_comptime.name() == name)
+    }
+
+    pub fn associated_comptimes(self) -> &'static [BuiltinAssociatedComptime] {
+        match self {
+            Self::Simd => &Self::LANES_ASSOC_COMPTIMES,
+            _ => &Self::NO_ASSOC_COMPTIMES,
+        }
     }
 
     pub fn required_methods(self) -> &'static [BuiltinTraitMethod] {

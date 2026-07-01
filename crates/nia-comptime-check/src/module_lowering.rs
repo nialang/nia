@@ -45,9 +45,14 @@ impl ComptimeModuleLowerer<'_> {
                     self.lower_function(function)
                 }
                 ItemTreeNodeKind::Extend(extend) => {
-                    if extend.generics.is_empty() {
-                        for associated_value in &extend.associated_values {
+                    for associated_value in &extend.associated_values {
+                        if extend.generics.is_empty() {
                             self.lower_global_initializer(
+                                associated_value.span,
+                                &associated_value.binding,
+                            );
+                        } else {
+                            self.lower_deferred_global_initializer(
                                 associated_value.span,
                                 &associated_value.binding,
                             );
@@ -120,6 +125,25 @@ impl ComptimeModuleLowerer<'_> {
         if let Some(value) = self.lower_expr(value) {
             self.module
                 .insert_global_initializer(self.global_def_id(def_id), value);
+        }
+    }
+
+    fn lower_deferred_global_initializer(
+        &mut self,
+        item_span: Span,
+        binding: &nia_ast::BindingItem,
+    ) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+        else {
+            return;
+        };
+        let value = binding.value.as_ref();
+        let Some(value) = value else {
+            return;
+        };
+        if let Some(value) = self.lower_expr(value) {
+            self.module
+                .insert_deferred_global_initializer(self.global_def_id(def_id), value);
         }
     }
 
@@ -200,6 +224,13 @@ impl ComptimeModuleLowerer<'_> {
                 .node_builtin_associated_values
                 .iter()
                 .map(|(key, value)| (key.clone(), *value)),
+        );
+        builder.extend_node_associated_comptime_projections(
+            self.input
+                .semantic_uses
+                .node_associated_comptime_projections
+                .iter()
+                .map(|(key, projection)| (key.clone(), projection.clone())),
         );
         builder.extend_node_const_generic_uses(
             self.input
@@ -391,7 +422,8 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::ExprKind::Bool(_)
             | nia_ast::ExprKind::Null
             | nia_ast::ExprKind::Underscore
-            | nia_ast::ExprKind::TypeTarget { .. } => {}
+            | nia_ast::ExprKind::TypeTarget { .. }
+            | nia_ast::ExprKind::TraitTarget { .. } => {}
         }
     }
 

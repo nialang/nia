@@ -37,7 +37,7 @@ use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,
 };
-use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable};
+use nia_sema_ir::{AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticUseTable};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_target_config::TargetConfig;

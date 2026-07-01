@@ -197,6 +197,10 @@ pub enum ExprKind {
     TypeTarget {
         ty: TypeRef,
     },
+    TraitTarget {
+        ty: TypeRef,
+        trait_ref: TypeRef,
+    },
     BracketSuffix {
         callee: Box<Expr>,
         args: Vec<BracketArg>,

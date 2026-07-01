@@ -1332,6 +1332,16 @@ fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .iter()
             .map(|(key, value)| (key.clone(), *value)),
     );
+    builder.extend_node_associated_comptime_projections(
+        associated_comptime_projections_from_active_item_tree(active_item_tree, type_lowering),
+    );
+    builder.extend_node_associated_comptime_projections(
+        associated_comptime_projections_from_const_exprs(
+            &type_lowering.const_exprs,
+            None,
+            type_lowering,
+        ),
+    );
     builder.extend_node_const_generic_uses(
         type_resolution
             .node_const_generic_names
@@ -1354,6 +1364,13 @@ fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
                 .iter()
                 .filter(|(key, _)| const_expr_nodes.contains(*key))
                 .map(|(key, value)| (key.clone(), *value)),
+        );
+        builder.extend_node_associated_comptime_projections(
+            associated_comptime_projections_from_const_exprs(
+                &type_lowering.const_exprs,
+                const_expr_value_resolution_ids,
+                type_lowering,
+            ),
         );
         for (key, resolution) in &const_expr_value_resolution.node_names {
             if !const_expr_nodes.contains(key) {
@@ -1407,6 +1424,174 @@ fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
         type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
     );
     builder.finish()
+}
+
+fn associated_comptime_projections_from_active_item_tree(
+    active_item_tree: &ActiveModuleItemTree,
+    type_lowering: &TypeLowering,
+) -> Vec<(
+    nia_node_id::VersionedNodeKey,
+    nia_sema_ir::AssociatedComptimeProjection,
+)> {
+    let mut collector = AssociatedComptimeProjectionCollector {
+        type_lowering,
+        projections: Vec::new(),
+    };
+    for item in &active_item_tree.items {
+        collector.visit_item_tree_node(item);
+    }
+    collector.projections
+}
+
+fn associated_comptime_projections_from_const_exprs(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+    ids: Option<&HashSet<GlobalConstExprId>>,
+    type_lowering: &TypeLowering,
+) -> Vec<(
+    nia_node_id::VersionedNodeKey,
+    nia_sema_ir::AssociatedComptimeProjection,
+)> {
+    let mut collector = AssociatedComptimeProjectionCollector {
+        type_lowering,
+        projections: Vec::new(),
+    };
+    for (id, expr) in const_exprs {
+        if ids.is_some_and(|ids| !ids.contains(id)) {
+            continue;
+        }
+        nia_ast_walk::Visitor::visit_expr(&mut collector, expr);
+    }
+    collector.projections
+}
+
+struct AssociatedComptimeProjectionCollector<'a> {
+    type_lowering: &'a TypeLowering,
+    projections: Vec<(
+        nia_node_id::VersionedNodeKey,
+        nia_sema_ir::AssociatedComptimeProjection,
+    )>,
+}
+
+impl AssociatedComptimeProjectionCollector<'_> {
+    fn visit_item_tree_node(&mut self, item: &nia_item_tree::ItemTreeNode) {
+        match &item.kind {
+            nia_item_tree::ItemTreeNodeKind::Function(function) => {
+                if let Some(body) = &function.body {
+                    nia_ast_walk::Visitor::visit_block(self, body);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    nia_ast_walk::Visitor::visit_expr(self, value);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    if let Some(body) = &method.function.body {
+                        nia_ast_walk::Visitor::visit_block(self, body);
+                    }
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+                for associated_value in &extend.associated_values {
+                    if let Some(value) = &associated_value.binding.value {
+                        nia_ast_walk::Visitor::visit_expr(self, value);
+                    }
+                }
+                for method in &extend.methods {
+                    if let Some(body) = &method.function.body {
+                        nia_ast_walk::Visitor::visit_block(self, body);
+                    }
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Module(_)
+            | nia_item_tree::ItemTreeNodeKind::Using(_)
+            | nia_item_tree::ItemTreeNodeKind::Struct(_)
+            | nia_item_tree::ItemTreeNodeKind::Union(_)
+            | nia_item_tree::ItemTreeNodeKind::Enum(_)
+            | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
+        }
+    }
+
+    fn record_projection(
+        &mut self,
+        expr: &nia_ast::Expr,
+        target: &nia_ast::TypeRef,
+        trait_ref: &nia_ast::TypeRef,
+        name: &str,
+    ) {
+        let Some(self_ty) = self.type_lowering.ty_for_key(&target.node_key) else {
+            return;
+        };
+        let Some(trait_ty) = self.type_lowering.ty_for_key(&trait_ref.node_key) else {
+            return;
+        };
+        let Some((trait_id, trait_args, trait_const_args)) =
+            self.trait_id_and_args_from_ty(trait_ty)
+        else {
+            return;
+        };
+        self.projections.push((
+            expr.node_key.clone(),
+            nia_sema_ir::AssociatedComptimeProjection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name: name.to_string(),
+            },
+        ));
+    }
+
+    fn trait_id_and_args_from_ty(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(
+        nia_ty::TraitId,
+        Vec<InternedTyId>,
+        Vec<nia_ty::ConstGenericArg>,
+    )> {
+        match self.type_lowering.interner.get(ty)? {
+            nia_ty::TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => Some((
+                nia_ty::TraitId::Source(*def_id),
+                args.clone(),
+                const_args.clone(),
+            )),
+            nia_ty::TyKind::BuiltinTrait { trait_id, args } => Some((
+                nia_ty::TraitId::Builtin(*trait_id),
+                args.clone(),
+                Vec::new(),
+            )),
+            nia_ty::TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }
+            | nia_ty::TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            } => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
+            _ => None,
+        }
+    }
+}
+
+impl<'ast> nia_ast_walk::Visitor<'ast> for AssociatedComptimeProjectionCollector<'_> {
+    fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+        if let nia_ast::ExprKind::Qualified { lhs, name } = &expr.kind
+            && let nia_ast::ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind
+        {
+            self.record_projection(expr, ty, trait_ref, name);
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
 }
 
 fn const_expr_node_keys(
@@ -2397,6 +2582,12 @@ fn filtered_comptime_global_initializer_for_body_check(
             .module
             .global_initializers()
             .get(&global_id)
+            .or_else(|| {
+                lowered
+                    .module
+                    .deferred_global_initializers()
+                    .get(&global_id)
+            })
             .cloned()
     };
     let values_without_extensions = time_module_provider(
@@ -4117,6 +4308,11 @@ fn extend_executable_checked_module_state(
     state
         .module
         .semantic_uses
+        .node_associated_comptime_projections
+        .extend(increment.semantic_uses.node_associated_comptime_projections);
+    state
+        .module
+        .semantic_uses
         .node_local_defs
         .extend(increment.semantic_uses.node_local_defs);
     state
@@ -4230,6 +4426,15 @@ fn extend_executable_checked_module_state(
         .semantic_facts
         .node_builtin_associated_values
         .extend(increment.semantic_facts.node_builtin_associated_values);
+    state
+        .module
+        .semantic_facts
+        .node_associated_comptime_projections
+        .extend(
+            increment
+                .semantic_facts
+                .node_associated_comptime_projections,
+        );
     state
         .module
         .semantic_facts

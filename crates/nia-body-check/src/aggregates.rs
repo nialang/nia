@@ -20,7 +20,9 @@ use nia_local_resolve::LocalKind;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
-use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::{
+    AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse,
+};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -866,9 +868,17 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
         substitutions: Vec<(String, InternedTyId)>,
         const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
+        let substitutions = substitutions
+            .into_iter()
+            .map(|(name, ty)| (name, self.import_type_to_working_interner(ty)))
+            .collect::<Vec<_>>();
         let resolved_const_substitutions = const_substitutions
             .into_iter()
-            .map(|(name, arg)| (name, self.resolve_comptime_const_generic_arg(arg)))
+            .map(|(name, arg)| {
+                let arg = self.import_const_generic_arg_to_working_interner(arg);
+                let arg = self.resolve_comptime_const_generic_arg(arg);
+                (name, self.import_const_generic_arg_to_working_interner(arg))
+            })
             .collect::<Vec<_>>();
         let Some(frame) = self.comptime_call_locals.last_mut() else {
             return Err(ComptimeError {
@@ -941,6 +951,9 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                     });
                 };
                 Ok(ComptimeValue::Int(value))
+            }
+            ComptimeNameResolution::AssociatedComptimeProjection(projection) => {
+                self.resolve_associated_comptime_projection_for_env(span, projection)
             }
         }
     }
@@ -1309,7 +1322,21 @@ impl<'a> BodyChecker<'a> {
             .flat_map(|frame| frame.type_substitutions.iter())
             .map(|(name, ty)| (name.clone(), *ty))
             .collect::<HashMap<_, _>>();
-        self.substitute_generics(ty, &substitutions)
+        let const_substitutions = self
+            .comptime_call_locals
+            .iter()
+            .flat_map(|frame| frame.const_substitutions.iter())
+            .map(|(name, arg)| (name.clone(), arg.clone()))
+            .collect::<HashMap<_, _>>();
+        self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions)
+    }
+
+    fn import_const_generic_arg_to_working_interner(
+        &mut self,
+        mut arg: nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        arg.ty = self.import_type_to_working_interner(arg.ty);
+        arg
     }
 
     fn resolve_comptime_const_generic_arg(
@@ -1326,6 +1353,113 @@ impl<'a> BodyChecker<'a> {
             arg = resolved.clone();
         }
         arg
+    }
+
+    fn resolve_associated_comptime_projection_for_env(
+        &mut self,
+        span: Span,
+        projection: AssociatedComptimeProjection,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let projection = self.substitute_current_comptime_projection(projection);
+        match self.resolve_associated_comptime_projection(
+            projection.self_ty,
+            projection.trait_id,
+            &projection.trait_args,
+            &projection.trait_const_args,
+            &projection.name,
+        ) {
+            Some(nia_trait_solve::AssociatedComptimeResolution::Const(arg)) => {
+                comptime_value_from_const_generic_arg(&self.resolve_comptime_const_generic_arg(arg))
+                    .ok_or_else(|| ComptimeError {
+                        span,
+                        message: format!(
+                            "failed to evaluate associated comptime value `{}`",
+                            projection.name
+                        ),
+                    })
+            }
+            Some(nia_trait_solve::AssociatedComptimeResolution::User(user)) => {
+                self.eval_user_associated_comptime_for_env(span, projection.name, user)
+            }
+            None => Err(ComptimeError {
+                span,
+                message: format!(
+                    "failed to resolve associated comptime value `{}`",
+                    projection.name
+                ),
+            }),
+        }
+    }
+
+    fn substitute_current_comptime_projection(
+        &mut self,
+        mut projection: AssociatedComptimeProjection,
+    ) -> AssociatedComptimeProjection {
+        projection.self_ty = self.substitute_current_comptime_generics(projection.self_ty);
+        projection.trait_args = projection
+            .trait_args
+            .into_iter()
+            .map(|arg| self.substitute_current_comptime_generics(arg))
+            .collect();
+        projection.trait_const_args = projection
+            .trait_const_args
+            .into_iter()
+            .map(|arg| self.substitute_current_comptime_const_arg(arg))
+            .collect();
+        projection
+    }
+
+    fn substitute_current_comptime_const_arg(
+        &mut self,
+        mut arg: nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        arg.ty = self.substitute_current_comptime_generics(arg.ty);
+        self.resolve_comptime_const_generic_arg(arg)
+    }
+
+    fn eval_user_associated_comptime_for_env(
+        &mut self,
+        span: Span,
+        name: String,
+        user: nia_trait_solve::UserAssociatedComptime,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let Some(expr) = self.associated_comptime_initializer(user.def_id) else {
+            return Err(ComptimeError {
+                span,
+                message: format!("associated comptime value `{name}` has no initializer"),
+            });
+        };
+        self.comptime_call_locals.push(crate::ComptimeCallFrame {
+            module_id: Some(user.impl_module_id),
+            function_id: None,
+            type_substitutions: user.substitutions,
+            const_substitutions: user.const_substitutions,
+            ..crate::ComptimeCallFrame::default()
+        });
+        let result = nia_comptime_engine::eval_resolved_comptime_expr(&expr, self);
+        self.comptime_call_locals.pop();
+        result
+    }
+
+    fn associated_comptime_initializer(&self, def_id: GlobalDefId) -> Option<ResolvedComptimeExpr> {
+        if def_id.module_id == self.defs.module_id {
+            return self
+                .comptime_module
+                .global_initializers()
+                .get(&def_id)
+                .or_else(|| {
+                    self.comptime_module
+                        .deferred_global_initializers()
+                        .get(&def_id)
+                })
+                .cloned();
+        }
+        let module = (self.program_comptime_module)(def_id.module_id)?;
+        module
+            .global_initializers()
+            .get(&def_id)
+            .or_else(|| module.deferred_global_initializers().get(&def_id))
+            .cloned()
     }
 
     pub(crate) fn local_comptime_use(&self, expr: &Expr) -> Option<LocalId> {

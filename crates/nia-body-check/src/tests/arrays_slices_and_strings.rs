@@ -329,6 +329,9 @@ fn main() void {
     std::builtin::memcpy(&mut dst[..], &src[..]);
     std::builtin::memmove(&mut dst[1..], &dst[0..3]);
     std::builtin::memset(&mut dst[..], 0);
+    let mut ints: [2]i32 = [0, 0];
+    let src_ints: [2]i32 = [1, 2];
+    std::builtin::memcpy[i32](&mut ints[..], &src_ints[..]);
 }
 "#,
     );
@@ -352,7 +355,7 @@ fn main() void {
             )
         })
         .count();
-    assert_eq!(intrinsic_count, 3);
+    assert_eq!(intrinsic_count, 4);
 }
 
 #[test]

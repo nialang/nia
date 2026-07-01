@@ -7,9 +7,10 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
 };
+use nia_sema_ir::{AssociatedComptimeProjection, SemanticUseTable};
 use nia_span::Span;
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
-use nia_ty::ConstGenericArg;
+use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue};
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -33,6 +34,198 @@ struct MethodTraitImplContext {
     trait_ref: Option<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)>,
     where_predicates: Vec<WherePredicateSignature>,
     associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
+}
+
+struct AssociatedComptimeProjectionUseCollector<'a> {
+    semantic_uses: &'a SemanticUseTable,
+    projections: Vec<(Span, AssociatedComptimeProjection)>,
+}
+
+impl AssociatedComptimeProjectionUseCollector<'_> {
+    fn visit_expr(&mut self, expr: &nia_ast::Expr) {
+        if let Some(projection) = self
+            .semantic_uses
+            .node_associated_comptime_projection(&expr.node_key)
+            .cloned()
+        {
+            self.projections.push((expr.span, projection));
+        }
+        match &expr.kind {
+            nia_ast::ExprKind::TraitTarget { .. }
+            | nia_ast::ExprKind::Error
+            | nia_ast::ExprKind::Integer(_)
+            | nia_ast::ExprKind::Float(_)
+            | nia_ast::ExprKind::String(_)
+            | nia_ast::ExprKind::ByteString(_)
+            | nia_ast::ExprKind::Char(_)
+            | nia_ast::ExprKind::ByteChar(_)
+            | nia_ast::ExprKind::Raw(_)
+            | nia_ast::ExprKind::Bool(_)
+            | nia_ast::ExprKind::Null
+            | nia_ast::ExprKind::Ident(_)
+            | nia_ast::ExprKind::Underscore
+            | nia_ast::ExprKind::TypeTarget { .. } => {}
+            nia_ast::ExprKind::BracketSuffix { callee, args } => {
+                self.visit_expr(callee);
+                for arg in args {
+                    if let Some(expr) = &arg.expr {
+                        self.visit_expr(expr);
+                    }
+                }
+            }
+            nia_ast::ExprKind::ArrayLiteral { elems }
+            | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => {
+                self.visit_array_elements(elems)
+            }
+            nia_ast::ExprKind::StructLiteral { fields }
+            | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
+                for field in fields {
+                    self.visit_expr(&field.value);
+                }
+            }
+            nia_ast::ExprKind::Unary { expr, .. }
+            | nia_ast::ExprKind::OptionalSome { expr }
+            | nia_ast::ExprKind::ErrorOk { expr }
+            | nia_ast::ExprKind::ErrorErr { expr }
+            | nia_ast::ExprKind::Try { expr }
+            | nia_ast::ExprKind::Cast { expr, .. } => self.visit_expr(expr),
+            nia_ast::ExprKind::Binary { lhs, rhs, .. }
+            | nia_ast::ExprKind::Assign { lhs, rhs, .. } => {
+                self.visit_expr(lhs);
+                self.visit_expr(rhs);
+            }
+            nia_ast::ExprKind::Call { callee, args } => {
+                self.visit_expr(callee);
+                for arg in args {
+                    self.visit_expr(arg);
+                }
+            }
+            nia_ast::ExprKind::Qualified { lhs, .. } | nia_ast::ExprKind::Field { lhs, .. } => {
+                self.visit_expr(lhs);
+            }
+            nia_ast::ExprKind::Index { lhs, index } => {
+                self.visit_expr(lhs);
+                self.visit_index_arg(index);
+            }
+            nia_ast::ExprKind::Range(range) => self.visit_slice_range(range),
+            nia_ast::ExprKind::Block(block) => self.visit_block(block),
+            nia_ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.visit_expr(cond);
+                self.visit_block(then_branch);
+                if let Some(else_branch) = else_branch {
+                    self.visit_expr(else_branch);
+                }
+            }
+            nia_ast::ExprKind::IfPattern(if_pattern) => {
+                self.visit_expr(&if_pattern.target);
+                for arm in &if_pattern.arms {
+                    self.visit_block(&arm.body);
+                }
+                if let Some(else_branch) = &if_pattern.else_branch {
+                    self.visit_expr(else_branch);
+                }
+            }
+            nia_ast::ExprKind::Switch(switch) => {
+                self.visit_expr(&switch.target);
+                for arm in &switch.arms {
+                    for pattern in &arm.patterns {
+                        self.visit_switch_pattern(pattern);
+                    }
+                    self.visit_switch_arm_body(&arm.body);
+                }
+            }
+        }
+    }
+
+    fn visit_array_elements(&mut self, elems: &nia_ast::ArrayElements) {
+        match elems {
+            nia_ast::ArrayElements::List(elems) => {
+                for elem in elems {
+                    self.visit_expr(elem);
+                }
+            }
+            nia_ast::ArrayElements::Repeat { value, count } => {
+                self.visit_expr(value);
+                self.visit_expr(count);
+            }
+        }
+    }
+
+    fn visit_index_arg(&mut self, index: &nia_ast::IndexArg) {
+        match index {
+            nia_ast::IndexArg::Expr(expr) => self.visit_expr(expr),
+            nia_ast::IndexArg::Range(range) => self.visit_slice_range(range),
+        }
+    }
+
+    fn visit_slice_range(&mut self, range: &nia_ast::SliceRange) {
+        if let Some(start) = &range.start {
+            self.visit_expr(start);
+        }
+        if let Some(end) = &range.end {
+            self.visit_expr(end);
+        }
+    }
+
+    fn visit_block(&mut self, block: &nia_ast::Block) {
+        for stmt in &block.stmts {
+            self.visit_stmt(stmt);
+        }
+        if let Some(tail) = &block.tail {
+            self.visit_expr(tail);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &nia_ast::Stmt) {
+        match &stmt.kind {
+            nia_ast::StmtKind::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    self.visit_expr(value);
+                }
+            }
+            nia_ast::StmtKind::Expr(expr) | nia_ast::StmtKind::Defer(expr) => {
+                self.visit_expr(expr);
+            }
+            nia_ast::StmtKind::Return(Some(expr)) => self.visit_expr(expr),
+            nia_ast::StmtKind::ForIn(for_in) => {
+                self.visit_expr(&for_in.iter);
+                self.visit_block(&for_in.body);
+            }
+            nia_ast::StmtKind::While(while_stmt) => {
+                self.visit_expr(&while_stmt.cond);
+                self.visit_block(&while_stmt.body);
+            }
+            nia_ast::StmtKind::Loop(loop_stmt) => self.visit_block(&loop_stmt.body),
+            nia_ast::StmtKind::Static(_)
+            | nia_ast::StmtKind::Using(_)
+            | nia_ast::StmtKind::Return(None)
+            | nia_ast::StmtKind::Break
+            | nia_ast::StmtKind::Continue => {}
+        }
+    }
+
+    fn visit_switch_pattern(&mut self, pattern: &nia_ast::SwitchPattern) {
+        match &pattern.kind {
+            nia_ast::SwitchPatternKind::Expr(expr) => self.visit_expr(expr),
+            nia_ast::SwitchPatternKind::Range { start, end, .. } => {
+                self.visit_expr(start);
+                self.visit_expr(end);
+            }
+            nia_ast::SwitchPatternKind::Wildcard => {}
+        }
+    }
+
+    fn visit_switch_arm_body(&mut self, body: &nia_ast::SwitchArmBody) {
+        match body {
+            nia_ast::SwitchArmBody::Expr(expr) => self.visit_expr(expr),
+            nia_ast::SwitchArmBody::Stmt(stmt) => self.visit_stmt(stmt),
+            nia_ast::SwitchArmBody::Block(block) => self.visit_block(block),
+        }
+    }
 }
 
 impl From<TraitObligation> for TraitGoal {
@@ -1368,7 +1561,8 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 self.check_type_projection_obligations(span, elem, obligations);
             }
-            Some(TyKind::Array { elem, .. }) => {
+            Some(TyKind::Array { len, elem }) => {
+                self.check_array_len_projection_obligations(span, &len, obligations);
                 self.check_type_projection_obligations(span, elem, obligations);
             }
             Some(TyKind::Range { bound, .. }) => {
@@ -1402,6 +1596,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &const_args {
+                    self.check_const_generic_arg_projection_obligations(arg, obligations);
                     self.check_type_projection_obligations(span, arg.ty, obligations);
                 }
                 self.check_nominal_where_obligations(span, def_id, &args, &const_args, obligations);
@@ -1429,6 +1624,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &trait_const_args {
+                    self.check_const_generic_arg_projection_obligations(arg, obligations);
                     self.check_type_projection_obligations(span, arg.ty, obligations);
                 }
                 if let TraitId::Source(def_id) = trait_id {
@@ -1445,6 +1641,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_type_projection_obligations(span, arg, obligations);
                     }
                     for arg in binding.trait_const_args {
+                        self.check_const_generic_arg_projection_obligations(&arg, obligations);
                         self.check_type_projection_obligations(span, arg.ty, obligations);
                     }
                     self.check_type_projection_obligations(span, binding.ty, obligations);
@@ -1462,6 +1659,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &trait_const_args {
+                    self.check_const_generic_arg_projection_obligations(arg, obligations);
                     self.check_type_projection_obligations(span, arg.ty, obligations);
                 }
                 let required = TraitObligation {
@@ -1492,6 +1690,90 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::GenericParam(_),
             )
             | None => {}
+        }
+    }
+
+    fn check_array_len_projection_obligations(
+        &mut self,
+        span: Span,
+        len: &ArrayLenTy,
+        obligations: &[TraitObligation],
+    ) {
+        match len {
+            ArrayLenTy::ConstExpr(id) => {
+                self.check_const_expr_projection_obligations(*id, obligations);
+            }
+            ArrayLenTy::Builtin { ty, .. } => {
+                self.check_type_projection_obligations(span, *ty, obligations);
+            }
+            ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
+        }
+    }
+
+    fn check_const_generic_arg_projection_obligations(
+        &mut self,
+        arg: &ConstGenericArg,
+        obligations: &[TraitObligation],
+    ) {
+        if let ConstGenericValue::ConstExpr(id) = arg.value {
+            self.check_const_expr_projection_obligations(id, obligations);
+        }
+    }
+
+    fn check_const_expr_projection_obligations(
+        &mut self,
+        id: nia_ids::GlobalConstExprId,
+        obligations: &[TraitObligation],
+    ) {
+        let Some(expr) = self.type_lowering.const_exprs.get(&id).cloned() else {
+            return;
+        };
+        let mut collector = AssociatedComptimeProjectionUseCollector {
+            semantic_uses: self.semantic_uses,
+            projections: Vec::new(),
+        };
+        collector.visit_expr(&expr);
+        for (projection_span, projection) in collector.projections {
+            self.check_associated_comptime_projection_obligation(
+                projection_span,
+                projection,
+                obligations,
+            );
+        }
+    }
+
+    fn check_associated_comptime_projection_obligation(
+        &mut self,
+        span: Span,
+        projection: AssociatedComptimeProjection,
+        obligations: &[TraitObligation],
+    ) {
+        self.check_type_projection_obligations(span, projection.self_ty, obligations);
+        for arg in &projection.trait_args {
+            self.check_type_projection_obligations(span, *arg, obligations);
+        }
+        for arg in &projection.trait_const_args {
+            self.check_const_generic_arg_projection_obligations(arg, obligations);
+            self.check_type_projection_obligations(span, arg.ty, obligations);
+        }
+        let required = TraitObligation {
+            self_ty: projection.self_ty,
+            trait_id: projection.trait_id,
+            trait_args: projection.trait_args,
+            trait_const_args: projection.trait_const_args,
+            associated_type_bindings: Vec::new(),
+        };
+        if !self.proves_trait_obligation(obligations, &required) {
+            self.diagnostics
+                .push(nia_diagnostic::Diagnostic::user_error_at(
+                    nia_diagnostic::codes::TYPE_CHECK,
+                    span,
+                    format!(
+                        "trait bound not satisfied: {}: {}",
+                        self.ty_name(required.self_ty),
+                        self.trait_ty_name(required.trait_id, &required.trait_args)
+                    ),
+                ));
         }
     }
 

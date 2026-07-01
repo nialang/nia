@@ -2,9 +2,9 @@
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
-    Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType, TraitItem,
-    TraitMethod, TypeAliasItem, UnionItem, UsingItem, Visibility, option_type_ref_decl_eq,
-    type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
+    Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType,
+    TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingItem, Visibility,
+    option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -234,6 +234,12 @@ fn item_tree_node_kind_definition_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeK
                     .iter()
                     .zip(rhs.associated_types.iter())
                     .all(|(lhs, rhs)| lhs.name == rhs.name)
+                && lhs.associated_values.len() == rhs.associated_values.len()
+                && lhs
+                    .associated_values
+                    .iter()
+                    .zip(rhs.associated_values.iter())
+                    .all(|(lhs, rhs)| lhs.name == rhs.name)
                 && lhs.methods.len() == rhs.methods.len()
                 && lhs
                     .methods
@@ -462,6 +468,7 @@ fn trait_decl_eq(lhs: &TraitItem, rhs: &TraitItem) -> bool {
         && type_refs_decl_eq(&lhs.supertraits, &rhs.supertraits)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && trait_associated_types_decl_eq(&lhs.associated_types, &rhs.associated_types)
+        && trait_associated_values_decl_eq(&lhs.associated_values, &rhs.associated_values)
         && lhs.methods.len() == rhs.methods.len()
         && lhs
             .methods
@@ -479,6 +486,17 @@ fn trait_associated_types_decl_eq(
             .iter()
             .zip(rhs.iter())
             .all(|(lhs, rhs)| lhs.name == rhs.name)
+}
+
+fn trait_associated_values_decl_eq(
+    lhs: &[TraitAssociatedValue],
+    rhs: &[TraitAssociatedValue],
+) -> bool {
+    lhs.len() == rhs.len()
+        && lhs
+            .iter()
+            .zip(rhs.iter())
+            .all(|(lhs, rhs)| lhs.name == rhs.name && type_ref_decl_eq(&lhs.ty, &rhs.ty))
 }
 
 fn trait_method_decl_eq(lhs: &TraitMethod, rhs: &TraitMethod) -> bool {

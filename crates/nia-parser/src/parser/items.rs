@@ -365,6 +365,7 @@ impl Parser {
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after trait name")?;
         let mut associated_types = Vec::new();
+        let mut associated_values = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             if self.eat(TokenKind::Pub).is_some() {
@@ -378,8 +379,14 @@ impl Parser {
                 if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
                     methods.push(TraitMethod { function });
                 }
+            } else if self.at(TokenKind::Comptime) {
+                if let Some(associated_value) = self.parse_trait_associated_value() {
+                    associated_values.push(associated_value);
+                }
             } else {
-                self.error_here("expected associated type or method in trait body");
+                self.error_here(
+                    "expected associated type, associated comptime value, or method in trait body",
+                );
                 let checkpoint = self.checkpoint();
                 self.recover_to_member_boundary_with_progress(checkpoint);
             }
@@ -391,6 +398,7 @@ impl Parser {
             supertraits,
             where_clause,
             associated_types,
+            associated_values,
             methods,
         })
     }
@@ -427,6 +435,30 @@ impl Parser {
             "expected `;` after associated type declaration",
         )?;
         Some(self.make_trait_associated_type(name, Span::new(start, self.previous_end())))
+    }
+
+    fn parse_trait_associated_value(&mut self) -> Option<nia_ast::TraitAssociatedValue> {
+        let start = self
+            .expect(TokenKind::Comptime, "expected `comptime`")?
+            .start;
+        if self.eat(TokenKind::Mut).is_some() {
+            self.error_here("trait associated comptime declarations cannot be mutable");
+        }
+        let name = self.expect_text(TokenKind::Ident, "expected associated comptime name")?;
+        self.expect(
+            TokenKind::Colon,
+            "expected `:` after associated comptime name",
+        )?;
+        let ty = self.parse_type_until(&[TokenKind::Eq, TokenKind::Semicolon])?;
+        if self.eat(TokenKind::Eq).is_some() {
+            self.error_here("trait associated comptime declarations cannot have initializers");
+            self.collect_until(&[TokenKind::Semicolon])?;
+        }
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after associated comptime declaration",
+        )?;
+        Some(self.make_trait_associated_value(name, ty, Span::new(start, self.previous_end())))
     }
 
     fn parse_extend(&mut self) -> Option<ExtendItem> {

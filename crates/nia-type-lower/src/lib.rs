@@ -93,6 +93,9 @@ impl VersionedTypeUseCollector<'_> {
                     self.visit_type(supertrait);
                 }
                 self.visit_where_clause(&item_trait.where_clause);
+                for associated_value in &item_trait.associated_values {
+                    self.visit_type(&associated_value.ty);
+                }
                 for method in &item_trait.methods {
                     self.visit_function(&method.function);
                 }
@@ -442,6 +445,12 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                                         );
                                     }
                                     lowerer.lower_where_clause(&item_trait.where_clause);
+                                    for associated_value in &item_trait.associated_values {
+                                        lowerer.lower_type_in_context(
+                                            &associated_value.ty,
+                                            TypeContext::Value,
+                                        );
+                                    }
                                     for method in &item_trait.methods {
                                         lowerer.visit_function(&method.function);
                                     }
@@ -452,6 +461,12 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                                 lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
                             }
                             lowerer.lower_where_clause(&item_trait.where_clause);
+                            for associated_value in &item_trait.associated_values {
+                                lowerer.lower_type_in_context(
+                                    &associated_value.ty,
+                                    TypeContext::Value,
+                                );
+                            }
                             for method in &item_trait.methods {
                                 lowerer.visit_function(&method.function);
                             }
@@ -568,6 +583,10 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             ExprKind::TypeTarget { ty } => {
                 self.visit_type(ty);
             }
+            ExprKind::TraitTarget { ty, trait_ref } => {
+                self.lower_type_in_context(ty, TypeContext::Value);
+                self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+            }
             ExprKind::TypedArrayLiteral { ty, elems } => {
                 self.visit_type(ty);
                 match elems {
@@ -667,6 +686,12 @@ impl TypeLowerer<'_> {
                                         );
                                     }
                                     lowerer.lower_where_clause(&item_trait.where_clause);
+                                    for associated_value in &item_trait.associated_values {
+                                        lowerer.lower_type_in_context(
+                                            &associated_value.ty,
+                                            TypeContext::Value,
+                                        );
+                                    }
                                     for method in &item_trait.methods {
                                         lowerer.visit_function(&method.function);
                                     }
@@ -677,6 +702,12 @@ impl TypeLowerer<'_> {
                                 lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
                             }
                             lowerer.lower_where_clause(&item_trait.where_clause);
+                            for associated_value in &item_trait.associated_values {
+                                lowerer.lower_type_in_context(
+                                    &associated_value.ty,
+                                    TypeContext::Value,
+                                );
+                            }
                             for method in &item_trait.methods {
                                 lowerer.visit_function(&method.function);
                             }
@@ -1938,6 +1969,7 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn register_const_expr_value(&mut self, expr: &Expr) -> GlobalConstExprId {
+        self.visit_expr(expr);
         let id = GlobalConstExprId {
             module_id: self.module_id,
             const_expr_id: ConstExprId(self.next_const_expr_id),

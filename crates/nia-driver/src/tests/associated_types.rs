@@ -522,6 +522,73 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn trait_impls_require_associated_comptime_definitions() {
+    let root = temp_dir("trait_impls_require_associated_comptime_definitions");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Simd {
+    type Lane;
+    comptime Lanes: usize;
+}
+
+struct Vec4 {}
+
+extend Vec4 : Simd {
+    type Lane = u8;
+    comptime Extra: usize = 4usize;
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("missing definition for associated comptime `Lanes`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("associated comptime `Extra` is not a member")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn trait_impls_accept_associated_comptime_definitions() {
+    let root = temp_dir("trait_impls_accept_associated_comptime_definitions");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Simd {
+    type Lane;
+    comptime Lanes: usize;
+}
+
+struct Vec4 {}
+
+extend Vec4 : Simd {
+    type Lane = u8;
+    comptime Lanes: usize = 4usize;
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn associated_type_definitions_are_restricted_to_trait_impls() {
     let root = temp_dir("associated_type_definitions_are_restricted_to_trait_impls");
     write(
@@ -1009,6 +1076,310 @@ fn main() i32 {
     } or error! {
         0
     }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_associated_comptime_projection_checks_as_value() {
+    let root = temp_dir("trait_associated_comptime_projection_checks_as_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Simd {
+    comptime Lanes: usize;
+}
+
+struct Vec4 {}
+
+extend Vec4 : Simd {
+    comptime Lanes: usize = 4usize;
+}
+
+fn lanes[T]() usize
+where T: Simd
+{
+    [T as Simd]::Lanes
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_impl_associated_comptime_type_must_match_requirement() {
+    let root = temp_dir("trait_impl_associated_comptime_type_must_match_requirement");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Simd {
+    comptime Lanes: usize;
+}
+
+struct Vec4 {}
+
+extend Vec4 : Simd {
+    comptime Lanes: bool = true;
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("does not match the trait requirement")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn imported_trait_associated_comptime_projection_checks_as_value() {
+    let root = temp_dir("imported_trait_associated_comptime_projection_checks_as_value");
+    write(
+        &root.join("simd.nia"),
+        r#"
+pub trait Simd {
+    comptime Lanes: usize;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module simd;
+using entry::simd;
+
+struct Vec4 {}
+
+extend Vec4 : simd::Simd {
+    comptime Lanes: usize = 4usize;
+}
+
+fn lanes[T]() usize
+where T: simd::Simd
+{
+    [T as simd::Simd]::Lanes
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_associated_comptime_projection_drives_array_lengths() {
+    let root = temp_dir("trait_associated_comptime_projection_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Shape {
+    comptime N: usize;
+}
+
+struct Four {}
+
+extend Four : Shape {
+    comptime N: usize = 4usize;
+}
+
+fn fourth(values: [[Four as Shape]::N]u8) u8 {
+    values[3]
+}
+
+fn main() i32 {
+    fourth([1u8, 2u8, 3u8, 4u8]) as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_impl_associated_comptime_projection_uses_instance_const_args() {
+    let root = temp_dir("generic_impl_associated_comptime_projection_uses_instance_const_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait HasLen {
+    comptime Len: usize;
+}
+
+struct Buf[N: usize] {
+    values: [N]u8,
+}
+
+extend[N: usize] Buf[N] : HasLen {
+    comptime Len: usize = N;
+}
+
+comptime fn len[T]() usize
+where T: HasLen
+{
+    [T as HasLen]::Len
+}
+
+comptime A: usize = len[Buf[4]]();
+comptime B: usize = len[Buf[8]]();
+
+fn main() usize {
+    A * 10usize + B
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn supertrait_associated_comptime_projection_resolves_through_subtrait_bound() {
+    let root =
+        temp_dir("supertrait_associated_comptime_projection_resolves_through_subtrait_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base {
+    comptime N: usize;
+}
+
+trait Sub : Base {}
+
+struct Value {}
+
+extend Value : Base {
+    comptime N: usize = 6usize;
+}
+
+extend Value : Sub {}
+
+comptime fn n[T]() usize
+where T: Sub
+{
+    [T as Base]::N
+}
+
+comptime WIDTH: usize = n[Value]();
+
+fn main() usize {
+    let values: [WIDTH]usize = [1, 2, 3, 4, 5, 6];
+    values[5]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_const_generic_associated_comptime_projection_substitutes_const_args() {
+    let root =
+        temp_dir("trait_const_generic_associated_comptime_projection_substitutes_const_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Slot[N: usize] {
+    comptime Width: usize;
+}
+
+struct Store {}
+
+extend Store : Slot[3] {
+    comptime Width: usize = 3usize;
+}
+
+comptime fn width_store() usize
+{
+    [Store as Slot[3]]::Width
+}
+
+fn generic_width[T, N: usize]() usize
+where T: Slot[N]
+{
+    [T as Slot[N]]::Width
+}
+
+comptime WIDTH: usize = width_store();
+
+fn main() usize {
+    let values: [WIDTH]usize = [1, 2, 3];
+    values[2] + generic_width[Store, 3]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_simd_trait_projects_lane_type() {
+    let root = temp_dir("builtin_simd_trait_projects_lane_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn concrete(value: [u8x16 as Simd]::Lane) u8 {
+    value
+}
+
+fn lanes() usize {
+    [u8x16 as Simd]::Lanes
+}
+
+fn generic[V](value: [V as Simd]::Lane) void
+where V: Simd
+{
+    _ = value;
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_simd_mask_implies_simd_lane_projection() {
+    let root = temp_dir("builtin_simd_mask_implies_simd_lane_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn generic[V](value: [V as Simd]::Lane) void
+where V: SimdMask
+{
+    _ = value;
+}
+
+fn main() i32 {
+    0
 }
 "#,
     );

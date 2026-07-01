@@ -378,6 +378,34 @@ impl<'a> BodyChecker<'a> {
         solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
+    pub(crate) fn resolve_associated_comptime_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        name: &str,
+    ) -> Option<nia_trait_solve::AssociatedComptimeResolution> {
+        let assumptions = self.current_trait_goals();
+        let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
+        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
+        let context = TraitSolverContext {
+            normalization: self.normalization,
+            trait_impls: self.program_trait_impls,
+            layouts: Some(self.layouts),
+            local_module_id: self.defs.module_id,
+            local_enums: &self.signatures.enums,
+            program_enums: Some(self.program_enums),
+            const_expr_value: Some(&const_expr_value),
+            impl_is_visible: Some(&|module_id, impl_id| {
+                module_id == self.defs.module_id
+                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+            }),
+        };
+        let mut solver = context.solver(&mut self.interner, &assumptions);
+        solver.resolve_associated_comptime(self_ty, trait_id, trait_args, trait_const_args, name)
+    }
+
     pub(crate) fn expect_type(
         &mut self,
         span: Span,
@@ -1078,6 +1106,7 @@ impl<'a> BodyChecker<'a> {
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
             node_builtin_values: HashMap::new(),
+            node_associated_comptime_projections: HashMap::new(),
             node_array_repeat_counts: HashMap::new(),
             node_switch_pattern_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),

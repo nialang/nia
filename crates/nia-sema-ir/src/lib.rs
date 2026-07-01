@@ -15,6 +15,8 @@ pub struct SemanticUseTable {
     pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
     pub node_const_generic_uses: HashMap<VersionedNodeKey, String>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_associated_comptime_projections:
+        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
     pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
 }
@@ -33,6 +35,13 @@ impl SemanticUseTable {
         key: &VersionedNodeKey,
     ) -> Option<BuiltinAssociatedValue> {
         self.node_builtin_associated_values.get(key).copied()
+    }
+
+    pub fn node_associated_comptime_projection(
+        &self,
+        key: &VersionedNodeKey,
+    ) -> Option<&AssociatedComptimeProjection> {
+        self.node_associated_comptime_projections.get(key)
     }
 
     pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&str> {
@@ -90,6 +99,25 @@ impl SemanticUseTableBuilder {
         self.table.node_builtin_associated_values.insert(key, value);
     }
 
+    pub fn insert_node_associated_comptime_projection(
+        &mut self,
+        key: VersionedNodeKey,
+        projection: AssociatedComptimeProjection,
+    ) {
+        self.table
+            .node_associated_comptime_projections
+            .insert(key, projection);
+    }
+
+    pub fn extend_node_associated_comptime_projections(
+        &mut self,
+        projections: impl IntoIterator<Item = (VersionedNodeKey, AssociatedComptimeProjection)>,
+    ) {
+        self.table
+            .node_associated_comptime_projections
+            .extend(projections);
+    }
+
     pub fn extend_node_builtin_associated_values(
         &mut self,
         values: impl IntoIterator<Item = (VersionedNodeKey, BuiltinAssociatedValue)>,
@@ -137,6 +165,15 @@ impl SemanticUseTableBuilder {
 pub enum SemanticValueUse {
     Local(LocalId),
     Global(GlobalDefId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AssociatedComptimeProjection {
+    pub self_ty: InternedTyId,
+    pub trait_id: TraitId,
+    pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +275,8 @@ pub struct SemanticFacts {
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_associated_comptime_projections:
+        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
@@ -255,6 +294,8 @@ pub struct FunctionSemanticFacts {
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    pub node_associated_comptime_projections:
+        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,

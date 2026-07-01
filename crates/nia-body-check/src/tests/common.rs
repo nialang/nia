@@ -310,6 +310,7 @@ fn single_module_trait_impls(
                 trait_const_args,
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
+                associated_values: impl_signature.associated_values.clone(),
                 interner: lowered.interner.clone(),
             })
         })

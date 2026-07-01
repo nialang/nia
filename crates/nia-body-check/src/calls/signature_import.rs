@@ -106,6 +106,18 @@ impl<'a> BodyChecker<'a> {
                 span: supertrait.span,
             })
             .collect();
+        signature.associated_values = signature
+            .associated_values
+            .iter()
+            .map(
+                |associated_value| nia_item_signatures::TraitAssociatedValueSignature {
+                    def_id: associated_value.def_id,
+                    name: associated_value.name.clone(),
+                    ty: self.import_type_from(&program_signature.interner, associated_value.ty),
+                    span: associated_value.span,
+                },
+            )
+            .collect();
         signature.methods = signature
             .methods
             .iter()

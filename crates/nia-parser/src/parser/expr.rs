@@ -874,6 +874,19 @@ impl Parser {
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
         self.expect(TokenKind::LBracket, "expected `[` before type target")?;
+        if let Some((ty, trait_ref)) = self.parse_trait_target_after_open()
+            && self.at(TokenKind::ColonColon)
+        {
+            let end = self.previous_end();
+            return Some(self.make_expr(
+                Span::new(start, end),
+                ExprKind::TraitTarget { ty, trait_ref },
+            ));
+        }
+        self.tokens.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+
+        self.expect(TokenKind::LBracket, "expected `[` before type target")?;
         if let Some(ty) = self.parse_type_target_type_after_open()
             && self.at(TokenKind::ColonColon)
         {
@@ -883,6 +896,17 @@ impl Parser {
         self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_bracket_array_literal()
+    }
+
+    fn parse_trait_target_after_open(&mut self) -> Option<(TypeRef, TypeRef)> {
+        if !self.token_can_start_type(&self.peek().kind) {
+            return None;
+        }
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::As, "expected `as` in trait target")?;
+        let trait_ref = self.parse_type()?;
+        self.expect(TokenKind::RBracket, "expected `]` after trait target")?;
+        Some((ty, trait_ref))
     }
 
     fn parse_type_target_type_after_open(&mut self) -> Option<TypeRef> {
