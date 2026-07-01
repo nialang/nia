@@ -1,6 +1,12 @@
 use super::ty_substitution::substitute_ty_generics_in_interner;
 use super::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComptimeTypeCompatibility {
+    Mismatch,
+    Unknown,
+}
+
 impl Analyzer<'_> {
     pub(super) fn substitute_ty_generics(&mut self, ty: InternedTyId) -> InternedTyId {
         let module_id = self.current_execution_module_id();
@@ -72,6 +78,21 @@ impl Analyzer<'_> {
                 let Some(arg_ty) =
                     self.resolved_comptime_arg_runtime_type(arg_expr, concrete_expected)
                 else {
+                    if concrete_expected.is_some_and(|expected| {
+                        self.resolved_comptime_arg_expected_compatibility(arg_expr, expected)
+                            == ComptimeTypeCompatibility::Mismatch
+                    }) {
+                        return Err(ComptimeError {
+                            span: arg_expr.span(),
+                            message: match arg_expr.kind() {
+                                ResolvedComptimeExprKind::Switch(_) => {
+                                    "comptime switch expression does not match expected type"
+                                }
+                                _ => "comptime call argument does not match expected type",
+                            }
+                            .to_string(),
+                        });
+                    }
                     continue;
                 };
                 self.infer_generics_from_tys(
@@ -157,6 +178,61 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.resolved_comptime_expr_type(expr, expected)
             .and_then(|ty| ty.runtime())
+    }
+
+    fn resolved_comptime_arg_expected_compatibility(
+        &mut self,
+        expr: &ResolvedComptimeExpr,
+        expected: InternedTyId,
+    ) -> ComptimeTypeCompatibility {
+        match expr.kind() {
+            ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
+                match self.resolved_comptime_cast_expected_compatibility(inner, *ty) {
+                    ComptimeTypeCompatibility::Mismatch => ComptimeTypeCompatibility::Mismatch,
+                    ComptimeTypeCompatibility::Unknown => ComptimeTypeCompatibility::Unknown,
+                }
+            }
+            ResolvedComptimeExprKind::Switch(switch)
+                if self.resolved_comptime_switch_has_definite_pattern_mismatch(switch) =>
+            {
+                ComptimeTypeCompatibility::Mismatch
+            }
+            _ => {
+                let _ = expected;
+                ComptimeTypeCompatibility::Unknown
+            }
+        }
+    }
+
+    fn resolved_comptime_cast_expected_compatibility(
+        &mut self,
+        inner: &ResolvedComptimeExpr,
+        target: InternedTyId,
+    ) -> ComptimeTypeCompatibility {
+        let target = self.substitute_ty_generics(target);
+        let Some(TyKind::Primitive(target)) = self.ty_kind(target) else {
+            return ComptimeTypeCompatibility::Mismatch;
+        };
+        let Some(source) = self.resolved_comptime_expr_type(inner, None) else {
+            return ComptimeTypeCompatibility::Unknown;
+        };
+        let ComptimeValueType::Runtime(source) = source else {
+            return ComptimeTypeCompatibility::Mismatch;
+        };
+        let Some(TyKind::Primitive(source)) = self.ty_kind(source) else {
+            return ComptimeTypeCompatibility::Mismatch;
+        };
+        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width)
+            .is_some()
+            || is_float_primitive(source);
+        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width)
+            .is_some()
+            || is_float_primitive(target);
+        if source_numeric && target_numeric {
+            ComptimeTypeCompatibility::Unknown
+        } else {
+            ComptimeTypeCompatibility::Mismatch
+        }
     }
 
     pub(super) fn probe_resolved_comptime_int_expr(
@@ -1185,6 +1261,88 @@ impl Analyzer<'_> {
         arm.patterns()
             .iter()
             .any(|pattern| resolved_pattern_local_id(pattern).is_some())
+    }
+
+    fn resolved_comptime_switch_has_definite_pattern_mismatch(
+        &mut self,
+        switch: &ResolvedComptimeSwitch,
+    ) -> bool {
+        let Some(target_ty) = self.resolved_comptime_arg_runtime_type(switch.target(), None) else {
+            return false;
+        };
+        switch.arms().iter().any(|arm| {
+            self.resolved_comptime_patterns_have_definite_mismatch(arm.patterns(), target_ty)
+        })
+    }
+
+    fn resolved_comptime_patterns_have_definite_mismatch(
+        &mut self,
+        patterns: &[ResolvedComptimePattern],
+        target_ty: InternedTyId,
+    ) -> bool {
+        patterns
+            .iter()
+            .any(|pattern| self.resolved_comptime_pattern_has_definite_mismatch(pattern, target_ty))
+    }
+
+    fn resolved_comptime_pattern_has_definite_mismatch(
+        &mut self,
+        pattern: &ResolvedComptimePattern,
+        target_ty: InternedTyId,
+    ) -> bool {
+        match pattern.kind() {
+            ResolvedComptimePatternKind::Wildcard { .. }
+            | ResolvedComptimePatternKind::Bind { .. } => false,
+            ResolvedComptimePatternKind::Pointer { pattern, .. }
+            | ResolvedComptimePatternKind::MutPointer { pattern, .. } => {
+                let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(target_ty) else {
+                    return true;
+                };
+                self.resolved_comptime_pattern_has_definite_mismatch(pattern, elem)
+            }
+            ResolvedComptimePatternKind::Expr(expr) => {
+                let target_ty = ComptimeValueType::Runtime(target_ty);
+                self.resolved_comptime_expr_type(expr, target_ty.runtime())
+                    .or_else(|| self.resolved_comptime_expr_type(expr, None))
+                    .is_some_and(|pattern_ty| {
+                        pattern_ty != target_ty
+                            && !self.comptime_equality_types_are_compatible(&target_ty, &pattern_ty)
+                    })
+            }
+            ResolvedComptimePatternKind::Range { start, end, .. } => {
+                if !self.is_integer_runtime_type(target_ty) {
+                    return true;
+                }
+                let start_ty = self.resolved_comptime_arg_runtime_type(start, Some(target_ty));
+                let end_ty = self.resolved_comptime_arg_runtime_type(end, Some(target_ty));
+                matches!(
+                    (start_ty, end_ty),
+                    (Some(start_ty), Some(end_ty))
+                        if start_ty != target_ty || end_ty != target_ty
+                )
+            }
+            ResolvedComptimePatternKind::OptionalSome { pattern, .. } => {
+                let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
+                    return true;
+                };
+                self.resolved_comptime_pattern_has_definite_mismatch(pattern, elem)
+            }
+            ResolvedComptimePatternKind::OptionalNull { .. } => {
+                !matches!(self.ty_kind(target_ty), Some(TyKind::Optional { .. }))
+            }
+            ResolvedComptimePatternKind::ErrorOk { pattern, .. } => {
+                let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
+                    return true;
+                };
+                self.resolved_comptime_pattern_has_definite_mismatch(pattern, value)
+            }
+            ResolvedComptimePatternKind::ErrorErr { pattern, .. } => {
+                let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
+                    return true;
+                };
+                self.resolved_comptime_pattern_has_definite_mismatch(pattern, error)
+            }
+        }
     }
 
     pub(super) fn check_resolved_comptime_patterns(
