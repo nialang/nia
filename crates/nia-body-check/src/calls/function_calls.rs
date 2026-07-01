@@ -1213,8 +1213,8 @@ impl<'a> BodyChecker<'a> {
         substitutions: &mut HashMap<String, ConstGenericArg>,
         span: Span,
     ) {
-        if let Some(existing) = substitutions.get(name) {
-            if !const_generic_args_match(existing, &arg) {
+        if let Some(existing) = substitutions.get(name).cloned() {
+            if !self.const_generic_args_match(&existing, &arg) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
@@ -1240,18 +1240,6 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),
             ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
         }
-    }
-}
-
-fn const_generic_args_match(left: &ConstGenericArg, right: &ConstGenericArg) -> bool {
-    if left.ty != right.ty {
-        return false;
-    }
-    match (&left.value, &right.value) {
-        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
-            left.bits() == right.bits()
-        }
-        _ => left.value == right.value,
     }
 }
 

@@ -145,6 +145,7 @@ fn pipeline_with_options(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
         normalized: &std::collections::HashMap::new(),

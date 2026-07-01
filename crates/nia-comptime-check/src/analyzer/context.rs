@@ -899,10 +899,19 @@ impl Analyzer<'_> {
         out: &mut HashSet<GlobalConstExprId>,
         seen: &mut HashSet<InternedTyId>,
     ) {
-        if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value {
+        if self.const_generic_arg_type_is_array_len(arg.ty)
+            && let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
+        {
             out.insert(*id);
         }
         self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
+    }
+
+    fn const_generic_arg_type_is_array_len(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Usize))
+        )
     }
 
     pub(super) fn compute_program_layout(

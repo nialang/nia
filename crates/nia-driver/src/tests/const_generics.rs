@@ -779,6 +779,117 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn const_generic_bool_expression_normalizes_for_trait_matching() {
+    let root = temp_dir("const_generic_bool_expression_normalizes_for_trait_matching");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn yes() bool {
+    true
+}
+
+trait Flagged[FLAG: bool] {
+    fn value(& self) usize;
+}
+
+struct Token {}
+
+extend Token : Flagged[true] {
+    fn value(& self) usize {
+        7usize
+    }
+}
+
+comptime ENABLED: bool = yes();
+
+fn read[T](value: & T) usize
+where T: Flagged[ENABLED] {
+    value.value()
+}
+
+fn main() usize {
+    let token = Token {};
+    read(& token)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_char_expression_normalizes_for_trait_matching() {
+    let root = temp_dir("const_generic_char_expression_normalizes_for_trait_matching");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn marker() char {
+    'N'
+}
+
+trait Tagged[TAG: char] {
+    fn value(& self) usize;
+}
+
+struct Token {}
+
+extend Token : Tagged['N'] {
+    fn value(& self) usize {
+        9usize
+    }
+}
+
+comptime TAG: char = marker();
+
+fn read[T](value: & T) usize
+where T: Tagged[TAG] {
+    value.value()
+}
+
+fn main() usize {
+    let token = Token {};
+    read(& token)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_u8_expression_rejects_out_of_range_value() {
+    let root = temp_dir("const_generic_u8_expression_rejects_out_of_range_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn too_large() usize {
+    256usize
+}
+
+fn value[N: u8]() u8 {
+    N
+}
+
+fn main() u8 {
+    value[too_large()]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("out of range")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_rejects_conflicting_repeated_inferred_lengths() {
     let root = temp_dir("const_generic_rejects_conflicting_repeated_inferred_lengths");
     write(

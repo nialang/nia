@@ -15,6 +15,7 @@ use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
+use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 
 static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnumSignature>> =
@@ -179,6 +180,7 @@ pub struct ComptimeInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,

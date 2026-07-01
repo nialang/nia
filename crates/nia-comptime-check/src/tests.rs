@@ -59,6 +59,7 @@ fn check_source(source: &str) -> CheckedFixture {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
         normalized: &HashMap::new(),

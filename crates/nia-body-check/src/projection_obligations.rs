@@ -487,7 +487,7 @@ impl<'a> BodyChecker<'a> {
                     let mut impl_arg = impl_arg.clone();
                     impl_arg.ty = self.import_type_from(&impl_signature.interner, impl_arg.ty);
                     impl_arg.ty = self.substitute_generics(impl_arg.ty, &impl_substitutions);
-                    if required_arg != &impl_arg {
+                    if !self.const_generic_args_match(required_arg, &impl_arg) {
                         ok = false;
                         break;
                     }
@@ -1578,16 +1578,25 @@ impl<'a> BodyChecker<'a> {
         let assumptions = self.trait_goals_for_obligations(obligations);
         let associated_type_assumptions =
             self.associated_type_assumptions_for_obligations(obligations);
-        let module_id = self.defs.module_id;
-        let local_array_lengths = self.comptime.array_lengths;
-        let program_array_lengths = self.program_comptime_array_lengths;
-        let const_expr_value = move |id: nia_ids::GlobalConstExprId| {
-            if id.module_id == module_id {
-                return local_array_lengths.get(&id).copied();
+        let mut const_expr_values = HashMap::new();
+        for arg in &required.trait_const_args {
+            self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
+        }
+        for obligation in obligations {
+            for arg in &obligation.trait_const_args {
+                self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
             }
-            program_array_lengths(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
-        };
+        }
+        for impl_signature in self.program_trait_impls {
+            if impl_signature.trait_id == required.trait_id {
+                for arg in &impl_signature.trait_const_args {
+                    let mut arg = arg.clone();
+                    arg.ty = self.import_type_from(&impl_signature.interner, arg.ty);
+                    self.collect_const_expr_values_for_trait_solver(&arg, &mut const_expr_values);
+                }
+            }
+        }
+        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
