@@ -406,12 +406,10 @@ impl Parser {
                 } else {
                     self.tokens.rewind(checkpoint);
                     self.errors.truncate(errors_len);
-                    if let Some(span) = self.collect_until(&[TokenKind::Comma, TokenKind::RBracket])
+                    if let Some(expr) =
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
                     {
-                        args.push(TypeArg::Const(ExprStub {
-                            span,
-                            text: self.source_text(span),
-                        }));
+                        args.push(TypeArg::Const(expr));
                     }
                 }
                 if self.eat(TokenKind::Comma).is_none() {
@@ -456,16 +454,49 @@ impl Parser {
                 self.tokens.rewind(checkpoint_before_key);
                 self.errors.truncate(errors_before_key);
             }
-            if let Some(ty) = self.parse_type() {
-                args.push(TypeArg::Type(ty));
-            } else {
-                self.tokens.rewind(checkpoint);
-                self.errors.truncate(errors_len);
-                if let Some(span) = self.collect_until(&[TokenKind::Comma, TokenKind::RBracket]) {
-                    args.push(TypeArg::Const(ExprStub {
-                        span,
-                        text: self.source_text(span),
-                    }));
+            let type_checkpoint = self.tokens.checkpoint();
+            let type_errors_len = self.errors.len();
+            let ty = self.parse_type().filter(|_| self.at_type_arg_boundary());
+            self.tokens.rewind(type_checkpoint);
+            self.errors.truncate(type_errors_len);
+
+            let expr_checkpoint = self.tokens.checkpoint();
+            let expr_errors_len = self.errors.len();
+            let expr = self
+                .parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
+                .filter(|_| self.at_type_arg_boundary());
+            self.tokens.rewind(expr_checkpoint);
+            self.errors.truncate(expr_errors_len);
+
+            match (ty, expr) {
+                (Some(ty), Some(expr))
+                    if ty.span == expr.span && type_arg_can_be_const_path(&ty, &expr) =>
+                {
+                    self.skip_to_type_arg_boundary();
+                    args.push(TypeArg::TypeOrConst { ty, expr });
+                }
+                (Some(_), _) => {
+                    self.tokens.rewind(type_checkpoint);
+                    self.errors.truncate(type_errors_len);
+                    let ty = self.parse_type().expect("type candidate should reparse");
+                    args.push(TypeArg::Type(ty));
+                }
+                (None, Some(_)) => {
+                    self.tokens.rewind(expr_checkpoint);
+                    self.errors.truncate(expr_errors_len);
+                    let expr = self
+                        .parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
+                        .expect("const candidate should reparse");
+                    args.push(TypeArg::Const(expr));
+                }
+                (None, None) => {
+                    self.tokens.rewind(checkpoint);
+                    self.errors.truncate(errors_len);
+                    if let Some(expr) =
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
+                    {
+                        args.push(TypeArg::Const(expr));
+                    }
                 }
             }
             if self.eat(TokenKind::Comma).is_none() {
@@ -474,6 +505,16 @@ impl Parser {
         }
         self.expect(TokenKind::RBracket, "expected `]` after type arguments");
         args
+    }
+
+    fn at_type_arg_boundary(&self) -> bool {
+        self.at(TokenKind::Comma) || self.at(TokenKind::RBracket) || self.at(TokenKind::Eof)
+    }
+
+    fn skip_to_type_arg_boundary(&mut self) {
+        while !self.at_type_arg_boundary() {
+            self.bump();
+        }
     }
 
     pub(super) fn type_can_start(&self) -> bool {
@@ -547,5 +588,23 @@ impl Parser {
             }
         }
         WhereClause { predicates }
+    }
+}
+
+fn type_arg_can_be_const_path(ty: &TypeRef, expr: &Expr) -> bool {
+    let TypeKind::Path { segments } = &ty.kind else {
+        return false;
+    };
+    if segments.iter().any(|segment| !segment.args.is_empty()) {
+        return false;
+    }
+    expr_is_path(expr)
+}
+
+fn expr_is_path(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Ident(_) => true,
+        ExprKind::Qualified { lhs, .. } => expr_is_path(lhs),
+        _ => false,
     }
 }

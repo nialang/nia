@@ -6,7 +6,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{GenericParamSignature, GenericParamSignatureKind};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
-use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, TyKind};
+use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LoweredGenericArgs {
@@ -89,7 +89,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
                 GenericParamSignatureKind::Comptime { ty } => {
-                    let Some(value) = self.const_generic_value_from_bracket_arg(arg) else {
+                    let Some(value) = self.const_generic_value_from_bracket_arg(arg, *ty) else {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,
@@ -106,16 +106,21 @@ impl<'a> BodyChecker<'a> {
         Some(lowered)
     }
 
-    fn const_generic_value_from_bracket_arg(&self, arg: &BracketArg) -> Option<ConstGenericValue> {
+    fn const_generic_value_from_bracket_arg(
+        &mut self,
+        arg: &BracketArg,
+        expected_ty: InternedTyId,
+    ) -> Option<ConstGenericValue> {
         if let Some(expr) = &arg.expr {
-            return match &expr.kind {
+            let value = match &expr.kind {
                 ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
                     .ok()
                     .map(|value| ConstGenericValue::Int(IntConst::signed(value))),
                 ExprKind::Bool(value) => Some(ConstGenericValue::Bool(*value)),
                 ExprKind::Ident(name) => Some(ConstGenericValue::GenericParam(name.clone())),
-                _ => None,
+                _ => self.eval_const_generic_expr(expr, expected_ty),
             };
+            return value.filter(|value| self.const_generic_value_matches_type(value, expected_ty));
         }
         let ty = arg.ty.as_ref()?;
         let TypeKind::Path { segments } = &ty.kind else {
@@ -129,6 +134,106 @@ impl<'a> BodyChecker<'a> {
             "false" => Some(ConstGenericValue::Bool(false)),
             name => Some(ConstGenericValue::GenericParam(name.to_string())),
         }
+        .filter(|value| self.const_generic_value_matches_type(value, expected_ty))
+    }
+
+    fn eval_const_generic_expr(
+        &mut self,
+        expr: &nia_ast::Expr,
+        expected_ty: InternedTyId,
+    ) -> Option<ConstGenericValue> {
+        self.with_comptime_context(|this| {
+            this.check_expr(expr);
+            let comptime_expr = match this.lower_comptime_expr(expr) {
+                Ok(expr) => expr,
+                Err(err) => {
+                    this.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        err.span,
+                        err.message,
+                    ));
+                    return None;
+                }
+            };
+            let value = match nia_comptime_engine::eval_resolved_comptime_expr(&comptime_expr, this)
+            {
+                Ok(value) => value,
+                Err(err) => {
+                    this.diagnostics.push(Diagnostic::user_error_at(
+                        codes::COMPTIME,
+                        err.span,
+                        err.message,
+                    ));
+                    return None;
+                }
+            };
+            this.const_generic_value_from_comptime_value(expr.span, value, expected_ty)
+        })
+    }
+
+    fn const_generic_value_from_comptime_value(
+        &mut self,
+        span: Span,
+        value: nia_comptime_check::ComptimeValue,
+        expected_ty: InternedTyId,
+    ) -> Option<ConstGenericValue> {
+        match value {
+            nia_comptime_check::ComptimeValue::Int(value) => {
+                if !self.const_generic_type_accepts_int(expected_ty, value) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        "comptime generic integer argument is out of range for parameter type",
+                    ));
+                    return None;
+                }
+                Some(ConstGenericValue::Int(value))
+            }
+            nia_comptime_check::ComptimeValue::Bool(value)
+                if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool) =>
+            {
+                Some(ConstGenericValue::Bool(value))
+            }
+            _ => None,
+        }
+    }
+
+    fn const_generic_value_matches_type(
+        &mut self,
+        value: &ConstGenericValue,
+        expected_ty: InternedTyId,
+    ) -> bool {
+        match value {
+            ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_) => true,
+            ConstGenericValue::Int(value) => {
+                self.const_generic_type_accepts_int(expected_ty, *value)
+            }
+            ConstGenericValue::Bool(_) => {
+                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool)
+            }
+            ConstGenericValue::Char(_) => {
+                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Char)
+            }
+        }
+    }
+
+    fn const_generic_type_accepts_int(&mut self, ty: InternedTyId, value: IntConst) -> bool {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Primitive(primitive)) = self.interner.get(ty).cloned() else {
+            return false;
+        };
+        let Some((min, max)) = const_generic_integer_range(primitive, self.target.pointer_width)
+        else {
+            return false;
+        };
+        value
+            .as_i128()
+            .is_some_and(|value| value >= min && value <= max)
+    }
+
+    fn const_generic_type_is_primitive(&mut self, ty: InternedTyId, expected: PrimitiveTy) -> bool {
+        let ty = self.normalization.normalize(ty);
+        matches!(self.interner.get(ty), Some(TyKind::Primitive(primitive)) if *primitive == expected)
     }
 
     pub(crate) fn complete_instance_args_for_generics(
@@ -334,5 +439,51 @@ impl<'a> BodyChecker<'a> {
                     .map(|method| method.effective_generics.clone())
             })
             .unwrap_or_default()
+    }
+}
+
+fn const_generic_integer_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(i128, i128)> {
+    let bits = match primitive {
+        PrimitiveTy::I8 => 8,
+        PrimitiveTy::I16 => 16,
+        PrimitiveTy::I32 => 32,
+        PrimitiveTy::I64 => 64,
+        PrimitiveTy::I128 => 128,
+        PrimitiveTy::Isize => pointer_width,
+        PrimitiveTy::U8 => 8,
+        PrimitiveTy::U16 => 16,
+        PrimitiveTy::U32 => 32,
+        PrimitiveTy::U64 => 64,
+        PrimitiveTy::U128 => 128,
+        PrimitiveTy::Usize => pointer_width,
+        PrimitiveTy::Bool
+        | PrimitiveTy::Char
+        | PrimitiveTy::F32
+        | PrimitiveTy::F64
+        | PrimitiveTy::Void
+        | PrimitiveTy::Never => return None,
+    };
+    match primitive {
+        PrimitiveTy::I8
+        | PrimitiveTy::I16
+        | PrimitiveTy::I32
+        | PrimitiveTy::I64
+        | PrimitiveTy::I128
+        | PrimitiveTy::Isize => {
+            let max = if bits == 128 {
+                i128::MAX
+            } else {
+                (1i128 << (bits - 1)) - 1
+            };
+            Some((-max - 1, max))
+        }
+        _ => {
+            let max = if bits == 128 {
+                i128::MAX
+            } else {
+                (1i128 << bits) - 1
+            };
+            Some((0, max))
+        }
     }
 }
