@@ -25,6 +25,7 @@ using pkg::builtin::marker;
 using pkg::builtin::mem;
 using pkg::builtin::ops;
 using pkg::builtin::place;
+using pkg::builtin::primitive;
 using pkg::builtin::simd;
 
 pub using atomic::{

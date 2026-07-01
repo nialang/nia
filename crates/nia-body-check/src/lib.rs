@@ -1597,6 +1597,9 @@ impl<'a> BodyChecker<'a> {
                 if let ItemTreeNodeKind::Extend(extend) = &item.kind {
                     if extend.generics.is_empty() {
                         for associated_value in &extend.associated_values {
+                            if associated_value.binding.value.is_none() {
+                                continue;
+                            }
                             self.check_reachable_comptime_binding(
                                 associated_value.span,
                                 &associated_value.binding,

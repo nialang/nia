@@ -1,5 +1,73 @@
-// Future home for source-visible primitive type builtin declarations.
-//
-// Primitive scalar types are still language primitives. Associated values such
-// as `i32::MIN` and `i32::MAX` should eventually be declared here with builtin
-// inherent extensions once the language can express that shape directly.
+// Builtin declarations for primitive scalar associated values.
+
+@[builtin("i8")]
+extend i8 {
+    pub comptime MIN: i8;
+    pub comptime MAX: i8;
+}
+
+@[builtin("i16")]
+extend i16 {
+    pub comptime MIN: i16;
+    pub comptime MAX: i16;
+}
+
+@[builtin("i32")]
+extend i32 {
+    pub comptime MIN: i32;
+    pub comptime MAX: i32;
+}
+
+@[builtin("i64")]
+extend i64 {
+    pub comptime MIN: i64;
+    pub comptime MAX: i64;
+}
+
+@[builtin("i128")]
+extend i128 {
+    pub comptime MIN: i128;
+    pub comptime MAX: i128;
+}
+
+@[builtin("isize")]
+extend isize {
+    pub comptime MIN: isize;
+    pub comptime MAX: isize;
+}
+
+@[builtin("u8")]
+extend u8 {
+    pub comptime MIN: u8;
+    pub comptime MAX: u8;
+}
+
+@[builtin("u16")]
+extend u16 {
+    pub comptime MIN: u16;
+    pub comptime MAX: u16;
+}
+
+@[builtin("u32")]
+extend u32 {
+    pub comptime MIN: u32;
+    pub comptime MAX: u32;
+}
+
+@[builtin("u64")]
+extend u64 {
+    pub comptime MIN: u64;
+    pub comptime MAX: u64;
+}
+
+@[builtin("u128")]
+extend u128 {
+    pub comptime MIN: u128;
+    pub comptime MAX: u128;
+}
+
+@[builtin("usize")]
+extend usize {
+    pub comptime MIN: usize;
+    pub comptime MAX: usize;
+}

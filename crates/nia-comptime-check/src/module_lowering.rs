@@ -46,6 +46,9 @@ impl ComptimeModuleLowerer<'_> {
                 }
                 ItemTreeNodeKind::Extend(extend) => {
                     for associated_value in &extend.associated_values {
+                        if associated_value.binding.value.is_none() {
+                            continue;
+                        }
                         if extend.generics.is_empty() {
                             self.lower_global_initializer(
                                 associated_value.span,
