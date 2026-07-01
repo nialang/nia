@@ -84,6 +84,7 @@ pub struct ProgramTypeAliasSignature {
 pub struct ProgramTraitImplSignature {
     pub module_id: nia_ids::ModuleId,
     pub impl_id: TraitImplId,
+    pub builtin: Option<String>,
     pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
@@ -191,6 +192,7 @@ pub struct TraitMethodSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplSignature {
     pub impl_id: TraitImplId,
+    pub builtin: Option<String>,
     pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
@@ -456,7 +458,7 @@ impl<'a> SignatureCollector<'a> {
                 self.collect_trait(signatures, item, item_trait);
             }
             ItemTreeNodeKind::Extend(extend) => {
-                self.collect_extend(signatures, extend);
+                self.collect_extend(signatures, item, extend);
             }
             ItemTreeNodeKind::Enum(item_enum) => {
                 self.collect_enum(signatures, item, item_enum);
@@ -548,7 +550,12 @@ impl<'a> SignatureCollector<'a> {
         );
     }
 
-    fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
+    fn collect_extend(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        item: &ItemTreeNode,
+        extend: &ExtendItem,
+    ) {
         let methods = extend
             .methods
             .iter()
@@ -578,6 +585,7 @@ impl<'a> SignatureCollector<'a> {
         let impl_id = self.trait_impl_id(extend);
         signatures.trait_impls.push(TraitImplSignature {
             impl_id,
+            builtin: self.builtin_extend_attribute(&item.attributes),
             generics: generic_param_names(&extend.generics),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
@@ -1076,6 +1084,30 @@ impl<'a> SignatureCollector<'a> {
         out
     }
 
+    fn builtin_extend_attribute(&mut self, attributes: &[Attribute]) -> Option<String> {
+        let mut out = None;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            if meta.path.as_slice() != ["builtin"] {
+                continue;
+            }
+            if let Some(builtin_name) =
+                self.parse_builtin_attribute_name(attribute, meta.args.as_slice())
+            {
+                if out.replace(builtin_name.to_string()).is_some() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        "duplicate `@[builtin]` extend attribute",
+                    ));
+                }
+            }
+        }
+        out
+    }
+
     fn parse_builtin_attribute_name<'attr>(
         &mut self,
         attribute: &Attribute,
@@ -1471,6 +1503,29 @@ pub trait Iterator {
             .next()
             .expect("iterator signature");
         assert_eq!(signature.builtin, Some(BuiltinTrait::Iterator));
+    }
+
+    #[test]
+    fn records_builtin_extend_attributes_with_bodyless_methods() {
+        let signatures = signatures_ok(
+            r#"
+trait Len {
+    fn len(&self) usize;
+}
+
+@[builtin("array.Len")]
+extend[T, N: usize] [N]T : Len {
+    fn len(&self) usize;
+}
+"#,
+        );
+
+        assert_eq!(signatures.trait_impls.len(), 1);
+        let impl_signature = &signatures.trait_impls[0];
+        assert_eq!(impl_signature.builtin.as_deref(), Some("array.Len"));
+        assert_eq!(impl_signature.methods.len(), 1);
+        let method = &signatures.functions[&impl_signature.methods[0].def_id];
+        assert!(!method.has_body);
     }
 
     #[test]

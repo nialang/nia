@@ -246,6 +246,9 @@ pub(crate) fn collect_program_trait_impls(
     let mut trait_impls = Vec::new();
     for module in modules {
         for impl_signature in &module.signatures.trait_impls {
+            if impl_signature.builtin.is_some() {
+                continue;
+            }
             let Some(trait_ty) = impl_signature.trait_ty else {
                 continue;
             };
@@ -257,6 +260,7 @@ pub(crate) fn collect_program_trait_impls(
             trait_impls.push(ProgramTraitImplSignature {
                 module_id: module.module_id,
                 impl_id: impl_signature.impl_id,
+                builtin: impl_signature.builtin.clone(),
                 generics: impl_signature.generics.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,
