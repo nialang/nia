@@ -964,8 +964,8 @@ impl<'a> BodyChecker<'a> {
                     const_args: actual_const_args,
                 }) = self.interner.get(actual).cloned()
                     && pattern_def == actual_def
-                    && pattern_const_args == actual_const_args
                     && pattern_args.len() == actual_args.len()
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
@@ -1005,7 +1005,7 @@ impl<'a> BodyChecker<'a> {
                     && pattern_const == actual_const
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && pattern_const_args == actual_const_args
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
@@ -1044,7 +1044,7 @@ impl<'a> BodyChecker<'a> {
                 }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && pattern_const_args == actual_const_args
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {

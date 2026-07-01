@@ -1037,7 +1037,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn clone_for_type_compare(&self) -> BodyChecker<'a> {
+    pub(crate) fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
             active_item_tree: self.active_item_tree,
             defs: self.defs,

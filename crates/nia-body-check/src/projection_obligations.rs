@@ -572,7 +572,7 @@ impl<'a> BodyChecker<'a> {
                     return false;
                 };
                 required_def == actual_def
-                    && required_const_args == actual_const_args
+                    && self.const_generic_arg_slices_match(&required_const_args, &actual_const_args)
                     && required_args.len() == actual_args.len()
                     && required_args
                         .iter()
@@ -1280,7 +1280,7 @@ impl<'a> BodyChecker<'a> {
         if candidates
             .iter()
             .any(|(candidate_args, candidate_const_args)| {
-                candidate_const_args == &trait_const_args
+                self.const_generic_arg_slices_match(candidate_const_args, &trait_const_args)
                     && candidate_args.len() == trait_args.len()
                     && candidate_args.iter().zip(&trait_args).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, *right)
@@ -1651,7 +1651,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn trait_obligations_equivalent(
-        &self,
+        &mut self,
         left: &TraitObligation,
         right: &TraitObligation,
     ) -> bool {
@@ -1668,7 +1668,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn types_equivalent_without_projection_resolution(
-        &self,
+        &mut self,
         left: InternedTyId,
         right: InternedTyId,
     ) -> bool {
@@ -1677,7 +1677,10 @@ impl<'a> BodyChecker<'a> {
         if left == right {
             return true;
         }
-        match (self.interner.get(left), self.interner.get(right)) {
+        match (
+            self.interner.get(left).cloned(),
+            self.interner.get(right).cloned(),
+        ) {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
@@ -1710,7 +1713,7 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 left_const == right_const
-                    && self.types_equivalent_without_projection_resolution(*left_elem, *right_elem)
+                    && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
             }
             (
                 Some(TyKind::Array {
@@ -1723,7 +1726,7 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 left_len == right_len
-                    && self.types_equivalent_without_projection_resolution(*left_elem, *right_elem)
+                    && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
             }
             (
                 Some(TyKind::Range {
@@ -1739,8 +1742,8 @@ impl<'a> BodyChecker<'a> {
                     && match (left_bound, right_bound) {
                         (Some(left_bound), Some(right_bound)) => self
                             .types_equivalent_without_projection_resolution(
-                                *left_bound,
-                                *right_bound,
+                                left_bound,
+                                right_bound,
                             ),
                         (None, None) => true,
                         _ => false,
@@ -1761,10 +1764,10 @@ impl<'a> BodyChecker<'a> {
                 left_variadic == right_variadic
                     && left_params.len() == right_params.len()
                     && left_params.iter().zip(right_params).all(|(left, right)| {
-                        self.types_equivalent_without_projection_resolution(*left, *right)
+                        self.types_equivalent_without_projection_resolution(*left, right)
                     })
                     && self
-                        .types_equivalent_without_projection_resolution(*left_return, *right_return)
+                        .types_equivalent_without_projection_resolution(left_return, right_return)
             }
             (
                 Some(TyKind::Nominal {
@@ -1779,10 +1782,10 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 left_def == right_def
-                    && left_const_args == right_const_args
+                    && self.const_generic_arg_slices_match(&left_const_args, &right_const_args)
                     && left_args.len() == right_args.len()
                     && left_args.iter().zip(right_args).all(|(left, right)| {
-                        self.types_equivalent_without_projection_resolution(*left, *right)
+                        self.types_equivalent_without_projection_resolution(*left, right)
                     })
             }
             (
@@ -1798,7 +1801,7 @@ impl<'a> BodyChecker<'a> {
                 left_trait == right_trait
                     && left_args.len() == right_args.len()
                     && left_args.iter().zip(right_args).all(|(left, right)| {
-                        self.types_equivalent_without_projection_resolution(*left, *right)
+                        self.types_equivalent_without_projection_resolution(*left, right)
                     })
             }
             (
@@ -1806,23 +1809,24 @@ impl<'a> BodyChecker<'a> {
                     self_ty: left_self,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     name: left_name,
-                    ..
                 }),
                 Some(TyKind::Projection {
                     self_ty: right_self,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     name: right_name,
-                    ..
                 }),
             ) => {
                 left_trait == right_trait
                     && left_name == right_name
                     && left_args.len() == right_args.len()
-                    && self.types_equivalent_without_projection_resolution(*left_self, *right_self)
+                    && self.const_generic_arg_slices_match(&left_const_args, &right_const_args)
+                    && self.types_equivalent_without_projection_resolution(left_self, right_self)
                     && left_args.iter().zip(right_args).all(|(left, right)| {
-                        self.types_equivalent_without_projection_resolution(*left, *right)
+                        self.types_equivalent_without_projection_resolution(*left, right)
                     })
             }
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,

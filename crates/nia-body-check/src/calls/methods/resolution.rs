@@ -926,35 +926,36 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
-        self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+        let mut checker = self.clone_for_type_compare();
+        checker.pattern_subsumes_inner(general, specific, &mut HashMap::new())
     }
 
     fn pattern_subsumes_inner(
-        &self,
+        &mut self,
         general: InternedTyId,
         specific: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
-        match self.interner.get(general) {
+        match self.interner.get(general).cloned() {
             Some(TyKind::GenericParam(name)) => {
-                if let Some(existing) = substitutions.get(name).copied() {
+                if let Some(existing) = substitutions.get(&name).copied() {
                     self.patterns_equivalent(existing, specific)
                 } else {
-                    substitutions.insert(name.clone(), specific);
+                    substitutions.insert(name, specific);
                     true
                 }
             }
             Some(TyKind::Primitive(general_primitive)) => matches!(
-                self.interner.get(specific),
+                self.interner.get(specific).cloned(),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
             Some(TyKind::Vector {
                 elem: general_elem,
                 lanes: general_lanes,
             }) => matches!(
-                self.interner.get(specific),
+                self.interner.get(specific).cloned(),
                 Some(TyKind::Vector {
                     elem: specific_elem,
                     lanes: specific_lanes,
@@ -963,64 +964,72 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer {
                 is_readonly: general_const,
                 elem: general_elem,
-            }) => matches!(
-                self.interner.get(specific),
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Pointer {
                     is_readonly: specific_const,
                     elem: specific_elem,
-                }) if general_const == specific_const
-                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
-            ),
+                }) => {
+                    general_const == specific_const
+                        && self.pattern_subsumes_inner(general_elem, specific_elem, substitutions)
+                }
+                _ => false,
+            },
             Some(TyKind::VolatilePointer {
                 is_readonly: general_const,
                 elem: general_elem,
-            }) => matches!(
-                self.interner.get(specific),
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::VolatilePointer {
                     is_readonly: specific_const,
                     elem: specific_elem,
-                }) if general_const == specific_const
-                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
-            ),
+                }) => {
+                    general_const == specific_const
+                        && self.pattern_subsumes_inner(general_elem, specific_elem, substitutions)
+                }
+                _ => false,
+            },
             Some(TyKind::Slice {
                 is_readonly: general_const,
                 elem: general_elem,
-            }) => matches!(
-                self.interner.get(specific),
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Slice {
                     is_readonly: specific_const,
                     elem: specific_elem,
-                }) if general_const == specific_const
-                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
-            ),
-            Some(TyKind::SlicePointee { elem: general_elem }) => matches!(
-                self.interner.get(specific),
-                Some(TyKind::SlicePointee {
-                    elem: specific_elem,
-                }) if self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
-            ),
+                }) => {
+                    general_const == specific_const
+                        && self.pattern_subsumes_inner(general_elem, specific_elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::SlicePointee { elem: general_elem }) => {
+                match self.interner.get(specific).cloned() {
+                    Some(TyKind::SlicePointee {
+                        elem: specific_elem,
+                    }) => self.pattern_subsumes_inner(general_elem, specific_elem, substitutions),
+                    _ => false,
+                }
+            }
             Some(TyKind::Array {
                 len: general_len,
                 elem: general_elem,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Array {
                     len: specific_len,
                     elem: specific_elem,
-                }) if self.array_lens_match(general_len, specific_len) => {
-                    self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+                }) if self.array_lens_match(&general_len, &specific_len) => {
+                    self.pattern_subsumes_inner(general_elem, specific_elem, substitutions)
                 }
                 _ => false,
             },
             Some(TyKind::Range {
                 kind: general_kind,
                 bound: general_bound,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Range {
                     kind: specific_kind,
                     bound: specific_bound,
                 }) if general_kind == specific_kind => match (general_bound, specific_bound) {
                     (Some(general_bound), Some(specific_bound)) => {
-                        self.pattern_subsumes_inner(*general_bound, *specific_bound, substitutions)
+                        self.pattern_subsumes_inner(general_bound, specific_bound, substitutions)
                     }
                     (None, None) => true,
                     _ => false,
@@ -1031,7 +1040,7 @@ impl<'a> BodyChecker<'a> {
                 params: general_params,
                 return_type: general_return,
                 is_variadic: general_variadic,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::FunctionPointer {
                     params: specific_params,
                     return_type: specific_return,
@@ -1041,38 +1050,36 @@ impl<'a> BodyChecker<'a> {
                 {
                     general_params
                         .iter()
-                        .zip(specific_params)
+                        .zip(&specific_params)
                         .all(|(general, specific)| {
                             self.pattern_subsumes_inner(*general, *specific, substitutions)
                         })
                         && self.pattern_subsumes_inner(
-                            *general_return,
-                            *specific_return,
+                            general_return,
+                            specific_return,
                             substitutions,
                         )
                 }
                 _ => false,
             },
-            Some(TyKind::Optional { elem: general_elem }) => match self.interner.get(specific) {
-                Some(TyKind::Optional {
-                    elem: specific_elem,
-                }) => self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions),
-                _ => false,
-            },
+            Some(TyKind::Optional { elem: general_elem }) => {
+                match self.interner.get(specific).cloned() {
+                    Some(TyKind::Optional {
+                        elem: specific_elem,
+                    }) => self.pattern_subsumes_inner(general_elem, specific_elem, substitutions),
+                    _ => false,
+                }
+            }
             Some(TyKind::ErrorUnion {
                 error: general_error,
                 value: general_value,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::ErrorUnion {
                     error: specific_error,
                     value: specific_value,
                 }) => {
-                    self.pattern_subsumes_inner(*general_error, *specific_error, substitutions)
-                        && self.pattern_subsumes_inner(
-                            *general_value,
-                            *specific_value,
-                            substitutions,
-                        )
+                    self.pattern_subsumes_inner(general_error, specific_error, substitutions)
+                        && self.pattern_subsumes_inner(general_value, specific_value, substitutions)
                 }
                 _ => false,
             },
@@ -1080,28 +1087,31 @@ impl<'a> BodyChecker<'a> {
                 def_id: general_def,
                 args: general_args,
                 const_args: general_const_args,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Nominal {
                     def_id: specific_def,
                     args: specific_args,
                     const_args: specific_const_args,
-                }) if general_def == specific_def
-                    && general_const_args == specific_const_args
-                    && general_args.len() == specific_args.len() =>
-                {
-                    general_args
-                        .iter()
-                        .zip(specific_args)
-                        .all(|(general, specific)| {
-                            self.pattern_subsumes_inner(*general, *specific, substitutions)
-                        })
+                }) => {
+                    general_def == specific_def
+                        && general_args.len() == specific_args.len()
+                        && self.const_generic_arg_slices_match(
+                            &general_const_args,
+                            &specific_const_args,
+                        )
+                        && general_args
+                            .iter()
+                            .zip(&specific_args)
+                            .all(|(general, specific)| {
+                                self.pattern_subsumes_inner(*general, *specific, substitutions)
+                            })
                 }
                 _ => false,
             },
             Some(TyKind::BuiltinTrait {
                 trait_id: general_trait,
                 args: general_args,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::BuiltinTrait {
                     trait_id: specific_trait,
                     args: specific_args,
@@ -1110,7 +1120,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     general_args
                         .iter()
-                        .zip(specific_args)
+                        .zip(&specific_args)
                         .all(|(general, specific)| {
                             self.pattern_subsumes_inner(*general, *specific, substitutions)
                         })
@@ -1123,25 +1133,28 @@ impl<'a> BodyChecker<'a> {
                 trait_args: general_args,
                 trait_const_args: general_const_args,
                 associated_type_bindings: general_bindings,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::TraitObject {
                     is_readonly: specific_const,
                     trait_id: specific_trait,
                     trait_args: specific_args,
                     trait_const_args: specific_const_args,
                     associated_type_bindings: specific_bindings,
-                }) if general_const == specific_const
-                    && general_trait == specific_trait
-                    && general_args.len() == specific_args.len()
-                    && general_const_args == specific_const_args
-                    && general_bindings.len() == specific_bindings.len() =>
-                {
-                    general_args
-                        .iter()
-                        .zip(specific_args)
-                        .all(|(general, specific)| {
-                            self.pattern_subsumes_inner(*general, *specific, substitutions)
-                        })
+                }) => {
+                    general_const == specific_const
+                        && general_trait == specific_trait
+                        && general_args.len() == specific_args.len()
+                        && self.const_generic_arg_slices_match(
+                            &general_const_args,
+                            &specific_const_args,
+                        )
+                        && general_bindings.len() == specific_bindings.len()
+                        && general_args
+                            .iter()
+                            .zip(&specific_args)
+                            .all(|(general, specific)| {
+                                self.pattern_subsumes_inner(*general, *specific, substitutions)
+                            })
                         && general_bindings.iter().all(|general_binding| {
                             specific_bindings
                                 .iter()
@@ -1150,6 +1163,10 @@ impl<'a> BodyChecker<'a> {
                                         && general_binding.trait_id == specific_binding.trait_id
                                         && general_binding.trait_args.len()
                                             == specific_binding.trait_args.len()
+                                        && self.const_generic_arg_slices_match(
+                                            &general_binding.trait_const_args,
+                                            &specific_binding.trait_const_args,
+                                        )
                                         && general_binding
                                             .trait_args
                                             .iter()
@@ -1178,23 +1195,26 @@ impl<'a> BodyChecker<'a> {
                 trait_args: general_args,
                 trait_const_args: general_const_args,
                 associated_type_bindings: general_bindings,
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::TraitObjectPointee {
                     trait_id: specific_trait,
                     trait_args: specific_args,
                     trait_const_args: specific_const_args,
                     associated_type_bindings: specific_bindings,
-                }) if general_trait == specific_trait
-                    && general_args.len() == specific_args.len()
-                    && general_const_args == specific_const_args
-                    && general_bindings.len() == specific_bindings.len() =>
-                {
-                    general_args
-                        .iter()
-                        .zip(specific_args)
-                        .all(|(general, specific)| {
-                            self.pattern_subsumes_inner(*general, *specific, substitutions)
-                        })
+                }) => {
+                    general_trait == specific_trait
+                        && general_args.len() == specific_args.len()
+                        && self.const_generic_arg_slices_match(
+                            &general_const_args,
+                            &specific_const_args,
+                        )
+                        && general_bindings.len() == specific_bindings.len()
+                        && general_args
+                            .iter()
+                            .zip(&specific_args)
+                            .all(|(general, specific)| {
+                                self.pattern_subsumes_inner(*general, *specific, substitutions)
+                            })
                         && general_bindings.iter().all(|general_binding| {
                             specific_bindings
                                 .iter()
@@ -1203,6 +1223,10 @@ impl<'a> BodyChecker<'a> {
                                         && general_binding.trait_id == specific_binding.trait_id
                                         && general_binding.trait_args.len()
                                             == specific_binding.trait_args.len()
+                                        && self.const_generic_arg_slices_match(
+                                            &general_binding.trait_const_args,
+                                            &specific_binding.trait_const_args,
+                                        )
                                         && general_binding
                                             .trait_args
                                             .iter()
@@ -1230,23 +1254,27 @@ impl<'a> BodyChecker<'a> {
                 self_ty: general_self,
                 trait_id: general_trait,
                 trait_args: general_args,
+                trait_const_args: general_const_args,
                 name: general_name,
-                ..
-            }) => match self.interner.get(specific) {
+            }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::Projection {
                     self_ty: specific_self,
                     trait_id: specific_trait,
                     trait_args: specific_args,
+                    trait_const_args: specific_const_args,
                     name: specific_name,
-                    ..
                 }) if general_trait == specific_trait
                     && general_name == specific_name
-                    && general_args.len() == specific_args.len() =>
+                    && general_args.len() == specific_args.len()
+                    && self.const_generic_arg_slices_match(
+                        &general_const_args,
+                        &specific_const_args,
+                    ) =>
                 {
-                    self.pattern_subsumes_inner(*general_self, *specific_self, substitutions)
+                    self.pattern_subsumes_inner(general_self, specific_self, substitutions)
                         && general_args
                             .iter()
-                            .zip(specific_args)
+                            .zip(&specific_args)
                             .all(|(general, specific)| {
                                 self.pattern_subsumes_inner(*general, *specific, substitutions)
                             })
