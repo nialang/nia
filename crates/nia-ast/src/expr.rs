@@ -5,12 +5,6 @@ use nia_span::Span;
 use crate::TypeRef;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ExprStub {
-    pub span: Span,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub span: Span,
     pub stmts: Vec<Stmt>,

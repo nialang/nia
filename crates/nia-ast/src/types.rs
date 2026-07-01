@@ -3,8 +3,8 @@ use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 
 use crate::{
-    ArrayElements, AssignOp, BinaryOp, BracketArg, Expr, ExprKind, ExprStub, FieldInit, IndexArg,
-    SliceRange, StringLiteral, UnaryOp,
+    ArrayElements, AssignOp, BinaryOp, BracketArg, Expr, ExprKind, FieldInit, IndexArg, SliceRange,
+    StringLiteral, UnaryOp,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,7 +77,11 @@ pub struct TypePathSegment {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeArg {
     Type(TypeRef),
-    Const(ExprStub),
+    Const(Expr),
+    TypeOrConst {
+        ty: TypeRef,
+        expr: Expr,
+    },
     AssocBinding {
         key: AssocBindingKey,
         ty: TypeRef,
@@ -295,7 +299,17 @@ fn type_path_segments_decl_eq(lhs: &[TypePathSegment], rhs: &[TypePathSegment]) 
 fn type_arg_decl_eq(lhs: &TypeArg, rhs: &TypeArg) -> bool {
     match (lhs, rhs) {
         (TypeArg::Type(lhs), TypeArg::Type(rhs)) => type_ref_decl_eq(lhs, rhs),
-        (TypeArg::Const(lhs), TypeArg::Const(rhs)) => lhs.text == rhs.text,
+        (TypeArg::Const(lhs), TypeArg::Const(rhs)) => expr_decl_eq(lhs, rhs),
+        (
+            TypeArg::TypeOrConst {
+                ty: lhs_ty,
+                expr: lhs_expr,
+            },
+            TypeArg::TypeOrConst {
+                ty: rhs_ty,
+                expr: rhs_expr,
+            },
+        ) => type_ref_decl_eq(lhs_ty, rhs_ty) && expr_decl_eq(lhs_expr, rhs_expr),
         (
             TypeArg::AssocBinding {
                 key: lhs_key,
@@ -450,7 +464,13 @@ fn write_type_arg_identity(out: &mut String, arg: &TypeArg) {
         }
         TypeArg::Const(expr) => {
             out.push_str("const:");
-            out.push_str(&expr.text);
+            out.push_str(&expr_identity(expr));
+        }
+        TypeArg::TypeOrConst { ty, expr } => {
+            out.push_str("type_or_const:");
+            write_type_ref_identity(out, ty);
+            out.push('|');
+            out.push_str(&expr_identity(expr));
         }
         TypeArg::AssocBinding { key, ty, .. } => {
             out.push_str("assoc:");

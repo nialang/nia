@@ -1042,7 +1042,7 @@ impl<'a> TypeLowerer<'a> {
                             let ty = self.lower_type_in_context(ty, TypeContext::Value);
                             const_args.push(ConstGenericArg { ty, value });
                         }
-                        _ => args.push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
+                        _ => args.push(self.lower_type_or_const_type_arg(arg_ty)),
                     }
                     positional_index += 1;
                 }
@@ -1052,7 +1052,7 @@ impl<'a> TypeLowerer<'a> {
                         .map(|generic| &generic.kind)
                     {
                         Some(GenericParamKind::Comptime { ty }) => {
-                            let Some(value) = self.const_generic_value_from_stub(expr) else {
+                            let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
@@ -1071,6 +1071,35 @@ impl<'a> TypeLowerer<'a> {
                                 "comptime value generic argument supplied for type parameter",
                             ));
                         }
+                    }
+                    positional_index += 1;
+                }
+                TypeArg::TypeOrConst { ty: arg_ty, expr } => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_NORMALIZATION,
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    match generic_params
+                        .get(positional_index)
+                        .map(|generic| &generic.kind)
+                    {
+                        Some(GenericParamKind::Comptime { ty }) => {
+                            let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::TYPE_NORMALIZATION,
+                                    expr.span,
+                                    "unsupported comptime generic argument",
+                                ));
+                                positional_index += 1;
+                                continue;
+                            };
+                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            const_args.push(ConstGenericArg { ty, value });
+                        }
+                        _ => args.push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
                     }
                     positional_index += 1;
                 }
@@ -1141,6 +1170,22 @@ impl<'a> TypeLowerer<'a> {
             args,
             const_args,
         })
+    }
+
+    fn lower_type_or_const_type_arg(&mut self, ty: &TypeRef) -> InternedTyId {
+        if !self
+            .resolved
+            .node_type_names
+            .contains_key(ty.node_key.site())
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_NORMALIZATION,
+                ty.span,
+                "expected type generic argument",
+            ));
+            return self.interner.error();
+        }
+        self.lower_type_in_context(ty, TypeContext::Value)
     }
 
     fn lower_trait_object_type(&mut self, is_readonly: bool, ty: &TypeRef) -> Option<InternedTyId> {
@@ -1277,7 +1322,7 @@ impl<'a> TypeLowerer<'a> {
                         .map(|generic| &generic.kind)
                     {
                         Some(GenericParamKind::Comptime { ty }) => {
-                            let Some(value) = self.const_generic_value_from_stub(expr) else {
+                            let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
@@ -1298,6 +1343,39 @@ impl<'a> TypeLowerer<'a> {
                                 "comptime value generic argument supplied for type parameter",
                             ));
                         }
+                    }
+                    positional_index += 1;
+                }
+                TypeArg::TypeOrConst { ty: arg_ty, expr } => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_NORMALIZATION,
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    match generic_params
+                        .get(positional_index)
+                        .map(|generic| &generic.kind)
+                    {
+                        Some(GenericParamKind::Comptime { ty }) => {
+                            let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::TYPE_NORMALIZATION,
+                                    expr.span,
+                                    "expected comptime generic argument",
+                                ));
+                                positional_index += 1;
+                                continue;
+                            };
+                            let ty = self.lower_type_in_context(ty, TypeContext::Value);
+                            object_args
+                                .trait_const_args
+                                .push(ConstGenericArg { ty, value });
+                        }
+                        _ => object_args
+                            .trait_args
+                            .push(self.lower_type_or_const_type_arg(arg_ty)),
                     }
                     positional_index += 1;
                 }
@@ -1476,6 +1554,16 @@ impl<'a> TypeLowerer<'a> {
                         "comptime value generic arguments are not supported",
                     ));
                 }
+                TypeArg::TypeOrConst { ty, .. } => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_NORMALIZATION,
+                            ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_or_const_type_arg(ty));
+                }
                 TypeArg::AssocBinding {
                     key,
                     span,
@@ -1649,30 +1737,33 @@ impl<'a> TypeLowerer<'a> {
         let TypeKind::Path { segments } = &ty.kind else {
             return None;
         };
-        if segments.len() != 1 || !segments[0].args.is_empty() {
+        if segments.iter().any(|segment| !segment.args.is_empty()) {
             return None;
         }
-        let expr = Expr {
-            span: ty.span,
-            node_key: ty.node_key.clone(),
-            kind: ExprKind::Ident(segments[0].name.clone()),
-        };
-        Some(ConstGenericValue::ConstExpr(
-            self.register_const_expr_value(&expr),
-        ))
+        let expr = expr_from_type_path(ty.span, ty.node_key.clone(), segments)?;
+        self.lower_const_generic_value_from_expr(&expr)
     }
 
-    fn const_generic_value_from_stub(&self, expr: &nia_ast::ExprStub) -> Option<ConstGenericValue> {
-        let text = expr.text.trim();
-        if self.is_comptime_generic_param(text) {
-            return Some(ConstGenericValue::GenericParam(text.to_string()));
+    fn lower_const_generic_value_from_expr(&mut self, expr: &Expr) -> Option<ConstGenericValue> {
+        if let ExprKind::Ident(name) = &expr.kind {
+            if self.is_comptime_generic_param(name) {
+                return Some(ConstGenericValue::GenericParam(name.clone()));
+            }
+            match name.as_str() {
+                "true" => return Some(ConstGenericValue::Bool(true)),
+                "false" => return Some(ConstGenericValue::Bool(false)),
+                _ => {}
+            }
         }
-        match text {
-            "true" => return Some(ConstGenericValue::Bool(true)),
-            "false" => return Some(ConstGenericValue::Bool(false)),
-            _ => {}
+        if let ExprKind::Bool(value) = &expr.kind {
+            return Some(ConstGenericValue::Bool(*value));
         }
-        parse_integer_const_generic(text).map(ConstGenericValue::Int)
+        if let ExprKind::Integer(text) = &expr.kind {
+            return parse_integer_const_generic(text).map(ConstGenericValue::Int);
+        }
+        Some(ConstGenericValue::ConstExpr(
+            self.register_const_expr_value(expr),
+        ))
     }
 
     fn check_builtin_trait_arg_count(&mut self, span: Span, trait_id: BuiltinTrait, actual: usize) {
@@ -1988,6 +2079,31 @@ fn parse_integer_const_generic(text: &str) -> Option<IntConst> {
         .ok()
         .and_then(|value| u128::try_from(value).ok())
         .map(IntConst::unsigned)
+}
+
+fn expr_from_type_path(
+    span: Span,
+    node_key: nia_node_id::VersionedNodeKey,
+    segments: &[TypePathSegment],
+) -> Option<Expr> {
+    let mut iter = segments.iter();
+    let first = iter.next()?;
+    let mut expr = Expr {
+        span,
+        node_key: node_key.clone(),
+        kind: ExprKind::Ident(first.name.clone()),
+    };
+    for segment in iter {
+        expr = Expr {
+            span,
+            node_key: node_key.clone(),
+            kind: ExprKind::Qualified {
+                lhs: Box::new(expr),
+                name: segment.name.clone(),
+            },
+        };
+    }
+    Some(expr)
 }
 
 fn const_expr_summary(expr: &Expr) -> ConstExprSummary {

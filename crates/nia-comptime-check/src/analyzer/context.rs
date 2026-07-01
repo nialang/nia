@@ -818,7 +818,7 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
                 for arg in const_args {
-                    self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
+                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
                 }
                 let Some(signatures) = self.signatures_for_module(def_id.module_id) else {
                     return;
@@ -841,29 +841,44 @@ impl Analyzer<'_> {
             }
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 for arg in trait_args {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
+                for arg in trait_const_args {
+                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                }
                 for binding in associated_type_bindings {
+                    for arg in &binding.trait_args {
+                        self.collect_array_len_const_exprs_in_ty_inner(*arg, out, seen);
+                    }
+                    for arg in &binding.trait_const_args {
+                        self.collect_array_len_const_exprs_in_const_arg(arg, out, seen);
+                    }
                     self.collect_array_len_const_exprs_in_ty_inner(binding.ty, out, seen);
                 }
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(self_ty, out, seen);
                 for arg in trait_args {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+                for arg in trait_const_args {
+                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
                 }
             }
             Some(
@@ -876,6 +891,18 @@ impl Analyzer<'_> {
             )
             | None => {}
         }
+    }
+
+    fn collect_array_len_const_exprs_in_const_arg(
+        &self,
+        arg: &nia_ty::ConstGenericArg,
+        out: &mut HashSet<GlobalConstExprId>,
+        seen: &mut HashSet<InternedTyId>,
+    ) {
+        if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value {
+            out.insert(*id);
+        }
+        self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
     }
 
     pub(super) fn compute_program_layout(

@@ -758,8 +758,12 @@ impl<'a> LocalResolver<'a> {
             TypeKind::Path { segments } => {
                 for segment in segments {
                     for arg in &segment.args {
-                        if let TypeArg::Type(ty) = arg {
-                            self.resolve_type(ty);
+                        match arg {
+                            TypeArg::Type(ty) | TypeArg::AssocBinding { ty, .. } => {
+                                self.resolve_type(ty);
+                            }
+                            TypeArg::Const(expr) => self.resolve_expr(expr),
+                            TypeArg::TypeOrConst { ty, .. } => self.resolve_type_candidate(ty),
                         }
                     }
                 }
@@ -804,6 +808,22 @@ impl<'a> LocalResolver<'a> {
             TypeKind::ErrorUnion { error, value } => {
                 self.resolve_type(error);
                 self.resolve_type(value);
+            }
+        }
+    }
+
+    fn resolve_type_candidate(&mut self, ty: &TypeRef) {
+        if let TypeKind::Path { segments } = &ty.kind {
+            for segment in segments {
+                for arg in &segment.args {
+                    match arg {
+                        TypeArg::Type(ty) | TypeArg::AssocBinding { ty, .. } => {
+                            self.resolve_type(ty);
+                        }
+                        TypeArg::Const(expr) => self.resolve_expr(expr),
+                        TypeArg::TypeOrConst { ty, .. } => self.resolve_type_candidate(ty),
+                    }
+                }
             }
         }
     }

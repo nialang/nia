@@ -1187,7 +1187,9 @@ impl<'a> SignatureCollector<'a> {
                         span: *span,
                     })
                 }
-                nia_ast::TypeArg::Type(_) | nia_ast::TypeArg::Const(_) => None,
+                nia_ast::TypeArg::Type(_)
+                | nia_ast::TypeArg::Const(_)
+                | nia_ast::TypeArg::TypeOrConst { .. } => None,
             })
             .collect()
     }

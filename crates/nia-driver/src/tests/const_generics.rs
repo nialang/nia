@@ -519,3 +519,340 @@ fn main() i32 { 0 }
         program.diagnostics
     );
 }
+
+#[test]
+fn const_generic_type_position_accepts_comptime_expression_args() {
+    let root = temp_dir("const_generic_type_position_accepts_comptime_expression_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn plus_one(value: usize) usize {
+    value + 1usize
+}
+
+struct Buffer[N: usize] {
+    values: [N]i32,
+}
+
+fn main() i32 {
+    let buffer: Buffer[plus_one(2usize)] = { values: [1, 2, 3] };
+    buffer.values[2]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_call_position_accepts_comptime_expression_args() {
+    let root = temp_dir("const_generic_call_position_accepts_comptime_expression_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn plus_one(value: usize) usize {
+    value + 1usize
+}
+
+fn width[N: usize]() usize {
+    N
+}
+
+fn main() usize {
+    width[plus_one(2usize)]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_type_position_accepts_imported_comptime_expression_args() {
+    let root = temp_dir("const_generic_type_position_accepts_imported_comptime_expression_args");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime WIDTH: usize = 3usize;
+
+pub comptime fn plus_one(value: usize) usize {
+    value + 1usize
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module config;
+using entry::config;
+
+struct Buffer[N: usize] {
+    values: [N]i32,
+}
+
+fn main() i32 {
+    let left: Buffer[config::WIDTH] = { values: [1, 2, 3] };
+    let right: Buffer[config::plus_one(2usize)] = { values: [4, 5, 6] };
+    left.values[2] + right.values[2]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_call_position_rejects_non_usize_arg() {
+    let root = temp_dir("const_generic_call_position_rejects_non_usize_arg");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn width[N: usize]() usize {
+    N
+}
+
+fn main() usize {
+    width[true]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("comptime value")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_call_position_rejects_out_of_range_usize_arg() {
+    let root = temp_dir("const_generic_call_position_rejects_out_of_range_usize_arg");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn width[N: usize]() usize {
+    N
+}
+
+fn main() usize {
+    width[-1]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("comptime generic")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_trait_impls_accept_bool_args_without_colliding() {
+    let root = temp_dir("const_generic_trait_impls_accept_bool_args_without_colliding");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Flagged[FLAG: bool] {
+    fn value(& self) usize;
+}
+
+struct Token {}
+
+extend Token : Flagged[true] {
+    fn value(& self) usize {
+        1usize
+    }
+}
+
+extend Token : Flagged[false] {
+    fn value(& self) usize {
+        2usize
+    }
+}
+
+fn read_true[T](value: & T) usize
+where T: Flagged[true] {
+    value.value()
+}
+
+fn read_false[T](value: & T) usize
+where T: Flagged[false] {
+    value.value()
+}
+
+fn main() usize {
+    let token = Token {};
+    read_true(& token) * 10usize + read_false(& token)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_generic_trait_impl_rejects_bool_arg_mismatch() {
+    let root = temp_dir("const_generic_trait_impl_rejects_bool_arg_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Flagged[FLAG: bool] {}
+
+struct Token {}
+
+extend Token : Flagged[true] {}
+
+fn require_false[T](value: & T)
+where T: Flagged[false] {
+    _ = value;
+}
+
+fn main() i32 {
+    let token = Token {};
+    require_false(& token);
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_projection_rejects_cross_bool_instance_rewrite() {
+    let root = temp_dir("const_generic_projection_rejects_cross_bool_instance_rewrite");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Slot[FLAG: bool] {
+    type Item;
+}
+
+struct Store {}
+
+extend Store : Slot[true] {
+    type Item = i32;
+}
+
+extend Store : Slot[false] {
+    type Item = usize;
+}
+
+fn bad(value: [Store as Slot[true]]::Item) [Store as Slot[false]]::Item {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_rejects_conflicting_repeated_inferred_lengths() {
+    let root = temp_dir("const_generic_rejects_conflicting_repeated_inferred_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait SameLen[N: usize] {}
+
+struct Pair[A, B] {
+    left: A,
+    right: B,
+}
+
+extend[T, U, N: usize] Pair[[N]T, [N]U] : SameLen[N] {}
+
+fn require_same_len[P, N: usize](pair: & P)
+where P: SameLen[N] {
+    _ = pair;
+}
+
+fn main() i32 {
+    let pair: Pair[[2]i32, [3]i32] = { left: [1, 2], right: [3, 4, 5] };
+    require_same_len(& pair);
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("cannot infer comptime generic parameter")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn ambiguous_generic_arg_reports_value_error_only_when_comptime_param_requires_it() {
+    let root =
+        temp_dir("ambiguous_generic_arg_reports_value_error_only_when_comptime_param_requires_it");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Buffer[N: usize] {
+    values: [N]i32,
+}
+
+pub fn take(value: Buffer[MISSING]) void {
+    _ = value;
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("failed to resolve comptime name")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        !program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("unknown type")),
+        "{:?}",
+        program.diagnostics
+    );
+}

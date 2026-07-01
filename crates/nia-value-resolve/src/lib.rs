@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{Expr, ExprKind, Module, Visibility};
+use nia_ast::{Expr, ExprKind, Module, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
 use nia_defs::{
     DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces,
@@ -453,9 +453,44 @@ impl<'ast> Visitor<'ast> for ValueResolver<'_> {
             _ => walk_expr(self, expr),
         }
     }
+
+    fn visit_type(&mut self, ty: &'ast TypeRef) {
+        match &ty.kind {
+            TypeKind::Path { segments } => {
+                for segment in segments {
+                    for arg in &segment.args {
+                        match arg {
+                            TypeArg::Type(ty) | TypeArg::AssocBinding { ty, .. } => {
+                                self.visit_type(ty);
+                            }
+                            TypeArg::Const(expr) => self.visit_expr(expr),
+                            TypeArg::TypeOrConst { ty, .. } => self.visit_type_candidate(ty),
+                        }
+                    }
+                }
+            }
+            _ => nia_ast_walk::walk_type(self, ty),
+        }
+    }
 }
 
 impl<'a> ValueResolver<'a> {
+    fn visit_type_candidate(&mut self, ty: &TypeRef) {
+        if let TypeKind::Path { segments } = &ty.kind {
+            for segment in segments {
+                for arg in &segment.args {
+                    match arg {
+                        TypeArg::Type(ty) | TypeArg::AssocBinding { ty, .. } => {
+                            self.visit_type(ty);
+                        }
+                        TypeArg::Const(expr) => self.visit_expr(expr),
+                        TypeArg::TypeOrConst { ty, .. } => self.visit_type_candidate(ty),
+                    }
+                }
+            }
+        }
+    }
+
     fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
         match &item.kind {
             ItemTreeNodeKind::Struct(item_struct) => {

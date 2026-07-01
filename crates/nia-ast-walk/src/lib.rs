@@ -165,7 +165,8 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
                     match arg {
                         TypeArg::Type(ty) => visitor.visit_type(ty),
                         TypeArg::AssocBinding { ty, .. } => visitor.visit_type(ty),
-                        TypeArg::Const(_) => {}
+                        TypeArg::Const(expr) => visitor.visit_expr(expr),
+                        TypeArg::TypeOrConst { ty, .. } => visitor.visit_type(ty),
                     }
                 }
             }

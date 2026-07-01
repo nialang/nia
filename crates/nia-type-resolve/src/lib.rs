@@ -226,7 +226,6 @@ fn resolve_module_types_from_items_with_mode(
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
         associated_type_stack: Vec::new(),
-        suppress_unknown_type_errors: false,
         mode,
     };
     for item in items {
@@ -259,7 +258,6 @@ struct TypeResolver<'a> {
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<Span>,
     associated_type_stack: Vec<Vec<String>>,
-    suppress_unknown_type_errors: bool,
     mode: TypeResolveMode,
 }
 
@@ -426,15 +424,11 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                         nia_ast_walk::walk_expr(self, expr);
                     }
                     if let Some(ty) = &arg.ty {
-                        // A bracket suffix in expression position is ambiguous
-                        // until local/value resolution decides whether it is an
-                        // index or generic call. Do resolve nested type args so
-                        // real names get recorded, but suppress "unknown type"
-                        // here to avoid false errors for index expressions like
-                        // `xs[i32]` where `i32` is a local.
-                        self.with_suppressed_unknown_type_errors(|resolver| {
-                            resolver.visit_type(ty);
-                        });
+                        if arg.expr.is_some() {
+                            self.resolve_type_candidate(ty);
+                        } else {
+                            self.visit_type(ty);
+                        }
                     }
                 }
             }
@@ -656,22 +650,277 @@ impl<'a> TypeResolver<'a> {
             for arg in &segment.args {
                 match arg {
                     TypeArg::Type(ty) => {
-                        // Bracket arguments are parsed before generic parameter kinds are known.
-                        // A type-shaped argument may be a comptime value for a comptime generic
-                        // parameter, so avoid emitting "unknown type" here; type lowering checks
-                        // the resolved callee signature and reports real type-argument errors.
-                        self.with_suppressed_unknown_type_errors(|resolver| {
-                            resolver.visit_type(ty);
-                        });
+                        self.visit_type(ty);
                     }
                     TypeArg::AssocBinding { key, ty, .. } => {
                         self.visit_assoc_binding_key(key);
                         self.visit_type(ty);
                     }
-                    TypeArg::Const(_) => {}
+                    TypeArg::Const(expr) => self.visit_expr(expr),
+                    TypeArg::TypeOrConst { ty, .. } => self.resolve_type_candidate(ty),
                 }
             }
         }
+    }
+
+    fn resolve_type_candidate(&mut self, ty: &TypeRef) {
+        match &ty.kind {
+            TypeKind::Path { segments } => {
+                let Some(resolution) = self.try_resolve_type_path(ty, segments) else {
+                    return;
+                };
+                self.node_type_names
+                    .insert(ty.node_key.site().clone(), resolution);
+                self.visit_type_path_args(segments);
+            }
+            TypeKind::Projection { ty, trait_ref, .. } => {
+                self.resolve_type_candidate(ty);
+                self.resolve_type_candidate(trait_ref);
+            }
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePointer { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::SlicePointee { elem }
+            | TypeKind::Optional { elem }
+            | TypeKind::ErrorUnion { error: elem, .. } => self.resolve_type_candidate(elem),
+            TypeKind::Array { elem, .. } => self.resolve_type_candidate(elem),
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.resolve_type_candidate(start);
+                }
+                if let Some(end) = end {
+                    self.resolve_type_candidate(end);
+                }
+            }
+            TypeKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            } => {
+                for param in params {
+                    self.resolve_type_candidate(param);
+                }
+                if let Some(return_type) = return_type {
+                    self.resolve_type_candidate(return_type);
+                }
+            }
+            TypeKind::Error
+            | TypeKind::SelfType
+            | TypeKind::Infer
+            | TypeKind::Void
+            | TypeKind::Never => {}
+        }
+    }
+
+    fn try_resolve_type_path(
+        &mut self,
+        ty: &TypeRef,
+        segments: &[TypePathSegment],
+    ) -> Option<TypeNameResolution> {
+        let first = segments.first()?;
+        if segments.len() > 1 {
+            let resolution = self.try_resolve_qualified_type_path(ty, segments)?;
+            return Some(resolution);
+        }
+        let resolution = self.try_resolve_type_name(first, ty)?;
+        Some(resolution)
+    }
+
+    fn try_resolve_qualified_type_path(
+        &mut self,
+        ty: &TypeRef,
+        segments: &[TypePathSegment],
+    ) -> Option<TypeNameResolution> {
+        let (last, prefix) = segments.split_last()?;
+        let namespace = self.try_resolve_namespace_path(prefix)?;
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                self.try_resolve_module_type(ty, module_id, last)
+            }
+            ResolvedNamespace::Type(_) => None,
+        }
+    }
+
+    fn try_resolve_namespace_path(
+        &self,
+        segments: &[TypePathSegment],
+    ) -> Option<ResolvedNamespace> {
+        let first = segments.first()?;
+        let mut namespace = self.try_resolve_root_namespace(first)?;
+        for segment in &segments[1..] {
+            namespace = self.try_resolve_child_namespace(namespace, segment)?;
+        }
+        Some(namespace)
+    }
+
+    fn try_resolve_root_namespace(&self, segment: &TypePathSegment) -> Option<ResolvedNamespace> {
+        if let Some(module_id) = self.root_module_for_segment(&segment.name) {
+            return Some(ResolvedNamespace::Module(module_id));
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(module_id) = scope.lookup_module(&segment.name)
+        {
+            return Some(ResolvedNamespace::Module(module_id));
+        }
+        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            }));
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.lookup_type(&segment.name)
+        {
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            }));
+        }
+        None
+    }
+
+    fn try_resolve_child_namespace(
+        &self,
+        namespace: ResolvedNamespace,
+        segment: &TypePathSegment,
+    ) -> Option<ResolvedNamespace> {
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                if let Some(surfaces) = self.public_surfaces
+                    && let Some(surface) = surfaces.get(module_id)
+                {
+                    if let Some(child_module) = surface.lookup_module(&segment.name) {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
+                    if let Some(item) = surface.lookup_type(&segment.name) {
+                        return Some(ResolvedNamespace::Type(GlobalDefId {
+                            module_id: item.target_module,
+                            def_id: item.target_def_id,
+                        }));
+                    }
+                }
+                if let Some((child_module, visibility)) =
+                    self.child_module_declaration(module_id, &segment.name)
+                    && self.module_declaration_visible(module_id, visibility)
+                {
+                    return Some(ResolvedNamespace::Module(child_module));
+                }
+                match self.direct_type_member(module_id, &segment.name) {
+                    DirectMember::Visible(def_id) => {
+                        Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+                    }
+                    DirectMember::Private | DirectMember::Missing | DirectMember::Unloaded => None,
+                }
+            }
+            ResolvedNamespace::Type(_) => None,
+        }
+    }
+
+    fn try_resolve_module_type(
+        &mut self,
+        ty: &TypeRef,
+        module_id: ModuleId,
+        segment: &TypePathSegment,
+    ) -> Option<TypeNameResolution> {
+        if let Some(surfaces) = self.public_surfaces
+            && let Some(surface) = surfaces.get(module_id)
+            && let Some(item) = surface.lookup_type(&segment.name)
+        {
+            let global = GlobalDefId {
+                module_id: item.target_module,
+                def_id: item.target_def_id,
+            };
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+                return Some(TypeNameResolution::BuiltinTrait(trait_id));
+            }
+            self.node_qualified_type_names
+                .insert(ty.node_key.site().clone(), global);
+            return Some(TypeNameResolution::External(global));
+        }
+        let DirectMember::Visible(def_id) = self.direct_type_member(module_id, &segment.name)
+        else {
+            return None;
+        };
+        let target_defs = self.defs_for_module(module_id)?;
+        let target_defs = target_defs.as_ref();
+        let def = target_defs.defs.get(def_id)?;
+        if !matches!(
+            def.kind,
+            DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
+        ) {
+            return None;
+        }
+        if let Some(trait_id) =
+            self.canonical_builtin_trait(GlobalDefId { module_id, def_id }, &def.name)
+        {
+            return Some(TypeNameResolution::BuiltinTrait(trait_id));
+        }
+        self.node_qualified_type_names.insert(
+            ty.node_key.site().clone(),
+            GlobalDefId { module_id, def_id },
+        );
+        if module_id == self.defs.module_id {
+            Some(TypeNameResolution::Def(def_id))
+        } else {
+            Some(TypeNameResolution::External(GlobalDefId {
+                module_id,
+                def_id,
+            }))
+        }
+    }
+
+    fn try_resolve_type_name(
+        &mut self,
+        segment: &TypePathSegment,
+        ty: &TypeRef,
+    ) -> Option<TypeNameResolution> {
+        if self.is_generic_param(&segment.name) {
+            return Some(TypeNameResolution::GenericParam);
+        }
+        if self.is_associated_type(&segment.name) {
+            return Some(TypeNameResolution::AssociatedType);
+        }
+        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
+            return Some(TypeNameResolution::Primitive(primitive));
+        }
+        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+            let def = self.defs.defs.get(def_id)?;
+            if matches!(
+                def.kind,
+                DefKind::Struct
+                    | DefKind::Union
+                    | DefKind::Trait
+                    | DefKind::Enum
+                    | DefKind::TypeAlias
+            ) {
+                if let Some(trait_id) = self.canonical_builtin_trait(
+                    GlobalDefId {
+                        module_id: self.defs.module_id,
+                        def_id,
+                    },
+                    &def.name,
+                ) {
+                    return Some(TypeNameResolution::BuiltinTrait(trait_id));
+                }
+                return Some(TypeNameResolution::Def(def_id));
+            }
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.lookup_type(&segment.name)
+            && entry.namespace == PublicNamespace::Type
+        {
+            let global = GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            };
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+                return Some(TypeNameResolution::BuiltinTrait(trait_id));
+            }
+            self.node_qualified_type_names
+                .insert(ty.node_key.site().clone(), global);
+            return Some(TypeNameResolution::External(global));
+        }
+        BuiltinTrait::from_name(&segment.name).map(TypeNameResolution::BuiltinTrait)
     }
 
     fn visit_assoc_binding_key(&mut self, key: &AssocBindingKey) {
@@ -981,21 +1230,12 @@ impl<'a> TypeResolver<'a> {
         if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
             return TypeNameResolution::BuiltinTrait(trait_id);
         }
-        if !self.suppress_unknown_type_errors {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                span,
-                format!("unknown type `{}`", segment.name),
-            ));
-        }
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            span,
+            format!("unknown type `{}`", segment.name),
+        ));
         TypeNameResolution::Error
-    }
-
-    fn with_suppressed_unknown_type_errors(&mut self, f: impl FnOnce(&mut Self)) {
-        let previous = self.suppress_unknown_type_errors;
-        self.suppress_unknown_type_errors = true;
-        f(self);
-        self.suppress_unknown_type_errors = previous;
     }
 
     fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {
