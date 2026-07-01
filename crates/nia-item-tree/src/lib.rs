@@ -563,7 +563,11 @@ fn type_alias_decl_eq(lhs: &TypeAliasItem, rhs: &TypeAliasItem) -> bool {
     lhs.name == rhs.name
         && lhs.generics == rhs.generics
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
-        && type_ref_decl_eq(&lhs.ty, &rhs.ty)
+        && match (&lhs.ty, &rhs.ty) {
+            (Some(lhs), Some(rhs)) => type_ref_decl_eq(lhs, rhs),
+            (None, None) => true,
+            _ => false,
+        }
 }
 
 fn function_decl_eq(lhs: &FunctionItem, rhs: &FunctionItem) -> bool {

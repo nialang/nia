@@ -571,7 +571,9 @@ impl TypeResolver<'_> {
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |resolver| {
                     resolver.visit_where_clause(&alias.where_clause);
-                    resolver.visit_type(&alias.ty);
+                    if let Some(ty) = &alias.ty {
+                        resolver.visit_type(ty);
+                    }
                 });
             }
             ItemTreeNodeKind::Enum(item_enum) => {

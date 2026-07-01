@@ -2411,6 +2411,9 @@ fn match_type_pattern(
         TyKind::Primitive(pattern_primitive) => {
             matches!(interner.get(actual), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
         }
+        TyKind::BuiltinType(pattern_builtin) => {
+            matches!(interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
+        }
         TyKind::Vector {
             elem: pattern_elem,
             lanes: pattern_lanes,
@@ -2738,9 +2741,11 @@ fn substitute_ty(
                 name,
             }))
         }
-        TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. } => {
-            Some(ty)
-        }
+        TyKind::Error
+        | TyKind::ComptimeOnly
+        | TyKind::Primitive(_)
+        | TyKind::BuiltinType(_)
+        | TyKind::Vector { .. } => Some(ty),
     }
 }
 
@@ -3222,6 +3227,7 @@ fn collect_ty_owner_modules<'a>(
         TyKind::Error
         | TyKind::ComptimeOnly
         | TyKind::Primitive(_)
+        | TyKind::BuiltinType(_)
         | TyKind::Vector { .. }
         | TyKind::GenericParam(_) => {}
     }

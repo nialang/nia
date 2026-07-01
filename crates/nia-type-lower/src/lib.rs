@@ -133,7 +133,9 @@ impl VersionedTypeUseCollector<'_> {
             }
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.visit_where_clause(&alias.where_clause);
-                self.visit_type(&alias.ty);
+                if let Some(ty) = &alias.ty {
+                    self.visit_type(ty);
+                }
             }
             ItemTreeNodeKind::Binding(binding) => {
                 if let Some(ty) = &binding.ty {
@@ -527,7 +529,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {
                     lowerer.lower_where_clause(&alias.where_clause);
-                    lowerer.lower_type_in_context(&alias.ty, TypeContext::Alias);
+                    if let Some(ty) = &alias.ty {
+                        lowerer.lower_type_in_context(ty, TypeContext::Alias);
+                    }
                 });
             }
             ItemKind::Binding(binding) => {
@@ -768,7 +772,9 @@ impl TypeLowerer<'_> {
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {
                     lowerer.lower_where_clause(&alias.where_clause);
-                    lowerer.lower_type_in_context(&alias.ty, TypeContext::Alias);
+                    if let Some(ty) = &alias.ty {
+                        lowerer.lower_type_in_context(ty, TypeContext::Alias);
+                    }
                 });
             }
             ItemTreeNodeKind::Binding(binding) => {

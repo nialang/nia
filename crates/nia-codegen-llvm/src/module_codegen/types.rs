@@ -282,6 +282,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
@@ -325,6 +326,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
@@ -456,6 +458,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }

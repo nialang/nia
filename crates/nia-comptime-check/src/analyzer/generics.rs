@@ -303,8 +303,11 @@ impl Analyzer<'_> {
                     }
                 }
             }
-            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. } => {
-            }
+            TyKind::Error
+            | TyKind::ComptimeOnly
+            | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. } => {}
         }
         Ok(())
     }

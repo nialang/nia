@@ -991,7 +991,11 @@ impl Analyzer<'_> {
                         .any(|arg| self.type_contains_generic_inner(arg, seen))
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. },
             )
             | None => false,
         }

@@ -58,8 +58,11 @@ pub module builtin;
     std::fs::write(
         &std_builtin,
         r#"
+@[builtin("AsmConfig")]
+pub type AsmConfig;
+
 @[builtin("asm")]
-pub fn asm(config: void) void;
+pub fn asm(config: AsmConfig) void;
 "#,
     )
     .expect("write custom std builtin");

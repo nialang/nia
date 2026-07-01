@@ -37,7 +37,7 @@ pub using atomic::{
     fence,
 };
 pub using bits::{clz, ctz, popcount};
-pub using control::{asm, embed, error, trap};
+pub using control::{AsmConfig, asm, embed, error, trap};
 pub using iter::{Iterable, Iterator};
 pub using layout::{align, offset, size};
 pub using marker::{Sized, Unsized};

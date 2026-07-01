@@ -895,6 +895,7 @@ impl Analyzer<'_> {
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
                 | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },
             )
             | None => {}

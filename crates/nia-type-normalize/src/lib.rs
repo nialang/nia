@@ -51,6 +51,7 @@ impl<'a> TypeNormalizer<'a> {
             return normalized;
         }
         let normalized = match self.interner.get(ty_id).cloned() {
+            Some(TyKind::BuiltinType(_)) => ty_id,
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -318,6 +319,7 @@ impl<'a> TypeNormalizer<'a> {
         stack: &mut Vec<DefId>,
     ) -> InternedTyId {
         match self.interner.get(ty_id).cloned() {
+            Some(TyKind::BuiltinType(_)) => ty_id,
             Some(TyKind::GenericParam(name)) => substitutions
                 .get(&name)
                 .copied()

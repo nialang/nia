@@ -1925,6 +1925,9 @@ where
                     true
                 }
             }
+            Some(TyKind::BuiltinType(pattern_builtin)) => {
+                matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
                 Some(TyKind::Pointer {
@@ -2554,7 +2557,11 @@ where
                 })
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. },
             )
             | None => ty,
         }

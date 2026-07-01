@@ -557,7 +557,9 @@ impl<'a> ValueResolver<'a> {
             ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
             ItemTreeNodeKind::TypeAlias(alias) => {
                 walk_where_clause(self, &alias.where_clause);
-                self.visit_type(&alias.ty);
+                if let Some(ty) = &alias.ty {
+                    self.visit_type(ty);
+                }
             }
         }
     }

@@ -872,6 +872,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::BuiltinType(_)) => ty,
             Some(TyKind::TraitObject {
                 is_readonly,
                 trait_id,
@@ -1686,6 +1687,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
             )

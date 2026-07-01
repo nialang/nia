@@ -108,7 +108,9 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
         }
         ItemKind::TypeAlias(alias) => {
             walk_where_clause(visitor, &alias.where_clause);
-            visitor.visit_type(&alias.ty);
+            if let Some(ty) = &alias.ty {
+                visitor.visit_type(ty);
+            }
         }
         ItemKind::Function(function) => visitor.visit_function(function),
     }

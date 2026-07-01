@@ -1754,6 +1754,7 @@ fn collect_array_len_const_exprs_in_ty(
             | TyKind::ComptimeOnly
             | TyKind::GenericParam(_)
             | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },
         )
         | None => {}
@@ -3752,6 +3753,7 @@ impl<'a> LayoutRootCollector<'a> {
                 }
             }
             Some(TyKind::Primitive(_))
+            | Some(TyKind::BuiltinType(_))
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
             | Some(TyKind::ComptimeOnly)
@@ -3929,6 +3931,7 @@ impl<'a> LayoutRootCollector<'a> {
                     .collect();
                 self.intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::BuiltinType(_)) => ty,
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,

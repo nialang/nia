@@ -98,6 +98,28 @@ pub enum TraitId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinType {
+    AsmConfig,
+}
+
+impl BuiltinType {
+    pub const ALL: [Self; 1] = [Self::AsmConfig];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "AsmConfig" => Some(Self::AsmConfig),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::AsmConfig => "AsmConfig",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinTrait {
     Add,
     Sub,

@@ -14,9 +14,10 @@ pub comptime fn error(message: &[char]) never;
 @[builtin("embed")]
 pub comptime fn embed(path: &[char]) void;
 
+// Compiler-checked inline assembly configuration.
+@[builtin("AsmConfig")]
+pub type AsmConfig;
+
 // Emits target inline assembly from a compiler-checked configuration literal.
-//
-// The config value is accepted only as a special inline-asm literal shape until
-// that shape has a real source-level type.
 @[builtin("asm")]
-pub fn asm(config: void) void;
+pub fn asm(config: AsmConfig) void;
