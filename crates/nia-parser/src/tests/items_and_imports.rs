@@ -414,3 +414,36 @@ extend usize {
     assert!(extend.associated_values[1].binding.is_comptime);
     assert!(extend.associated_values[1].binding.is_mutable);
 }
+
+#[test]
+fn bodyless_extend_associated_comptime_values_require_builtin_extend() {
+    let (module, errors) = parse_module(
+        r#"
+@[builtin("usize")]
+extend usize {
+    pub comptime MAX: usize;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Extend(extend) = &module.items[0].kind else {
+        panic!("expected extend");
+    };
+    assert_eq!(extend.associated_values.len(), 1);
+    assert_eq!(extend.associated_values[0].binding.name, "MAX");
+    assert!(extend.associated_values[0].binding.value.is_none());
+
+    let (_, errors) = parse_module(
+        r#"
+extend usize {
+    pub comptime MAX: usize;
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("requires an initializer")),
+        "{errors:?}"
+    );
+}

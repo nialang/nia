@@ -40,7 +40,7 @@ impl Parser {
         } else if self.at(TokenKind::Trait) {
             ItemKind::Trait(self.parse_trait()?)
         } else if self.at(TokenKind::Extend) {
-            ItemKind::Extend(self.parse_extend()?)
+            ItemKind::Extend(self.parse_extend(item_has_builtin_attribute(&attributes))?)
         } else if self.at(TokenKind::Enum) {
             ItemKind::Enum(self.parse_enum()?)
         } else if self.at(TokenKind::Type) {
@@ -461,7 +461,7 @@ impl Parser {
         Some(self.make_trait_associated_value(name, ty, Span::new(start, self.previous_end())))
     }
 
-    fn parse_extend(&mut self) -> Option<ExtendItem> {
+    fn parse_extend(&mut self, is_builtin_extend: bool) -> Option<ExtendItem> {
         self.expect(TokenKind::Extend, "expected `extend`")?;
         let generics = self.parse_extend_generic_params();
         let target =
@@ -495,7 +495,8 @@ impl Parser {
                 }
             } else if self.at(TokenKind::Comptime) {
                 let start = self.peek().span.start;
-                if let Some(binding) = self.parse_binding(false) {
+                if let Some(binding) = self.parse_extend_associated_value_binding(is_builtin_extend)
+                {
                     let span = Span::new(start, self.previous_end());
                     associated_values.push(nia_ast::ExtendAssociatedValue { vis, binding, span });
                 }
@@ -519,6 +520,29 @@ impl Parser {
             associated_values,
             methods,
         })
+    }
+
+    fn parse_extend_associated_value_binding(
+        &mut self,
+        allow_bodyless: bool,
+    ) -> Option<BindingItem> {
+        let start = self.peek().span.start;
+        let binding = self.parse_binding_with_options(false, false)?;
+        if binding.is_comptime && binding.value.is_none() && !allow_bodyless {
+            self.error_at(
+                Span::new(start, self.previous_end()),
+                "comptime binding requires an initializer",
+            );
+            return None;
+        }
+        if binding.is_comptime && binding.value.is_none() && binding.ty.is_none() {
+            self.error_at(
+                Span::new(start, self.previous_end()),
+                "bodyless associated comptime declaration requires an explicit type",
+            );
+            return None;
+        }
+        Some(binding)
     }
 
     fn parse_extend_generic_params(&mut self) -> Vec<nia_ast::GenericParam> {
@@ -739,6 +763,14 @@ impl Parser {
     }
 
     pub(super) fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
+        self.parse_binding_with_options(is_extern, true)
+    }
+
+    fn parse_binding_with_options(
+        &mut self,
+        is_extern: bool,
+        require_comptime_initializer: bool,
+    ) -> Option<BindingItem> {
         let start = self.peek().span.start;
         let is_comptime = if self.eat(TokenKind::Comptime).is_some() {
             if is_extern {
@@ -777,7 +809,7 @@ impl Parser {
         } else {
             None
         };
-        if is_comptime && value.is_none() {
+        if is_comptime && value.is_none() && require_comptime_initializer {
             self.error_here("comptime binding requires an initializer");
             return None;
         }
@@ -805,4 +837,13 @@ impl Parser {
             span: Span::new(start, self.previous_end()),
         }))
     }
+}
+
+fn item_has_builtin_attribute(attributes: &[Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        let AttributeKind::Meta(meta) = &attribute.kind else {
+            return false;
+        };
+        meta.path == ["builtin"]
+    })
 }

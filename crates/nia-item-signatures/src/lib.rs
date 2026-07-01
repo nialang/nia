@@ -1599,6 +1599,12 @@ extend[T, N: usize] [N]T : Len {
         assert_eq!(actual_traits, expected_traits);
 
         let expected_extends = [
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "i128",
+            "isize",
             "array.Len",
             "range.End",
             "range.Start",
@@ -1610,16 +1616,31 @@ extend[T, N: usize] [N]T : Len {
             "slice.Len",
             "slice.Ptr",
             "slice.PtrMut",
+            "u8",
+            "u16",
+            "u32",
             "u32.Char",
+            "u64",
+            "u128",
+            "usize",
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
         let actual_extends = declarations
             .extends
-            .iter()
+            .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_extends, expected_extends);
+        for primitive in [
+            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+        ] {
+            assert_eq!(
+                declarations.extends[primitive],
+                vec!["MIN".to_string(), "MAX".to_string()],
+                "primitive builtin extend associated values drift for {primitive}"
+            );
+        }
 
         for builtin in BuiltinTrait::ALL {
             let descriptor = builtin.descriptor();
@@ -1737,7 +1758,7 @@ extend[T, N: usize] [N]T : Len {
     struct SourceBuiltinDeclarations {
         functions: Vec<String>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
-        extends: Vec<String>,
+        extends: BTreeMap<String, Vec<String>>,
     }
 
     #[derive(Debug)]
@@ -1812,14 +1833,21 @@ extend[T, N: usize] [N]T : Len {
                             );
                         }
                     }
-                    nia_ast::ItemKind::Extend(_) => {
+                    nia_ast::ItemKind::Extend(extend) => {
                         if let Some(name) = builtin_attribute(&item.attributes) {
                             assert!(
-                                !out.extends.contains(&name),
+                                !out.extends.contains_key(&name),
                                 "duplicate builtin extend declaration `{name}` in {}",
                                 path.display()
                             );
-                            out.extends.push(name);
+                            out.extends.insert(
+                                name,
+                                extend
+                                    .associated_values
+                                    .into_iter()
+                                    .map(|value| value.binding.name)
+                                    .collect(),
+                            );
                         }
                     }
                     _ => {}
