@@ -1889,6 +1889,7 @@ fn with_comptime_input_and_program_signatures<T>(
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
     let target = db.query(CompilerTargetQuery);
     f(
@@ -1898,6 +1899,7 @@ fn with_comptime_input_and_program_signatures<T>(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            lowered: &type_lowering,
             signatures: &item_signatures,
             interner: &type_normalization.interner,
             normalized: &type_normalization.normalized,
@@ -2525,6 +2527,7 @@ fn comptime_inputs_for_body_check(
         values: &inputs.values,
         locals: &inputs.locals,
         semantic_uses: &inputs.semantic_uses,
+        lowered,
         signatures,
         interner: &normalization.interner,
         normalized: &normalization.normalized,

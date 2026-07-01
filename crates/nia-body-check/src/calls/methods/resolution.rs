@@ -721,7 +721,10 @@ impl<'a> BodyChecker<'a> {
                             self_ty,
                         )
                         && candidate.trait_args.len() == trait_args.len()
-                        && candidate.trait_const_args == trait_const_args
+                        && self.const_generic_arg_slices_match(
+                            &candidate.trait_const_args,
+                            &trait_const_args,
+                        )
                         && candidate
                             .trait_args
                             .iter()

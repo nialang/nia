@@ -289,7 +289,10 @@ impl<'a> BodyChecker<'a> {
             }) if self.types_match(self_ty, object_self_ty)
                 && trait_id == candidate.trait_id
                 && self.trait_args_match_for_dynamic_object(&trait_args, &candidate.trait_args)
-                && trait_const_args == candidate.trait_const_args =>
+                && self.const_generic_arg_slices_match(
+                    &trait_const_args,
+                    &candidate.trait_const_args,
+                ) =>
             {
                 candidate
                     .associated_type_bindings
@@ -305,8 +308,11 @@ impl<'a> BodyChecker<'a> {
                                     &candidate.trait_args,
                                 ))
                             && (binding.trait_id.is_none()
-                                || binding.trait_const_args == candidate.trait_const_args))
-                            .then_some(binding.ty)
+                                || self.const_generic_arg_slices_match(
+                                    &binding.trait_const_args,
+                                    &candidate.trait_const_args,
+                                )))
+                        .then_some(binding.ty)
                     })
                     .unwrap_or(ty)
             }

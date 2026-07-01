@@ -312,16 +312,13 @@ impl<'a> BodyChecker<'a> {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
-        let module_id = self.defs.module_id;
-        let local_array_lengths = self.comptime.array_lengths;
-        let program_array_lengths = self.program_comptime_array_lengths;
-        let const_expr_value = move |id: nia_ids::GlobalConstExprId| {
-            if id.module_id == module_id {
-                return local_array_lengths.get(&id).copied();
+        let mut const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
+        for assumption in &assumptions {
+            for arg in &assumption.trait_const_args {
+                self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
             }
-            program_array_lengths(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
-        };
+        }
+        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,

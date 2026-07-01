@@ -1623,6 +1623,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            lowered,
             signatures,
             interner: &lowered.interner,
             normalized: &HashMap::new(),

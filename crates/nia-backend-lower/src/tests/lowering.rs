@@ -62,6 +62,7 @@ fn main() i32 {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        lowered: &type_lowering,
         signatures: &signatures,
         interner: &normalization.interner,
         normalized: &normalization.normalized,

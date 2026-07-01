@@ -73,7 +73,8 @@ where
     pub assumptions: &'a [TraitGoal],
     pub associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     pub layouts: Option<&'a Layouts>,
-    pub const_expr_value: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
+    pub const_expr_value:
+        Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     pub is_enum: F,
     pub impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
 }
@@ -85,7 +86,8 @@ pub struct TraitSolverContext<'a> {
     pub local_module_id: ModuleId,
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
     pub program_enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
-    pub const_expr_value: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
+    pub const_expr_value:
+        Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
 }
 
@@ -715,31 +717,35 @@ where
         right: &ConstGenericArg,
     ) -> bool {
         self.types_equivalent(left.ty, right.ty)
-            && self.const_generic_values_equivalent(&left.value, &right.value)
+            && self.const_generic_values_equivalent(left.ty, &left.value, &right.value)
     }
 
     fn const_generic_values_equivalent(
         &self,
+        ty: InternedTyId,
         left: &ConstGenericValue,
         right: &ConstGenericValue,
     ) -> bool {
         match (
-            self.resolve_const_generic_value(left),
-            self.resolve_const_generic_value(right),
+            self.resolve_const_generic_value(ty, left),
+            self.resolve_const_generic_value(ty, right),
         ) {
             (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
                 left.bits() == right.bits()
             }
-            _ => left == right,
+            (left_resolved, right_resolved) => left_resolved == right_resolved,
         }
     }
 
-    fn resolve_const_generic_value(&self, value: &ConstGenericValue) -> ConstGenericValue {
+    fn resolve_const_generic_value(
+        &self,
+        ty: InternedTyId,
+        value: &ConstGenericValue,
+    ) -> ConstGenericValue {
         match value {
             ConstGenericValue::ConstExpr(id) => self
                 .const_expr_value
-                .and_then(|value| value(*id))
-                .map(|value| ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into())))
+                .and_then(|value| value(*id, ty))
                 .unwrap_or_else(|| value.clone()),
             ConstGenericValue::GenericParam(_)
             | ConstGenericValue::Int(_)

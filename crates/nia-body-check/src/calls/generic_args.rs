@@ -137,7 +137,7 @@ impl<'a> BodyChecker<'a> {
         .filter(|value| self.const_generic_value_matches_type(value, expected_ty))
     }
 
-    fn eval_const_generic_expr(
+    pub(crate) fn eval_const_generic_expr(
         &mut self,
         expr: &nia_ast::Expr,
         expected_ty: InternedTyId,
@@ -179,6 +179,10 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<ConstGenericValue> {
         match value {
             nia_comptime_check::ComptimeValue::Int(value) => {
+                if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Char) {
+                    let scalar = u32::try_from(value.bits()).ok()?;
+                    return char::from_u32(scalar).map(ConstGenericValue::Char);
+                }
                 if !self.const_generic_type_accepts_int(expected_ty, value) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,

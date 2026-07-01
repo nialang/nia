@@ -355,16 +355,8 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
-        let module_id = self.defs.module_id;
-        let local_array_lengths = self.comptime.array_lengths;
-        let program_array_lengths = self.program_comptime_array_lengths;
-        let const_expr_value = move |id: nia_ids::GlobalConstExprId| {
-            if id.module_id == module_id {
-                return local_array_lengths.get(&id).copied();
-            }
-            program_array_lengths(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
-        };
+        let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
+        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -989,17 +981,30 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn const_generic_args_match(
-        &self,
+    pub(crate) fn const_generic_args_match(
+        &mut self,
         expected: &ConstGenericArg,
         actual: &ConstGenericArg,
     ) -> bool {
         self.types_match(expected.ty, actual.ty)
-            && self.const_generic_values_match(&expected.value, &actual.value)
+            && self.const_generic_values_match(expected.ty, &expected.value, &actual.value)
+    }
+
+    pub(crate) fn const_generic_arg_slices_match(
+        &mut self,
+        expected: &[ConstGenericArg],
+        actual: &[ConstGenericArg],
+    ) -> bool {
+        expected.len() == actual.len()
+            && expected
+                .iter()
+                .zip(actual)
+                .all(|(expected, actual)| self.const_generic_args_match(expected, actual))
     }
 
     fn const_generic_values_match(
-        &self,
+        &mut self,
+        ty: InternedTyId,
         expected: &ConstGenericValue,
         actual: &ConstGenericValue,
     ) -> bool {
@@ -1007,22 +1012,24 @@ impl<'a> BodyChecker<'a> {
             return true;
         }
         match (
-            self.resolve_const_generic_value(expected),
-            self.resolve_const_generic_value(actual),
+            self.resolve_const_generic_value(ty, expected),
+            self.resolve_const_generic_value(ty, actual),
         ) {
+            (Some(ConstGenericValue::Int(left)), Some(ConstGenericValue::Int(right))) => {
+                left.bits() == right.bits()
+            }
             (Some(left), Some(right)) => left == right,
             _ => false,
         }
     }
 
-    fn resolve_const_generic_value(&self, value: &ConstGenericValue) -> Option<ConstGenericValue> {
+    fn resolve_const_generic_value(
+        &mut self,
+        ty: InternedTyId,
+        value: &ConstGenericValue,
+    ) -> Option<ConstGenericValue> {
         match value {
-            ConstGenericValue::ConstExpr(id) => self
-                .comptime
-                .array_lengths
-                .get(id)
-                .copied()
-                .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
+            ConstGenericValue::ConstExpr(id) => self.const_expr_value_for_trait_solver(*id, ty),
             ConstGenericValue::GenericParam(_) => None,
             ConstGenericValue::Int(_) | ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => {
                 Some(value.clone())
@@ -1385,6 +1392,45 @@ impl<'a> BodyChecker<'a> {
         }
         (self.program_comptime_array_lengths)(id.module_id)
             .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+    }
+
+    pub(crate) fn const_expr_values_for_trait_solver(
+        &mut self,
+        args: &[ConstGenericArg],
+    ) -> HashMap<(GlobalConstExprId, InternedTyId), ConstGenericValue> {
+        let mut values = HashMap::new();
+        for arg in args {
+            self.collect_const_expr_values_for_trait_solver(arg, &mut values);
+        }
+        values
+    }
+
+    pub(crate) fn collect_const_expr_values_for_trait_solver(
+        &mut self,
+        arg: &ConstGenericArg,
+        values: &mut HashMap<(GlobalConstExprId, InternedTyId), ConstGenericValue>,
+    ) {
+        if let ConstGenericValue::ConstExpr(id) = arg.value
+            && let Some(value) = self.const_expr_value_for_trait_solver(id, arg.ty)
+        {
+            values.insert((id, arg.ty), value);
+        }
+    }
+
+    pub(crate) fn const_expr_value_for_trait_solver(
+        &mut self,
+        id: GlobalConstExprId,
+        ty: InternedTyId,
+    ) -> Option<ConstGenericValue> {
+        if let Some(value) = self.array_len_const_expr_value(id) {
+            return Some(ConstGenericValue::Int(IntConst::unsigned(value.into())));
+        }
+        if id.module_id != self.defs.module_id {
+            return None;
+        }
+        let expr = self.type_lowering.const_exprs.get(&id)?;
+        let mut checker = self.clone_for_type_compare();
+        checker.eval_const_generic_expr(expr, ty)
     }
 
     pub(crate) fn nominal_ty_name(

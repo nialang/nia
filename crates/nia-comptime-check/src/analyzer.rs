@@ -72,6 +72,7 @@ pub struct TypedComptimeQueryInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
@@ -340,6 +341,7 @@ impl Analyzer<'_> {
                 values: input.values,
                 locals: input.locals,
                 semantic_uses: input.semantic_uses,
+                lowered: input.lowered,
                 signatures: input.signatures,
                 interner: input.interner,
                 normalized: input.normalized,
@@ -371,11 +373,20 @@ impl Analyzer<'_> {
     }
 
     fn analyze_array_lengths(&mut self) {
-        let const_exprs = self.input.module.const_exprs().clone();
-        for (id, expr) in const_exprs {
-            if let Some(value) = self.eval_resolved_array_len_expr(&expr) {
-                self.array_lengths.insert(id, value);
-            }
+        let mut needed = HashSet::new();
+        let mut seen = HashSet::new();
+        let lowered_types = self
+            .input
+            .lowered
+            .type_uses
+            .values()
+            .copied()
+            .collect::<Vec<_>>();
+        for ty in lowered_types {
+            self.collect_array_len_const_exprs_in_ty_inner(ty, &mut needed, &mut seen);
+        }
+        for id in needed {
+            self.eval_array_len_const_expr_id(id);
         }
     }
 

@@ -695,6 +695,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            lowered: &type_lowering,
             signatures: &signatures,
             interner: &normalization.interner,
             normalized: &normalization.normalized,
