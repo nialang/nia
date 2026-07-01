@@ -48,6 +48,11 @@ impl<'a> BodyChecker<'a> {
         }
         let mut substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        let mut const_substitutions = self.trait_const_substitutions_for_candidate(
+            candidate.trait_id,
+            &candidate.trait_args,
+            &candidate.trait_const_args,
+        );
         substitutions.insert("Self".to_string(), candidate.self_ty);
         if call.type_args.is_some() {
             substitutions.extend(
@@ -57,8 +62,11 @@ impl<'a> BodyChecker<'a> {
                 ),
             );
         } else if let Some(expected) = call.expected {
-            let return_type =
-                self.substitute_generics(candidate.signature.return_type, &substitutions);
+            let return_type = self.substitute_generics_and_consts(
+                candidate.signature.return_type,
+                &substitutions,
+                &const_substitutions,
+            );
             let expected = self.normalize_projection(expected);
             self.infer_generics_from_type(return_type, expected, &mut substitutions, call.span);
         }
@@ -67,7 +75,9 @@ impl<'a> BodyChecker<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| {
+                self.substitute_generics_and_consts(param.ty, &substitutions, &const_substitutions)
+            })
             .collect();
         if call.type_args.is_none() {
             self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
@@ -80,23 +90,57 @@ impl<'a> BodyChecker<'a> {
                 .params
                 .iter()
                 .skip(1)
-                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .map(|param| {
+                    self.substitute_generics_and_consts(
+                        param.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                })
                 .collect();
         }
         self.check_direct_call_args(call.span, call.args, &params, false);
         let trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.substitute_generics(*arg, &substitutions))
+            .map(|arg| {
+                self.substitute_generics_and_consts(*arg, &substitutions, &const_substitutions)
+            })
             .collect::<Vec<_>>();
         if candidate.has_default {
             let default_self_ty = self
                 .trait_receiver_self_ty(call.receiver_ty)
                 .unwrap_or(candidate.self_ty);
-            let mut instance_args = vec![default_self_ty];
-            instance_args.extend(trait_args.iter().copied());
-            instance_args.extend(method_instantiation_args.iter().copied());
-            self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);
+            substitutions.insert("Self".to_string(), default_self_ty);
+            for (name, arg) in candidate
+                .trait_generics
+                .iter()
+                .zip(candidate.trait_args.iter())
+            {
+                substitutions.insert(name.clone(), *arg);
+            }
+            for (name, arg) in candidate
+                .trait_generics
+                .iter()
+                .zip(candidate.trait_const_args.iter())
+            {
+                const_substitutions.insert(name.clone(), arg.clone());
+            }
+            if let Some((instance_args, instance_const_args)) = self
+                .complete_instance_args_and_const_args_for_def(
+                    call.span,
+                    candidate.method_id,
+                    &substitutions,
+                    &const_substitutions,
+                )
+            {
+                self.record_generic_instantiation_with_const_args(
+                    candidate.method_id,
+                    &instance_args,
+                    &instance_const_args,
+                    call.span,
+                );
+            }
         }
         self.record_resolved_node_call(
             call.span,
@@ -111,7 +155,11 @@ impl<'a> BodyChecker<'a> {
                 receiver_kind,
             },
         );
-        let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
+        let return_type = self.substitute_generics_and_consts(
+            candidate.signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
     }
@@ -174,6 +222,11 @@ impl<'a> BodyChecker<'a> {
         }
         let mut substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        let const_substitutions = self.trait_const_substitutions_for_trait_id(
+            candidate.trait_id,
+            &candidate.trait_args,
+            &candidate.trait_const_args,
+        );
         substitutions.insert(
             "Self".to_string(),
             self.trait_object_self_ty(candidate.object_ty),
@@ -184,12 +237,20 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .skip(1)
             .map(|param| {
-                let ty = self.substitute_generics(param.ty, &substitutions);
+                let ty = self.substitute_generics_and_consts(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                );
                 self.normalize_dynamic_trait_object_projection(candidate, ty)
             })
             .collect();
         self.check_direct_call_args(call.span, call.args, &params, false);
-        let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
+        let return_type = self.substitute_generics_and_consts(
+            candidate.signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_dynamic_trait_object_projection(candidate, return_type);
         self.record_resolved_node_call(
             call.span,
@@ -222,10 +283,13 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
+                ..
             }) if self.types_match(self_ty, object_self_ty)
                 && trait_id == candidate.trait_id
-                && self.trait_args_match_for_dynamic_object(&trait_args, &candidate.trait_args) =>
+                && self.trait_args_match_for_dynamic_object(&trait_args, &candidate.trait_args)
+                && trait_const_args == candidate.trait_const_args =>
             {
                 candidate
                     .associated_type_bindings
@@ -239,8 +303,10 @@ impl<'a> BodyChecker<'a> {
                                 || self.trait_args_match_for_dynamic_object(
                                     &binding.trait_args,
                                     &candidate.trait_args,
-                                )))
-                        .then_some(binding.ty)
+                                ))
+                            && (binding.trait_id.is_none()
+                                || binding.trait_const_args == candidate.trait_const_args))
+                            .then_some(binding.ty)
                     })
                     .unwrap_or(ty)
             }
@@ -296,7 +362,11 @@ impl<'a> BodyChecker<'a> {
                 let value = self.normalize_dynamic_trait_object_projection(candidate, value);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
@@ -304,7 +374,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner.intern(TyKind::Nominal {
                     def_id,
                     args,
-                    const_args: Vec::new(),
+                    const_args,
                 })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -319,11 +389,20 @@ impl<'a> BodyChecker<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -334,6 +413,15 @@ impl<'a> BodyChecker<'a> {
                             .into_iter()
                             .map(|arg| {
                                 self.normalize_dynamic_trait_object_projection(candidate, arg)
+                            })
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self
+                                    .normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                                arg
                             })
                             .collect(),
                         name: binding.name,
@@ -344,17 +432,27 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -367,6 +465,15 @@ impl<'a> BodyChecker<'a> {
                                 self.normalize_dynamic_trait_object_projection(candidate, arg)
                             })
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self
+                                    .normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.normalize_dynamic_trait_object_projection(candidate, binding.ty),
                     })
@@ -374,6 +481,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -381,17 +489,27 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
+                ..
             }) => {
                 let self_ty = self.normalize_dynamic_trait_object_projection(candidate, self_ty);
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -404,6 +522,29 @@ impl<'a> BodyChecker<'a> {
             )
             | None => ty,
         }
+    }
+
+    fn trait_const_substitutions_for_candidate(
+        &mut self,
+        trait_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+    ) -> std::collections::HashMap<String, ConstGenericArg> {
+        self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args)
+            .1
+    }
+
+    fn trait_const_substitutions_for_trait_id(
+        &mut self,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+    ) -> std::collections::HashMap<String, ConstGenericArg> {
+        let TraitId::Source(trait_id) = trait_id else {
+            return std::collections::HashMap::new();
+        };
+        self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args)
+            .1
     }
 
     fn trait_args_match_for_dynamic_object(

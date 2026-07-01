@@ -1724,7 +1724,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn lower_ident_expr(&self, expr: &Expr) -> TypedExprKind {
+    fn lower_ident_expr(&mut self, expr: &Expr) -> TypedExprKind {
         match self.local_use(expr) {
             Some(LocalUse::Local(local)) => {
                 if self
@@ -1770,7 +1770,16 @@ impl<'a> BodyChecker<'a> {
                     _ => TypedExprKind::Error,
                 }
             }
-            _ => TypedExprKind::Error,
+            Some(LocalUse::Module)
+            | Some(LocalUse::TypePrefix)
+            | Some(LocalUse::Unresolved)
+            | None => match &expr.kind {
+                ExprKind::Ident(name) => self
+                    .current_comptime_generic_arg(name)
+                    .map(TypedExprKind::ConstGeneric)
+                    .unwrap_or(TypedExprKind::Error),
+                _ => TypedExprKind::Error,
+            },
         }
     }
 
@@ -1825,9 +1834,23 @@ impl<'a> BodyChecker<'a> {
             ),
             ArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
                 value: Box::new(self.lower_expr_with_ty(value, elem_ty)),
-                count: self.lower_array_repeat_count(count),
+                count: self.lower_array_repeat_len(count, array_ty),
             },
         }
+    }
+
+    fn lower_array_repeat_len(
+        &mut self,
+        count: &Expr,
+        array_ty: nia_ids::InternedTyId,
+    ) -> ArrayLenTy {
+        match self.interner.get(self.normalization.normalize(array_ty)) {
+            Some(TyKind::Array { len, .. }) if !matches!(len, ArrayLenTy::Infer) => {
+                return len.clone();
+            }
+            _ => {}
+        }
+        ArrayLenTy::ConstValue(self.lower_array_repeat_count(count))
     }
 
     fn array_elem_ty(&self, array_ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
@@ -2700,6 +2723,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: receiver_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
         });
         let target = self.normalize_projection(target);
@@ -2750,6 +2774,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: receiver_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
             trait_args: trait_args.clone(),
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         let output = self.normalize_projection(output);
@@ -2806,6 +2831,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: receiver_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.clone(),
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         let output = self.normalize_projection(output);

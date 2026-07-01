@@ -246,6 +246,7 @@ impl BodyInputValidator {
             | TypedExprKind::ByteChar(_)
             | TypedExprKind::Bool(_)
             | TypedExprKind::Null
+            | TypedExprKind::ConstGeneric(_)
             | TypedExprKind::Local(_)
             | TypedExprKind::Global(_)
             | TypedExprKind::Function(_)

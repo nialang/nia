@@ -31,6 +31,7 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
+        | FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }

@@ -237,6 +237,7 @@ impl FunctionLowerer {
             TypedExprKind::Null => FunctionExprKind::Null,
             TypedExprKind::Local(local_id) => FunctionExprKind::Local(*local_id),
             TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
+            TypedExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg.clone()),
             TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
             TypedExprKind::FunctionInstance {
                 def_id,
@@ -1097,7 +1098,7 @@ impl FunctionLowerer {
             ),
             TypedArrayElements::Repeat { value, count } => FunctionArrayElements::Repeat {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
-                count: *count,
+                count: count.clone(),
             },
         }
     }

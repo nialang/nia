@@ -81,6 +81,11 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
                 .map(ComptimeNameResolution::BuiltinAssociatedValue)
                 .or_else(|| {
                     semantic_uses
+                        .node_const_generic_use(key)
+                        .map(|name| ComptimeNameResolution::GenericParam(name.to_string()))
+                })
+                .or_else(|| {
+                    semantic_uses
                         .node_value_use(key)
                         .map(ComptimeNameResolution::from)
                 })
@@ -130,6 +135,9 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         if let Some(value) = self.semantic_uses.node_builtin_associated_value(key) {
             return Ok(Some(ComptimeNameResolution::BuiltinAssociatedValue(value)));
+        }
+        if let Some(name) = self.semantic_uses.node_const_generic_use(key) {
+            return Ok(Some(ComptimeNameResolution::GenericParam(name.to_string())));
         }
         self.semantic_uses
             .node_value_use(key)

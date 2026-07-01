@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_defs::{DefId, DefKind};
+use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
@@ -233,6 +233,10 @@ impl<'a> BodyChecker<'a> {
                     ty
                 } else if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
                     ty
+                } else if let Some(ty) =
+                    self.check_associated_comptime_value_access(expr, lhs, name)
+                {
+                    ty
                 } else if self
                     .values
                     .node_qualified_values
@@ -314,6 +318,64 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_node_type(expr, ty);
         ty
+    }
+
+    fn check_associated_comptime_value_access(
+        &mut self,
+        expr: &Expr,
+        lhs: &Expr,
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let target_ty = self.associated_target_ty(lhs, None, name)?;
+        let value = self.associated_comptime_value_for_target(target_ty, name)?;
+        let def_id = value.def_id;
+        self.comptime_types
+            .get(&def_id.def_id)
+            .copied()
+            .or_else(|| {
+                self.signatures
+                    .comptimes
+                    .get(&def_id.def_id)
+                    .and_then(|signature| signature.explicit_type)
+            })
+            .or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "associated comptime value requires an explicit type",
+                ));
+                Some(self.error())
+            })
+    }
+
+    fn associated_comptime_value_for_target(
+        &mut self,
+        target_ty: InternedTyId,
+        name: &str,
+    ) -> Option<VisibleExtensionAssociatedValue> {
+        let mut matches = Vec::new();
+        for extension_target in self.extensions.targets() {
+            let mut substitutions = std::collections::HashMap::new();
+            let mut const_substitutions = std::collections::HashMap::new();
+            if !self.match_type_pattern_with_consts(
+                extension_target.target_ty,
+                target_ty,
+                &mut substitutions,
+                &mut const_substitutions,
+            ) {
+                continue;
+            }
+            for value in &extension_target.associated_values {
+                if value.name == name {
+                    matches.push(value.clone());
+                }
+            }
+        }
+        let first = matches.first()?.clone();
+        if matches.len() > 1 {
+            return None;
+        }
+        Some(first)
     }
 
     fn check_builtin_associated_value(&mut self, expr: &Expr) -> Option<InternedTyId> {
@@ -1027,6 +1089,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty: lhs_ty,
                 trait_id: TraitId::Builtin(finish.trait_id),
                 trait_args,
+                trait_const_args: Vec::new(),
                 name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
             self.normalize_projection(output)
@@ -1072,6 +1135,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: inner_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
@@ -1254,6 +1318,11 @@ impl<'a> BodyChecker<'a> {
             | Some(LocalUse::TypePrefix)
             | Some(LocalUse::Unresolved)
             | None => {
+                if let Some(arg) =
+                    expr_ident_name(expr).and_then(|name| self.current_comptime_generic_arg(name))
+                {
+                    return arg.ty;
+                }
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
@@ -1299,6 +1368,13 @@ impl<'a> BodyChecker<'a> {
                 }),
             _ => self.error(),
         }
+    }
+}
+
+fn expr_ident_name(expr: &Expr) -> Option<&str> {
+    match &expr.kind {
+        ExprKind::Ident(name) => Some(name),
+        _ => None,
     }
 }
 

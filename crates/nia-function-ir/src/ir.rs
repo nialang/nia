@@ -2,7 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, TraitId};
+use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, IntConst, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -218,6 +218,7 @@ pub enum FunctionExprKind {
     Null,
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
+    ConstGeneric(ConstGenericArg),
     GlobalInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
@@ -482,7 +483,7 @@ pub enum FunctionArrayElements {
     List(Vec<FunctionExpr>),
     Repeat {
         value: Box<FunctionExpr>,
-        count: u64,
+        count: ArrayLenTy,
     },
 }
 

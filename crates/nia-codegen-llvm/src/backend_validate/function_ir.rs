@@ -6,7 +6,7 @@ use nia_function_ir::{
     FunctionTerminator, validate_function_body,
 };
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TyKind};
+use nia_ty::{BuiltinTrait, ConstGenericValue, TyKind};
 
 use super::BackendValidator;
 
@@ -302,6 +302,16 @@ impl BackendValidator<'_> {
             | FunctionExprKind::Local(_)
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
+            FunctionExprKind::ConstGeneric(arg) => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    expr.span,
+                    format!(
+                        "backend IR const generic `{}` reached LLVM codegen",
+                        self.const_generic_value_name(&arg.value)
+                    ),
+                ));
+            }
             FunctionExprKind::EnumVariant(def_id) => {
                 self.validate_enum_variant_ref(
                     *def_id,
@@ -565,6 +575,16 @@ impl BackendValidator<'_> {
                 }
                 FunctionPlaceElem::Error => {}
             }
+        }
+    }
+
+    fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
+        match value {
+            ConstGenericValue::GenericParam(name) => name.clone(),
+            ConstGenericValue::ConstExpr(id) => format!("{id:?}"),
+            ConstGenericValue::Int(value) => value.bits().to_string(),
+            ConstGenericValue::Bool(value) => value.to_string(),
+            ConstGenericValue::Char(value) => value.to_string(),
         }
     }
 }

@@ -929,6 +929,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
             def_id: DefId(0),
         }),
         trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
         associated_type_bindings: Vec::new(),
     });
     let span = Span::default();

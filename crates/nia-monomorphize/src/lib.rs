@@ -172,6 +172,7 @@ struct ProjectionInstantiationKey {
     self_ty: InternedTyId,
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
     name: String,
 }
 
@@ -727,6 +728,7 @@ impl MonoCollector<'_> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             } => {
                 let self_ty = self.instantiate_ty_inner(
@@ -746,10 +748,24 @@ impl MonoCollector<'_> {
                         )
                     })
                     .collect();
+                let trait_const_args: Vec<ConstGenericArg> = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        let mut arg = arg.clone();
+                        arg.ty = self.instantiate_ty_inner(
+                            module_id,
+                            arg.ty,
+                            substitutions,
+                            active_projections,
+                        );
+                        arg
+                    })
+                    .collect();
                 let projection_key = ProjectionInstantiationKey {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                     name: name.clone(),
                 };
                 let projection = self.intern_working_ty(
@@ -758,6 +774,7 @@ impl MonoCollector<'_> {
                         self_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
+                        trait_const_args: trait_const_args.clone(),
                         name: name.clone(),
                     },
                 );
@@ -770,6 +787,7 @@ impl MonoCollector<'_> {
                             self_ty,
                             trait_id,
                             &trait_args,
+                            &trait_const_args,
                             &name,
                         )
                         .map(|resolved| {
@@ -850,6 +868,7 @@ impl MonoCollector<'_> {
             TyKind::TraitObject {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 is_readonly,
             } => {
@@ -862,6 +881,19 @@ impl MonoCollector<'_> {
                             substitutions,
                             active_projections,
                         )
+                    })
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        let mut arg = arg.clone();
+                        arg.ty = self.instantiate_ty_inner(
+                            module_id,
+                            arg.ty,
+                            substitutions,
+                            active_projections,
+                        );
+                        arg
                     })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
@@ -878,6 +910,20 @@ impl MonoCollector<'_> {
                                     substitutions,
                                     active_projections,
                                 )
+                            })
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .iter()
+                            .map(|arg| {
+                                let mut arg = arg.clone();
+                                arg.ty = self.instantiate_ty_inner(
+                                    module_id,
+                                    arg.ty,
+                                    substitutions,
+                                    active_projections,
+                                );
+                                arg
                             })
                             .collect(),
                         name: binding.name.clone(),
@@ -894,6 +940,7 @@ impl MonoCollector<'_> {
                     TyKind::TraitObject {
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings,
                         is_readonly,
                     },
@@ -902,6 +949,7 @@ impl MonoCollector<'_> {
             TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             } => {
                 let trait_args = trait_args
@@ -913,6 +961,19 @@ impl MonoCollector<'_> {
                             substitutions,
                             active_projections,
                         )
+                    })
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        let mut arg = arg.clone();
+                        arg.ty = self.instantiate_ty_inner(
+                            module_id,
+                            arg.ty,
+                            substitutions,
+                            active_projections,
+                        );
+                        arg
                     })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
@@ -931,6 +992,20 @@ impl MonoCollector<'_> {
                                 )
                             })
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .iter()
+                            .map(|arg| {
+                                let mut arg = arg.clone();
+                                arg.ty = self.instantiate_ty_inner(
+                                    module_id,
+                                    arg.ty,
+                                    substitutions,
+                                    active_projections,
+                                );
+                                arg
+                            })
+                            .collect(),
                         name: binding.name.clone(),
                         ty: self.instantiate_ty_inner(
                             module_id,
@@ -945,6 +1020,7 @@ impl MonoCollector<'_> {
                     TyKind::TraitObjectPointee {
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings,
                     },
                 )
@@ -965,6 +1041,7 @@ impl MonoCollector<'_> {
         self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
         name: &str,
     ) -> Option<InternedTyId> {
         let normalization = *self.normalizations_by_module.get(&module_id)?;
@@ -982,10 +1059,11 @@ impl MonoCollector<'_> {
             local_module_id: module_id,
             local_enums,
             program_enums: Some(self.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(interner, &[], &[]);
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
     fn import_ty_to_module(
@@ -1084,6 +1162,7 @@ impl MonoCollector<'_> {
             TyKind::TraitObject {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 is_readonly,
             } => TyKind::TraitObject {
@@ -1091,6 +1170,13 @@ impl MonoCollector<'_> {
                 trait_args: trait_args
                     .into_iter()
                     .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                    .collect(),
+                trait_const_args: trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
+                        arg
+                    })
                     .collect(),
                 associated_type_bindings: associated_type_bindings
                     .into_iter()
@@ -1100,6 +1186,14 @@ impl MonoCollector<'_> {
                             .trait_args
                             .into_iter()
                             .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.import_ty_to_module(target_module_id, binding.ty),
@@ -1110,12 +1204,20 @@ impl MonoCollector<'_> {
             TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             } => TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args: trait_args
                     .into_iter()
                     .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                    .collect(),
+                trait_const_args: trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
+                        arg
+                    })
                     .collect(),
                 associated_type_bindings: associated_type_bindings
                     .into_iter()
@@ -1126,6 +1228,14 @@ impl MonoCollector<'_> {
                             .into_iter()
                             .map(|arg| self.import_ty_to_module(target_module_id, arg))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.import_ty_to_module(target_module_id, binding.ty),
                     })
@@ -1135,6 +1245,7 @@ impl MonoCollector<'_> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             } => TyKind::Projection {
                 self_ty: self.import_ty_to_module(target_module_id, self_ty),
@@ -1142,6 +1253,13 @@ impl MonoCollector<'_> {
                 trait_args: trait_args
                     .into_iter()
                     .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                    .collect(),
+                trait_const_args: trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
+                        arg
+                    })
                     .collect(),
                 name,
             },
@@ -1226,6 +1344,9 @@ impl MonoCollector<'_> {
         let ty = self.type_symbol(module_id, arg.ty);
         let value = match &arg.value {
             ConstGenericValue::GenericParam(name) => format!("g{}", sanitize_symbol_part(name)),
+            ConstGenericValue::ConstExpr(id) => {
+                format!("expr__m{}__c{}", id.module_id.0, id.const_expr_id.0)
+            }
             ConstGenericValue::Int(value) => {
                 let sign = if value.is_signed() { "i" } else { "u" };
                 format!("{sign}{}", value.bits())

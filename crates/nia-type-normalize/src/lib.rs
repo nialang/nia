@@ -148,11 +148,19 @@ impl<'a> TypeNormalizer<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty(arg.ty, stack);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -162,6 +170,14 @@ impl<'a> TypeNormalizer<'a> {
                             .trait_args
                             .into_iter()
                             .map(|arg| self.normalize_ty(arg, stack))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.normalize_ty(arg.ty, stack);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.normalize_ty(binding.ty, stack),
@@ -171,17 +187,26 @@ impl<'a> TypeNormalizer<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty(arg.ty, stack);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -192,6 +217,14 @@ impl<'a> TypeNormalizer<'a> {
                             .into_iter()
                             .map(|arg| self.normalize_ty(arg, stack))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.normalize_ty(arg.ty, stack);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.normalize_ty(binding.ty, stack),
                     })
@@ -199,6 +232,7 @@ impl<'a> TypeNormalizer<'a> {
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -206,6 +240,7 @@ impl<'a> TypeNormalizer<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let self_ty = self.normalize_ty(self_ty, stack);
@@ -213,10 +248,18 @@ impl<'a> TypeNormalizer<'a> {
                     .into_iter()
                     .map(|arg| self.normalize_ty(arg, stack))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty(arg.ty, stack);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -378,11 +421,19 @@ impl<'a> TypeNormalizer<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -393,6 +444,18 @@ impl<'a> TypeNormalizer<'a> {
                             .into_iter()
                             .map(|arg| {
                                 self.normalize_ty_with_substitutions(arg, substitutions, stack)
+                            })
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.normalize_ty_with_substitutions(
+                                    arg.ty,
+                                    substitutions,
+                                    stack,
+                                );
+                                arg
                             })
                             .collect(),
                         name: binding.name,
@@ -403,17 +466,26 @@ impl<'a> TypeNormalizer<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -426,6 +498,18 @@ impl<'a> TypeNormalizer<'a> {
                                 self.normalize_ty_with_substitutions(arg, substitutions, stack)
                             })
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.normalize_ty_with_substitutions(
+                                    arg.ty,
+                                    substitutions,
+                                    stack,
+                                );
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.normalize_ty_with_substitutions(binding.ty, substitutions, stack),
                     })
@@ -433,6 +517,7 @@ impl<'a> TypeNormalizer<'a> {
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -440,6 +525,7 @@ impl<'a> TypeNormalizer<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let self_ty = self.normalize_ty_with_substitutions(self_ty, substitutions, stack);
@@ -447,10 +533,18 @@ impl<'a> TypeNormalizer<'a> {
                     .into_iter()
                     .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }

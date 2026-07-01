@@ -2,13 +2,14 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_ids::{
-    BuiltinAssociatedType, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId, TraitId,
-    TraitImplId,
+    BuiltinAssociatedType, BuiltinTrait, DefId, GlobalConstExprId, GlobalDefId, InternedTyId,
+    ModuleId, TraitId, TraitImplId,
 };
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_ty::{
-    ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, TypeEquivalence, import_type_into,
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyInterner, TyKind,
+    TypeEquivalence, import_type_into,
 };
 use nia_type_normalize::TypeNormalization;
 
@@ -17,6 +18,7 @@ pub struct TraitGoal {
     pub self_ty: InternedTyId,
     pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,6 +60,7 @@ pub struct UserImpl {
     pub goal: TraitGoal,
     pub impl_index: usize,
     pub substitutions: HashMap<String, InternedTyId>,
+    pub const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
 pub struct TraitSolver<'a, F>
@@ -70,6 +73,7 @@ where
     pub assumptions: &'a [TraitGoal],
     pub associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     pub layouts: Option<&'a Layouts>,
+    pub const_expr_value: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub is_enum: F,
     pub impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
 }
@@ -81,11 +85,23 @@ pub struct TraitSolverContext<'a> {
     pub local_module_id: ModuleId,
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
     pub program_enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+    pub const_expr_value: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
 }
 
 fn trait_impl_visible_by_default(_: ModuleId, _: TraitImplId) -> bool {
     true
+}
+
+fn import_const_generic_arg_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    arg: &ConstGenericArg,
+) -> ConstGenericArg {
+    ConstGenericArg {
+        ty: import_type_into(target, source, arg.ty),
+        value: arg.value.clone(),
+    }
 }
 
 impl<'a> TraitSolverContext<'a> {
@@ -102,6 +118,7 @@ impl<'a> TraitSolverContext<'a> {
             assumptions,
             associated_type_assumptions: &[],
             layouts: self.layouts,
+            const_expr_value: self.const_expr_value,
             is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
             impl_is_visible: self
                 .impl_is_visible
@@ -123,6 +140,7 @@ impl<'a> TraitSolverContext<'a> {
             assumptions,
             associated_type_assumptions,
             layouts: self.layouts,
+            const_expr_value: self.const_expr_value,
             is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
             impl_is_visible: self
                 .impl_is_visible
@@ -586,9 +604,17 @@ where
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
         name: &str,
     ) -> Option<InternedTyId> {
-        self.resolve_associated_type_inner(self_ty, trait_id, trait_args, name, &mut HashSet::new())
+        self.resolve_associated_type_inner(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            name,
+            &mut HashSet::new(),
+        )
     }
 
     fn resolve_associated_type_inner(
@@ -596,6 +622,7 @@ where
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
         name: &str,
         active: &mut HashSet<AssociatedTypeProjectionKey>,
     ) -> Option<InternedTyId> {
@@ -603,6 +630,7 @@ where
             self_ty,
             trait_id,
             trait_args: trait_args.to_vec(),
+            trait_const_args: trait_const_args.to_vec(),
         });
         let key = AssociatedTypeProjectionKey {
             goal: goal.clone(),
@@ -660,18 +688,63 @@ where
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 name == key.name
                     && trait_id == key.goal.trait_id
                     && trait_args.len() == key.goal.trait_args.len()
+                    && trait_const_args.len() == key.goal.trait_const_args.len()
                     && self.types_equivalent(self_ty, key.goal.self_ty)
                     && trait_args
                         .iter()
                         .zip(&key.goal.trait_args)
                         .all(|(left, right)| self.types_equivalent(*left, *right))
+                    && trait_const_args
+                        .iter()
+                        .zip(&key.goal.trait_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
             }
             _ => false,
+        }
+    }
+
+    fn const_generic_args_equivalent(
+        &mut self,
+        left: &ConstGenericArg,
+        right: &ConstGenericArg,
+    ) -> bool {
+        self.types_equivalent(left.ty, right.ty)
+            && self.const_generic_values_equivalent(&left.value, &right.value)
+    }
+
+    fn const_generic_values_equivalent(
+        &self,
+        left: &ConstGenericValue,
+        right: &ConstGenericValue,
+    ) -> bool {
+        match (
+            self.resolve_const_generic_value(left),
+            self.resolve_const_generic_value(right),
+        ) {
+            (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                left.bits() == right.bits()
+            }
+            _ => left == right,
+        }
+    }
+
+    fn resolve_const_generic_value(&self, value: &ConstGenericValue) -> ConstGenericValue {
+        match value {
+            ConstGenericValue::ConstExpr(id) => self
+                .const_expr_value
+                .and_then(|value| value(*id))
+                .map(|value| ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into())))
+                .unwrap_or_else(|| value.clone()),
+            ConstGenericValue::GenericParam(_)
+            | ConstGenericValue::Int(_)
+            | ConstGenericValue::Bool(_)
+            | ConstGenericValue::Char(_) => value.clone(),
         }
     }
 
@@ -791,6 +864,7 @@ where
                             self_ty,
                             trait_id: TraitId::Builtin(BuiltinTrait::Iterator),
                             trait_args: Vec::new(),
+                            trait_const_args: Vec::new(),
                         }),
                         TraitResolution::Unsatisfied | TraitResolution::Ambiguous
                     )
@@ -902,6 +976,7 @@ where
                     self_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Iterator),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
                 });
                 Some(self.normalize(item))
@@ -1136,12 +1211,13 @@ where
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         } = self.interner.get(self.normalize(ty)).cloned()?
         else {
             return None;
         };
-        self.resolve_associated_type(self_ty, trait_id, &trait_args, &name)
+        self.resolve_associated_type(self_ty, trait_id, &trait_args, &trait_const_args, &name)
     }
 
     fn structural_types_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
@@ -1330,22 +1406,29 @@ where
                     is_readonly: left_readonly,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObject {
                     is_readonly: right_readonly,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     associated_type_bindings: right_bindings,
                 }),
             ) => {
                 left_readonly == right_readonly
                     && left_trait == right_trait
                     && left_args.len() == right_args.len()
+                    && left_const_args.len() == right_const_args.len()
                     && left_bindings.len() == right_bindings.len()
                     && left_args.iter().zip(&right_args).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
                     })
+                    && left_const_args
+                        .iter()
+                        .zip(&right_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
                     && left_bindings.iter().all(|left_binding| {
                         right_bindings
                             .iter()
@@ -1354,6 +1437,8 @@ where
                                     && left_binding.trait_id == right_binding.trait_id
                                     && left_binding.trait_args.len()
                                         == right_binding.trait_args.len()
+                                    && left_binding.trait_const_args.len()
+                                        == right_binding.trait_const_args.len()
                             })
                             .is_some_and(|right_binding| {
                                 left_binding
@@ -1365,6 +1450,13 @@ where
                                             *left, *right, active,
                                         )
                                     })
+                                    && left_binding
+                                        .trait_const_args
+                                        .iter()
+                                        .zip(&right_binding.trait_const_args)
+                                        .all(|(left, right)| {
+                                            self.const_generic_args_equivalent(left, right)
+                                        })
                                     && self.types_equivalent_resolving_projections(
                                         left_binding.ty,
                                         right_binding.ty,
@@ -1377,20 +1469,27 @@ where
                 Some(TyKind::TraitObjectPointee {
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObjectPointee {
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     associated_type_bindings: right_bindings,
                 }),
             ) => {
                 left_trait == right_trait
                     && left_args.len() == right_args.len()
+                    && left_const_args.len() == right_const_args.len()
                     && left_bindings.len() == right_bindings.len()
                     && left_args.iter().zip(&right_args).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
                     })
+                    && left_const_args
+                        .iter()
+                        .zip(&right_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
                     && left_bindings.iter().all(|left_binding| {
                         right_bindings
                             .iter()
@@ -1399,6 +1498,8 @@ where
                                     && left_binding.trait_id == right_binding.trait_id
                                     && left_binding.trait_args.len()
                                         == right_binding.trait_args.len()
+                                    && left_binding.trait_const_args.len()
+                                        == right_binding.trait_const_args.len()
                             })
                             .is_some_and(|right_binding| {
                                 left_binding
@@ -1410,6 +1511,13 @@ where
                                             *left, *right, active,
                                         )
                                     })
+                                    && left_binding
+                                        .trait_const_args
+                                        .iter()
+                                        .zip(&right_binding.trait_const_args)
+                                        .all(|(left, right)| {
+                                            self.const_generic_args_equivalent(left, right)
+                                        })
                                     && self.types_equivalent_resolving_projections(
                                         left_binding.ty,
                                         right_binding.ty,
@@ -1423,22 +1531,29 @@ where
                     self_ty: left_self,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     name: left_name,
                 }),
                 Some(TyKind::Projection {
                     self_ty: right_self,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     name: right_name,
                 }),
             ) => {
                 left_trait == right_trait
                     && left_name == right_name
                     && left_args.len() == right_args.len()
+                    && left_const_args.len() == right_const_args.len()
                     && self.types_equivalent_resolving_projections(left_self, right_self, active)
                     && left_args.iter().zip(&right_args).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
                     })
+                    && left_const_args
+                        .iter()
+                        .zip(&right_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
             }
             _ => false,
         }
@@ -1463,23 +1578,54 @@ where
                 .iter()
                 .map(|arg| import_type_into(self.interner, &impl_signature.interner, *arg))
                 .collect::<Vec<_>>();
+            let trait_const_args = impl_signature
+                .trait_const_args
+                .iter()
+                .map(|arg| {
+                    import_const_generic_arg_into(self.interner, &impl_signature.interner, arg)
+                })
+                .collect::<Vec<_>>();
             if trait_args.len() != goal.trait_args.len() {
                 continue;
             }
+            if trait_const_args.len() != goal.trait_const_args.len() {
+                continue;
+            }
             let mut substitutions = HashMap::new();
-            if self.match_impl_pattern(target_ty, goal.self_ty, &mut substitutions)
+            let mut const_substitutions = HashMap::new();
+            let target_matches = self.match_impl_pattern_with_consts(
+                target_ty,
+                goal.self_ty,
+                &mut substitutions,
+                &mut const_substitutions,
+            );
+            let trait_args_match = target_matches
                 && trait_args
                     .iter()
                     .zip(&goal.trait_args)
                     .all(|(actual, expected)| {
-                        self.match_impl_pattern(*actual, *expected, &mut substitutions)
-                    })
-                && self.impl_where_predicates_hold(impl_signature, &substitutions)
-            {
+                        self.match_impl_pattern_with_consts(
+                            *actual,
+                            *expected,
+                            &mut substitutions,
+                            &mut const_substitutions,
+                        )
+                    });
+            let trait_const_args_match = trait_args_match
+                && trait_const_args
+                    .iter()
+                    .zip(&goal.trait_const_args)
+                    .all(|(actual, expected)| {
+                        self.match_const_impl_pattern(actual, expected, &mut const_substitutions)
+                    });
+            let where_holds = trait_const_args_match
+                && self.impl_where_predicates_hold(impl_signature, &substitutions);
+            if target_matches && trait_args_match && trait_const_args_match && where_holds {
                 matches.push(UserImpl {
                     goal: goal.clone(),
                     impl_index,
                     substitutions,
+                    const_substitutions,
                 });
             }
         }
@@ -1543,7 +1689,7 @@ where
         specific: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
-        self.match_impl_pattern(general, specific, substitutions)
+        self.match_impl_pattern_with_consts(general, specific, substitutions, &mut HashMap::new())
     }
 
     fn impl_where_predicates_hold(
@@ -1558,13 +1704,16 @@ where
                 let trait_ty =
                     import_type_into(self.interner, &impl_signature.interner, bound.trait_ty);
                 let trait_ty = self.substitute_ty(trait_ty, substitutions);
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(trait_ty)
+                else {
                     return false;
                 };
                 if !self.proves(TraitGoal {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                 }) {
                     return false;
                 }
@@ -1572,9 +1721,13 @@ where
                     let binding_ty =
                         import_type_into(self.interner, &impl_signature.interner, binding.ty);
                     let binding_ty = self.substitute_ty(binding_ty, substitutions);
-                    let Some(actual_ty) =
-                        self.resolve_associated_type(self_ty, trait_id, &trait_args, &binding.name)
-                    else {
+                    let Some(actual_ty) = self.resolve_associated_type(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        &binding.name,
+                    ) else {
                         return false;
                     };
                     if !self.types_equivalent(actual_ty, binding_ty) {
@@ -1586,23 +1739,34 @@ where
         true
     }
 
-    fn match_impl_pattern(
+    fn match_impl_pattern_with_consts(
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
+        const_substitutions: &mut HashMap<String, ConstGenericArg>,
     ) -> bool {
         let pattern = self.normalize(pattern);
         let actual = self.normalize(actual);
         if let Some(resolved_pattern) = self.resolve_projection_ty(pattern)
             && resolved_pattern != pattern
         {
-            return self.match_impl_pattern(resolved_pattern, actual, substitutions);
+            return self.match_impl_pattern_with_consts(
+                resolved_pattern,
+                actual,
+                substitutions,
+                const_substitutions,
+            );
         }
         if let Some(resolved_actual) = self.resolve_projection_ty(actual)
             && resolved_actual != actual
         {
-            return self.match_impl_pattern(pattern, resolved_actual, substitutions);
+            return self.match_impl_pattern_with_consts(
+                pattern,
+                resolved_actual,
+                substitutions,
+                const_substitutions,
+            );
         }
         match self.interner.get(pattern).cloned() {
             Some(TyKind::GenericParam(name)) => {
@@ -1619,7 +1783,12 @@ where
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) if is_readonly == actual_readonly
-                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+                    && self.match_impl_pattern_with_consts(
+                        elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions
+                    )
             ),
             Some(TyKind::VolatilePointer { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
@@ -1627,7 +1796,7 @@ where
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) if is_readonly == actual_readonly
-                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+                    && self.match_impl_pattern_with_consts(elem, actual_elem, substitutions, const_substitutions)
             ),
             Some(TyKind::Slice { is_readonly, elem }) => matches!(
                 self.interner.get(actual).cloned(),
@@ -1635,20 +1804,24 @@ where
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) if is_readonly == actual_readonly
-                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+                    && self.match_impl_pattern_with_consts(elem, actual_elem, substitutions, const_substitutions)
             ),
             Some(TyKind::SlicePointee { elem }) => matches!(
                 self.interner.get(actual).cloned(),
                 Some(TyKind::SlicePointee { elem: actual_elem })
-                    if self.match_impl_pattern(elem, actual_elem, substitutions)
+                    if self.match_impl_pattern_with_consts(elem, actual_elem, substitutions, const_substitutions)
             ),
             Some(TyKind::Array { len, elem }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::Array {
                     len: actual_len,
                     elem: actual_elem,
-                }) if len == actual_len => {
-                    self.match_impl_pattern(elem, actual_elem, substitutions)
-                }
+                }) if self.match_array_len_pattern(&len, &actual_len, const_substitutions) => self
+                    .match_impl_pattern_with_consts(
+                        elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    ),
                 _ => false,
             },
             Some(TyKind::Range { kind, bound }) => match self.interner.get(actual).cloned() {
@@ -1656,9 +1829,12 @@ where
                     kind: actual_kind,
                     bound: actual_bound,
                 }) if kind == actual_kind => match (bound, actual_bound) {
-                    (Some(bound), Some(actual_bound)) => {
-                        self.match_impl_pattern(bound, actual_bound, substitutions)
-                    }
+                    (Some(bound), Some(actual_bound)) => self.match_impl_pattern_with_consts(
+                        bound,
+                        actual_bound,
+                        substitutions,
+                        const_substitutions,
+                    ),
                     (None, None) => true,
                     _ => false,
                 },
@@ -1678,16 +1854,30 @@ where
                         .iter()
                         .zip(actual_params)
                         .all(|(param, actual_param)| {
-                            self.match_impl_pattern(*param, actual_param, substitutions)
+                            self.match_impl_pattern_with_consts(
+                                *param,
+                                actual_param,
+                                substitutions,
+                                const_substitutions,
+                            )
                         })
-                        && self.match_impl_pattern(return_type, actual_return, substitutions)
+                        && self.match_impl_pattern_with_consts(
+                            return_type,
+                            actual_return,
+                            substitutions,
+                            const_substitutions,
+                        )
                 }
                 _ => false,
             },
             Some(TyKind::Optional { elem }) => match self.interner.get(actual).cloned() {
-                Some(TyKind::Optional { elem: actual_elem }) => {
-                    self.match_impl_pattern(elem, actual_elem, substitutions)
-                }
+                Some(TyKind::Optional { elem: actual_elem }) => self
+                    .match_impl_pattern_with_consts(
+                        elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    ),
                 _ => false,
             },
             Some(TyKind::ErrorUnion { error, value }) => match self.interner.get(actual).cloned() {
@@ -1695,8 +1885,17 @@ where
                     error: actual_error,
                     value: actual_value,
                 }) => {
-                    self.match_impl_pattern(error, actual_error, substitutions)
-                        && self.match_impl_pattern(value, actual_value, substitutions)
+                    self.match_impl_pattern_with_consts(
+                        error,
+                        actual_error,
+                        substitutions,
+                        const_substitutions,
+                    ) && self.match_impl_pattern_with_consts(
+                        value,
+                        actual_value,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -1710,12 +1909,22 @@ where
                     args: actual_args,
                     const_args: actual_const_args,
                 }) if def_id == actual_def
-                    && const_args == actual_const_args
+                    && const_args.len() == actual_const_args.len()
                     && args.len() == actual_args.len() =>
                 {
                     args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                        self.match_impl_pattern(*arg, actual_arg, substitutions)
-                    })
+                        self.match_impl_pattern_with_consts(
+                            *arg,
+                            actual_arg,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && const_args
+                        .iter()
+                        .zip(&actual_const_args)
+                        .all(|(arg, actual_arg)| {
+                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                        })
                 }
                 _ => false,
             },
@@ -1726,7 +1935,12 @@ where
                         args: actual_args,
                     }) if trait_id == actual_trait && args.len() == actual_args.len() => {
                         args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                            self.match_impl_pattern(*arg, actual_arg, substitutions)
+                            self.match_impl_pattern_with_consts(
+                                *arg,
+                                actual_arg,
+                                substitutions,
+                                const_substitutions,
+                            )
                         })
                     }
                     _ => false,
@@ -1736,27 +1950,41 @@ where
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::TraitObject {
                     is_readonly: actual_readonly,
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 }) if is_readonly == actual_readonly
                     && trait_id == actual_trait
                     && trait_args.len() == actual_args.len()
+                    && trait_const_args.len() == actual_const_args.len()
                     && associated_type_bindings.len() == actual_bindings.len() =>
                 {
                     trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                        self.match_impl_pattern(*arg, actual_arg, substitutions)
-                    }) && associated_type_bindings.iter().all(|binding| {
+                        self.match_impl_pattern_with_consts(
+                            *arg,
+                            actual_arg,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && trait_const_args.iter().zip(&actual_const_args).all(
+                        |(arg, actual_arg)| {
+                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                        },
+                    ) && associated_type_bindings.iter().all(|binding| {
                         actual_bindings
                             .iter()
                             .find(|actual_binding| {
                                 binding.name == actual_binding.name
                                     && binding.trait_id == actual_binding.trait_id
                                     && binding.trait_args.len() == actual_binding.trait_args.len()
+                                    && binding.trait_const_args.len()
+                                        == actual_binding.trait_const_args.len()
                             })
                             .is_some_and(|actual_binding| {
                                 binding
@@ -1764,12 +1992,29 @@ where
                                     .iter()
                                     .zip(&actual_binding.trait_args)
                                     .all(|(arg, actual_arg)| {
-                                        self.match_impl_pattern(*arg, *actual_arg, substitutions)
+                                        self.match_impl_pattern_with_consts(
+                                            *arg,
+                                            *actual_arg,
+                                            substitutions,
+                                            const_substitutions,
+                                        )
                                     })
-                                    && self.match_impl_pattern(
+                                    && binding
+                                        .trait_const_args
+                                        .iter()
+                                        .zip(&actual_binding.trait_const_args)
+                                        .all(|(arg, actual_arg)| {
+                                            self.match_const_impl_pattern(
+                                                arg,
+                                                actual_arg,
+                                                const_substitutions,
+                                            )
+                                        })
+                                    && self.match_impl_pattern_with_consts(
                                         binding.ty,
                                         actual_binding.ty,
                                         substitutions,
+                                        const_substitutions,
                                     )
                             })
                     })
@@ -1779,25 +2024,39 @@ where
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::TraitObjectPointee {
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 }) if trait_id == actual_trait
                     && trait_args.len() == actual_args.len()
+                    && trait_const_args.len() == actual_const_args.len()
                     && associated_type_bindings.len() == actual_bindings.len() =>
                 {
                     trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                        self.match_impl_pattern(*arg, actual_arg, substitutions)
-                    }) && associated_type_bindings.iter().all(|binding| {
+                        self.match_impl_pattern_with_consts(
+                            *arg,
+                            actual_arg,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && trait_const_args.iter().zip(&actual_const_args).all(
+                        |(arg, actual_arg)| {
+                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                        },
+                    ) && associated_type_bindings.iter().all(|binding| {
                         actual_bindings
                             .iter()
                             .find(|actual_binding| {
                                 binding.name == actual_binding.name
                                     && binding.trait_id == actual_binding.trait_id
                                     && binding.trait_args.len() == actual_binding.trait_args.len()
+                                    && binding.trait_const_args.len()
+                                        == actual_binding.trait_const_args.len()
                             })
                             .is_some_and(|actual_binding| {
                                 binding
@@ -1805,12 +2064,29 @@ where
                                     .iter()
                                     .zip(&actual_binding.trait_args)
                                     .all(|(arg, actual_arg)| {
-                                        self.match_impl_pattern(*arg, *actual_arg, substitutions)
+                                        self.match_impl_pattern_with_consts(
+                                            *arg,
+                                            *actual_arg,
+                                            substitutions,
+                                            const_substitutions,
+                                        )
                                     })
-                                    && self.match_impl_pattern(
+                                    && binding
+                                        .trait_const_args
+                                        .iter()
+                                        .zip(&actual_binding.trait_const_args)
+                                        .all(|(arg, actual_arg)| {
+                                            self.match_const_impl_pattern(
+                                                arg,
+                                                actual_arg,
+                                                const_substitutions,
+                                            )
+                                        })
+                                    && self.match_impl_pattern_with_consts(
                                         binding.ty,
                                         actual_binding.ty,
                                         substitutions,
+                                        const_substitutions,
                                     )
                             })
                     })
@@ -1821,21 +2097,37 @@ where
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::Projection {
                     self_ty: actual_self,
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     name: actual_name,
                 }) if trait_id == actual_trait
                     && name == actual_name
-                    && trait_args.len() == actual_args.len() =>
+                    && trait_args.len() == actual_args.len()
+                    && trait_const_args.len() == actual_const_args.len() =>
                 {
-                    self.match_impl_pattern(self_ty, actual_self, substitutions)
-                        && trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                            self.match_impl_pattern(*arg, actual_arg, substitutions)
-                        })
+                    self.match_impl_pattern_with_consts(
+                        self_ty,
+                        actual_self,
+                        substitutions,
+                        const_substitutions,
+                    ) && trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                        self.match_impl_pattern_with_consts(
+                            *arg,
+                            actual_arg,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && trait_const_args.iter().zip(&actual_const_args).all(
+                        |(arg, actual_arg)| {
+                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                        },
+                    )
                 }
                 _ => false,
             },
@@ -1844,6 +2136,66 @@ where
             )
             | None => self.types_equivalent(pattern, actual),
         }
+    }
+
+    fn match_const_impl_pattern(
+        &mut self,
+        pattern: &ConstGenericArg,
+        actual: &ConstGenericArg,
+        substitutions: &mut HashMap<String, ConstGenericArg>,
+    ) -> bool {
+        if !self.types_equivalent(pattern.ty, actual.ty) {
+            return false;
+        }
+        match &pattern.value {
+            ConstGenericValue::GenericParam(name) => {
+                if let Some(existing) = substitutions.get(name).cloned() {
+                    self.const_generic_args_equivalent(&existing, actual)
+                } else {
+                    substitutions.insert(name.clone(), actual.clone());
+                    true
+                }
+            }
+            _ => self.const_generic_args_equivalent(pattern, actual),
+        }
+    }
+
+    fn match_array_len_pattern(
+        &mut self,
+        pattern: &ArrayLenTy,
+        actual: &ArrayLenTy,
+        substitutions: &mut HashMap<String, ConstGenericArg>,
+    ) -> bool {
+        if pattern == actual {
+            return true;
+        }
+        match (pattern, actual) {
+            (ArrayLenTy::GenericParam(name), actual) => {
+                let Some(actual_arg) = self.const_arg_from_array_len(actual) else {
+                    return false;
+                };
+                if let Some(existing) = substitutions.get(name).cloned() {
+                    self.const_generic_args_equivalent(&existing, &actual_arg)
+                } else {
+                    substitutions.insert(name.clone(), actual_arg);
+                    true
+                }
+            }
+            _ => self.same_array_len_for_equiv(pattern, actual),
+        }
+    }
+
+    fn const_arg_from_array_len(&self, len: &ArrayLenTy) -> Option<ConstGenericArg> {
+        let ty = self.interner.primitive(PrimitiveTy::Usize);
+        let value = match len {
+            ArrayLenTy::ConstValue(value) => {
+                ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()))
+            }
+            ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(name.clone()),
+            ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(*id),
+            ArrayLenTy::Builtin { .. } | ArrayLenTy::Infer => return None,
+        };
+        Some(ConstGenericArg { ty, value })
     }
 
     fn substitute_ty(
@@ -1938,11 +2290,19 @@ where
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -1952,6 +2312,14 @@ where
                             .trait_args
                             .into_iter()
                             .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.substitute_ty(binding.ty, substitutions),
@@ -1961,17 +2329,26 @@ where
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -1982,6 +2359,14 @@ where
                             .into_iter()
                             .map(|arg| self.substitute_ty(arg, substitutions))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.substitute_ty(binding.ty, substitutions),
                     })
@@ -1989,6 +2374,7 @@ where
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -1996,6 +2382,7 @@ where
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let self_ty = self.substitute_ty(self_ty, substitutions);
@@ -2003,10 +2390,18 @@ where
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -2017,13 +2412,30 @@ where
         }
     }
 
-    fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+    fn trait_id_and_args(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         match self.interner.get(self.normalize(ty)) {
-            Some(TyKind::Nominal { def_id, args, .. }) => {
-                Some((TraitId::Source(*def_id), args.clone()))
-            }
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => Some((TraitId::Source(*def_id), args.clone(), const_args.clone())),
+            Some(TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }) => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
-                Some((TraitId::Builtin(*trait_id), args.clone()))
+                Some((TraitId::Builtin(*trait_id), args.clone(), Vec::new()))
             }
             _ => None,
         }
@@ -2032,12 +2444,18 @@ where
     fn goals_equivalent(&mut self, left: &TraitGoal, right: &TraitGoal) -> bool {
         left.trait_id == right.trait_id
             && left.trait_args.len() == right.trait_args.len()
+            && left.trait_const_args.len() == right.trait_const_args.len()
             && self.types_equivalent(left.self_ty, right.self_ty)
             && left
                 .trait_args
                 .iter()
                 .zip(&right.trait_args)
                 .all(|(left, right)| self.types_equivalent(*left, *right))
+            && left
+                .trait_const_args
+                .iter()
+                .zip(&right.trait_const_args)
+                .all(|(left, right)| self.const_generic_args_equivalent(left, right))
     }
 
     fn normalize_goal(&self, goal: TraitGoal) -> TraitGoal {
@@ -2048,6 +2466,14 @@ where
                 .trait_args
                 .into_iter()
                 .map(|arg| self.normalize(arg))
+                .collect(),
+            trait_const_args: goal
+                .trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = self.normalize(arg.ty);
+                    arg
+                })
                 .collect(),
         }
     }

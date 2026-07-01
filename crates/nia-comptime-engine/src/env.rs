@@ -7,6 +7,7 @@ use nia_comptime_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
+use nia_ty::ConstGenericArg;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeError {
@@ -71,11 +72,13 @@ pub trait ComptimeCommonEnv {
         module_id: ModuleId,
         function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
+        const_substitutions: Vec<(String, ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
         let _ = span;
         let _ = module_id;
         let _ = function_id;
         let _ = substitutions;
+        let _ = const_substitutions;
         Ok(())
     }
 }

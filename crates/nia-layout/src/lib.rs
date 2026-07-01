@@ -458,7 +458,7 @@ impl<'a> LayoutComputer<'a> {
                 break;
             };
             next += 1;
-            if self.is_inferred_array_type(ty_id) {
+            if self.is_inferred_array_type(ty_id) || self.is_open_generic_type(ty_id) {
                 continue;
             }
             self.layout_ty(ty_id, Span::default());
@@ -488,7 +488,7 @@ impl<'a> LayoutComputer<'a> {
 
     fn compute_roots(mut self, roots: LayoutRoots<'_>) -> Layouts {
         for ty_id in roots.types {
-            if self.is_inferred_array_type(*ty_id) {
+            if self.is_inferred_array_type(*ty_id) || self.is_open_generic_type(*ty_id) {
                 continue;
             }
             self.layout_ty(*ty_id, Span::default());
@@ -593,6 +593,131 @@ impl<'a> LayoutComputer<'a> {
                 ..
             })
         )
+    }
+
+    fn is_open_generic_type(&self, ty_id: InternedTyId) -> bool {
+        let mut seen = HashSet::new();
+        self.is_open_generic_type_inner(ty_id, &mut seen)
+    }
+
+    fn is_open_generic_type_inner(
+        &self,
+        ty_id: InternedTyId,
+        seen: &mut HashSet<InternedTyId>,
+    ) -> bool {
+        if !seen.insert(ty_id) {
+            return false;
+        }
+        match self.interner.get(ty_id) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Array { len, elem }) => {
+                self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
+            }
+            Some(TyKind::Vector { .. } | TyKind::Primitive(_)) => false,
+            Some(
+                TyKind::Pointer { elem, .. }
+                | TyKind::VolatilePointer { elem, .. }
+                | TyKind::Slice { elem, .. }
+                | TyKind::SlicePointee { elem },
+            ) => self.is_open_generic_type_inner(*elem, seen),
+            Some(
+                TyKind::Optional { elem }
+                | TyKind::Range {
+                    bound: Some(elem), ..
+                },
+            ) => self.is_open_generic_type_inner(*elem, seen),
+            Some(TyKind::Range { bound: None, .. }) => false,
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.is_open_generic_type_inner(*error, seen)
+                    || self.is_open_generic_type_inner(*value, seen)
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .iter()
+                    .any(|param| self.is_open_generic_type_inner(*param, seen))
+                    || self.is_open_generic_type_inner(*return_type, seen)
+            }
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.is_open_generic_const_arg(arg, seen))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
+                .iter()
+                .any(|arg| self.is_open_generic_type_inner(*arg, seen)),
+            Some(
+                TyKind::TraitObject {
+                    trait_args,
+                    trait_const_args,
+                    associated_type_bindings,
+                    ..
+                }
+                | TyKind::TraitObjectPointee {
+                    trait_args,
+                    trait_const_args,
+                    associated_type_bindings,
+                    ..
+                },
+            ) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.is_open_generic_const_arg(arg, seen))
+                    || associated_type_bindings.iter().any(|binding| {
+                        self.is_open_generic_type_inner(binding.ty, seen)
+                            || binding
+                                .trait_args
+                                .iter()
+                                .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(|arg| self.is_open_generic_const_arg(arg, seen))
+                    })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                trait_const_args,
+                ..
+            }) => {
+                self.is_open_generic_type_inner(*self_ty, seen)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.is_open_generic_const_arg(arg, seen))
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly) | None => false,
+        }
+    }
+
+    fn is_open_generic_array_len(&self, len: &ArrayLenTy) -> bool {
+        match len {
+            ArrayLenTy::GenericParam(_) => true,
+            ArrayLenTy::Builtin { ty, .. } => self.is_open_generic_type(*ty),
+            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => false,
+        }
+    }
+
+    fn is_open_generic_const_arg(
+        &self,
+        arg: &ConstGenericArg,
+        seen: &mut HashSet<InternedTyId>,
+    ) -> bool {
+        matches!(arg.value, ConstGenericValue::GenericParam(_))
+            || self.is_open_generic_type_inner(arg.ty, seen)
     }
 
     fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
@@ -1341,6 +1466,7 @@ fn substitute_generics(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         }) => {
             let self_ty =
@@ -1349,10 +1475,24 @@ fn substitute_generics(
                 .into_iter()
                 .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
                 .collect();
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty =
+                        substitute_generics(interner, arg.ty, substitutions, const_substitutions);
+                    if let ConstGenericValue::GenericParam(name) = &arg.value
+                        && let Some(replacement) = const_substitutions.get(name)
+                    {
+                        arg = replacement.clone();
+                    }
+                    arg
+                })
+                .collect();
             interner.intern(TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             })
         }
@@ -1398,6 +1538,7 @@ fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
             u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
         }
         ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(name.clone())),
+        ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }
 }

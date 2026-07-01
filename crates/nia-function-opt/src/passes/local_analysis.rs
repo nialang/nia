@@ -98,6 +98,7 @@ impl<'a> LocalUseCollector<'a> {
                     self.locals.insert(*local_id);
                 }
             }
+            FunctionExprKind::ConstGeneric(_) => {}
             FunctionExprKind::Range(range) => self.collect_range(range),
             FunctionExprKind::InlineAsm(asm) => self.collect_inline_asm(asm),
             FunctionExprKind::Atomic(atomic) => self.collect_atomic(atomic),

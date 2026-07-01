@@ -204,6 +204,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
                 FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
+                FunctionExprKind::ConstGeneric(arg) => {
+                    let arg = self.instantiate_const_generic_arg(&arg, substitutions);
+                    self.const_generic_expr_from_arg(arg)
+                }
                 FunctionExprKind::Global(def_id) => {
                     if let Some((arg_module_id, args)) =
                         self.global_instance_args_for_def(def_id, substitutions)
@@ -1254,7 +1258,7 @@ impl<'a> ModuleLowerer<'a> {
             ),
             FunctionArrayElements::Repeat { value, count } => FunctionArrayElements::Repeat {
                 value: Box::new(self.instantiate_expr(*value, substitutions)),
-                count,
+                count: self.instantiate_array_len(count, substitutions),
             },
         }
     }

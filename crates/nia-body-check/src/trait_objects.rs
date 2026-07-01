@@ -42,6 +42,7 @@ impl<'a> BodyChecker<'a> {
             is_readonly: expected_const,
             trait_id: expected_trait,
             trait_args: expected_args,
+            trait_const_args: expected_const_args,
             associated_type_bindings: expected_bindings,
         }) = self.interner.get(expected).cloned()
         else {
@@ -51,6 +52,7 @@ impl<'a> BodyChecker<'a> {
             is_readonly: actual_const,
             trait_id: actual_trait,
             trait_args: actual_args,
+            trait_const_args: actual_const_args,
             associated_type_bindings: actual_bindings,
         }) = self.interner.get(actual).cloned()
         else {
@@ -61,14 +63,17 @@ impl<'a> BodyChecker<'a> {
             || !self.trait_object_upcast_bindings_match(
                 expected_trait,
                 &expected_args,
+                &expected_const_args,
                 &expected_bindings,
                 &actual_bindings,
             )
             || !self.trait_object_has_supertrait(
                 actual_trait,
                 &actual_args,
+                &actual_const_args,
                 expected_trait,
                 &expected_args,
+                &expected_const_args,
             )
         {
             return None;
@@ -87,6 +92,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         target_trait: TraitId,
         target_args: &[InternedTyId],
+        target_const_args: &[nia_ty::ConstGenericArg],
         target_bindings: &[AssociatedTypeBindingTy],
         source_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
@@ -96,6 +102,11 @@ impl<'a> BodyChecker<'a> {
                 &target_binding.trait_args
             } else {
                 target_args
+            };
+            let effective_target_const_args = if target_binding.trait_id.is_some() {
+                &target_binding.trait_const_args
+            } else {
+                target_const_args
             };
             source_bindings.iter().any(|source_binding| {
                 source_binding.name == target_binding.name
@@ -108,6 +119,11 @@ impl<'a> BodyChecker<'a> {
                         },
                         effective_target_args,
                     )
+                    && if source_binding.trait_id.is_some() {
+                        &source_binding.trait_const_args
+                    } else {
+                        target_const_args
+                    } == effective_target_const_args
                     && self.types_match(source_binding.ty, target_binding.ty)
             })
         })
@@ -125,6 +141,7 @@ impl<'a> BodyChecker<'a> {
             is_readonly: expected_const,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) = self.interner.get(expected).cloned()
         else {
@@ -145,6 +162,7 @@ impl<'a> BodyChecker<'a> {
             expr.span,
             trait_id,
             &trait_args,
+            &trait_const_args,
             &associated_type_bindings,
         ) {
             return None;
@@ -154,6 +172,7 @@ impl<'a> BodyChecker<'a> {
             self_ty,
             trait_id,
             &trait_args,
+            &trait_const_args,
             &associated_type_bindings,
         ) {
             return None;
@@ -181,6 +200,7 @@ impl<'a> BodyChecker<'a> {
             is_readonly: expected_const,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) = self.interner.get(expected).cloned()
         else {
@@ -209,6 +229,7 @@ impl<'a> BodyChecker<'a> {
             expr.span,
             trait_id,
             &trait_args,
+            &trait_const_args,
             &associated_type_bindings,
         ) {
             return None;
@@ -218,6 +239,7 @@ impl<'a> BodyChecker<'a> {
             self_ty,
             trait_id,
             &trait_args,
+            &trait_const_args,
             &associated_type_bindings,
         ) {
             return None;
@@ -284,11 +306,22 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
+        let module_id = self.defs.module_id;
+        let local_array_lengths = self.comptime.array_lengths;
+        let program_array_lengths = self.program_comptime_array_lengths;
+        let const_expr_value = move |id: nia_ids::GlobalConstExprId| {
+            if id.module_id == module_id {
+                return local_array_lengths.get(&id).copied();
+            }
+            program_array_lengths(id.module_id)
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        };
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -296,6 +329,7 @@ impl<'a> BodyChecker<'a> {
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
+            const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
                     || self.extensions.has_trait_witness_impl(module_id, impl_id)
@@ -311,6 +345,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args: trait_args.to_vec(),
+                trait_const_args: trait_const_args.to_vec(),
             })
         };
         if !proven {
@@ -323,10 +358,16 @@ impl<'a> BodyChecker<'a> {
             } else {
                 trait_args
             };
+            let binding_trait_const_args = if binding.trait_id.is_some() {
+                &binding.trait_const_args
+            } else {
+                trait_const_args
+            };
             self.resolve_associated_type_projection(
                 self_ty,
                 binding_trait_id,
                 binding_trait_args,
+                binding_trait_const_args,
                 &binding.name,
             )
             .is_some_and(|actual| self.types_match(actual, binding.ty))
@@ -470,6 +511,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        _trait_const_args: &[nia_ty::ConstGenericArg],
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
@@ -548,18 +590,22 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::TraitObject {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 self.is_object_safe_trait_object(
                     span,
                     trait_id,
                     &trait_args,
+                    &trait_const_args,
                     &associated_type_bindings,
                 );
                 for arg in trait_args {
@@ -718,6 +764,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id,
                 trait_args,
                 name,
+                ..
             }) if self_ty == check.self_ty => check
                 .associated_type_bindings
                 .iter()
@@ -807,11 +854,20 @@ impl<'a> BodyChecker<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -821,6 +877,14 @@ impl<'a> BodyChecker<'a> {
                             .trait_args
                             .into_iter()
                             .map(|arg| self.object_safe_ty(check, arg))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.object_safe_ty(check, arg.ty);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.object_safe_ty(check, binding.ty),
@@ -830,17 +894,27 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -851,6 +925,14 @@ impl<'a> BodyChecker<'a> {
                             .into_iter()
                             .map(|arg| self.object_safe_ty(check, arg))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.object_safe_ty(check, arg.ty);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.object_safe_ty(check, binding.ty),
                     })
@@ -858,6 +940,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -865,17 +948,27 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
+                ..
             }) => {
                 let self_ty = self.object_safe_ty(check, self_ty);
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.object_safe_ty(check, arg))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -971,14 +1064,18 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         source_trait: TraitId,
         source_args: &[InternedTyId],
+        source_const_args: &[nia_ty::ConstGenericArg],
         target_trait: TraitId,
         target_args: &[InternedTyId],
+        target_const_args: &[nia_ty::ConstGenericArg],
     ) -> bool {
         self.trait_object_has_supertrait_inner(
             source_trait,
             source_args,
+            source_const_args,
             target_trait,
             target_args,
+            target_const_args,
             &mut Vec::new(),
         )
     }
@@ -987,12 +1084,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         source_trait: TraitId,
         source_args: &[InternedTyId],
+        source_const_args: &[nia_ty::ConstGenericArg],
         target_trait: TraitId,
         target_args: &[InternedTyId],
-        visited: &mut Vec<(TraitId, Vec<InternedTyId>)>,
+        target_const_args: &[nia_ty::ConstGenericArg],
+        visited: &mut Vec<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
     ) -> bool {
         if source_trait == target_trait
             && source_args.len() == target_args.len()
+            && source_const_args == target_const_args
             && source_args
                 .iter()
                 .zip(target_args.iter())
@@ -1000,13 +1100,16 @@ impl<'a> BodyChecker<'a> {
         {
             return true;
         }
-        if visited
-            .iter()
-            .any(|(trait_id, args)| *trait_id == source_trait && args == source_args)
-        {
+        if visited.iter().any(|(trait_id, args, const_args)| {
+            *trait_id == source_trait && args == source_args && const_args == source_const_args
+        }) {
             return false;
         }
-        visited.push((source_trait, source_args.to_vec()));
+        visited.push((
+            source_trait,
+            source_args.to_vec(),
+            source_const_args.to_vec(),
+        ));
         match source_trait {
             TraitId::Builtin(trait_id) => trait_id.supertraits().iter().any(|supertrait| {
                 let supertrait_args = if supertrait.preserves_trait_args {
@@ -1017,8 +1120,10 @@ impl<'a> BodyChecker<'a> {
                 self.trait_object_has_supertrait_inner(
                     TraitId::Builtin(supertrait.trait_id),
                     &supertrait_args,
+                    &[],
                     target_trait,
                     target_args,
+                    target_const_args,
                     visited,
                 )
             }),
@@ -1026,25 +1131,41 @@ impl<'a> BodyChecker<'a> {
                 let Some(signature) = self.resolved_trait_signature(source_trait_id) else {
                     return false;
                 };
-                let substitutions = self.generic_substitutions(&signature.generics, source_args);
+                let (substitutions, const_substitutions) = self
+                    .generic_substitutions_and_consts_for_def(
+                        source_trait_id,
+                        source_args,
+                        source_const_args,
+                    );
                 signature.supertraits.iter().any(|supertrait| {
-                    let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
+                    let supertrait = self.substitute_generics_and_consts(
+                        supertrait.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
                     let supertrait = self.normalization.normalize(supertrait);
                     match self.interner.get(supertrait).cloned() {
-                        Some(TyKind::Nominal { def_id, args, .. }) => self
-                            .trait_object_has_supertrait_inner(
-                                TraitId::Source(def_id),
-                                &args,
-                                target_trait,
-                                target_args,
-                                visited,
-                            ),
+                        Some(TyKind::Nominal {
+                            def_id,
+                            args,
+                            const_args,
+                        }) => self.trait_object_has_supertrait_inner(
+                            TraitId::Source(def_id),
+                            &args,
+                            &const_args,
+                            target_trait,
+                            target_args,
+                            target_const_args,
+                            visited,
+                        ),
                         Some(TyKind::BuiltinTrait { trait_id, args }) => self
                             .trait_object_has_supertrait_inner(
                                 TraitId::Builtin(trait_id),
                                 &args,
+                                &[],
                                 target_trait,
                                 target_args,
+                                target_const_args,
                                 visited,
                             ),
                         _ => false,

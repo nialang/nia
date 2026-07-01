@@ -14,7 +14,7 @@ use nia_function_ir::{
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
-use nia_ty::{LayoutBuiltin, TyKind};
+use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 
 mod function_body_instantiation;
 mod trait_resolution;
@@ -24,6 +24,7 @@ struct ProjectionInstantiationKey {
     self_ty: InternedTyId,
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
     name: String,
 }
 
@@ -37,6 +38,7 @@ fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::Arr
         nia_ty::ConstGenericValue::GenericParam(name) => {
             Some(nia_ty::ArrayLenTy::GenericParam(name.clone()))
         }
+        nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
         nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
     }
 }
@@ -392,11 +394,43 @@ impl<'a> ModuleLowerer<'a> {
         if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
             && let Some(substituted) = self.const_substitution(substitutions, name)
         {
-            return substituted;
+            return self.instantiate_const_generic_arg_with_id(
+                &substituted,
+                substitutions,
+                active_projections,
+            );
         }
         nia_ty::ConstGenericArg {
             ty: self.instantiate_ty_with_id_inner(arg.ty, substitutions, active_projections),
             value: arg.value.clone(),
+        }
+    }
+
+    fn instantiate_const_generic_arg(
+        &mut self,
+        arg: &nia_ty::ConstGenericArg,
+        substitutions: TypeSubstitutionId,
+    ) -> nia_ty::ConstGenericArg {
+        self.instantiate_const_generic_arg_with_id(arg, substitutions, &mut HashSet::new())
+    }
+
+    fn const_generic_expr_from_arg(&mut self, arg: nia_ty::ConstGenericArg) -> FunctionExprKind {
+        match arg.value {
+            nia_ty::ConstGenericValue::Int(value) => {
+                let ty = self.type_context.interner.get(arg.ty).cloned();
+                match ty {
+                    Some(TyKind::Primitive(PrimitiveTy::Usize)) => FunctionExprKind::BuiltinValue(
+                        nia_function_ir::FunctionBuiltinValue::Usize(value.bits() as u64),
+                    ),
+                    _ => FunctionExprKind::BuiltinValue(
+                        nia_function_ir::FunctionBuiltinValue::Int(value),
+                    ),
+                }
+            }
+            nia_ty::ConstGenericValue::Bool(value) => FunctionExprKind::Bool(value),
+            nia_ty::ConstGenericValue::Char(value) => FunctionExprKind::Char(value as u32),
+            nia_ty::ConstGenericValue::GenericParam(_)
+            | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::ConstGeneric(arg),
         }
     }
 
@@ -703,6 +737,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
@@ -710,6 +745,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: TraitId::Source(trait_id),
             trait_args: trait_args.to_vec(),
+            trait_const_args: Vec::new(),
         };
         solver.proves(goal)
     }
@@ -728,6 +764,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
@@ -735,6 +772,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
+            trait_const_args: Vec::new(),
         })
     }
 
@@ -820,11 +858,13 @@ impl<'a> ModuleLowerer<'a> {
                     Some(TyKind::TraitObjectPointee {
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings,
                     }) => self.type_context.interner.intern(TyKind::TraitObject {
                         is_readonly,
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings,
                     }),
                     _ => self
@@ -978,6 +1018,7 @@ impl<'a> ModuleLowerer<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
@@ -985,6 +1026,16 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
+                    })
+                    .collect::<Vec<_>>();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            active_projections,
+                        )
                     })
                     .collect::<Vec<_>>();
                 let associated_type_bindings = associated_type_bindings
@@ -1003,6 +1054,17 @@ impl<'a> ModuleLowerer<'a> {
                                 )
                             })
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .iter()
+                            .map(|arg| {
+                                self.instantiate_const_generic_arg_with_id(
+                                    arg,
+                                    substitutions,
+                                    active_projections,
+                                )
+                            })
+                            .collect(),
                         name: binding.name.clone(),
                         ty: self.instantiate_ty_with_id_inner(
                             binding.ty,
@@ -1015,6 +1077,7 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -1022,6 +1085,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
@@ -1029,6 +1093,16 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
+                    })
+                    .collect::<Vec<_>>();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            active_projections,
+                        )
                     })
                     .collect::<Vec<_>>();
                 let associated_type_bindings = associated_type_bindings
@@ -1041,6 +1115,17 @@ impl<'a> ModuleLowerer<'a> {
                             .copied()
                             .map(|arg| {
                                 self.instantiate_ty_with_id_inner(
+                                    arg,
+                                    substitutions,
+                                    active_projections,
+                                )
+                            })
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .iter()
+                            .map(|arg| {
+                                self.instantiate_const_generic_arg_with_id(
                                     arg,
                                     substitutions,
                                     active_projections,
@@ -1061,6 +1146,7 @@ impl<'a> ModuleLowerer<'a> {
                     .intern(TyKind::TraitObjectPointee {
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings,
                     });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -1069,10 +1155,12 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let original_self_ty = self_ty;
                 let original_trait_args = trait_args.clone();
+                let original_trait_const_args = trait_const_args.clone();
                 let self_ty =
                     self.instantiate_ty_with_id_inner(self_ty, substitutions, active_projections);
                 let trait_args = trait_args
@@ -1082,16 +1170,28 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
                     })
                     .collect::<Vec<_>>();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 let projection_key = ProjectionInstantiationKey {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                     name: name.clone(),
                 };
                 let projection = self.type_context.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                     name: name.clone(),
                 });
                 if !active_projections.insert(projection_key.clone()) {
@@ -1102,6 +1202,7 @@ impl<'a> ModuleLowerer<'a> {
                         self_ty,
                         trait_id,
                         &trait_args,
+                        &trait_const_args,
                         &name,
                         substitutions,
                         active_projections,
@@ -1115,7 +1216,10 @@ impl<'a> ModuleLowerer<'a> {
                     });
                 active_projections.remove(&projection_key);
                 let instantiated = resolved.unwrap_or_else(|| {
-                    if self_ty == original_self_ty && trait_args == original_trait_args {
+                    if self_ty == original_self_ty
+                        && trait_args == original_trait_args
+                        && trait_const_args == original_trait_const_args
+                    {
                         ty
                     } else {
                         projection
@@ -1287,6 +1391,7 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         name: &str,
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
@@ -1300,6 +1405,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(
@@ -1307,7 +1413,7 @@ impl<'a> ModuleLowerer<'a> {
             &[],
             &associated_type_assumptions,
         );
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
     fn current_associated_type_assumptions(
@@ -1348,10 +1454,18 @@ impl<'a> ModuleLowerer<'a> {
                 self.instantiate_ty_with_id_inner(actual, substitutions, active_projections)
             })
             .collect::<Vec<_>>();
+        let trait_const_args = impl_signature
+            .trait_const_args
+            .iter()
+            .map(|arg| {
+                self.instantiate_const_generic_arg_with_id(arg, substitutions, active_projections)
+            })
+            .collect::<Vec<_>>();
         let goal = TraitGoal {
             self_ty: target_ty,
             trait_id,
             trait_args,
+            trait_const_args,
         };
         associated_types
             .into_iter()
@@ -1537,16 +1651,19 @@ impl<'a> ModuleLowerer<'a> {
                 is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
+                    && pattern_const_args == trait_const_args
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
@@ -1578,14 +1695,17 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::TraitObjectPointee {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 }) if trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
+                    && pattern_const_args == trait_const_args
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
@@ -1618,16 +1738,19 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 name: pattern_name,
             }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 }) if pattern_trait == trait_id
                     && pattern_name == name
-                    && pattern_args.len() == trait_args.len() =>
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_const_args == trait_const_args =>
                 {
                     self.match_extension_type_pattern(pattern_self, self_ty, substitutions)
                         && pattern_args
@@ -1686,32 +1809,43 @@ impl<'a> ModuleLowerer<'a> {
                 .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .iter()
                     .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+                    && trait_const_args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
                     && associated_type_bindings.iter().all(|binding| {
                         binding.trait_args.iter().all(|arg| {
                             self.extension_pattern_generics_are_bound(*arg, substitutions)
+                        }) && binding.trait_const_args.iter().all(|arg| {
+                            self.extension_pattern_generics_are_bound(arg.ty, substitutions)
                         }) && self.extension_pattern_generics_are_bound(binding.ty, substitutions)
                     })
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.extension_pattern_generics_are_bound(*self_ty, substitutions)
                     && trait_args
                         .iter()
                         .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+                    && trait_const_args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
             }
             Some(
                 TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
@@ -1753,34 +1887,47 @@ impl<'a> ModuleLowerer<'a> {
                 .any(|arg| self.extension_pattern_contains_generic(*arg)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .iter()
                     .any(|arg| self.extension_pattern_contains_generic(*arg))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.extension_pattern_contains_generic(*arg))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(|arg| self.extension_pattern_contains_generic(arg.ty))
                             || self.extension_pattern_contains_generic(binding.ty)
                     })
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.extension_pattern_contains_generic(*self_ty)
                     || trait_args
                         .iter()
                         .any(|arg| self.extension_pattern_contains_generic(*arg))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
             }
             Some(
                 TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
@@ -1906,18 +2053,21 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly: left_const,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObject {
                     is_readonly: right_const,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     associated_type_bindings: right_bindings,
                 }),
             ) => {
                 left_const == right_const
                     && left_trait == right_trait
                     && left_args.len() == right_args.len()
+                    && left_const_args == right_const_args
                     && left_bindings.len() == right_bindings.len()
                     && left_args
                         .iter()
@@ -1958,18 +2108,21 @@ impl<'a> ModuleLowerer<'a> {
                     self_ty: left_self,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     name: left_name,
                 }),
                 Some(TyKind::Projection {
                     self_ty: right_self,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     name: right_name,
                 }),
             ) => {
                 left_trait == right_trait
                     && left_name == right_name
                     && left_args.len() == right_args.len()
+                    && left_const_args == right_const_args
                     && self.types_match(left_self, right_self)
                     && left_args
                         .iter()
@@ -1988,6 +2141,7 @@ impl<'a> ModuleLowerer<'a> {
         left.name == right.name
             && left.trait_id == right.trait_id
             && left.trait_args.len() == right.trait_args.len()
+            && left.trait_const_args == right.trait_const_args
             && left
                 .trait_args
                 .iter()

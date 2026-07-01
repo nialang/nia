@@ -13,7 +13,7 @@ pub use nia_sema_ir::{
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::IntConst;
-use nia_ty::{BuiltinTrait, ConstGenericArg, TraitId, TyInterner};
+use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
@@ -206,6 +206,7 @@ pub enum TypedExprKind {
     Null,
     Local(LocalId),
     Global(GlobalDefId),
+    ConstGeneric(nia_ty::ConstGenericArg),
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
@@ -475,7 +476,10 @@ pub enum AtomicRmwOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedArrayElements {
     List(Vec<TypedExpr>),
-    Repeat { value: Box<TypedExpr>, count: u64 },
+    Repeat {
+        value: Box<TypedExpr>,
+        count: ArrayLenTy,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

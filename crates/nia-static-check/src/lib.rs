@@ -572,6 +572,14 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                 };
                 return Ok(ComptimeValue::Int(value));
             }
+            nia_comptime_ir::ComptimeNameResolution::GenericParam(name) => {
+                return Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "static constant expression cannot use unresolved comptime generic parameter `{name}`"
+                    ),
+                });
+            }
         };
         self.value_for_key(key).ok_or_else(|| ComptimeError {
             span,

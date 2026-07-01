@@ -45,11 +45,13 @@ impl ComptimeModuleLowerer<'_> {
                     self.lower_function(function)
                 }
                 ItemTreeNodeKind::Extend(extend) => {
-                    for associated_value in &extend.associated_values {
-                        self.lower_global_initializer(
-                            associated_value.span,
-                            &associated_value.binding,
-                        );
+                    if extend.generics.is_empty() {
+                        for associated_value in &extend.associated_values {
+                            self.lower_global_initializer(
+                                associated_value.span,
+                                &associated_value.binding,
+                            );
+                        }
                     }
                     for method in &extend.methods {
                         if method.function.is_comptime {
@@ -198,6 +200,13 @@ impl ComptimeModuleLowerer<'_> {
                 .node_builtin_associated_values
                 .iter()
                 .map(|(key, value)| (key.clone(), *value)),
+        );
+        builder.extend_node_const_generic_uses(
+            self.input
+                .semantic_uses
+                .node_const_generic_uses
+                .iter()
+                .map(|(key, name)| (key.clone(), name.clone())),
         );
         builder.extend_node_local_defs(
             self.input

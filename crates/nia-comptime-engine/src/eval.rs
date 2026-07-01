@@ -202,7 +202,7 @@ fn eval_resolved_comptime_expr_flow(
                 message: format!("invalid byte char literal `{text}` in comptime expression"),
             })?,
         ResolvedComptimeExprKind::Name(resolution) => {
-            env.resolve_resolved_name(span, *resolution)?
+            env.resolve_resolved_name(span, resolution.clone())?
         }
         ResolvedComptimeExprKind::Field { lhs, name } => {
             match eval_resolved_value_or_return_flow!(lhs, env) {
@@ -1689,6 +1689,7 @@ fn eval_comptime_function_call(
     params: &[EarlyComptimeParam],
     body: &EarlyComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
+    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -1703,8 +1704,13 @@ fn eval_comptime_function_call(
         });
     }
     env.push_comptime_scope(span)?;
-    if let Err(err) = env.bind_function_context(span, function_module_id, None, type_substitutions)
-    {
+    if let Err(err) = env.bind_function_context(
+        span,
+        function_module_id,
+        None,
+        type_substitutions,
+        const_substitutions,
+    ) {
         env.pop_comptime_scope();
         return Err(err);
     }
@@ -1745,6 +1751,7 @@ pub fn eval_early_comptime_function_call(
         &function.params,
         &function.body,
         type_substitutions,
+        Vec::new(),
         args,
         env,
     )
@@ -1756,6 +1763,7 @@ pub fn eval_resolved_comptime_function_call(
     function_module_id: ModuleId,
     function: &ResolvedComptimeFunction,
     type_substitutions: Vec<(String, InternedTyId)>,
+    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -1767,6 +1775,7 @@ pub fn eval_resolved_comptime_function_call(
             params: function.params(),
             body: function.body(),
             type_substitutions,
+            const_substitutions,
             args,
         },
         env,
@@ -1780,6 +1789,7 @@ struct ResolvedComptimeCall<'a> {
     params: &'a [ResolvedComptimeParam],
     body: &'a ResolvedComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
+    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
 }
 
@@ -1794,6 +1804,7 @@ fn eval_resolved_comptime_function_call_inner(
         params,
         body,
         type_substitutions,
+        const_substitutions,
         args,
     } = call;
     if let ArityCheck::Mismatch { actual, .. } = check_exact_arity(params.len(), args.len()) {
@@ -1812,6 +1823,7 @@ fn eval_resolved_comptime_function_call_inner(
         function_module_id,
         Some(function_id),
         type_substitutions,
+        const_substitutions,
     ) {
         env.pop_comptime_scope();
         return Err(err);

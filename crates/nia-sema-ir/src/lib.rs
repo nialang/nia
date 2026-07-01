@@ -13,6 +13,7 @@ use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
     pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
+    pub node_const_generic_uses: HashMap<VersionedNodeKey, String>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
@@ -32,6 +33,10 @@ impl SemanticUseTable {
         key: &VersionedNodeKey,
     ) -> Option<BuiltinAssociatedValue> {
         self.node_builtin_associated_values.get(key).copied()
+    }
+
+    pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&str> {
+        self.node_const_generic_uses.get(key).map(String::as_str)
     }
 
     pub fn node_local_def(&self, key: &VersionedNodeKey) -> Option<LocalId> {
@@ -64,6 +69,17 @@ impl SemanticUseTableBuilder {
             .node_value_uses
             .entry(key)
             .or_insert(SemanticValueUse::Global(global_id));
+    }
+
+    pub fn insert_node_const_generic_use(&mut self, key: VersionedNodeKey, name: String) {
+        self.table.node_const_generic_uses.insert(key, name);
+    }
+
+    pub fn extend_node_const_generic_uses(
+        &mut self,
+        uses: impl IntoIterator<Item = (VersionedNodeKey, String)>,
+    ) {
+        self.table.node_const_generic_uses.extend(uses);
     }
 
     pub fn insert_node_builtin_associated_value(

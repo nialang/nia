@@ -158,13 +158,18 @@ impl<'a> BodyChecker<'a> {
                     elem: elem_ty,
                 })
             }
-            ArrayLenTy::GenericParam(_) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "array literal length cannot be checked against an unresolved const generic",
-                ));
-                elem_ty
+            expected @ ArrayLenTy::GenericParam(_) => {
+                if matches!(elems, nia_ast::ArrayElements::List(_)) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        "array list length cannot be checked against an unresolved const generic",
+                    ));
+                }
+                self.interner.intern(TyKind::Array {
+                    len: expected,
+                    elem: elem_ty,
+                })
             }
             expected @ (ArrayLenTy::ConstValue(_)
             | ArrayLenTy::ConstExpr(_)
@@ -859,7 +864,12 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
         module_id: nia_ids::ModuleId,
         function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
+        const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
+        let resolved_const_substitutions = const_substitutions
+            .into_iter()
+            .map(|(name, arg)| (name, self.resolve_comptime_const_generic_arg(arg)))
+            .collect::<Vec<_>>();
         let Some(frame) = self.comptime_call_locals.last_mut() else {
             return Err(ComptimeError {
                 span,
@@ -869,6 +879,9 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
         frame.module_id = Some(module_id);
         frame.function_id = function_id;
         frame.type_substitutions.extend(substitutions);
+        frame
+            .const_substitutions
+            .extend(resolved_const_substitutions);
         Ok(())
     }
 }
@@ -908,6 +921,16 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                         .to_string(),
                 })
             }
+            ComptimeNameResolution::GenericParam(name) => self
+                .comptime_call_locals
+                .iter()
+                .rev()
+                .find_map(|frame| frame.const_substitutions.get(&name))
+                .and_then(comptime_value_from_const_generic_arg)
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime generic parameter `{name}`"),
+                }),
             ComptimeNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
                 let Some(value) = kind.value(primitive, self.target.pointer_width) else {
@@ -966,7 +989,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let type_substitutions = self.instantiate_resolved_comptime_function_generics(
+        let instantiation = self.instantiate_resolved_comptime_function_generics(
             span,
             function_id,
             &signature,
@@ -984,7 +1007,8 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
             function_id,
             function_id.module_id,
             &function,
-            type_substitutions.into_iter().collect(),
+            instantiation.type_substitutions.into_iter().collect(),
+            instantiation.const_substitutions.into_iter().collect(),
             args,
             self,
         )
@@ -1096,6 +1120,12 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .map(|(key, local_id)| (key.clone(), *local_id)),
         );
+        builder.extend_node_const_generic_uses(
+            self.semantic_uses
+                .node_const_generic_uses
+                .iter()
+                .map(|(key, name)| (key.clone(), name.clone())),
+        );
         builder.extend_node_type_uses(
             self.semantic_uses
                 .node_type_uses
@@ -1125,7 +1155,7 @@ impl<'a> BodyChecker<'a> {
         signature: &nia_item_signatures::FunctionSignature,
         type_args: &[ResolvedComptimeTypeArg],
         arg_exprs: &[ResolvedComptimeExpr],
-    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+    ) -> Result<nia_comptime_check::ComptimeGenericInstantiation, ComptimeError> {
         let frames = self.typed_comptime_frames();
         nia_comptime_check::instantiate_resolved_comptime_function_generics(
             nia_comptime_check::TypedComptimeQueryInput {
@@ -1174,6 +1204,7 @@ impl<'a> BodyChecker<'a> {
                 function_id: frame.function_id,
                 local_types: frame.local_types.clone(),
                 type_substitutions: frame.type_substitutions.clone(),
+                const_substitutions: frame.const_substitutions.clone(),
             })
             .collect()
     }
@@ -1277,6 +1308,22 @@ impl<'a> BodyChecker<'a> {
             .map(|(name, ty)| (name.clone(), *ty))
             .collect::<HashMap<_, _>>();
         self.substitute_generics(ty, &substitutions)
+    }
+
+    fn resolve_comptime_const_generic_arg(
+        &self,
+        mut arg: nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
+            && let Some(resolved) = self
+                .comptime_call_locals
+                .iter()
+                .rev()
+                .find_map(|frame| frame.const_substitutions.get(name))
+        {
+            arg = resolved.clone();
+        }
+        arg
     }
 
     pub(crate) fn local_comptime_use(&self, expr: &Expr) -> Option<LocalId> {
@@ -1405,4 +1452,23 @@ fn explicit_array_literal_len(
             Some(checker.eval_array_repeat_count(count)?)
         }
     })
+}
+
+fn comptime_value_from_const_generic_arg(
+    arg: &nia_ty::ConstGenericArg,
+) -> Option<nia_comptime_check::ComptimeValue> {
+    match arg.value {
+        nia_ty::ConstGenericValue::Int(value) => {
+            Some(nia_comptime_check::ComptimeValue::Int(value))
+        }
+        nia_ty::ConstGenericValue::Bool(value) => {
+            Some(nia_comptime_check::ComptimeValue::Bool(value))
+        }
+        nia_ty::ConstGenericValue::Char(value) => Some(nia_comptime_check::ComptimeValue::Int(
+            nia_ty::IntConst::unsigned(value as u32 as u128),
+        )),
+        nia_ty::ConstGenericValue::GenericParam(_) | nia_ty::ConstGenericValue::ConstExpr(_) => {
+            None
+        }
+    }
 }

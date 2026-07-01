@@ -9,7 +9,13 @@ impl Analyzer<'_> {
     pub(super) fn normalize_projection_inner(
         &mut self,
         ty: InternedTyId,
-        active: &mut HashSet<(InternedTyId, TraitId, Vec<InternedTyId>, String)>,
+        active: &mut HashSet<(
+            InternedTyId,
+            TraitId,
+            Vec<InternedTyId>,
+            Vec<nia_ty::ConstGenericArg>,
+            String,
+        )>,
     ) -> InternedTyId {
         let ty = self.normalized_ty(ty);
         match self.ty_kind(ty) {
@@ -17,6 +23,7 @@ impl Analyzer<'_> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let self_ty = self.normalize_projection_inner(self_ty, active);
@@ -24,12 +31,19 @@ impl Analyzer<'_> {
                     .into_iter()
                     .map(|arg| self.normalize_projection_inner(arg, active))
                     .collect::<Vec<_>>();
-                let key = (self_ty, trait_id, trait_args.clone(), name.clone());
+                let key = (
+                    self_ty,
+                    trait_id,
+                    trait_args.clone(),
+                    trait_const_args.clone(),
+                    name.clone(),
+                );
                 let projection = self
                     .intern_current_ty(TyKind::Projection {
                         self_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
+                        trait_const_args: trait_const_args.clone(),
                         name: name.clone(),
                     })
                     .unwrap_or(ty);
@@ -37,7 +51,13 @@ impl Analyzer<'_> {
                     return projection;
                 }
                 let normalized = self
-                    .resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                    .resolve_associated_type_projection(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        &name,
+                    )
                     .map(|resolved| self.normalize_projection_inner(resolved, active))
                     .unwrap_or(projection);
                 active.remove(&key);
@@ -113,6 +133,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_enums: Some(&program_enums),
+            const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(interner, &assumptions);
@@ -120,6 +141,7 @@ impl Analyzer<'_> {
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args: Vec::new(),
         })
     }
 
@@ -128,6 +150,7 @@ impl Analyzer<'_> {
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         name: &str,
     ) -> Option<InternedTyId> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
@@ -164,10 +187,11 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_enums: Some(&program_enums),
+            const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(interner, &assumptions);
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
     pub(super) fn ensure_trait_solver_module(
@@ -213,13 +237,16 @@ impl Analyzer<'_> {
             let self_ty = self.substitute_ty_generics_from_map(predicate.ty, substitutions);
             for bound in &predicate.bounds {
                 let trait_ty = self.substitute_ty_generics_from_map(bound.trait_ty, substitutions);
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(trait_ty)
+                else {
                     continue;
                 };
                 goals.push(TraitGoal {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                 });
             }
         }
@@ -245,10 +272,28 @@ impl Analyzer<'_> {
     pub(super) fn trait_id_and_args(
         &self,
         ty: InternedTyId,
-    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         match self.ty_kind(ty)? {
-            TyKind::Nominal { def_id, args, .. } => Some((TraitId::Source(def_id), args)),
-            TyKind::BuiltinTrait { trait_id, args } => Some((TraitId::Builtin(trait_id), args)),
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => Some((TraitId::Source(def_id), args, const_args)),
+            TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            } => Some((trait_id, trait_args, trait_const_args)),
+            TyKind::BuiltinTrait { trait_id, args } => {
+                Some((TraitId::Builtin(trait_id), args, Vec::new()))
+            }
             _ => None,
         }
     }

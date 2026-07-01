@@ -46,7 +46,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
             FunctionArrayElements::Repeat { value, count } => {
-                for index in 0..*count {
+                let count = self.module.array_len(count, expr.span)?;
+                for index in 0..count {
                     let elem_ptr = self.emit_const_index_addr(expr.span, expr.ty, ptr, index)?;
                     let value = self.emit_expr(value)?;
                     self.builder.build_store(elem_ptr, value).map_err(|_| {

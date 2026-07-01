@@ -64,17 +64,20 @@ pub enum TyKind {
         is_readonly: bool,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     },
     TraitObjectPointee {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     },
     Projection {
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
         name: String,
     },
     GenericParam(String),
@@ -84,6 +87,7 @@ pub enum TyKind {
 pub struct AssociatedTypeBindingTy {
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
     pub name: String,
     pub ty: InternedTyId,
 }
@@ -189,6 +193,7 @@ pub struct ConstGenericArg {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConstGenericValue {
     GenericParam(String),
+    ConstExpr(GlobalConstExprId),
     Int(IntConst),
     Bool(bool),
     Char(char),
@@ -526,11 +531,16 @@ pub fn try_import_type_into(
             is_readonly,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
                 .collect::<Result<_, _>>()?;
             let associated_type_bindings = associated_type_bindings
                 .into_iter()
@@ -541,6 +551,11 @@ pub fn try_import_type_into(
                             .trait_args
                             .into_iter()
                             .map(|arg| try_import_type_into(target, source, arg))
+                            .collect::<Result<_, _>>()?,
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
                             .collect::<Result<_, _>>()?,
                         name: binding.name,
                         ty: try_import_type_into(target, source, binding.ty)?,
@@ -551,17 +566,23 @@ pub fn try_import_type_into(
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }))
         }
         Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| try_import_type_into(target, source, arg))
+                .collect::<Result<_, _>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
                 .collect::<Result<_, _>>()?;
             let associated_type_bindings = associated_type_bindings
                 .into_iter()
@@ -573,6 +594,11 @@ pub fn try_import_type_into(
                             .into_iter()
                             .map(|arg| try_import_type_into(target, source, arg))
                             .collect::<Result<_, _>>()?,
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
+                            .collect::<Result<_, _>>()?,
                         name: binding.name,
                         ty: try_import_type_into(target, source, binding.ty)?,
                     })
@@ -581,6 +607,7 @@ pub fn try_import_type_into(
             Ok(target.intern(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }))
         }
@@ -588,6 +615,7 @@ pub fn try_import_type_into(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         }) => {
             let self_ty = try_import_type_into(target, source, self_ty)?;
@@ -595,10 +623,15 @@ pub fn try_import_type_into(
                 .into_iter()
                 .map(|arg| try_import_type_into(target, source, arg))
                 .collect::<Result<_, _>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|arg| try_import_const_generic_arg_into(target, source, &arg))
+                .collect::<Result<_, _>>()?;
             Ok(target.intern(TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }))
         }
@@ -810,34 +843,40 @@ pub trait TypeEquivalence {
                     is_readonly: left_const,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObject {
                     is_readonly: right_const,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     associated_type_bindings: right_bindings,
                 }),
             ) => {
                 left_const == right_const
                     && left_trait == right_trait
                     && self.same_type_args_for_equiv(left_args, right_args)
+                    && self.same_const_generic_args_for_equiv(left_const_args, right_const_args)
                     && self.same_associated_type_bindings_for_equiv(left_bindings, right_bindings)
             }
             (
                 Some(TyKind::TraitObjectPointee {
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObjectPointee {
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     associated_type_bindings: right_bindings,
                 }),
             ) => {
                 left_trait == right_trait
                     && self.same_type_args_for_equiv(left_args, right_args)
+                    && self.same_const_generic_args_for_equiv(left_const_args, right_const_args)
                     && self.same_associated_type_bindings_for_equiv(left_bindings, right_bindings)
             }
             (
@@ -845,12 +884,14 @@ pub trait TypeEquivalence {
                     self_ty: left_self,
                     trait_id: left_trait,
                     trait_args: left_args,
+                    trait_const_args: left_const_args,
                     name: left_name,
                 }),
                 Some(TyKind::Projection {
                     self_ty: right_self,
                     trait_id: right_trait,
                     trait_args: right_args,
+                    trait_const_args: right_const_args,
                     name: right_name,
                 }),
             ) => {
@@ -858,6 +899,7 @@ pub trait TypeEquivalence {
                     && left_name == right_name
                     && self.same_type_for_equiv(*left_self, *right_self)
                     && self.same_type_args_for_equiv(left_args, right_args)
+                    && self.same_const_generic_args_for_equiv(left_const_args, right_const_args)
             }
             _ => false,
         }
@@ -889,6 +931,8 @@ pub trait TypeEquivalence {
         left.name == right.name
             && left.trait_id == right.trait_id
             && self.same_type_args_for_equiv(&left.trait_args, &right.trait_args)
+            && self
+                .same_const_generic_args_for_equiv(&left.trait_const_args, &right.trait_const_args)
     }
 }
 

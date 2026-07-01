@@ -199,8 +199,18 @@ impl<'a> BodyChecker<'a> {
             &candidate.method.where_predicates,
             &mut substitutions,
         );
-        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
-        self.check_where_predicates_hold(&candidate.method.where_predicates, &substitutions, span);
+        self.check_where_predicates_hold(
+            &signature.where_predicates,
+            &substitutions,
+            &HashMap::new(),
+            span,
+        );
+        self.check_where_predicates_hold(
+            &candidate.method.where_predicates,
+            &substitutions,
+            &HashMap::new(),
+            span,
+        );
         let params: Vec<InternedTyId> = signature
             .params
             .iter()
@@ -392,7 +402,7 @@ impl<'a> BodyChecker<'a> {
         true
     }
 
-    pub(in crate::calls) fn associated_target_ty(
+    pub(crate) fn associated_target_ty(
         &mut self,
         ty_expr: &Expr,
         expected: Option<InternedTyId>,
@@ -402,8 +412,9 @@ impl<'a> BodyChecker<'a> {
             let ty = self.ty_for_type(ty);
             return Some(self.normalization.normalize(ty));
         }
-        let (nominal_def_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
+        let (nominal_def_id, mut type_args, const_args) = self.type_prefix_instance(ty_expr)?;
         if type_args.is_empty()
+            && const_args.is_empty()
             && let Some(expected) = expected
             && let Some(prefix_ty) = self.associated_nominal_generic_target_ty(nominal_def_id)
             && let Some(nia_ty::TyKind::Nominal {
@@ -419,26 +430,34 @@ impl<'a> BodyChecker<'a> {
         {
             type_args = inferred;
         }
-        if !type_args.is_empty() || self.nominal_type_prefix_has_no_generics(nominal_def_id) {
-            self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
-            return self.associated_nominal_target_ty(nominal_def_id, type_args);
+        if !type_args.is_empty()
+            || !const_args.is_empty()
+            || self.nominal_type_prefix_has_no_generics(nominal_def_id)
+        {
+            self.check_type_prefix_arg_count(
+                ty_expr.span,
+                nominal_def_id,
+                type_args.len() + const_args.len(),
+            );
+            return self.associated_nominal_target_ty(nominal_def_id, type_args, const_args);
         }
-        self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
-        self.associated_nominal_target_ty(nominal_def_id, Vec::new())
+        self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, 0);
+        self.associated_nominal_target_ty(nominal_def_id, Vec::new(), Vec::new())
     }
 
     fn associated_nominal_target_ty(
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        const_args: Vec<nia_ty::ConstGenericArg>,
     ) -> Option<InternedTyId> {
-        if let Some(target) = self.expand_type_alias_instance(def_id, &args, &[]) {
+        if let Some(target) = self.expand_type_alias_instance(def_id, &args, &const_args) {
             return Some(target);
         }
         let ty = self.interner.intern(TyKind::Nominal {
             def_id,
             args,
-            const_args: Vec::new(),
+            const_args,
         });
         Some(self.normalization.normalize(ty))
     }
@@ -452,7 +471,7 @@ impl<'a> BodyChecker<'a> {
             .into_iter()
             .map(|generic| self.interner.intern(TyKind::GenericParam(generic)))
             .collect();
-        self.associated_nominal_target_ty(def_id, args)
+        self.associated_nominal_target_ty(def_id, args, Vec::new())
     }
 
     fn infer_associated_type_args_from_expected_return(
@@ -573,32 +592,40 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn type_prefix_def_id(&mut self, expr: &Expr) -> Option<GlobalDefId> {
-        self.type_prefix_instance(expr).map(|(def_id, _)| def_id)
+        self.type_prefix_instance(expr).map(|(def_id, _, _)| def_id)
     }
 
     pub(crate) fn type_prefix_instance(
         &mut self,
         expr: &Expr,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
             let def_id = self.type_prefix_def_id(callee)?;
             self.record_bracket_suffix_node_resolution(
                 expr,
                 BracketSuffixResolution::TypePrefixInstantiation,
             );
-            let args = self.lower_bracket_type_args(args);
-            return Some((def_id, args));
+            let Some(params) = self.generic_params_for_nominal_def(def_id) else {
+                let args = self.lower_bracket_type_args(args);
+                return Some((def_id, args, Vec::new()));
+            };
+            let lowered = self.lower_bracket_args_for_generic_params(expr.span, &params, args)?;
+            return Some((def_id, lowered.type_args, lowered.const_args));
         }
         if let ExprKind::TypeTarget { ty } = &expr.kind
             && let Some(ty) = self.type_lowering.ty_for_key(&ty.node_key)
             && let ty = self.import_type_to_working_interner(ty)
-            && let Some(nia_ty::TyKind::Nominal { def_id, args, .. }) = self.interner.get(ty)
+            && let Some(nia_ty::TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) = self.interner.get(ty)
         {
-            return Some((*def_id, args.clone()));
+            return Some((*def_id, args.clone(), const_args.clone()));
         }
         if let ExprKind::Qualified { .. } = &expr.kind {
             if let Some(def_id) = self.qualified_type_prefix(expr) {
-                return Some((def_id, Vec::new()));
+                return Some((def_id, Vec::new(), Vec::new()));
             }
             return None;
         }
@@ -606,7 +633,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         if let Some(def_id) = self.qualified_type_prefix(expr) {
-            return Some((def_id, Vec::new()));
+            return Some((def_id, Vec::new(), Vec::new()));
         }
         matches!(
             self.local_use(expr),
@@ -617,7 +644,7 @@ impl<'a> BodyChecker<'a> {
                 .module_scope
                 .types
                 .get(name)
-                .map(|def_id| (self.global_def_id(def_id), Vec::new()))
+                .map(|def_id| (self.global_def_id(def_id), Vec::new(), Vec::new()))
         })?
     }
 }

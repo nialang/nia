@@ -296,7 +296,8 @@ fn single_module_trait_impls(
         .iter()
         .filter_map(|impl_signature| {
             let trait_ty = impl_signature.trait_ty?;
-            let (trait_id, trait_args) = trait_id_and_args(&lowered.interner, trait_ty)?;
+            let (trait_id, trait_args, trait_const_args) =
+                trait_id_and_args(&lowered.interner, trait_ty)?;
             Some(ProgramTraitImplSignature {
                 module_id,
                 impl_id: impl_signature.impl_id,
@@ -304,6 +305,7 @@ fn single_module_trait_impls(
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
                 interner: lowered.interner.clone(),
@@ -315,13 +317,19 @@ fn single_module_trait_impls(
 fn trait_id_and_args(
     interner: &nia_ty::TyInterner,
     ty: nia_ids::InternedTyId,
-) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
+) -> Option<(
+    TraitId,
+    Vec<nia_ids::InternedTyId>,
+    Vec<nia_ty::ConstGenericArg>,
+)> {
     match interner.get(ty) {
-        Some(TyKind::Nominal { def_id, args, .. }) => {
-            Some((TraitId::Source(*def_id), args.clone()))
-        }
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => Some((TraitId::Source(*def_id), args.clone(), const_args.clone())),
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
-            Some((TraitId::Builtin(*trait_id), args.clone()))
+            Some((TraitId::Builtin(*trait_id), args.clone(), Vec::new()))
         }
         _ => None,
     }

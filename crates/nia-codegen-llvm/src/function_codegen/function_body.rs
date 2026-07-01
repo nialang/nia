@@ -1389,7 +1389,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
             nia_function_ir::FunctionArrayElements::Repeat { value, count } => {
-                for _ in 0..*count {
+                let count = self.module.array_len(count, value.span)?;
+                for _ in 0..count {
                     self.emit_effect_expr(value)?;
                 }
             }

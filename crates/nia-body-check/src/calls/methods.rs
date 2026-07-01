@@ -9,7 +9,7 @@ use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, Trait
 use nia_item_signatures::FunctionSignature;
 use nia_sema_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, ResolvedCall};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
@@ -26,6 +26,7 @@ pub(super) struct MethodCall<'a> {
 pub(super) struct MethodGenericContext<'a> {
     pub(super) span: Span,
     pub(super) target_substitutions: &'a HashMap<String, InternedTyId>,
+    pub(super) target_const_substitutions: &'a HashMap<String, ConstGenericArg>,
     pub(super) method_args: Option<&'a [BracketArg]>,
     pub(super) lowered_method_args: &'a [InternedTyId],
     pub(super) expected: Option<InternedTyId>,
@@ -39,6 +40,7 @@ pub(super) struct TraitMethodCandidate {
     pub(super) self_ty: InternedTyId,
     pub(super) trait_generics: Vec<String>,
     pub(super) trait_args: Vec<InternedTyId>,
+    pub(super) trait_const_args: Vec<ConstGenericArg>,
     pub(super) signature: FunctionSignature,
     pub(super) has_default: bool,
     pub(super) is_assumed: bool,
@@ -50,6 +52,7 @@ pub(super) struct DynamicTraitMethodCandidate {
     pub(super) method_id: GlobalDefId,
     pub(super) trait_generics: Vec<String>,
     pub(super) trait_args: Vec<InternedTyId>,
+    pub(super) trait_const_args: Vec<ConstGenericArg>,
     pub(super) associated_type_bindings: Vec<nia_ty::AssociatedTypeBindingTy>,
     pub(super) signature: FunctionSignature,
     pub(super) slot: usize,
@@ -60,6 +63,7 @@ pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
     pub(super) method: VisibleExtensionMethod,
     pub(super) target_substitutions: HashMap<String, InternedTyId>,
+    pub(super) target_const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
 mod associated;
@@ -271,8 +275,11 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         let receiver_expected_ty = self.receiver_ty_for_target(candidate.target_ty, receiver_kind);
-        let receiver_expected_ty =
-            self.substitute_generics(receiver_expected_ty, &candidate.target_substitutions);
+        let receiver_expected_ty = self.substitute_generics_and_consts(
+            receiver_expected_ty,
+            &candidate.target_substitutions,
+            &candidate.target_const_substitutions,
+        );
         let receiver_expr_expected_ty = self.method_receiver_expr_expected_ty(
             receiver_expected_ty,
             call.actual_receiver_ty,
@@ -312,6 +319,7 @@ impl<'a> BodyChecker<'a> {
                     MethodGenericContext {
                         span: call.span,
                         target_substitutions: &candidate.target_substitutions,
+                        target_const_substitutions: &candidate.target_const_substitutions,
                         method_args: call.type_args,
                         lowered_method_args: &method_instantiation_args,
                         expected: call.expected,
@@ -329,7 +337,13 @@ impl<'a> BodyChecker<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| {
+                self.substitute_generics_and_consts(
+                    param.ty,
+                    &substitutions,
+                    &candidate.target_const_substitutions,
+                )
+            })
             .collect();
         if call.type_args.is_none() {
             self.profile_stage("body_check.profile.method.infer_args", |this| {
@@ -343,7 +357,13 @@ impl<'a> BodyChecker<'a> {
                 .params
                 .iter()
                 .skip(1)
-                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .map(|param| {
+                    self.substitute_generics_and_consts(
+                        param.ty,
+                        &substitutions,
+                        &candidate.target_const_substitutions,
+                    )
+                })
                 .collect();
         }
         self.profile_stage("body_check.profile.method.infer_where", |this| {
@@ -357,26 +377,38 @@ impl<'a> BodyChecker<'a> {
             this.check_where_predicates_hold(
                 &signature.where_predicates,
                 &substitutions,
+                &candidate.target_const_substitutions,
                 call.span,
             );
             this.check_where_predicates_hold(
                 &candidate.method.where_predicates,
                 &substitutions,
+                &candidate.target_const_substitutions,
                 call.span,
             );
         });
         self.profile_stage("body_check.profile.method.check_args", |this| {
             this.check_direct_call_args(call.span, call.args, &params, false);
         });
-        let Some(instance_args) = self
-            .profile_stage("body_check.profile.method.instance_args", |this| {
-                this.complete_instance_args_for_def(call.span, method_id, &substitutions)
+        let Some((instance_args, const_instance_args)) =
+            self.profile_stage("body_check.profile.method.instance_args", |this| {
+                this.complete_instance_args_and_const_args_for_def(
+                    call.span,
+                    method_id,
+                    &substitutions,
+                    &candidate.target_const_substitutions,
+                )
             })
         else {
             return Some(self.error());
         };
-        if !instance_args.is_empty() {
-            self.record_generic_instantiation(method_id, &instance_args, call.span);
+        if !instance_args.is_empty() || !const_instance_args.is_empty() {
+            self.record_generic_instantiation_with_const_args(
+                method_id,
+                &instance_args,
+                &const_instance_args,
+                call.span,
+            );
             self.record_resolved_node_call(
                 call.span,
                 call.node_key,
@@ -398,7 +430,11 @@ impl<'a> BodyChecker<'a> {
             );
         }
         self.profile_stage("body_check.profile.method.return_type", |this| {
-            let return_type = this.substitute_generics(signature.return_type, &substitutions);
+            let return_type = this.substitute_generics_and_consts(
+                signature.return_type,
+                &substitutions,
+                &candidate.target_const_substitutions,
+            );
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
         })

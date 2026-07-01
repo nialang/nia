@@ -230,6 +230,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
                 FunctionExprKind::Null => FunctionExprKind::Null,
+                FunctionExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg),
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
                 FunctionExprKind::GlobalInstance {
@@ -1128,6 +1129,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
@@ -1135,6 +1137,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
+            trait_const_args: Vec::new(),
         })
     }
 }

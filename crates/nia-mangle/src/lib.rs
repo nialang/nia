@@ -230,6 +230,7 @@ where
             is_readonly,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let prefix = if *is_readonly {
@@ -246,6 +247,11 @@ where
                 .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
+            let trait_const_arg_parts = trait_const_args
+                .iter()
+                .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                .collect::<Vec<_>>();
+            let trait_const_args = trait_const_arg_parts.join("__");
             let assoc_bindings = associated_type_bindings
                 .iter()
                 .map(|binding| {
@@ -262,11 +268,19 @@ where
                         .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                         .collect::<Vec<_>>()
                         .join("__");
+                    let trait_const_arg_parts = binding
+                        .trait_const_args
+                        .iter()
+                        .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                        .collect::<Vec<_>>();
+                    let trait_const_args = trait_const_arg_parts.join("__");
                     format!(
-                        "{}__argc{}__{}__{}__{}",
+                        "{}__argc{}__{}__cargc{}__{}__{}__{}",
                         trait_part,
                         binding.trait_args.len(),
                         trait_args,
+                        trait_const_arg_parts.len(),
+                        trait_const_args,
                         sanitize_symbol_part(&binding.name),
                         mangle_type_inner(interner, binding.ty, nominal_name, array_len)
                     )
@@ -274,10 +288,12 @@ where
                 .collect::<Vec<_>>()
                 .join("__");
             format!(
-                "{prefix}__{}__argc{}__{}__assoc{}__{}",
+                "{prefix}__{}__argc{}__{}__cargc{}__{}__assoc{}__{}",
                 trait_name,
                 trait_args.len(),
                 trait_args,
+                trait_const_arg_parts.len(),
+                trait_const_args,
                 associated_type_bindings.len(),
                 assoc_bindings
             )
@@ -285,6 +301,7 @@ where
         Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_name = match trait_id {
@@ -296,6 +313,11 @@ where
                 .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
+            let trait_const_arg_parts = trait_const_args
+                .iter()
+                .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                .collect::<Vec<_>>();
+            let trait_const_args = trait_const_arg_parts.join("__");
             let assoc_bindings = associated_type_bindings
                 .iter()
                 .map(|binding| {
@@ -312,11 +334,19 @@ where
                         .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                         .collect::<Vec<_>>()
                         .join("__");
+                    let trait_const_arg_parts = binding
+                        .trait_const_args
+                        .iter()
+                        .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                        .collect::<Vec<_>>();
+                    let trait_const_args = trait_const_arg_parts.join("__");
                     format!(
-                        "{}__argc{}__{}__{}__{}",
+                        "{}__argc{}__{}__cargc{}__{}__{}__{}",
                         trait_part,
                         binding.trait_args.len(),
                         trait_args,
+                        trait_const_arg_parts.len(),
+                        trait_const_args,
                         sanitize_symbol_part(&binding.name),
                         mangle_type_inner(interner, binding.ty, nominal_name, array_len)
                     )
@@ -324,10 +354,12 @@ where
                 .collect::<Vec<_>>()
                 .join("__");
             format!(
-                "trait_obj_pointee__{}__argc{}__{}__assoc{}__{}",
+                "trait_obj_pointee__{}__argc{}__{}__cargc{}__{}__assoc{}__{}",
                 trait_name,
                 trait_args.len(),
                 trait_args,
+                trait_const_arg_parts.len(),
+                trait_const_args,
                 associated_type_bindings.len(),
                 assoc_bindings
             )
@@ -336,6 +368,7 @@ where
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         }) => {
             let self_ty = mangle_type_inner(interner, *self_ty, nominal_name, array_len);
@@ -348,12 +381,19 @@ where
                 .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
+            let trait_const_arg_parts = trait_const_args
+                .iter()
+                .map(|arg| mangle_const_generic_arg(interner, arg, nominal_name, array_len))
+                .collect::<Vec<_>>();
+            let trait_const_args = trait_const_arg_parts.join("__");
             format!(
-                "proj__{}__as__{}__argc{}__{}__{}",
+                "proj__{}__as__{}__argc{}__{}__cargc{}__{}__{}",
                 self_ty,
                 trait_name,
                 trait_args.len(),
                 trait_args,
+                trait_const_arg_parts.len(),
+                trait_const_args,
                 sanitize_symbol_part(name)
             )
         }
@@ -414,6 +454,14 @@ where
     let ty = mangle_type_inner(interner, arg.ty, nominal_name, array_len);
     let value = match &arg.value {
         ConstGenericValue::GenericParam(name) => format!("g{}", sanitize_symbol_part(name)),
+        ConstGenericValue::ConstExpr(id) => array_len(*id)
+            .map(|value| format!("expr_len__{value}"))
+            .unwrap_or_else(|| {
+                format!(
+                    "expr_unresolved__m{}__c{}",
+                    id.module_id.0, id.const_expr_id.0
+                )
+            }),
         ConstGenericValue::Int(value) => {
             let sign = if value.is_signed() { "i" } else { "u" };
             format!("{sign}{}", value.bits())

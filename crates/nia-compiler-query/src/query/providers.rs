@@ -1260,32 +1260,46 @@ pub(super) fn provide_semantic_use_table(
 ) -> nia_sema_ir::SemanticUseTable {
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    semantic_use_table_from_resolution_inputs(
+    let needed_const_exprs =
+        needed_const_exprs_for_active_item_tree(&active_item_tree, &type_lowering);
+    let const_expr_value_resolution = if needed_const_exprs.is_empty() {
+        None
+    } else {
+        let defs = db.query(FullModuleDefsQuery(module_id));
+        let public = db.query(PublicSurfaceQuery);
+        let empty_using = ModuleUsingScope::default();
+        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+        let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+        Some(
+            nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+                type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
+                    needed_const_exprs.contains(id).then_some(expr.clone())
+                }),
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&db.query(ModuleGraphQuery)),
+                },
+                &public.surfaces,
+                using_scope,
+                &visible_extensions.methods,
+                &visible_extensions.interner,
+            ),
+        )
+    };
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(
         module_id,
         &active_item_tree,
         &values,
+        const_expr_value_resolution.as_ref(),
+        Some(&needed_const_exprs),
         &locals,
+        &type_resolution,
         &type_lowering,
-    )
-}
-
-fn semantic_use_table_from_resolution_inputs(
-    module_id: ModuleId,
-    active_item_tree: &ActiveModuleItemTree,
-    values: &ValueResolution,
-    locals: &LocalResolution,
-    type_lowering: &TypeLowering,
-) -> nia_sema_ir::SemanticUseTable {
-    semantic_use_table_from_resolution_inputs_with_const_expr_values(
-        module_id,
-        active_item_tree,
-        values,
-        None,
-        None,
-        locals,
-        type_lowering,
     )
 }
 
@@ -1296,6 +1310,7 @@ fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
     const_expr_value_resolution: Option<&ValueResolution>,
     const_expr_value_resolution_ids: Option<&HashSet<GlobalConstExprId>>,
     locals: &LocalResolution,
+    type_resolution: &TypeResolution,
     type_lowering: &TypeLowering,
 ) -> nia_sema_ir::SemanticUseTable {
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
@@ -1316,6 +1331,12 @@ fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .node_builtin_associated_values
             .iter()
             .map(|(key, value)| (key.clone(), *value)),
+    );
+    builder.extend_node_const_generic_uses(
+        type_resolution
+            .node_const_generic_names
+            .iter()
+            .map(|(key, name)| (key.clone(), name.clone())),
     );
     if let Some(const_expr_value_resolution) = const_expr_value_resolution {
         let const_expr_nodes =
@@ -1497,9 +1518,15 @@ fn collect_array_len_const_exprs_in_ty(
             }
             collect_array_len_const_exprs_in_ty(interner, *return_type, candidate_ids, out, seen);
         }
-        Some(TyKind::Nominal { args, .. }) => {
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
             for arg in args {
                 collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+            }
+            for arg in const_args {
+                collect_array_len_const_exprs_in_ty(interner, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
             }
         }
         Some(TyKind::BuiltinTrait { args, .. }) => {
@@ -1565,6 +1592,18 @@ fn collect_array_len_const_exprs_in_len(
             collect_array_len_const_exprs_in_ty(interner, *ty, candidate_ids, out, seen);
         }
         ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
+    }
+}
+
+fn collect_array_len_const_exprs_in_const_arg(
+    arg: &nia_ty::ConstGenericArg,
+    candidate_ids: &HashSet<GlobalConstExprId>,
+    out: &mut HashSet<GlobalConstExprId>,
+) {
+    if let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value
+        && candidate_ids.contains(&id)
+    {
+        out.insert(id);
     }
 }
 
@@ -2147,6 +2186,7 @@ fn body_check_resolution_inputs_for_filter(
                         Some(&const_expr_value_resolution),
                         Some(&needed_const_exprs),
                         &filtered_locals,
+                        context.type_resolution,
                         context.lowered,
                     )
                 });
@@ -2179,6 +2219,7 @@ struct BodyCheckResolutionContext<'a> {
     origins: &'a nia_node_id::NodeOriginTable,
     active_item_tree: ActiveModuleItemTree,
     defs: &'a DefCollection,
+    type_resolution: &'a TypeResolution,
     lowered: &'a TypeLowering,
 }
 
@@ -2271,6 +2312,7 @@ fn filtered_comptime_global_initializer_for_body_check(
         global_id.module_id,
         || db.query(TypeLoweringQuery(global_id.module_id)),
     );
+    let type_resolution = db.query(TypeResolutionQuery(global_id.module_id));
     let needed_const_exprs = time_module_provider(
         db,
         "executable_body_check.comptime.global_initializer.needed_const_exprs",
@@ -2328,6 +2370,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                     Some(&const_expr_value_resolution),
                     Some(&needed_const_exprs),
                     &locals,
+                    &type_resolution,
                     &lowered,
                 )
             },
@@ -2596,6 +2639,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     let inputs = resolution_inputs.unwrap_or_else(|| {
         body_check_resolution_inputs_for_filter(
@@ -2607,6 +2651,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 origins: &origins,
                 active_item_tree,
                 defs: &defs,
+                type_resolution: &type_resolution,
                 lowered: &lowered,
             },
         )
@@ -2910,6 +2955,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                         origins: &origins,
                         active_item_tree: db.query(FullActiveModuleItemTreeQuery(module_id)),
                         defs: &defs,
+                        type_resolution: &type_resolution,
                         lowered: &lowered,
                     },
                 );
@@ -3475,11 +3521,18 @@ impl<'a> LayoutRootCollector<'a> {
                 self.add(error);
                 self.add(value);
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 self.add_global_struct(def_id);
                 self.add_global_union(def_id);
                 for arg in &args {
                     self.add(*arg);
+                }
+                for arg in &const_args {
+                    self.add(arg.ty);
                 }
                 self.add_nominal_fields(def_id, &args);
             }
@@ -3653,15 +3706,26 @@ impl<'a> LayoutRootCollector<'a> {
                 let value = self.substitute_generics(value, substitutions);
                 self.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.substitute_generics(arg, substitutions))
                     .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_generics(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
                 self.intern(TyKind::Nominal {
                     def_id,
                     args,
-                    const_args: Vec::new(),
+                    const_args,
                 })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -3675,6 +3739,7 @@ impl<'a> LayoutRootCollector<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }) => {
                 let self_ty = self.substitute_generics(self_ty, substitutions);
@@ -3682,10 +3747,18 @@ impl<'a> LayoutRootCollector<'a> {
                     .into_iter()
                     .map(|arg| self.substitute_generics(arg, substitutions))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_generics(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
                 self.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -3693,11 +3766,19 @@ impl<'a> LayoutRootCollector<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_generics(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -3707,6 +3788,14 @@ impl<'a> LayoutRootCollector<'a> {
                             .trait_args
                             .into_iter()
                             .map(|arg| self.substitute_generics(arg, substitutions))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_generics(arg.ty, substitutions);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.substitute_generics(binding.ty, substitutions),
@@ -3716,17 +3805,26 @@ impl<'a> LayoutRootCollector<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_generics(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_generics(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -3737,6 +3835,14 @@ impl<'a> LayoutRootCollector<'a> {
                             .into_iter()
                             .map(|arg| self.substitute_generics(arg, substitutions))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_generics(arg.ty, substitutions);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.substitute_generics(binding.ty, substitutions),
                     })
@@ -3744,6 +3850,7 @@ impl<'a> LayoutRootCollector<'a> {
                 self.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -3994,6 +4101,11 @@ fn extend_executable_checked_module_state(
         .semantic_uses
         .node_value_uses
         .extend(increment.semantic_uses.node_value_uses);
+    state
+        .module
+        .semantic_uses
+        .node_const_generic_uses
+        .extend(increment.semantic_uses.node_const_generic_uses);
     state
         .module
         .semantic_uses
@@ -4256,6 +4368,7 @@ fn extend_module_functions_from_filtered_value_refs(
     let lowered = time_module_provider(db, "extend_value_refs.type_lowering", module_id, || {
         db.query(TypeLoweringQuery(module_id))
     });
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
     let signatures = time_module_provider(db, "extend_value_refs.signatures", module_id, || {
         db.query(SignatureItemSignaturesQuery(
             module_id,
@@ -4282,6 +4395,7 @@ fn extend_module_functions_from_filtered_value_refs(
                             origins: &origins,
                             active_item_tree: active_item_tree.clone(),
                             defs: &defs,
+                            type_resolution: &type_resolution,
                             lowered: &lowered,
                         },
                     )

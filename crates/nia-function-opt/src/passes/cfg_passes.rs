@@ -92,7 +92,8 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
             decode_byte_char_literal(text).map(SwitchConstantValue::Byte)
         }
         FunctionExprKind::EnumVariant(def_id) => Some(SwitchConstantValue::EnumVariant(*def_id)),
-        FunctionExprKind::Error
+        FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::Error
         | FunctionExprKind::Trap
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)

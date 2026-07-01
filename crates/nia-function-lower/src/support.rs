@@ -904,6 +904,7 @@ impl FunctionLowerer {
                 | TypedExprKind::ByteChar(_)
                 | TypedExprKind::Bool(_)
                 | TypedExprKind::Null
+                | TypedExprKind::ConstGeneric(_)
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }

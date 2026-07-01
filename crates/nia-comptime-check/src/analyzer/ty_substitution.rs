@@ -90,11 +90,19 @@ pub(super) fn substitute_ty_generics_in_interner(
             is_readonly,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg
+                })
                 .collect();
             let associated_type_bindings = associated_type_bindings
                 .into_iter()
@@ -104,6 +112,14 @@ pub(super) fn substitute_ty_generics_in_interner(
                         .trait_args
                         .into_iter()
                         .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                        .collect(),
+                    trait_const_args: binding
+                        .trait_const_args
+                        .into_iter()
+                        .map(|mut arg| {
+                            arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                            arg
+                        })
                         .collect(),
                     name: binding.name,
                     ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
@@ -113,17 +129,26 @@ pub(super) fn substitute_ty_generics_in_interner(
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             })
         }
         Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg
+                })
                 .collect();
             let associated_type_bindings = associated_type_bindings
                 .into_iter()
@@ -134,6 +159,14 @@ pub(super) fn substitute_ty_generics_in_interner(
                         .into_iter()
                         .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
                         .collect(),
+                    trait_const_args: binding
+                        .trait_const_args
+                        .into_iter()
+                        .map(|mut arg| {
+                            arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                            arg
+                        })
+                        .collect(),
                     name: binding.name,
                     ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
                 })
@@ -141,6 +174,7 @@ pub(super) fn substitute_ty_generics_in_interner(
             interner.intern(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             })
         }
@@ -148,6 +182,7 @@ pub(super) fn substitute_ty_generics_in_interner(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         }) => {
             let self_ty = substitute_ty_generics_in_interner(interner, self_ty, lookup);
@@ -155,10 +190,18 @@ pub(super) fn substitute_ty_generics_in_interner(
                 .into_iter()
                 .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
                 .collect();
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg
+                })
+                .collect();
             interner.intern(TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             })
         }
