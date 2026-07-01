@@ -268,6 +268,7 @@ pub(crate) fn collect_program_trait_impls(
                 trait_const_args,
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
+                associated_values: impl_signature.associated_values.clone(),
                 interner: module.lowering.interner.clone(),
             });
         }
@@ -417,6 +418,9 @@ pub(crate) fn collect_extension_methods(
         .collect::<HashMap<_, _>>();
     for module in modules {
         for impl_signature in &module.signatures.trait_impls {
+            if impl_signature.builtin.is_some() {
+                continue;
+            }
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -867,6 +871,9 @@ fn validate_trait_impl(
         return false;
     };
     let start_len = diagnostics.len();
+    let (trait_args, trait_const_args) =
+        impl_trait_args_and_consts(module, impl_signature, Some(TraitId::Source(trait_id)))
+            .unwrap_or_default();
     for associated_type in &impl_signature.associated_types {
         if !trait_signature
             .signature
@@ -884,6 +891,60 @@ fn validate_trait_impl(
             ));
         }
     }
+    for associated_value in &impl_signature.associated_values {
+        let Some(required) = trait_signature
+            .signature
+            .associated_values
+            .iter()
+            .find(|required| required.name == associated_value.name)
+        else {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                associated_value.span,
+                format!(
+                    "associated comptime `{}` is not a member of implemented trait",
+                    associated_value.name
+                ),
+            ));
+            continue;
+        };
+        let Some(actual_ty) = module
+            .signatures
+            .comptimes
+            .get(&associated_value.def_id)
+            .and_then(|signature| signature.explicit_type)
+        else {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                associated_value.span,
+                format!(
+                    "associated comptime `{}` requires an explicit type to satisfy the trait requirement",
+                    associated_value.name
+                ),
+            ));
+            continue;
+        };
+        if !trait_associated_comptime_type_matches(TraitAssociatedComptimeTypeMatch {
+            module,
+            trait_signature,
+            required_ty: required.ty,
+            actual_ty,
+            target_ty,
+            trait_id,
+            trait_args: &trait_args,
+            trait_const_args: &trait_const_args,
+            impl_signature,
+        }) {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                associated_value.span,
+                format!(
+                    "implementation of associated comptime `{}` does not match the trait requirement",
+                    associated_value.name
+                ),
+            ));
+        }
+    }
     for required in &trait_signature.signature.associated_types {
         if !impl_signature
             .associated_types
@@ -894,6 +955,22 @@ fn validate_trait_impl(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!("missing definition for associated type `{}`", required.name),
+            ));
+        }
+    }
+    for required in &trait_signature.signature.associated_values {
+        if !impl_signature
+            .associated_values
+            .iter()
+            .any(|associated_value| associated_value.name == required.name)
+        {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                format!(
+                    "missing definition for associated comptime `{}`",
+                    required.name
+                ),
             ));
         }
     }
@@ -914,9 +991,6 @@ fn validate_trait_impl(
             ));
         }
     }
-    let (trait_args, trait_const_args) =
-        impl_trait_args_and_consts(module, impl_signature, Some(TraitId::Source(trait_id)))
-            .unwrap_or_default();
     validate_supertrait_impls(
         module,
         impl_signature,
@@ -995,6 +1069,58 @@ fn validate_trait_impl(
         }
     }
     diagnostics.len() == start_len
+}
+
+struct TraitAssociatedComptimeTypeMatch<'a> {
+    module: &'a ExtensionModuleInput<'a>,
+    trait_signature: TraitSignatureRef<'a>,
+    required_ty: nia_ids::InternedTyId,
+    actual_ty: nia_ids::InternedTyId,
+    target_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    trait_args: &'a [nia_ids::InternedTyId],
+    trait_const_args: &'a [nia_ty::ConstGenericArg],
+    impl_signature: &'a TraitImplSignature,
+}
+
+fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatch<'_>) -> bool {
+    let mut comparison_interner = input.module.normalization.interner.clone();
+    let mut substitutions = input
+        .trait_signature
+        .signature
+        .generics
+        .iter()
+        .zip(input.trait_args)
+        .map(|(generic, arg)| (generic.clone(), *arg))
+        .collect::<HashMap<_, _>>();
+    substitutions.insert("Self".to_string(), input.target_ty);
+    let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
+    let projection_context = Some(ProjectionImplContext {
+        trait_id: input.trait_id,
+        trait_args: input.trait_args,
+        trait_const_args: input.trait_const_args,
+        self_ty: input.target_ty,
+        associated_types: &input.impl_signature.associated_types,
+    });
+    let required = substitute_imported_type(
+        &mut comparison_interner,
+        input.module,
+        input.trait_signature.interner,
+        input.required_ty,
+        &substitutions,
+        &const_substitutions,
+        projection_context,
+    );
+    let actual = substitute_imported_type(
+        &mut comparison_interner,
+        input.module,
+        &input.module.lowering.interner,
+        input.actual_ty,
+        &HashMap::new(),
+        &HashMap::new(),
+        projection_context,
+    );
+    types_equivalent_in_interner(&comparison_interner, required, actual)
 }
 
 fn validate_builtin_trait_impl(

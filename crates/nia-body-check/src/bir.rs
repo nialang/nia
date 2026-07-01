@@ -662,7 +662,7 @@ impl<'a> BodyChecker<'a> {
                     None => TypedExprKind::Error,
                 }
             }
-            ExprKind::TypeTarget { .. } => TypedExprKind::Error,
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => TypedExprKind::Error,
             ExprKind::BracketSuffix { callee, args } => {
                 match self.bracket_suffix_resolution(expr) {
                     Some(BracketSuffixResolution::Index) => {

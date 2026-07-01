@@ -7,7 +7,8 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
-    BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp, BuiltinValue,
+    AssociatedComptimeProjection, BracketSuffixResolution, BuiltinAssociatedValue,
+    BuiltinOperatorOp, BuiltinValue,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
@@ -52,7 +53,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Null => self.check_null_expr(expr.span, expected),
             ExprKind::Underscore => self.error(),
             ExprKind::Ident(_) => self.ident_type(expr),
-            ExprKind::TypeTarget { .. } => self.error(),
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
             }
@@ -229,6 +230,8 @@ impl<'a> BodyChecker<'a> {
                         format!("builtin `{}` must be called", builtin.name()),
                     ));
                     self.error()
+                } else if let ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind {
+                    self.check_trait_associated_comptime_value_access(expr, ty, trait_ref, name)
                 } else if let Some(ty) = self.check_builtin_associated_value(expr) {
                     ty
                 } else if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
@@ -357,6 +360,98 @@ impl<'a> BodyChecker<'a> {
                 ));
                 Some(self.error())
             })
+    }
+
+    fn check_trait_associated_comptime_value_access(
+        &mut self,
+        expr: &Expr,
+        target: &nia_ast::TypeRef,
+        trait_ref: &nia_ast::TypeRef,
+        name: &str,
+    ) -> InternedTyId {
+        let target_ty = self.ty_for_type(target);
+        let target_ty = self.normalize_projection(target_ty);
+        let trait_ty = self.ty_for_type(trait_ref);
+        let Some((trait_id, trait_args, trait_const_args)) = self.trait_id_and_args(trait_ty)
+        else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                trait_ref.span,
+                "associated comptime projection requires a trait target",
+            ));
+            return self.error();
+        };
+        self.record_associated_comptime_projection(
+            expr,
+            AssociatedComptimeProjection {
+                self_ty: target_ty,
+                trait_id,
+                trait_args: trait_args.clone(),
+                trait_const_args: trait_const_args.clone(),
+                name: name.to_string(),
+            },
+        );
+        if !self.current_context_proves_trait_obligation_with_const_args(
+            target_ty,
+            trait_id,
+            trait_args.clone(),
+            trait_const_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(target_ty),
+                    self.trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+        let TraitId::Source(trait_def_id) = trait_id else {
+            let TraitId::Builtin(trait_id) = trait_id else {
+                unreachable!("trait_id matched source or builtin");
+            };
+            if trait_id.has_associated_comptime(name) {
+                if matches!(trait_id, BuiltinTrait::Simd)
+                    && name == BuiltinTrait::LANES_ASSOC_COMPTIME
+                    && let Some(TyKind::Vector { lanes, .. }) =
+                        self.interner.get(target_ty).cloned()
+                {
+                    self.record_builtin_node_value(expr, BuiltinValue::Usize(u64::from(lanes)));
+                }
+                return self.primitive(PrimitiveTy::Usize);
+            }
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!("trait has no associated comptime value `{name}`"),
+            ));
+            return self.error();
+        };
+        let Some(signature) = self.resolved_trait_signature(trait_def_id) else {
+            return self.error();
+        };
+        let Some(associated_value) = signature
+            .associated_values
+            .iter()
+            .find(|associated_value| associated_value.name == name)
+        else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                format!("trait has no associated comptime value `{name}`"),
+            ));
+            return self.error();
+        };
+        let (mut substitutions, const_substitutions) = self
+            .generic_substitutions_and_consts_for_def(trait_def_id, &trait_args, &trait_const_args);
+        substitutions.insert("Self".to_string(), target_ty);
+        let ty = self.substitute_generics_and_consts(
+            associated_value.ty,
+            &substitutions,
+            &const_substitutions,
+        );
+        self.normalize_projection(ty)
     }
 
     fn associated_comptime_value_for_target(
@@ -1403,6 +1498,7 @@ fn expr_allows_expected_comptime_projection(expr: &Expr) -> bool {
             | ExprKind::Null
             | ExprKind::Ident(_)
             | ExprKind::TypeTarget { .. }
+            | ExprKind::TraitTarget { .. }
             | ExprKind::Underscore
             | ExprKind::Error
     )

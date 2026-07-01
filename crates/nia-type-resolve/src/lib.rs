@@ -526,6 +526,9 @@ impl TypeResolver<'_> {
                                 resolver.visit_type(supertrait);
                             }
                             resolver.visit_where_clause(&item_trait.where_clause);
+                            for associated_value in &item_trait.associated_values {
+                                resolver.visit_type(&associated_value.ty);
+                            }
                             for method in &item_trait.methods {
                                 resolver.visit_function(&method.function);
                             }

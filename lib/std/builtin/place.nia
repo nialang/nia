@@ -79,3 +79,81 @@ pub trait End {
 pub trait Char {
     fn char(self) ?char;
 }
+
+@[builtin("array.Len")]
+extend[T, N: usize] [N]T : Len {
+    fn len(&self) usize;
+}
+
+@[builtin("slice.Len")]
+extend[T] [T] : Len {
+    fn len(&self) usize;
+}
+
+@[builtin("slice.Ptr")]
+extend[T] [T] : Ptr {
+    type Target = T;
+
+    fn ptr(&self) &T;
+}
+
+@[builtin("slice.PtrMut")]
+extend[T] [T] : PtrMut {
+    type Target = T;
+
+    fn ptr_mut(&mut self) &mut T;
+}
+
+@[builtin("range.Start")]
+extend[T] T..T : Start {
+    type Output = T;
+
+    fn start(&self) T;
+}
+
+@[builtin("range.End")]
+extend[T] T..T : End {
+    type Output = T;
+
+    fn end(&self) T;
+}
+
+@[builtin("range_inclusive.Start")]
+extend[T] T..=T : Start {
+    type Output = T;
+
+    fn start(&self) T;
+}
+
+@[builtin("range_inclusive.End")]
+extend[T] T..=T : End {
+    type Output = T;
+
+    fn end(&self) T;
+}
+
+@[builtin("range_from.Start")]
+extend[T] T.. : Start {
+    type Output = T;
+
+    fn start(&self) T;
+}
+
+@[builtin("range_to.End")]
+extend[T] ..T : End {
+    type Output = T;
+
+    fn end(&self) T;
+}
+
+@[builtin("range_to_inclusive.End")]
+extend[T] ..=T : End {
+    type Output = T;
+
+    fn end(&self) T;
+}
+
+@[builtin("u32.Char")]
+extend u32 : Char {
+    fn char(self) ?char;
+}

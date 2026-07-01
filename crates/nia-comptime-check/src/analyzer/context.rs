@@ -222,6 +222,12 @@ impl Analyzer<'_> {
                 .module
                 .global_initializers()
                 .get(&global_id)
+                .or_else(|| {
+                    self.input
+                        .module
+                        .deferred_global_initializers()
+                        .get(&global_id)
+                })
                 .cloned()
         } else if let Some(global_initializer) = self.input.program.global_initializer {
             if !self
@@ -240,9 +246,11 @@ impl Analyzer<'_> {
                 .cloned()
                 .flatten()
         } else {
-            (self.input.program.module?)(global_id.module_id)?
+            let module = (self.input.program.module?)(global_id.module_id)?;
+            module
                 .global_initializers()
                 .get(&global_id)
+                .or_else(|| module.deferred_global_initializers().get(&global_id))
                 .cloned()
         }
     }

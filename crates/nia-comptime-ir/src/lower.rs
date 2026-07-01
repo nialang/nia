@@ -77,8 +77,14 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         Ok(self.semantic_uses.and_then(|semantic_uses| {
             semantic_uses
-                .node_builtin_associated_value(key)
-                .map(ComptimeNameResolution::BuiltinAssociatedValue)
+                .node_associated_comptime_projection(key)
+                .cloned()
+                .map(ComptimeNameResolution::AssociatedComptimeProjection)
+                .or_else(|| {
+                    semantic_uses
+                        .node_builtin_associated_value(key)
+                        .map(ComptimeNameResolution::BuiltinAssociatedValue)
+                })
                 .or_else(|| {
                     semantic_uses
                         .node_const_generic_use(key)
@@ -133,6 +139,11 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
         key: &VersionedNodeKey,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
+        if let Some(projection) = self.semantic_uses.node_associated_comptime_projection(key) {
+            return Ok(Some(ComptimeNameResolution::AssociatedComptimeProjection(
+                projection.clone(),
+            )));
+        }
         if let Some(value) = self.semantic_uses.node_builtin_associated_value(key) {
             return Ok(Some(ComptimeNameResolution::BuiltinAssociatedValue(value)));
         }

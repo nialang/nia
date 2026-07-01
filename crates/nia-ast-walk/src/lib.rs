@@ -68,6 +68,9 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                 visitor.visit_type(supertrait);
             }
             walk_where_clause(visitor, &item_trait.where_clause);
+            for associated_value in &item_trait.associated_values {
+                visitor.visit_type(&associated_value.ty);
+            }
             for method in &item_trait.methods {
                 visitor.visit_function(&method.function);
             }
@@ -278,6 +281,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         | ExprKind::Ident(_)
         | ExprKind::Underscore => {}
         ExprKind::TypeTarget { ty } => visitor.visit_type(ty),
+        ExprKind::TraitTarget { ty, trait_ref } => {
+            visitor.visit_type(ty);
+            visitor.visit_type(trait_ref);
+        }
         ExprKind::BracketSuffix { callee, args } => {
             visitor.visit_expr(callee);
             for arg in args {

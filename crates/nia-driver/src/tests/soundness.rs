@@ -206,3 +206,377 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn open_associated_comptime_projection_does_not_forge_concrete_array_length() {
+    let root = temp_dir("open_associated_comptime_projection_does_not_forge_concrete_array_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Shape {
+    comptime N: usize;
+}
+
+struct Four {}
+
+extend Four : Shape {
+    comptime N: usize = 4usize;
+}
+
+fn rewrite[T](value: [[T as Shape]::N]i32) [4]i32
+where T: Shape
+{
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn supertrait_associated_comptime_projection_does_not_forge_concrete_length() {
+    let root = temp_dir("supertrait_associated_comptime_projection_does_not_forge_concrete_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base {
+    comptime N: usize;
+}
+
+trait Sub : Base {}
+
+struct Four {}
+
+extend Four : Base {
+    comptime N: usize = 4usize;
+}
+
+extend Four : Sub {}
+
+fn rewrite[T](value: [[T as Base]::N]i32) [4]i32
+where T: Sub
+{
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_comptime_projection_rejects_cross_const_instance_rewrite() {
+    let root = temp_dir("associated_comptime_projection_rejects_cross_const_instance_rewrite");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Slot[N: usize] {
+    comptime Width: usize;
+}
+
+struct Store {}
+
+extend Store : Slot[2] {
+    comptime Width: usize = 2usize;
+}
+
+extend Store : Slot[4] {
+    comptime Width: usize = 4usize;
+}
+
+fn bad(value: [[Store as Slot[2]]::Width]i32) [[Store as Slot[4]]::Width]i32 {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_comptime_fake_refs_do_not_runtime_materialize_projection_values() {
+    let root =
+        temp_dir("associated_comptime_fake_refs_do_not_runtime_materialize_projection_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Shape {
+    comptime N: usize;
+}
+
+struct Four {}
+
+extend Four : Shape {
+    comptime N: usize = 4usize;
+}
+
+comptime fn width[T]() usize
+where T: Shape
+{
+    let value: usize = [T as Shape]::N;
+    value
+}
+
+comptime WIDTH: usize = [Four as Shape]::N;
+
+struct Buffer[T, N: usize] {
+    values: [N]T,
+}
+
+fn make[T](value: T) Buffer[T, WIDTH] {
+    Buffer[T, WIDTH] { values: [value; width[Four]()] }
+}
+
+fn main() i32 {
+    let buffer = make[i32](3);
+    buffer.values[3]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn associated_comptime_projection_requires_trait_bound_for_open_target() {
+    let root = temp_dir("associated_comptime_projection_requires_trait_bound_for_open_target");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Shape {
+    comptime N: usize;
+}
+
+fn bad[T]() usize {
+    [T as Shape]::N
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn open_associated_type_and_comptime_projection_do_not_forge_concrete_array_type() {
+    let root =
+        temp_dir("open_associated_type_and_comptime_projection_do_not_forge_concrete_array_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Packet {
+    type Elem;
+    comptime Len: usize;
+}
+
+struct I32x4 {}
+
+extend I32x4 : Packet {
+    type Elem = i32;
+    comptime Len: usize = 4usize;
+}
+
+fn rewrite[P](value: [[P as Packet]::Len][P as Packet]::Elem) [4]i32
+where P: Packet
+{
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn supertrait_associated_comptime_const_args_remain_distinct() {
+    let root = temp_dir("supertrait_associated_comptime_const_args_remain_distinct");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base[N: usize] {
+    comptime Width: usize;
+}
+
+trait Sub[N: usize] : Base[N] {}
+
+struct Store {}
+
+extend Store : Base[8] {
+    comptime Width: usize = 8usize;
+}
+
+extend Store : Sub[8] {}
+
+fn bad[T](value: [[T as Base[4]]::Width]i32) [4]i32
+where T: Sub[8]
+{
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_comptime_bool_const_args_do_not_cross_rewrite_instances() {
+    let root = temp_dir("associated_comptime_bool_const_args_do_not_cross_rewrite_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Mode[Enabled: bool] {
+    comptime Width: usize;
+}
+
+struct Store {}
+
+extend Store : Mode[true] {
+    comptime Width: usize = 1usize;
+}
+
+extend Store : Mode[false] {
+    comptime Width: usize = 2usize;
+}
+
+fn bad(value: [[Store as Mode[true]]::Width]i32) [[Store as Mode[false]]::Width]i32 {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn imported_generic_impl_associated_comptime_substitutes_instance_const_args() {
+    let root =
+        temp_dir("imported_generic_impl_associated_comptime_substitutes_instance_const_args");
+    write(
+        &root.join("api.nia"),
+        r#"
+pub trait HasLen {
+    comptime Len: usize;
+}
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Buf[N: usize] {
+    values: [N]u8,
+}
+"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using entry::api;
+using entry::types;
+
+extend[N: usize] types::Buf[N] : api::HasLen {
+    pub comptime Len: usize = N;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+module types;
+module impls;
+
+using entry::api;
+using entry::types;
+using entry::impls;
+
+comptime fn len[T]() usize
+where T: api::HasLen
+{
+    [T as api::HasLen]::Len
+}
+
+comptime FOUR: usize = len[types::Buf[4]]();
+comptime SEVEN: usize = len[types::Buf[7]]();
+
+fn main() usize {
+    let four: [FOUR]u8 = [1u8, 2u8, 3u8, 4u8];
+    let seven: [SEVEN]u8 = [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8];
+    four[3] as usize + seven[6] as usize
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

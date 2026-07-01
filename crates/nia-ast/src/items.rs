@@ -155,12 +155,21 @@ pub struct TraitItem {
     pub supertraits: Vec<TypeRef>,
     pub where_clause: WhereClause,
     pub associated_types: Vec<TraitAssociatedType>,
+    pub associated_values: Vec<TraitAssociatedValue>,
     pub methods: Vec<TraitMethod>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedType {
     pub name: String,
+    pub span: Span,
+    pub node_key: VersionedNodeKey,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedValue {
+    pub name: String,
+    pub ty: TypeRef,
     pub span: Span,
     pub node_key: VersionedNodeKey,
 }

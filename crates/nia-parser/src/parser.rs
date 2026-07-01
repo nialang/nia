@@ -225,6 +225,21 @@ impl Parser {
         }
     }
 
+    fn make_trait_associated_value(
+        &mut self,
+        name: String,
+        ty: TypeRef,
+        span: Span,
+    ) -> nia_ast::TraitAssociatedValue {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        nia_ast::TraitAssociatedValue {
+            name,
+            ty,
+            span,
+            node_key,
+        }
+    }
+
     fn make_extend_associated_type(
         &mut self,
         name: String,

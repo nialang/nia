@@ -260,6 +260,29 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 };
                 Ok(ComptimeValue::Int(value))
             }
+            ComptimeNameResolution::AssociatedComptimeProjection(projection) => {
+                match self.resolve_associated_comptime_projection(&projection) {
+                    Some(nia_trait_solve::AssociatedComptimeResolution::Const(arg)) => {
+                        comptime_value_from_const_generic_arg(&arg).ok_or_else(|| ComptimeError {
+                            span,
+                            message: format!(
+                                "failed to evaluate associated comptime value `{}`",
+                                projection.name
+                            ),
+                        })
+                    }
+                    Some(nia_trait_solve::AssociatedComptimeResolution::User(user)) => {
+                        self.eval_user_associated_comptime(span, user)
+                    }
+                    None => Err(ComptimeError {
+                        span,
+                        message: format!(
+                            "failed to resolve associated comptime value `{}`",
+                            projection.name
+                        ),
+                    }),
+                }
+            }
         }
     }
 
@@ -454,6 +477,80 @@ fn comptime_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Optio
 }
 
 impl Analyzer<'_> {
+    fn eval_user_associated_comptime(
+        &mut self,
+        span: Span,
+        user: nia_trait_solve::UserAssociatedComptime,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let key = ComptimeKey::Global(user.def_id);
+        if !self.active.insert(key) {
+            return Err(ComptimeError {
+                span,
+                message: "cyclic comptime dependency".to_string(),
+            });
+        }
+        let Some(expr) = self.initializer_for_key(key) else {
+            self.active.remove(&key);
+            return Err(ComptimeError {
+                span,
+                message: "associated comptime value has no initializer".to_string(),
+            });
+        };
+        self.ensure_working_interner(user.impl_module_id);
+        let Some(interner) = self.working_interners.get_mut(&user.impl_module_id) else {
+            self.active.remove(&key);
+            return Err(ComptimeError {
+                span,
+                message: "failed to prepare associated comptime evaluation".to_string(),
+            });
+        };
+        let type_substitutions = user
+            .substitutions
+            .into_iter()
+            .map(|(name, ty)| {
+                (
+                    name,
+                    nia_ty::import_type_into(interner, &user.resolution_interner, ty),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let const_substitutions = user
+            .const_substitutions
+            .into_iter()
+            .map(|(name, mut arg)| {
+                arg.ty = nia_ty::import_type_into(interner, &user.resolution_interner, arg.ty);
+                (name, arg)
+            })
+            .collect::<HashMap<_, _>>();
+        let frame = ComptimeCallFrame {
+            module_id: Some(user.impl_module_id),
+            function_id: None,
+            type_substitutions,
+            const_substitutions,
+            ..ComptimeCallFrame::default()
+        };
+        self.call_locals.push(frame);
+        let result = self.with_execution_module(user.impl_module_id, |this| {
+            let expected_ty = this
+                .explicit_type_for_key(key)
+                .map(|ty| this.substitute_ty_generics(ty));
+            let expected = expected_ty.map(ComptimeValueType::Runtime);
+            let _ = this.resolved_comptime_expr_type(&expr, expected_ty);
+            let value = nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)?;
+            let value = if let Some(expected) = expected {
+                let value = this.normalize_typed_comptime_value(value, &expected);
+                this.validate_typed_value(span, &value, &expected);
+                value
+            } else {
+                value
+            };
+            Ok(value)
+        });
+        self.call_locals.pop();
+        self.active.remove(&key);
+        result
+    }
+
     fn resolve_comptime_const_generic_arg(
         &self,
         mut arg: nia_ty::ConstGenericArg,

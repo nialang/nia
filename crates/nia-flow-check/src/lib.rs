@@ -507,6 +507,7 @@ impl FlowChecker<'_> {
             | ExprKind::Ident(_)
             | ExprKind::Underscore
             | ExprKind::TypeTarget { .. }
+            | ExprKind::TraitTarget { .. }
             | ExprKind::Qualified { .. } => Flow {
                 falls_through: true,
             },

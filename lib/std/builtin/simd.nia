@@ -1,17 +1,30 @@
-// SIMD compiler intrinsics.
+// SIMD compiler intrinsics and traits for native vector types such as `u8x16`.
+
+@[builtin("Simd")]
+pub trait Simd {
+    type Lane;
+    comptime Lanes: usize;
+}
+
+@[builtin("SimdMask")]
+pub trait SimdMask : Simd {}
 
 // Creates a SIMD vector by splatting one lane value.
 @[builtin("splat")]
-pub fn splat[T](value: void) T;
+pub fn splat[V](value: [V as Simd]::Lane) V
+where V: Simd;
 
 // Extracts a SIMD lane.
 @[builtin("extract")]
-pub fn extract(vector: void, index: usize) void;
+pub fn extract[V](vector: V, index: usize) [V as Simd]::Lane
+where V: Simd;
 
 // Inserts a SIMD lane.
 @[builtin("insert")]
-pub fn insert(vector: void, index: usize, value: void) void;
+pub fn insert[V](vector: V, index: usize, value: [V as Simd]::Lane) V
+where V: Simd;
 
 // Converts a SIMD bool mask vector into a bitmask.
 @[builtin("bitmask")]
-pub fn bitmask(vector: void) usize;
+pub fn bitmask[V](vector: V) usize
+where V: SimdMask;

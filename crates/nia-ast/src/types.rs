@@ -520,6 +520,13 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_type_ref_identity(out, ty);
             out.push(')');
         }
+        ExprKind::TraitTarget { ty, trait_ref } => {
+            out.push_str("trait_target(");
+            write_type_ref_identity(out, ty);
+            out.push('|');
+            write_type_ref_identity(out, trait_ref);
+            out.push(')');
+        }
         ExprKind::BracketSuffix { callee, args } => {
             out.push_str("bracket(");
             write_expr_identity(out, callee);

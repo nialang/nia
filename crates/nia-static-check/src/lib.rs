@@ -231,7 +231,9 @@ impl StaticChecker<'_> {
             },
             ExprKind::Binary { .. } => self.static_int_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
-            ExprKind::TypeTarget { .. } => Some("type target is not static data"),
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => {
+                Some("type target is not static data")
+            }
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
@@ -331,7 +333,7 @@ impl StaticChecker<'_> {
                 }
                 self.static_address_path_reject_reason(lhs)
             }
-            ExprKind::TypeTarget { .. } => None,
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => None,
             ExprKind::Field { lhs, .. } => self.static_address_path_reject_reason(lhs),
             ExprKind::Index { lhs, index } => {
                 self.static_address_path_reject_reason(lhs)
@@ -362,7 +364,7 @@ impl StaticChecker<'_> {
         match &expr.kind {
             ExprKind::Ident(_) => matches!(self.local_use(expr), Some(LocalUse::TypePrefix)),
             ExprKind::Qualified { .. } => self.qualified_type_prefix(expr).is_some(),
-            ExprKind::TypeTarget { .. } => true,
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => true,
             ExprKind::BracketSuffix { callee, .. } => self.is_type_prefix_expr(callee),
             _ => false,
         }
@@ -577,6 +579,15 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                     span,
                     message: format!(
                         "static constant expression cannot use unresolved comptime generic parameter `{name}`"
+                    ),
+                });
+            }
+            nia_comptime_ir::ComptimeNameResolution::AssociatedComptimeProjection(projection) => {
+                return Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "static constant expression cannot use unresolved associated comptime value `{}`",
+                        projection.name
                     ),
                 });
             }

@@ -435,7 +435,7 @@ impl<'ast> Visitor<'ast> for ValueResolver<'_> {
                 }
                 self.insert_name(&expr.node_key, resolution);
             }
-            ExprKind::TypeTarget { .. } => {
+            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => {
                 walk_expr(self, expr);
             }
             ExprKind::BracketSuffix { callee, args } => {

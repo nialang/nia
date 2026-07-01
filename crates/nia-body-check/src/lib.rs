@@ -49,9 +49,9 @@ use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_sema_ir::{
-    BracketSuffixResolution, BuiltinValue, FunctionReference, FunctionSemanticFacts,
-    GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts,
-    SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
+    AssociatedComptimeProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
+    FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
+    SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -786,6 +786,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
+        node_associated_comptime_projections: HashMap::new(),
         node_array_repeat_counts: HashMap::new(),
         node_switch_pattern_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
@@ -847,6 +848,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 .semantic_uses
                 .node_builtin_associated_values
                 .clone(),
+            node_associated_comptime_projections: checker.node_associated_comptime_projections,
             node_array_repeat_counts: checker.node_array_repeat_counts,
             node_switch_pattern_values: checker.node_switch_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
@@ -929,6 +931,7 @@ struct BodyChecker<'a> {
     node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    node_associated_comptime_projections: HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
     node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
@@ -1323,6 +1326,20 @@ impl<'a> BodyChecker<'a> {
             facts
                 .node_builtin_values
                 .insert(expr.node_key.clone(), value);
+        }
+    }
+
+    fn record_associated_comptime_projection(
+        &mut self,
+        expr: &Expr,
+        projection: AssociatedComptimeProjection,
+    ) {
+        self.node_associated_comptime_projections
+            .insert(expr.node_key.clone(), projection.clone());
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_associated_comptime_projections
+                .insert(expr.node_key.clone(), projection);
         }
     }
 

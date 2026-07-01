@@ -92,6 +92,7 @@ pub struct ProgramTraitImplSignature {
     pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub associated_values: Vec<TraitImplAssociatedValueSignature>,
     pub interner: nia_ty::TyInterner,
 }
 
@@ -162,6 +163,7 @@ pub struct TraitSignature {
     pub where_predicates: Vec<WherePredicateSignature>,
     pub supertraits: Vec<TraitSupertraitSignature>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
+    pub associated_values: Vec<TraitAssociatedValueSignature>,
     pub methods: Vec<TraitMethodSignature>,
     pub builtin: Option<BuiltinTrait>,
     pub span: Span,
@@ -177,6 +179,14 @@ pub struct TraitSupertraitSignature {
 pub struct TraitAssociatedTypeSignature {
     pub def_id: DefId,
     pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedValueSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -648,6 +658,22 @@ impl<'a> SignatureCollector<'a> {
                 span: associated_type.span,
             });
         }
+        let mut associated_values = Vec::new();
+        for associated_value in &item_trait.associated_values {
+            let Some(associated_value_id) = self.def_id_for_node(
+                &associated_value.node_key,
+                associated_value.span,
+                DefKind::Comptime,
+            ) else {
+                continue;
+            };
+            associated_values.push(TraitAssociatedValueSignature {
+                def_id: associated_value_id,
+                name: associated_value.name.clone(),
+                ty: self.ty_for_type(&associated_value.ty),
+                span: associated_value.span,
+            });
+        }
         let mut methods = Vec::new();
         for method in &item_trait.methods {
             let Some(method_id) = self.def_id_for_node(
@@ -681,6 +707,7 @@ impl<'a> SignatureCollector<'a> {
                     })
                     .collect(),
                 associated_types,
+                associated_values,
                 methods,
                 builtin: self.builtin_trait_attribute(&item.attributes),
                 span: item.span,
@@ -1506,6 +1533,23 @@ pub trait Iterator {
     }
 
     #[test]
+    fn records_trait_associated_comptime_requirements() {
+        let signatures = signatures_ok(
+            r#"
+trait Simd {
+    type Lane;
+    comptime Lanes: usize;
+}
+"#,
+        );
+
+        let signature = signatures.traits.values().next().expect("simd signature");
+        assert_eq!(signature.associated_types.len(), 1);
+        assert_eq!(signature.associated_values.len(), 1);
+        assert_eq!(signature.associated_values[0].name, "Lanes");
+    }
+
+    #[test]
     fn records_builtin_extend_attributes_with_bodyless_methods() {
         let signatures = signatures_ok(
             r#"
@@ -1554,6 +1598,29 @@ extend[T, N: usize] [N]T : Len {
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_traits, expected_traits);
 
+        let expected_extends = [
+            "array.Len",
+            "range.End",
+            "range.Start",
+            "range_from.Start",
+            "range_inclusive.End",
+            "range_inclusive.Start",
+            "range_to.End",
+            "range_to_inclusive.End",
+            "slice.Len",
+            "slice.Ptr",
+            "slice.PtrMut",
+            "u32.Char",
+        ]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        let actual_extends = declarations
+            .extends
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_extends, expected_extends);
+
         for builtin in BuiltinTrait::ALL {
             let descriptor = builtin.descriptor();
             let source = declarations
@@ -1577,6 +1644,16 @@ extend[T, N: usize] [N]T : Len {
                     .map(|associated_type| associated_type.name().to_string())
                     .collect::<Vec<_>>(),
                 "associated type drift for {}",
+                descriptor.name
+            );
+            assert_eq!(
+                source.associated_values,
+                builtin
+                    .associated_comptimes()
+                    .iter()
+                    .map(|associated_value| associated_value.name().to_string())
+                    .collect::<Vec<_>>(),
+                "associated comptime drift for {}",
                 descriptor.name
             );
             assert_eq!(
@@ -1660,6 +1737,7 @@ extend[T, N: usize] [N]T : Len {
     struct SourceBuiltinDeclarations {
         functions: Vec<String>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
+        extends: Vec<String>,
     }
 
     #[derive(Debug)]
@@ -1667,6 +1745,7 @@ extend[T, N: usize] [N]T : Len {
         item_name: String,
         generic_count: usize,
         associated_types: Vec<String>,
+        associated_values: Vec<String>,
         methods: Vec<SourceBuiltinMethod>,
         supertraits: Vec<SourceBuiltinSupertrait>,
     }
@@ -1733,6 +1812,16 @@ extend[T, N: usize] [N]T : Len {
                             );
                         }
                     }
+                    nia_ast::ItemKind::Extend(_) => {
+                        if let Some(name) = builtin_attribute(&item.attributes) {
+                            assert!(
+                                !out.extends.contains(&name),
+                                "duplicate builtin extend declaration `{name}` in {}",
+                                path.display()
+                            );
+                            out.extends.push(name);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1773,6 +1862,11 @@ extend[T, N: usize] [N]T : Len {
                 .associated_types
                 .into_iter()
                 .map(|associated_type| associated_type.name)
+                .collect(),
+            associated_values: item_trait
+                .associated_values
+                .into_iter()
+                .map(|associated_value| associated_value.name)
                 .collect(),
             methods: item_trait
                 .methods

@@ -323,6 +323,34 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn optional_builtin_type_arg(
+        &mut self,
+        span: Span,
+        name: &str,
+        type_args: BuiltinCallTypeArgs<'_>,
+    ) -> Option<CheckedBuiltinTypeArg> {
+        match type_args {
+            BuiltinCallTypeArgs::Bracket(args) => {
+                if args.is_empty() {
+                    return None;
+                }
+                let lowered = self.lower_bracket_type_args(args);
+                if lowered.len() != 1 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!("builtin `{name}` takes at most one type argument"),
+                    ));
+                    return None;
+                }
+                Some(CheckedBuiltinTypeArg {
+                    ty: lowered[0],
+                    span: args.first().map_or(span, |arg| arg.span),
+                })
+            }
+        }
+    }
+
     fn check_offset_builtin_call(
         &mut self,
         call_span: Span,
@@ -775,7 +803,7 @@ impl<'a> BodyChecker<'a> {
         type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
-        self.reject_builtin_type_arg(builtin_span, name, type_args);
+        let explicit_elem_ty = self.optional_builtin_type_arg(builtin_span, name, type_args);
         if args.len() != 2 {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -789,11 +817,12 @@ impl<'a> BodyChecker<'a> {
         }
 
         let dest_actual = self.check_expr(&args[0]);
-        let Some((elem_ty, dest_expected)) = self.memory_dest_slice_expected(&args[0], dest_actual)
+        let Some((mut elem_ty, dest_expected)) =
+            self.memory_dest_slice_expected(&args[0], dest_actual)
         else {
             let src_expected = self.interner.intern(TyKind::Slice {
                 is_readonly: true,
-                elem: self.error(),
+                elem: explicit_elem_ty.map_or_else(|| self.error(), |arg| arg.ty),
             });
             self.check_expr_with_expected(&args[1], Some(src_expected));
             return self.void();
@@ -804,6 +833,15 @@ impl<'a> BodyChecker<'a> {
             dest_actual,
             "memory intrinsic destination",
         );
+        if let Some(type_arg) = explicit_elem_ty {
+            self.expect_type(
+                type_arg.span,
+                type_arg.ty,
+                elem_ty,
+                "memory intrinsic element type argument",
+            );
+            elem_ty = type_arg.ty;
+        }
         self.require_sized_type(args[0].span, elem_ty, name);
 
         let src_expected = self.interner.intern(TyKind::Slice {

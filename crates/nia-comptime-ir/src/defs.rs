@@ -4,7 +4,7 @@ use nia_ids::{
     BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
     ValueBuiltin,
 };
-use nia_sema_ir::{BuiltinAssociatedValue, SemanticValueUse};
+use nia_sema_ir::{AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticValueUse};
 use nia_span::Span;
 use std::collections::HashMap;
 
@@ -12,6 +12,7 @@ use std::collections::HashMap;
 pub struct ResolvedComptimeModule {
     enums: Vec<ResolvedComptimeEnum>,
     global_initializers: HashMap<GlobalDefId, ResolvedComptimeExpr>,
+    deferred_global_initializers: HashMap<GlobalDefId, ResolvedComptimeExpr>,
     local_initializers: HashMap<LocalId, ResolvedComptimeLocalInitializer>,
     functions: HashMap<GlobalDefId, ResolvedComptimeFunction>,
     const_exprs: HashMap<GlobalConstExprId, ResolvedComptimeExpr>,
@@ -28,6 +29,10 @@ impl ResolvedComptimeModule {
 
     pub fn global_initializers(&self) -> &HashMap<GlobalDefId, ResolvedComptimeExpr> {
         &self.global_initializers
+    }
+
+    pub fn deferred_global_initializers(&self) -> &HashMap<GlobalDefId, ResolvedComptimeExpr> {
+        &self.deferred_global_initializers
     }
 
     pub fn local_initializers(&self) -> &HashMap<LocalId, ResolvedComptimeLocalInitializer> {
@@ -52,6 +57,14 @@ impl ResolvedComptimeModule {
         value: ResolvedComptimeExpr,
     ) -> Option<ResolvedComptimeExpr> {
         self.global_initializers.insert(id, value)
+    }
+
+    pub fn insert_deferred_global_initializer(
+        &mut self,
+        id: GlobalDefId,
+        value: ResolvedComptimeExpr,
+    ) -> Option<ResolvedComptimeExpr> {
+        self.deferred_global_initializers.insert(id, value)
     }
 
     pub fn insert_local_initializer(
@@ -1454,6 +1467,7 @@ pub enum ComptimeNameResolution {
     Global(GlobalDefId),
     GenericParam(String),
     BuiltinAssociatedValue(BuiltinAssociatedValue),
+    AssociatedComptimeProjection(AssociatedComptimeProjection),
 }
 
 impl From<SemanticValueUse> for ComptimeNameResolution {

@@ -315,6 +315,9 @@ impl Analyzer<'_> {
                         .primitive(primitive),
                 ))
             }
+            ComptimeNameResolution::AssociatedComptimeProjection(projection) => self
+                .associated_comptime_projection_type(&projection)
+                .map(ComptimeValueType::Runtime),
             ComptimeNameResolution::GenericParam(name) => self
                 .call_locals
                 .iter()

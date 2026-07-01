@@ -88,6 +88,32 @@ fn main(ptr: &u8) bool {
 }
 
 #[test]
+fn parses_trait_target_associated_comptime_projection() {
+    let (module, errors) = parse_module(
+        r#"
+trait Simd {
+    comptime Lanes: usize;
+}
+
+fn lanes[T]() usize where T: Simd {
+    [T as Simd]::Lanes
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Qualified { lhs, name } = &tail.kind else {
+        panic!("expected qualified projection");
+    };
+    assert_eq!(name, "Lanes");
+    assert!(matches!(lhs.kind, ExprKind::TraitTarget { .. }));
+}
+
+#[test]
 fn parses_deep_pointer_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
@@ -358,6 +384,43 @@ where T: Mapper[A, B, C = i32, D = bool] {
             ..
         } if name == "D"
     ));
+}
+
+#[test]
+fn parses_trait_associated_comptime_requirements() {
+    let (module, errors) = parse_module(
+        r#"
+trait Simd {
+    type Lane;
+    comptime Lanes: usize;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Trait(item_trait) = &module.items[0].kind else {
+        panic!("expected trait");
+    };
+    assert_eq!(item_trait.associated_types.len(), 1);
+    assert_eq!(item_trait.associated_values.len(), 1);
+    assert_eq!(item_trait.associated_values[0].name, "Lanes");
+    assert!(matches!(
+        item_trait.associated_values[0].ty.kind,
+        TypeKind::Path { .. }
+    ));
+
+    let (_, errors) = parse_module(
+        r#"
+trait Bad {
+    comptime Value: usize = 1usize;
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("cannot have initializers")),
+        "{errors:?}"
+    );
 }
 
 #[test]
