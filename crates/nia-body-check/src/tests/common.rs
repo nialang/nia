@@ -302,6 +302,7 @@ fn single_module_trait_impls(
             Some(ProgramTraitImplSignature {
                 module_id,
                 impl_id: impl_signature.impl_id,
+                builtin: impl_signature.builtin.clone(),
                 generics: impl_signature.generics.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,

@@ -21,7 +21,10 @@ mod type_support;
 
 pub use nia_ty::import_type_into;
 
-use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt, StmtKind};
+use nia_ast::{
+    Attribute, AttributeKind, BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt,
+    StmtKind,
+};
 use nia_body_ir::BodyIr;
 use nia_comptime_check::{
     ComptimeArrayLengths, ComptimeKey, ComptimeTypedFacts, ComptimeValue, ComptimeValues,
@@ -1128,6 +1131,9 @@ impl<'a> BodyChecker<'a> {
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
         for impl_signature in signatures.trait_impls {
+            if impl_signature.builtin.is_some() {
+                continue;
+            }
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
             let target_ty = nia_ty::import_type_into(interner, local_type_interner, target_ty);
             for method in &impl_signature.methods {
@@ -1616,6 +1622,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ItemTreeNodeKind::Extend(extend) => {
+                if has_builtin_attribute(&item.attributes) {
+                    return;
+                }
                 for method in &extend.methods {
                     self.insert_function_item(
                         method.function.span,
@@ -3224,6 +3233,15 @@ pub(crate) fn generic_inst_base(expr: &Expr) -> &Expr {
         ExprKind::BracketSuffix { callee, .. } => callee,
         _ => expr,
     }
+}
+
+fn has_builtin_attribute(attributes: &[Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        matches!(
+            &attribute.kind,
+            AttributeKind::Meta(meta) if meta.path == ["builtin"]
+        )
+    })
 }
 
 #[cfg(test)]

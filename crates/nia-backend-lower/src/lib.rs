@@ -1017,6 +1017,9 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemTreeNodeKind::Extend(extend) => {
                     for method in &extend.methods {
+                        if method.function.body.is_none() {
+                            continue;
+                        }
                         self.index_function_source(
                             method.function.span,
                             &method.function,

@@ -1572,6 +1572,9 @@ where
     fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
         let mut matches = Vec::new();
         for (impl_index, impl_signature) in self.trait_impls.iter().enumerate() {
+            if impl_signature.builtin.is_some() {
+                continue;
+            }
             if !(self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id) {
                 continue;
             }
