@@ -332,11 +332,22 @@ impl<'a> BodyChecker<'a> {
         self.comptime_types
             .get(&def_id.def_id)
             .copied()
-            .or_else(|| {
-                self.signatures
+            .or_else(|| match def_id.module_id == self.defs.module_id {
+                true => self
+                    .signatures
                     .comptimes
                     .get(&def_id.def_id)
-                    .and_then(|signature| signature.explicit_type)
+                    .and_then(|signature| signature.explicit_type),
+                false => self
+                    .program_comptimes
+                    .get(&def_id)
+                    .cloned()
+                    .and_then(|signature| {
+                        signature
+                            .signature
+                            .explicit_type
+                            .map(|ty| self.import_type_from(&signature.interner, ty))
+                    }),
             })
             .or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(

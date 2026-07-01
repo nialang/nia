@@ -4,7 +4,34 @@ use super::common::*;
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath, Visibility};
 use nia_loader_query::load_program;
-use std::fs;
+use std::{fs, path::Path};
+
+trait TestModulePath {
+    fn path(&self) -> &SourcePath;
+}
+
+impl TestModulePath for crate::LoadedModule {
+    fn path(&self) -> &SourcePath {
+        &self.path
+    }
+}
+
+impl TestModulePath for crate::CheckedModule {
+    fn path(&self) -> &SourcePath {
+        &self.path
+    }
+}
+
+fn modules_under<'a, M: TestModulePath + 'a>(
+    modules: impl IntoIterator<Item = &'a M>,
+    root: &Path,
+) -> usize {
+    let root = root.to_string_lossy();
+    modules
+        .into_iter()
+        .filter(|module| module.path().as_str().starts_with(root.as_ref()))
+        .count()
+}
 
 #[test]
 fn loads_entry_and_imported_modules_once() {
@@ -20,7 +47,7 @@ fn loads_entry_and_imported_modules_once() {
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert_eq!(program.modules.len(), 2);
+    assert_eq!(modules_under(&program.modules, &root), 2);
     assert!(
         program
             .modules
@@ -41,7 +68,14 @@ fn loads_entry_and_imported_modules_once() {
         .get(program.graph.entry())
         .and_then(|root| root.children.get("math").copied())
         .expect("math child module");
-    assert_eq!(math, ModuleId(1));
+    let math_path = SourcePath::new(root.join("math.nia").to_string_lossy());
+    let math_module = program
+        .modules
+        .iter()
+        .find(|module| module.path == math_path)
+        .expect("math module");
+    assert_eq!(math, math_module.id);
+    assert_ne!(math, program.graph.entry());
 }
 
 #[test]
@@ -150,7 +184,7 @@ using entry::math; fn main() i32 { 0 }"#,
     write(&root.join("math.nia"), r#"fn bad() i32 { true }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert_eq!(program.modules.len(), 2);
+    assert_eq!(modules_under(&program.modules, &root), 2);
     assert!(
         program
             .diagnostics
@@ -562,7 +596,7 @@ fn main() {}
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert_eq!(program.modules.len(), 2);
+    assert_eq!(modules_under(&program.modules, &root), 2);
 }
 
 #[test]
