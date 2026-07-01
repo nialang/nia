@@ -195,6 +195,33 @@ impl<'a> BodyChecker<'a> {
         self.complete_instance_args_for_generics(span, &generics, substitutions)
     }
 
+    pub(crate) fn complete_instance_args_and_const_args_for_def(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
+    ) -> Option<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
+        let mut complete = true;
+        let mut args = Vec::new();
+        let mut const_args = Vec::new();
+        for generic in self.effective_generics_for_def(def_id) {
+            if let Some(arg) = substitutions.get(&generic).copied() {
+                args.push(arg);
+            } else if let Some(arg) = const_substitutions.get(&generic).cloned() {
+                const_args.push(arg);
+            } else {
+                complete = false;
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    format!("cannot infer generic parameter `{generic}`"),
+                ));
+            }
+        }
+        complete.then_some((args, const_args))
+    }
+
     pub(crate) fn record_generic_instantiation(
         &mut self,
         def_id: GlobalDefId,

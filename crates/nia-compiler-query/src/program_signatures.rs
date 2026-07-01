@@ -249,7 +249,7 @@ pub(crate) fn collect_program_trait_impls(
             let Some(trait_ty) = impl_signature.trait_ty else {
                 continue;
             };
-            let Some((trait_id, trait_args)) =
+            let Some((trait_id, trait_args, trait_const_args)) =
                 trait_id_and_args(&module.lowering.interner, trait_ty)
             else {
                 continue;
@@ -261,6 +261,7 @@ pub(crate) fn collect_program_trait_impls(
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
                 interner: module.lowering.interner.clone(),
@@ -316,7 +317,8 @@ pub(crate) fn collect_invalid_trait_impl_method_ids(
         for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             let trait_id = impl_signature.trait_ty.and_then(|trait_ty| {
-                trait_id_and_args(&module.lowering.interner, trait_ty).map(|(trait_id, _)| trait_id)
+                trait_id_and_args(&module.lowering.interner, trait_ty)
+                    .map(|(trait_id, _, _)| trait_id)
             });
             let is_invalid = matches!(trait_id, Some(TraitId::Builtin(trait_id))
                 if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature));
@@ -335,13 +337,31 @@ pub(crate) fn collect_invalid_trait_impl_method_ids(
 fn trait_id_and_args(
     interner: &TyInterner,
     ty: nia_ids::InternedTyId,
-) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
+) -> Option<(
+    TraitId,
+    Vec<nia_ids::InternedTyId>,
+    Vec<nia_ty::ConstGenericArg>,
+)> {
     match interner.get(ty) {
-        Some(TyKind::Nominal { def_id, args, .. }) => {
-            Some((TraitId::Source(*def_id), args.clone()))
-        }
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => Some((TraitId::Source(*def_id), args.clone(), const_args.clone())),
+        Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            trait_const_args,
+            ..
+        })
+        | Some(TyKind::TraitObject {
+            trait_id,
+            trait_args,
+            trait_const_args,
+            ..
+        }) => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
-            Some((TraitId::Builtin(*trait_id), args.clone()))
+            Some((TraitId::Builtin(*trait_id), args.clone(), Vec::new()))
         }
         _ => None,
     }
@@ -708,6 +728,32 @@ fn impl_trait_args(
     }
 }
 
+fn impl_trait_args_and_consts(
+    module: &ExtensionModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    expected_trait_id: Option<TraitId>,
+) -> Option<(Vec<nia_ids::InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+    let ty = module.normalization.normalize(impl_signature.trait_ty?);
+    match (expected_trait_id, module.normalization.interner.get(ty)) {
+        (
+            Some(TraitId::Source(expected)),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }),
+        ) if *def_id == expected => Some((args.clone(), const_args.clone())),
+        (
+            Some(TraitId::Builtin(expected)),
+            Some(TyKind::BuiltinTrait {
+                trait_id: found,
+                args,
+            }),
+        ) if *found == expected => Some((args.clone(), Vec::new())),
+        _ => None,
+    }
+}
+
 fn impl_trait_args_for_index(
     module: &ExtensionMethodIndexModuleInput<'_>,
     impl_signature: &TraitImplSignature,
@@ -864,8 +910,9 @@ fn validate_trait_impl(
             ));
         }
     }
-    let trait_args = impl_trait_args(module, impl_signature, Some(TraitId::Source(trait_id)))
-        .unwrap_or_default();
+    let (trait_args, trait_const_args) =
+        impl_trait_args_and_consts(module, impl_signature, Some(TraitId::Source(trait_id)))
+            .unwrap_or_default();
     validate_supertrait_impls(
         module,
         impl_signature,
@@ -904,6 +951,7 @@ fn validate_trait_impl(
             signature: &required.signature,
             trait_generics: &trait_signature.signature.generics,
             trait_args: &trait_args,
+            trait_const_args: &trait_const_args,
             self_ty: target_ty,
             trait_id,
             impl_signature,
@@ -914,6 +962,7 @@ fn validate_trait_impl(
             source_interner: &module.lowering.interner,
             signature: actual,
             trait_args: &trait_args,
+            trait_const_args: &trait_const_args,
             self_ty: target_ty,
             trait_id,
             impl_signature,
@@ -925,6 +974,7 @@ fn validate_trait_impl(
             target_ty,
             TraitId::Source(trait_id),
             &trait_args,
+            &trait_const_args,
             impl_signature,
             &trait_signatures,
             &required_signature,
@@ -1403,6 +1453,7 @@ fn import_trait_bound(
         source_interner,
         ty,
         &substitutions,
+        &HashMap::new(),
         None,
     )
 }
@@ -1544,6 +1595,7 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
         .map(|(generic, arg)| (generic.clone(), *arg))
         .collect::<HashMap<_, _>>();
     substitutions.insert("Self".to_string(), input.self_ty);
+    let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let mut signature = input.signature.clone();
     signature.params = signature
         .params
@@ -1557,9 +1609,11 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
                 input.source_interner,
                 param.ty,
                 &substitutions,
+                &const_substitutions,
                 Some(ProjectionImplContext {
                     trait_id: input.trait_id,
                     trait_args: input.trait_args,
+                    trait_const_args: input.trait_const_args,
                     self_ty: input.self_ty,
                     associated_types: &input.impl_signature.associated_types,
                 }),
@@ -1573,9 +1627,11 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
         input.source_interner,
         signature.return_type,
         &substitutions,
+        &const_substitutions,
         Some(ProjectionImplContext {
             trait_id: input.trait_id,
             trait_args: input.trait_args,
+            trait_const_args: input.trait_const_args,
             self_ty: input.self_ty,
             associated_types: &input.impl_signature.associated_types,
         }),
@@ -1585,9 +1641,11 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
 
 fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> FunctionSignature {
     let substitutions = HashMap::new();
+    let const_substitutions = HashMap::new();
     let context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
         trait_args: input.trait_args,
+        trait_const_args: input.trait_const_args,
         self_ty: input.self_ty,
         associated_types: &input.impl_signature.associated_types,
     });
@@ -1604,6 +1662,7 @@ fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> F
                 input.source_interner,
                 param.ty,
                 &substitutions,
+                &const_substitutions,
                 context,
             ),
             span: param.span,
@@ -1615,6 +1674,7 @@ fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> F
         input.source_interner,
         signature.return_type,
         &substitutions,
+        &const_substitutions,
         context,
     );
     signature
@@ -1630,6 +1690,7 @@ struct TraitMethodImport<'a> {
     // the substitution environment and projection-impl context in one place.
     trait_generics: &'a [String],
     trait_args: &'a [nia_ids::InternedTyId],
+    trait_const_args: &'a [nia_ty::ConstGenericArg],
     self_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,
     impl_signature: &'a TraitImplSignature,
@@ -1641,6 +1702,7 @@ struct ImplMethodSignatureNormalize<'a> {
     source_interner: &'a TyInterner,
     signature: &'a FunctionSignature,
     trait_args: &'a [nia_ids::InternedTyId],
+    trait_const_args: &'a [nia_ty::ConstGenericArg],
     self_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,
     impl_signature: &'a TraitImplSignature,
@@ -1650,6 +1712,7 @@ struct ImplMethodSignatureNormalize<'a> {
 struct ProjectionImplContext<'a> {
     trait_id: GlobalDefId,
     trait_args: &'a [nia_ids::InternedTyId],
+    trait_const_args: &'a [nia_ty::ConstGenericArg],
     self_ty: nia_ids::InternedTyId,
     associated_types: &'a [nia_item_signatures::TraitImplAssociatedTypeSignature],
 }
@@ -1660,6 +1723,7 @@ fn substitute_imported_type(
     source_interner: &TyInterner,
     ty: nia_ids::InternedTyId,
     substitutions: &HashMap<String, nia_ids::InternedTyId>,
+    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
     projection_context: Option<ProjectionImplContext<'_>>,
 ) -> nia_ids::InternedTyId {
     match source_interner.get(ty) {
@@ -1675,6 +1739,7 @@ fn substitute_imported_type(
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -1687,6 +1752,7 @@ fn substitute_imported_type(
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::VolatilePointer { is_readonly, elem })
@@ -1699,6 +1765,7 @@ fn substitute_imported_type(
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::Slice { is_readonly, elem })
@@ -1710,18 +1777,20 @@ fn substitute_imported_type(
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::SlicePointee { elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let len = len.clone();
+            let len = substitute_imported_array_len(len.clone(), const_substitutions);
             let elem = substitute_imported_type(
                 target_interner,
                 module,
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::Array { len, elem })
@@ -1734,6 +1803,7 @@ fn substitute_imported_type(
                     source_interner,
                     bound,
                     substitutions,
+                    const_substitutions,
                     projection_context,
                 )
             });
@@ -1746,6 +1816,7 @@ fn substitute_imported_type(
                 source_interner,
                 *elem,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::Optional { elem })
@@ -1757,6 +1828,7 @@ fn substitute_imported_type(
                 source_interner,
                 *error,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             let value = substitute_imported_type(
@@ -1765,6 +1837,7 @@ fn substitute_imported_type(
                 source_interner,
                 *value,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::ErrorUnion { error, value })
@@ -1783,6 +1856,7 @@ fn substitute_imported_type(
                         source_interner,
                         *param,
                         substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1793,6 +1867,7 @@ fn substitute_imported_type(
                 source_interner,
                 *return_type,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             target_interner.intern(TyKind::FunctionPointer {
@@ -1801,7 +1876,11 @@ fn substitute_imported_type(
                 is_variadic: *is_variadic,
             })
         }
-        Some(TyKind::Nominal { def_id, args, .. }) => {
+        Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) => {
             let args = args
                 .iter()
                 .map(|arg| {
@@ -1811,6 +1890,21 @@ fn substitute_imported_type(
                         source_interner,
                         *arg,
                         substitutions,
+                        const_substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            let const_args = const_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_const_arg(
+                        target_interner,
+                        module,
+                        source_interner,
+                        arg,
+                        substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1818,7 +1912,7 @@ fn substitute_imported_type(
             target_interner.intern(TyKind::Nominal {
                 def_id: *def_id,
                 args,
-                const_args: Vec::new(),
+                const_args,
             })
         }
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -1831,6 +1925,7 @@ fn substitute_imported_type(
                         source_interner,
                         *arg,
                         substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1844,6 +1939,7 @@ fn substitute_imported_type(
             is_readonly,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
@@ -1855,6 +1951,21 @@ fn substitute_imported_type(
                         source_interner,
                         *arg,
                         substitutions,
+                        const_substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            let trait_const_args = trait_const_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_const_arg(
+                        target_interner,
+                        module,
+                        source_interner,
+                        arg,
+                        substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1873,6 +1984,22 @@ fn substitute_imported_type(
                                 source_interner,
                                 *arg,
                                 substitutions,
+                                const_substitutions,
+                                projection_context,
+                            )
+                        })
+                        .collect(),
+                    trait_const_args: binding
+                        .trait_const_args
+                        .iter()
+                        .map(|arg| {
+                            substitute_imported_const_arg(
+                                target_interner,
+                                module,
+                                source_interner,
+                                arg,
+                                substitutions,
+                                const_substitutions,
                                 projection_context,
                             )
                         })
@@ -1884,6 +2011,7 @@ fn substitute_imported_type(
                         source_interner,
                         binding.ty,
                         substitutions,
+                        const_substitutions,
                         projection_context,
                     ),
                 })
@@ -1892,12 +2020,14 @@ fn substitute_imported_type(
                 is_readonly: *is_readonly,
                 trait_id: *trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             })
         }
         Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) => {
             let trait_args = trait_args
@@ -1909,6 +2039,21 @@ fn substitute_imported_type(
                         source_interner,
                         *arg,
                         substitutions,
+                        const_substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            let trait_const_args = trait_const_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_const_arg(
+                        target_interner,
+                        module,
+                        source_interner,
+                        arg,
+                        substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1927,6 +2072,22 @@ fn substitute_imported_type(
                                 source_interner,
                                 *arg,
                                 substitutions,
+                                const_substitutions,
+                                projection_context,
+                            )
+                        })
+                        .collect(),
+                    trait_const_args: binding
+                        .trait_const_args
+                        .iter()
+                        .map(|arg| {
+                            substitute_imported_const_arg(
+                                target_interner,
+                                module,
+                                source_interner,
+                                arg,
+                                substitutions,
+                                const_substitutions,
                                 projection_context,
                             )
                         })
@@ -1938,6 +2099,7 @@ fn substitute_imported_type(
                         source_interner,
                         binding.ty,
                         substitutions,
+                        const_substitutions,
                         projection_context,
                     ),
                 })
@@ -1945,6 +2107,7 @@ fn substitute_imported_type(
             target_interner.intern(TyKind::TraitObjectPointee {
                 trait_id: *trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             })
         }
@@ -1952,6 +2115,7 @@ fn substitute_imported_type(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         }) => {
             let self_ty = substitute_imported_type(
@@ -1960,6 +2124,7 @@ fn substitute_imported_type(
                 source_interner,
                 *self_ty,
                 substitutions,
+                const_substitutions,
                 projection_context,
             );
             let trait_args = trait_args
@@ -1971,6 +2136,21 @@ fn substitute_imported_type(
                         source_interner,
                         *arg,
                         substitutions,
+                        const_substitutions,
+                        projection_context,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let trait_const_args = trait_const_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_const_arg(
+                        target_interner,
+                        module,
+                        source_interner,
+                        arg,
+                        substitutions,
+                        const_substitutions,
                         projection_context,
                     )
                 })
@@ -1979,6 +2159,7 @@ fn substitute_imported_type(
                 && *trait_id == TraitId::Source(context.trait_id)
                 && self_ty == context.self_ty
                 && trait_args == context.trait_args
+                && trait_const_args == context.trait_const_args
                 && let Some(associated_type) = context
                     .associated_types
                     .iter()
@@ -1991,6 +2172,7 @@ fn substitute_imported_type(
                 self_ty,
                 trait_id: *trait_id,
                 trait_args,
+                trait_const_args,
                 name: name.clone(),
             })
         }
@@ -2001,6 +2183,74 @@ fn substitute_imported_type(
     }
 }
 
+fn const_substitutions_from_self_describing_args(
+    const_args: &[nia_ty::ConstGenericArg],
+) -> HashMap<String, nia_ty::ConstGenericArg> {
+    const_args
+        .iter()
+        .filter_map(|arg| match &arg.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => Some((name.clone(), arg.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn substitute_imported_const_arg(
+    target_interner: &mut TyInterner,
+    module: &ExtensionModuleInput<'_>,
+    source_interner: &TyInterner,
+    arg: &nia_ty::ConstGenericArg,
+    substitutions: &HashMap<String, nia_ids::InternedTyId>,
+    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    projection_context: Option<ProjectionImplContext<'_>>,
+) -> nia_ty::ConstGenericArg {
+    if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
+        && let Some(substituted) = const_substitutions.get(name)
+    {
+        return substituted.clone();
+    }
+    nia_ty::ConstGenericArg {
+        ty: substitute_imported_type(
+            target_interner,
+            module,
+            source_interner,
+            arg.ty,
+            substitutions,
+            const_substitutions,
+            projection_context,
+        ),
+        value: arg.value.clone(),
+    }
+}
+
+fn substitute_imported_array_len(
+    len: nia_ty::ArrayLenTy,
+    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+) -> nia_ty::ArrayLenTy {
+    match len {
+        nia_ty::ArrayLenTy::GenericParam(name) => const_substitutions
+            .get(&name)
+            .and_then(array_len_from_const_arg)
+            .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
+        len => len,
+    }
+}
+
+fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
+    match &arg.value {
+        nia_ty::ConstGenericValue::Int(value) => value
+            .bits()
+            .try_into()
+            .ok()
+            .map(nia_ty::ArrayLenTy::ConstValue),
+        nia_ty::ConstGenericValue::GenericParam(name) => {
+            Some(nia_ty::ArrayLenTy::GenericParam(name.clone()))
+        }
+        nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
+        nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
+    }
+}
+
 fn trait_method_signature_matches(
     module: &ExtensionModuleInput<'_>,
     trait_impls: &[ProgramTraitImplSignature],
@@ -2008,6 +2258,7 @@ fn trait_method_signature_matches(
     self_ty: nia_ids::InternedTyId,
     trait_id: TraitId,
     trait_args: &[nia_ids::InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
     impl_signature: &TraitImplSignature,
     trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
     required: &nia_item_signatures::FunctionSignature,
@@ -2017,6 +2268,7 @@ fn trait_method_signature_matches(
         self_ty,
         trait_id,
         trait_args: trait_args.to_vec(),
+        trait_const_args: trait_const_args.to_vec(),
     }];
     let mut associated_type_assumptions = impl_signature
         .associated_types
@@ -2026,6 +2278,7 @@ fn trait_method_signature_matches(
                 self_ty,
                 trait_id,
                 trait_args: trait_args.to_vec(),
+                trait_const_args: trait_const_args.to_vec(),
             },
             name: associated_type.name.clone(),
             ty: import_type_into(
@@ -2050,6 +2303,7 @@ fn trait_method_signature_matches(
         local_module_id: module.module_id,
         local_enums: &module.signatures.enums,
         program_enums: None,
+        const_expr_value: None,
         impl_is_visible: None,
     };
     let mut solver = context.solver_with_associated_type_assumptions(
@@ -2092,7 +2346,9 @@ fn push_where_predicate_solver_assumptions(
                 &module.normalization.interner,
                 module.normalization.normalize(bound.trait_ty),
             );
-            let Some((trait_id, trait_args)) = trait_id_and_args(interner, trait_ty) else {
+            let Some((trait_id, trait_args, trait_const_args)) =
+                trait_id_and_args(interner, trait_ty)
+            else {
                 continue;
             };
             push_trait_goal_assumption_with_supertraits(
@@ -2102,6 +2358,7 @@ fn push_where_predicate_solver_assumptions(
                 self_ty,
                 trait_id,
                 trait_args.clone(),
+                trait_const_args.clone(),
                 assumptions,
             );
             for binding in &bound.associated_type_bindings {
@@ -2115,6 +2372,7 @@ fn push_where_predicate_solver_assumptions(
                         self_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
+                        trait_const_args: trait_const_args.clone(),
                     },
                     name: binding.name.clone(),
                     ty,
@@ -2131,6 +2389,7 @@ fn push_trait_goal_assumption_with_supertraits(
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
     assumptions: &mut Vec<TraitGoal>,
 ) {
     push_trait_goal_assumption_with_supertraits_inner(
@@ -2140,6 +2399,7 @@ fn push_trait_goal_assumption_with_supertraits(
         self_ty,
         trait_id,
         trait_args,
+        trait_const_args,
         assumptions,
         &mut HashSet::new(),
     );
@@ -2152,21 +2412,24 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
     assumptions: &mut Vec<TraitGoal>,
-    visited: &mut HashSet<(TraitId, Vec<InternedTyId>)>,
+    visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
 ) {
-    if !visited.insert((trait_id, trait_args.clone())) {
+    if !visited.insert((trait_id, trait_args.clone(), trait_const_args.clone())) {
         return;
     }
     if !assumptions.iter().any(|assumption| {
         assumption.self_ty == self_ty
             && assumption.trait_id == trait_id
             && assumption.trait_args == trait_args
+            && assumption.trait_const_args == trait_const_args
     }) {
         assumptions.push(TraitGoal {
             self_ty,
             trait_id,
             trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
         });
     }
     match trait_id {
@@ -2184,6 +2447,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     self_ty,
                     TraitId::Builtin(supertrait.trait_id),
                     supertrait_args,
+                    Vec::new(),
                     assumptions,
                     visited,
                 );
@@ -2200,6 +2464,8 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 .zip(&trait_args)
                 .map(|(generic, arg)| (generic.clone(), *arg))
                 .collect::<HashMap<_, _>>();
+            let const_substitutions =
+                const_substitutions_from_self_describing_args(&trait_const_args);
             for supertrait in &trait_signature.signature.supertraits {
                 let supertrait = substitute_imported_type(
                     interner,
@@ -2207,9 +2473,10 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     trait_signature.interner,
                     supertrait.ty,
                     &substitutions,
+                    &const_substitutions,
                     None,
                 );
-                let Some((supertrait_id, supertrait_args)) =
+                let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
                     trait_id_and_args(interner, supertrait)
                 else {
                     continue;
@@ -2221,6 +2488,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     self_ty,
                     supertrait_id,
                     supertrait_args,
+                    supertrait_const_args,
                     assumptions,
                     visited,
                 );

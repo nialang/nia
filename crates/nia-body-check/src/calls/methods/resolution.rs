@@ -102,13 +102,20 @@ impl<'a> BodyChecker<'a> {
         for method in methods.methods {
             let candidate_ty = method.target_ty;
             let mut target_substitutions = HashMap::new();
+            let mut target_const_substitutions = HashMap::new();
             if self.profile_stage("body_check.profile.method.match_target", |this| {
-                this.match_type_pattern(candidate_ty, target_ty, &mut target_substitutions)
+                this.match_type_pattern_with_consts(
+                    candidate_ty,
+                    target_ty,
+                    &mut target_substitutions,
+                    &mut target_const_substitutions,
+                )
             }) {
                 candidates.push(MethodCandidate {
                     target_ty: candidate_ty,
                     method: method.method,
                     target_substitutions,
+                    target_const_substitutions,
                 });
             }
         }
@@ -138,6 +145,7 @@ impl<'a> BodyChecker<'a> {
                     continue;
                 }
                 let mut target_substitutions = HashMap::new();
+                let mut target_const_substitutions = HashMap::new();
                 let matches_receiver =
                     self.profile_stage("body_check.profile.method.match_receiver", |this| {
                         this.match_extension_receiver_target(
@@ -145,6 +153,7 @@ impl<'a> BodyChecker<'a> {
                             method.method.def_id,
                             receiver_ty,
                             &mut target_substitutions,
+                            &mut target_const_substitutions,
                         )
                     });
                 if matches_receiver
@@ -157,6 +166,7 @@ impl<'a> BodyChecker<'a> {
                         target_ty,
                         method: method.method.clone(),
                         target_substitutions,
+                        target_const_substitutions,
                     });
                 }
             }
@@ -244,13 +254,24 @@ impl<'a> BodyChecker<'a> {
         method_id: GlobalDefId,
         receiver_ty: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
     ) -> bool {
         let candidate_target_ty = self.receiver_candidate_target_ty(target_ty, method_id);
-        if self.try_match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
+        if self.try_match_type_pattern_with_consts(
+            candidate_target_ty,
+            receiver_ty,
+            substitutions,
+            const_substitutions,
+        ) {
             self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
-        if self.try_match_type_pattern(target_ty, receiver_ty, substitutions) {
+        if self.try_match_type_pattern_with_consts(
+            target_ty,
+            receiver_ty,
+            substitutions,
+            const_substitutions,
+        ) {
             self.bind_extension_self_from_target(target_ty, substitutions);
             return true;
         }
@@ -268,6 +289,7 @@ impl<'a> BodyChecker<'a> {
                 method_id,
                 *elem,
                 substitutions,
+                const_substitutions,
             );
         }
         false
@@ -290,11 +312,34 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
+        let mut const_substitutions = HashMap::new();
+        self.try_match_type_pattern_with_consts(
+            pattern,
+            actual,
+            substitutions,
+            &mut const_substitutions,
+        )
+    }
+
+    fn try_match_type_pattern_with_consts(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> bool {
         let mut candidate_substitutions = substitutions.clone();
-        if !self.match_type_pattern(pattern, actual, &mut candidate_substitutions) {
+        let mut candidate_const_substitutions = const_substitutions.clone();
+        if !self.match_type_pattern_with_consts(
+            pattern,
+            actual,
+            &mut candidate_substitutions,
+            &mut candidate_const_substitutions,
+        ) {
             return false;
         }
         *substitutions = candidate_substitutions;
+        *const_substitutions = candidate_const_substitutions;
         true
     }
 
@@ -307,6 +352,7 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         }) = self.interner.get(target_ty).cloned()
         else {
@@ -331,10 +377,16 @@ impl<'a> BodyChecker<'a> {
             }
             concrete_trait_args.push(trait_arg);
         }
-        if !self.current_context_proves_trait_obligation(
+        let mut concrete_trait_const_args = Vec::new();
+        for mut trait_const_arg in trait_const_args {
+            trait_const_arg.ty = self.substitute_generics(trait_const_arg.ty, substitutions);
+            concrete_trait_const_args.push(trait_const_arg);
+        }
+        if !self.current_context_proves_trait_obligation_with_const_args(
             receiver_self_ty,
             trait_id,
             concrete_trait_args,
+            concrete_trait_const_args,
         ) {
             return false;
         }
@@ -387,10 +439,12 @@ impl<'a> BodyChecker<'a> {
                 .into_iter()
                 .map(|arg| self.import_type_for_method_resolution(arg))
                 .collect();
+            let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 self_ty,
                 name,
                 &trait_signature,
@@ -433,10 +487,12 @@ impl<'a> BodyChecker<'a> {
                 .into_iter()
                 .map(|arg| self.import_type_for_method_resolution(arg))
                 .collect();
+            let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 self_ty,
                 name,
                 &trait_signature,
@@ -471,12 +527,14 @@ impl<'a> BodyChecker<'a> {
             let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
                 continue;
             };
-            for trait_args in self.visible_trait_arg_candidates(self_ty, TraitId::Source(trait_id))
+            for (trait_args, trait_const_args) in
+                self.visible_trait_arg_candidates(self_ty, TraitId::Source(trait_id))
             {
                 self.push_trait_method_candidates(
                     candidates,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     self_ty,
                     name,
                     &trait_signature,
@@ -516,6 +574,7 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::TraitObject {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         }) = self.interner.get(receiver_ty).cloned()
@@ -526,6 +585,7 @@ impl<'a> BodyChecker<'a> {
             Span::new(0, 0),
             trait_id,
             &trait_args,
+            &trait_const_args,
             &associated_type_bindings,
         ) {
             return Vec::new();
@@ -544,6 +604,7 @@ impl<'a> BodyChecker<'a> {
             },
             trait_id,
             trait_args,
+            trait_const_args,
         );
         candidates
     }
@@ -553,6 +614,7 @@ impl<'a> BodyChecker<'a> {
         search: &mut DynamicTraitMethodSearch<'_>,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
     ) {
         if search.visiting.contains(&trait_id) {
             return;
@@ -581,18 +643,27 @@ impl<'a> BodyChecker<'a> {
                 },
                 trait_generics: trait_signature.generics.clone(),
                 trait_args: trait_args.clone(),
+                trait_const_args: trait_const_args.clone(),
                 associated_type_bindings: search.associated_type_bindings.clone(),
                 signature: method.signature.clone(),
                 slot,
             });
         }
-        let substitutions = self.generic_substitutions(&trait_signature.generics, &trait_args);
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            source_trait_id,
+            &trait_args,
+            &trait_const_args,
+        );
         for supertrait in &trait_signature.supertraits {
-            let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
+            let supertrait = self.substitute_generics_and_consts(
+                supertrait.ty,
+                &substitutions,
+                &const_substitutions,
+            );
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
-                ..
+                const_args: supertrait_const_args,
             }) = self
                 .interner
                 .get(self.normalization.normalize(supertrait))
@@ -604,6 +675,7 @@ impl<'a> BodyChecker<'a> {
                 search,
                 TraitId::Source(supertrait_id),
                 supertrait_args,
+                supertrait_const_args,
             );
         }
         search.visiting.pop();
@@ -629,6 +701,7 @@ impl<'a> BodyChecker<'a> {
         candidates: &mut Vec<TraitMethodCandidate>,
         trait_id: GlobalDefId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
         self_ty: InternedTyId,
         name: &str,
         trait_signature: &nia_item_signatures::TraitSignature,
@@ -648,6 +721,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty,
                         )
                         && candidate.trait_args.len() == trait_args.len()
+                        && candidate.trait_const_args == trait_const_args
                         && candidate
                             .trait_args
                             .iter()
@@ -665,19 +739,25 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     trait_generics: trait_signature.generics.clone(),
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                     signature: method.signature.clone(),
                     has_default: method.has_default,
                     is_assumed,
                 });
             }
         }
-        let substitutions = self.generic_substitutions(&trait_signature.generics, &trait_args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(trait_id, &trait_args, &trait_const_args);
         for supertrait in &trait_signature.supertraits {
-            let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
+            let supertrait = self.substitute_generics_and_consts(
+                supertrait.ty,
+                &substitutions,
+                &const_substitutions,
+            );
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
-                ..
+                const_args: supertrait_const_args,
             }) = self
                 .interner
                 .get(self.normalization.normalize(supertrait))
@@ -692,6 +772,7 @@ impl<'a> BodyChecker<'a> {
                 candidates,
                 supertrait_id,
                 supertrait_args,
+                supertrait_const_args,
                 self_ty,
                 name,
                 &supertrait_signature,
@@ -1037,16 +1118,19 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: general_const,
                 trait_id: general_trait,
                 trait_args: general_args,
+                trait_const_args: general_const_args,
                 associated_type_bindings: general_bindings,
             }) => match self.interner.get(specific) {
                 Some(TyKind::TraitObject {
                     is_readonly: specific_const,
                     trait_id: specific_trait,
                     trait_args: specific_args,
+                    trait_const_args: specific_const_args,
                     associated_type_bindings: specific_bindings,
                 }) if general_const == specific_const
                     && general_trait == specific_trait
                     && general_args.len() == specific_args.len()
+                    && general_const_args == specific_const_args
                     && general_bindings.len() == specific_bindings.len() =>
                 {
                     general_args
@@ -1089,14 +1173,17 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::TraitObjectPointee {
                 trait_id: general_trait,
                 trait_args: general_args,
+                trait_const_args: general_const_args,
                 associated_type_bindings: general_bindings,
             }) => match self.interner.get(specific) {
                 Some(TyKind::TraitObjectPointee {
                     trait_id: specific_trait,
                     trait_args: specific_args,
+                    trait_const_args: specific_const_args,
                     associated_type_bindings: specific_bindings,
                 }) if general_trait == specific_trait
                     && general_args.len() == specific_args.len()
+                    && general_const_args == specific_const_args
                     && general_bindings.len() == specific_bindings.len() =>
                 {
                     general_args
@@ -1141,12 +1228,14 @@ impl<'a> BodyChecker<'a> {
                 trait_id: general_trait,
                 trait_args: general_args,
                 name: general_name,
+                ..
             }) => match self.interner.get(specific) {
                 Some(TyKind::Projection {
                     self_ty: specific_self,
                     trait_id: specific_trait,
                     trait_args: specific_args,
                     name: specific_name,
+                    ..
                 }) if general_trait == specific_trait
                     && general_name == specific_name
                     && general_args.len() == specific_args.len() =>
@@ -1205,12 +1294,12 @@ impl<'a> BodyChecker<'a> {
                 self.generic_substitutions(&signature.generics, context.lowered_method_args),
             );
         } else if let Some(expected) = context.expected {
-            self.infer_generics_from_type(
+            let return_type = self.substitute_generics_and_consts(
                 signature.return_type,
-                expected,
-                &mut substitutions,
-                context.span,
+                &substitutions,
+                context.target_const_substitutions,
             );
+            self.infer_generics_from_type(return_type, expected, &mut substitutions, context.span);
         }
         Some(substitutions)
     }
@@ -1248,6 +1337,22 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
+        let mut const_substitutions = HashMap::new();
+        self.match_type_pattern_with_consts(
+            pattern,
+            actual,
+            substitutions,
+            &mut const_substitutions,
+        )
+    }
+
+    pub(crate) fn match_type_pattern_with_consts(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> bool {
         let pattern = self.normalization.normalize(pattern);
         let actual = self.normalization.normalize(actual);
         match self.interner.get(pattern) {
@@ -1268,7 +1373,12 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     elem
                 }) if is_readonly == pattern_const
-                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                    && self.match_type_pattern_with_consts(
+                        *pattern_elem,
+                        *elem,
+                        substitutions,
+                        const_substitutions
+                    )
             ),
             Some(TyKind::VolatilePointer {
                 is_readonly: pattern_const,
@@ -1279,7 +1389,12 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     elem
                 }) if is_readonly == pattern_const
-                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                    && self.match_type_pattern_with_consts(
+                        *pattern_elem,
+                        *elem,
+                        substitutions,
+                        const_substitutions
+                    )
             ),
             Some(TyKind::Slice {
                 is_readonly: pattern_const,
@@ -1290,19 +1405,36 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     elem
                 }) if is_readonly == pattern_const
-                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                    && self.match_type_pattern_with_consts(
+                        *pattern_elem,
+                        *elem,
+                        substitutions,
+                        const_substitutions
+                    )
             ),
             Some(TyKind::SlicePointee { elem: pattern_elem }) => matches!(
                 self.interner.get(actual),
                 Some(TyKind::SlicePointee { elem })
-                    if self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                    if self.match_type_pattern_with_consts(
+                        *pattern_elem,
+                        *elem,
+                        substitutions,
+                        const_substitutions
+                    )
             ),
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
             }) => match self.interner.get(actual) {
-                Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
-                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                Some(TyKind::Array { len, elem })
+                    if self.match_array_len_pattern(pattern_len, len, const_substitutions) =>
+                {
+                    self.match_type_pattern_with_consts(
+                        *pattern_elem,
+                        *elem,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -1312,9 +1444,12 @@ impl<'a> BodyChecker<'a> {
             }) => match self.interner.get(actual) {
                 Some(TyKind::Range { kind, bound }) if pattern_kind == kind => {
                     match (pattern_bound, bound) {
-                        (Some(pattern_bound), Some(bound)) => {
-                            self.match_type_pattern(*pattern_bound, *bound, substitutions)
-                        }
+                        (Some(pattern_bound), Some(bound)) => self.match_type_pattern_with_consts(
+                            *pattern_bound,
+                            *bound,
+                            substitutions,
+                            const_substitutions,
+                        ),
                         (None, None) => true,
                         _ => false,
                     }
@@ -1332,15 +1467,28 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
-                        self.match_type_pattern(*pattern, *actual, substitutions)
-                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                        self.match_type_pattern_with_consts(
+                            *pattern,
+                            *actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && self.match_type_pattern_with_consts(
+                        *pattern_return,
+                        *return_type,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
             Some(TyKind::Optional { elem: pattern_elem }) => match self.interner.get(actual) {
-                Some(TyKind::Optional { elem }) => {
-                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
-                }
+                Some(TyKind::Optional { elem }) => self.match_type_pattern_with_consts(
+                    *pattern_elem,
+                    *elem,
+                    substitutions,
+                    const_substitutions,
+                ),
                 _ => false,
             },
             Some(TyKind::ErrorUnion {
@@ -1348,8 +1496,17 @@ impl<'a> BodyChecker<'a> {
                 value: pattern_value,
             }) => match self.interner.get(actual) {
                 Some(TyKind::ErrorUnion { error, value }) => {
-                    self.match_type_pattern(*pattern_error, *error, substitutions)
-                        && self.match_type_pattern(*pattern_value, *value, substitutions)
+                    self.match_type_pattern_with_consts(
+                        *pattern_error,
+                        *error,
+                        substitutions,
+                        const_substitutions,
+                    ) && self.match_type_pattern_with_consts(
+                        *pattern_value,
+                        *value,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -1363,12 +1520,26 @@ impl<'a> BodyChecker<'a> {
                     args,
                     const_args,
                 }) if pattern_def == def_id
-                    && pattern_const_args == const_args
-                    && pattern_args.len() == args.len() =>
+                    && pattern_args.len() == args.len()
+                    && pattern_const_args.len() == const_args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
-                        self.match_type_pattern(*pattern, *actual, substitutions)
-                    })
+                        self.match_type_pattern_with_consts(
+                            *pattern,
+                            *actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && pattern_const_args
+                        .iter()
+                        .zip(const_args)
+                        .all(|(pattern, actual)| {
+                            self.match_const_generic_arg_pattern(
+                                pattern,
+                                actual,
+                                const_substitutions,
+                            )
+                        })
                 }
                 _ => false,
             },
@@ -1380,7 +1551,12 @@ impl<'a> BodyChecker<'a> {
                     if pattern_trait == trait_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
-                        self.match_type_pattern(*pattern, *actual, substitutions)
+                        self.match_type_pattern_with_consts(
+                            *pattern,
+                            *actual,
+                            substitutions,
+                            const_substitutions,
+                        )
                     })
                 }
                 _ => false,
@@ -1389,24 +1565,42 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.interner.get(actual) {
                 Some(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
+                    ..
                 }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
+                    && pattern_const_args.len() == trait_const_args.len()
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
                         .iter()
                         .zip(trait_args)
                         .all(|(pattern, actual)| {
-                            self.match_type_pattern(*pattern, *actual, substitutions)
+                            self.match_type_pattern_with_consts(
+                                *pattern,
+                                *actual,
+                                substitutions,
+                                const_substitutions,
+                            )
                         })
+                        && pattern_const_args.iter().zip(trait_const_args).all(
+                            |(pattern, actual)| {
+                                self.match_const_generic_arg_pattern(
+                                    pattern,
+                                    actual,
+                                    const_substitutions,
+                                )
+                            },
+                        )
                         && pattern_bindings.iter().all(|pattern_binding| {
                             associated_type_bindings
                                 .iter()
@@ -1415,23 +1609,38 @@ impl<'a> BodyChecker<'a> {
                                         && pattern_binding.trait_id == actual_binding.trait_id
                                         && pattern_binding.trait_args.len()
                                             == actual_binding.trait_args.len()
+                                        && pattern_binding.trait_const_args.len()
+                                            == actual_binding.trait_const_args.len()
                                         && pattern_binding
                                             .trait_args
                                             .iter()
                                             .zip(&actual_binding.trait_args)
                                             .all(|(pattern, actual)| {
-                                                self.match_type_pattern(
+                                                self.match_type_pattern_with_consts(
                                                     *pattern,
                                                     *actual,
                                                     substitutions,
+                                                    const_substitutions,
+                                                )
+                                            })
+                                        && pattern_binding
+                                            .trait_const_args
+                                            .iter()
+                                            .zip(&actual_binding.trait_const_args)
+                                            .all(|(pattern, actual)| {
+                                                self.match_const_generic_arg_pattern(
+                                                    pattern,
+                                                    actual,
+                                                    const_substitutions,
                                                 )
                                             })
                                 })
                                 .is_some_and(|actual_binding| {
-                                    self.match_type_pattern(
+                                    self.match_type_pattern_with_consts(
                                         pattern_binding.ty,
                                         actual_binding.ty,
                                         substitutions,
+                                        const_substitutions,
                                     )
                                 })
                         })
@@ -1441,22 +1650,40 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::TraitObjectPointee {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.interner.get(actual) {
                 Some(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
+                    ..
                 }) if trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
+                    && pattern_const_args.len() == trait_const_args.len()
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
                         .iter()
                         .zip(trait_args)
                         .all(|(pattern, actual)| {
-                            self.match_type_pattern(*pattern, *actual, substitutions)
+                            self.match_type_pattern_with_consts(
+                                *pattern,
+                                *actual,
+                                substitutions,
+                                const_substitutions,
+                            )
                         })
+                        && pattern_const_args.iter().zip(trait_const_args).all(
+                            |(pattern, actual)| {
+                                self.match_const_generic_arg_pattern(
+                                    pattern,
+                                    actual,
+                                    const_substitutions,
+                                )
+                            },
+                        )
                         && pattern_bindings.iter().all(|pattern_binding| {
                             associated_type_bindings
                                 .iter()
@@ -1465,23 +1692,38 @@ impl<'a> BodyChecker<'a> {
                                         && pattern_binding.trait_id == actual_binding.trait_id
                                         && pattern_binding.trait_args.len()
                                             == actual_binding.trait_args.len()
+                                        && pattern_binding.trait_const_args.len()
+                                            == actual_binding.trait_const_args.len()
                                         && pattern_binding
                                             .trait_args
                                             .iter()
                                             .zip(&actual_binding.trait_args)
                                             .all(|(pattern, actual)| {
-                                                self.match_type_pattern(
+                                                self.match_type_pattern_with_consts(
                                                     *pattern,
                                                     *actual,
                                                     substitutions,
+                                                    const_substitutions,
+                                                )
+                                            })
+                                        && pattern_binding
+                                            .trait_const_args
+                                            .iter()
+                                            .zip(&actual_binding.trait_const_args)
+                                            .all(|(pattern, actual)| {
+                                                self.match_const_generic_arg_pattern(
+                                                    pattern,
+                                                    actual,
+                                                    const_substitutions,
                                                 )
                                             })
                                 })
                                 .is_some_and(|actual_binding| {
-                                    self.match_type_pattern(
+                                    self.match_type_pattern_with_consts(
                                         pattern_binding.ty,
                                         actual_binding.ty,
                                         substitutions,
+                                        const_substitutions,
                                     )
                                 })
                         })
@@ -1492,24 +1734,47 @@ impl<'a> BodyChecker<'a> {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 name: pattern_name,
+                ..
             }) => match self.interner.get(actual) {
                 Some(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
+                    ..
                 }) if pattern_trait == trait_id
                     && pattern_name == name
-                    && pattern_args.len() == trait_args.len() =>
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_const_args.len() == trait_const_args.len() =>
                 {
-                    self.match_type_pattern(*pattern_self, *self_ty, substitutions)
-                        && pattern_args
-                            .iter()
-                            .zip(trait_args)
-                            .all(|(pattern, actual)| {
-                                self.match_type_pattern(*pattern, *actual, substitutions)
-                            })
+                    self.match_type_pattern_with_consts(
+                        *pattern_self,
+                        *self_ty,
+                        substitutions,
+                        const_substitutions,
+                    ) && pattern_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(pattern, actual)| {
+                            self.match_type_pattern_with_consts(
+                                *pattern,
+                                *actual,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && pattern_const_args.iter().zip(trait_const_args).all(
+                            |(pattern, actual)| {
+                                self.match_const_generic_arg_pattern(
+                                    pattern,
+                                    actual,
+                                    const_substitutions,
+                                )
+                            },
+                        )
                 }
                 _ => false,
             },
@@ -1528,6 +1793,76 @@ impl<'a> BodyChecker<'a> {
         let expected = self.array_len_value(Span::default(), expected).ok();
         let actual = self.array_len_value(Span::default(), actual).ok();
         expected.is_some() && expected == actual
+    }
+
+    fn match_array_len_pattern(
+        &self,
+        pattern: &ArrayLenTy,
+        actual: &ArrayLenTy,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if pattern == actual || self.array_lens_match(pattern, actual) {
+            return true;
+        }
+        let ArrayLenTy::GenericParam(name) = pattern else {
+            return false;
+        };
+        let Some(value) = self.method_const_generic_value_from_array_len(actual) else {
+            return false;
+        };
+        let arg = nia_ty::ConstGenericArg {
+            ty: self.interner.primitive(PrimitiveTy::Usize),
+            value,
+        };
+        Self::record_const_pattern_substitution(name, arg, const_substitutions)
+    }
+
+    fn match_const_generic_arg_pattern(
+        &self,
+        pattern: &nia_ty::ConstGenericArg,
+        actual: &nia_ty::ConstGenericArg,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if pattern == actual {
+            return true;
+        }
+        let nia_ty::ConstGenericValue::GenericParam(name) = &pattern.value else {
+            return false;
+        };
+        Self::record_const_pattern_substitution(name, actual.clone(), const_substitutions)
+    }
+
+    fn record_const_pattern_substitution(
+        name: &str,
+        arg: nia_ty::ConstGenericArg,
+        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if let Some(existing) = const_substitutions.get(name) {
+            existing == &arg
+        } else {
+            const_substitutions.insert(name.to_string(), arg);
+            true
+        }
+    }
+
+    fn method_const_generic_value_from_array_len(
+        &self,
+        len: &ArrayLenTy,
+    ) -> Option<nia_ty::ConstGenericValue> {
+        match len {
+            ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
+                nia_ty::IntConst::unsigned((*value).into()),
+            )),
+            ArrayLenTy::ConstExpr(id) => {
+                self.comptime.array_lengths.get(id).copied().map(|value| {
+                    nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+                })
+            }
+            ArrayLenTy::GenericParam(name) => {
+                Some(nia_ty::ConstGenericValue::GenericParam(name.clone()))
+            }
+            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+        }
     }
 
     pub(in crate::calls::methods) fn infer_method_generics_from_args(

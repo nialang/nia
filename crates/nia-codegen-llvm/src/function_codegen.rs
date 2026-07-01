@@ -264,6 +264,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .bool_type()
                 .const_int(u64::from(*value), false)
                 .into()),
+            FunctionExprKind::ConstGeneric(_) => {
+                Err(self.error(expr.span, "const generic value reached LLVM codegen"))
+            }
             FunctionExprKind::Null => self.emit_optional_null(expr),
             FunctionExprKind::Local(local_id) => {
                 if self.is_zero_sized(expr.ty) {

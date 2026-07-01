@@ -88,6 +88,7 @@ pub struct ProgramTraitImplSignature {
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub interner: nia_ty::TyInterner,

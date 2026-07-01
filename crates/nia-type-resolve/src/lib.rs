@@ -23,6 +23,7 @@ use nia_ty::{BuiltinTrait, PrimitiveTypeSpelling};
 pub struct TypeResolution {
     pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
     pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
+    pub node_const_generic_names: HashMap<VersionedNodeKey, String>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -220,6 +221,7 @@ fn resolve_module_types_from_items_with_mode(
         using_scope,
         node_type_names: HashMap::new(),
         node_qualified_type_names: HashMap::new(),
+        node_const_generic_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
@@ -233,6 +235,7 @@ fn resolve_module_types_from_items_with_mode(
     TypeResolution {
         node_type_names: resolver.node_type_names,
         node_qualified_type_names: resolver.node_qualified_type_names,
+        node_const_generic_names: resolver.node_const_generic_names,
         diagnostics: resolver.diagnostics,
     }
 }
@@ -251,6 +254,7 @@ struct TypeResolver<'a> {
     using_scope: Option<&'a ModuleUsingScope>,
     node_type_names: HashMap<NodeSite, TypeNameResolution>,
     node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
+    node_const_generic_names: HashMap<VersionedNodeKey, String>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<Span>,
@@ -409,6 +413,12 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
 
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
         match &expr.kind {
+            nia_ast::ExprKind::Ident(name) => {
+                if self.is_comptime_generic_param(name) {
+                    self.node_const_generic_names
+                        .insert(expr.node_key.clone(), name.clone());
+                }
+            }
             nia_ast::ExprKind::BracketSuffix { callee, args } => {
                 self.visit_expr(callee);
                 for arg in args {
@@ -645,7 +655,15 @@ impl<'a> TypeResolver<'a> {
         for segment in segments {
             for arg in &segment.args {
                 match arg {
-                    TypeArg::Type(ty) => self.visit_type(ty),
+                    TypeArg::Type(ty) => {
+                        // Bracket arguments are parsed before generic parameter kinds are known.
+                        // A type-shaped argument may be a comptime value for a comptime generic
+                        // parameter, so avoid emitting "unknown type" here; type lowering checks
+                        // the resolved callee signature and reports real type-argument errors.
+                        self.with_suppressed_unknown_type_errors(|resolver| {
+                            resolver.visit_type(ty);
+                        });
+                    }
                     TypeArg::AssocBinding { key, ty, .. } => {
                         self.visit_assoc_binding_key(key);
                         self.visit_type(ty);
@@ -906,7 +924,7 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         node_key: &VersionedNodeKey,
     ) -> TypeNameResolution {
-        if self.is_type_generic_param(&segment.name) {
+        if self.is_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;
         }
         if self.is_associated_type(&segment.name) {
@@ -1003,10 +1021,17 @@ impl<'a> TypeResolver<'a> {
         self.associated_type_stack.pop();
     }
 
-    fn is_type_generic_param(&self, name: &str) -> bool {
+    fn is_generic_param(&self, name: &str) -> bool {
+        self.generic_stack
+            .iter()
+            .rev()
+            .any(|generics| generics.iter().any(|generic| generic.name == name))
+    }
+
+    fn is_comptime_generic_param(&self, name: &str) -> bool {
         self.generic_stack.iter().rev().any(|generics| {
             generics.iter().any(|generic| {
-                generic.name == name && matches!(generic.kind, GenericParamKind::Type)
+                generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
             })
         })
     }

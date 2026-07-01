@@ -25,7 +25,7 @@ impl Analyzer<'_> {
         type_args: &[ResolvedComptimeTypeArg],
         arg_exprs: &[ResolvedComptimeExpr],
         expected_return: Option<InternedTyId>,
-    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+    ) -> Result<ComptimeGenericInstantiation, ComptimeError> {
         if self.ensure_working_interner(signature_module_id).is_none() {
             return Err(ComptimeError {
                 span,
@@ -47,6 +47,7 @@ impl Analyzer<'_> {
             });
         }
         let mut substitutions = HashMap::new();
+        let mut const_substitutions = HashMap::new();
         if type_args.is_empty() {
             if let Some(expected) = expected_return
                 && let Some(expected) =
@@ -90,12 +91,48 @@ impl Analyzer<'_> {
                 }
             }
         } else {
-            for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let imported = self.import_ty_into_module(arg.ty(), signature_module_id)?;
-                substitutions.insert(generic.clone(), imported);
+            for (generic, arg) in signature.generic_params.iter().zip(type_args) {
+                match &generic.kind {
+                    GenericParamSignatureKind::Type => {
+                        let imported = self.import_ty_into_module(arg.ty(), signature_module_id)?;
+                        substitutions.insert(generic.name.clone(), imported);
+                    }
+                    GenericParamSignatureKind::Comptime { ty } => {
+                        let value = self
+                            .const_generic_arg_from_resolved_type_arg(arg, signature_module_id)?;
+                        const_substitutions.insert(
+                            generic.name.clone(),
+                            nia_ty::ConstGenericArg { ty: *ty, value },
+                        );
+                    }
+                }
             }
         }
-        Ok(substitutions)
+        Ok(ComptimeGenericInstantiation {
+            type_substitutions: substitutions,
+            const_substitutions,
+        })
+    }
+
+    fn const_generic_arg_from_resolved_type_arg(
+        &mut self,
+        arg: &ResolvedComptimeTypeArg,
+        module_id: ModuleId,
+    ) -> Result<nia_ty::ConstGenericValue, ComptimeError> {
+        let imported = self.import_ty_into_module(arg.ty(), module_id)?;
+        match self
+            .working_interners
+            .get(&module_id)
+            .and_then(|interner| interner.get(imported))
+        {
+            Some(TyKind::GenericParam(name)) => {
+                Ok(nia_ty::ConstGenericValue::GenericParam(name.clone()))
+            }
+            _ => Err(ComptimeError {
+                span: arg.span(),
+                message: "comptime generic argument must be a comptime value".to_string(),
+            }),
+        }
     }
 
     pub(super) fn comptime_expected_param_type(
@@ -202,6 +239,12 @@ impl Analyzer<'_> {
                         .primitive(primitive),
                 ))
             }
+            ComptimeNameResolution::GenericParam(name) => self
+                .call_locals
+                .iter()
+                .rev()
+                .find_map(|frame| frame.const_substitutions.get(&name))
+                .map(|arg| ComptimeValueType::Runtime(arg.ty)),
         }
     }
 
@@ -212,7 +255,7 @@ impl Analyzer<'_> {
     ) -> Option<ComptimeValueType> {
         match expr.kind() {
             ResolvedComptimeExprKind::Name(resolution) => {
-                self.comptime_name_resolution_type(*resolution)
+                self.comptime_name_resolution_type(resolution.clone())
             }
             ResolvedComptimeExprKind::Integer(text) => {
                 integer_literal_suffix_ty(text).map(|primitive| {
@@ -466,6 +509,7 @@ impl Analyzer<'_> {
                 .resolve_associated_type_projection(
                     receiver_ty,
                     TraitId::Builtin(trait_id),
+                    &[],
                     &[],
                     BuiltinAssociatedType::Output.name(),
                 )
@@ -1504,6 +1548,7 @@ impl Analyzer<'_> {
             self_ty: iter_ty,
             trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
         })?;
         Some(ComptimeValueType::Runtime(self.normalize_projection(item)))

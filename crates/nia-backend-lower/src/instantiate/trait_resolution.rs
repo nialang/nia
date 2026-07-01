@@ -134,6 +134,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
@@ -141,6 +142,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: key.trait_id,
             trait_args: trait_args.to_vec(),
+            trait_const_args: Vec::new(),
         }) else {
             return None;
         };
@@ -205,13 +207,16 @@ impl<'a> ModuleLowerer<'a> {
         let mut checks = Vec::new();
         for predicate in predicates {
             for bound in &predicate.bounds {
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
+                else {
                     return false;
                 };
                 checks.push((
                     predicate.ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     bound.associated_type_bindings.clone(),
                 ));
             }
@@ -226,6 +231,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(
@@ -233,18 +239,23 @@ impl<'a> ModuleLowerer<'a> {
             &assumptions,
             &associated_type_assumptions,
         );
-        for (self_ty, trait_id, trait_args, associated_type_bindings) in checks {
+        for (self_ty, trait_id, trait_args, trait_const_args, associated_type_bindings) in checks {
             if !solver.proves(TraitGoal {
                 self_ty,
                 trait_id,
                 trait_args: trait_args.clone(),
+                trait_const_args: trait_const_args.clone(),
             }) {
                 return false;
             }
             for binding in associated_type_bindings {
-                let Some(actual_ty) =
-                    solver.resolve_associated_type(self_ty, trait_id, &trait_args, &binding.name)
-                else {
+                let Some(actual_ty) = solver.resolve_associated_type(
+                    self_ty,
+                    trait_id,
+                    &trait_args,
+                    &trait_const_args,
+                    &binding.name,
+                ) else {
                     return false;
                 };
                 if !solver.types_equivalent(actual_ty, binding.ty) {
@@ -276,16 +287,19 @@ impl<'a> ModuleLowerer<'a> {
                 .collect::<Vec<_>>();
             for predicate in predicates {
                 for bound in predicate.bounds {
-                    if let Some((trait_id, trait_args)) = Self::trait_id_and_args_from(
-                        &self.type_context.interner,
-                        self.input.type_normalization,
-                        self.input.program_traits,
-                        bound.trait_ty,
-                    ) {
+                    if let Some((trait_id, trait_args, trait_const_args)) =
+                        Self::trait_id_and_args_from(
+                            &self.type_context.interner,
+                            self.input.type_normalization,
+                            self.input.program_traits,
+                            bound.trait_ty,
+                        )
+                    {
                         assumptions.push(TraitGoal {
                             self_ty: predicate.ty,
                             trait_id,
                             trait_args,
+                            trait_const_args,
                         });
                     }
                 }
@@ -345,6 +359,7 @@ impl<'a> ModuleLowerer<'a> {
                 .intern(TyKind::GenericParam("Self".to_string())),
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
+            trait_const_args: Vec::new(),
         })
     }
 
@@ -501,7 +516,10 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+    fn trait_id_and_args(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         Self::trait_id_and_args_from(
             &self.type_context.interner,
             self.input.type_normalization,
@@ -518,13 +536,17 @@ impl<'a> ModuleLowerer<'a> {
             nia_item_signatures::ProgramTraitSignature,
         >,
         ty: InternedTyId,
-    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         match interner.get(normalization.normalize(ty)) {
-            Some(TyKind::Nominal { def_id, args, .. }) if program_traits.contains_key(def_id) => {
-                Some((TraitId::Source(*def_id), args.clone()))
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) if program_traits.contains_key(def_id) => {
+                Some((TraitId::Source(*def_id), args.clone(), const_args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
-                Some((TraitId::Builtin(*trait_id), args.clone()))
+                Some((TraitId::Builtin(*trait_id), args.clone(), Vec::new()))
             }
             _ => None,
         }
@@ -671,6 +693,7 @@ impl<'a> ModuleLowerer<'a> {
                         self_ty,
                         TraitId::Builtin(trait_id),
                         trait_args,
+                        &[],
                         BuiltinTrait::OUTPUT_ASSOC_TYPE,
                         substitutions,
                         &mut active_projections,
@@ -699,6 +722,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &[]);
@@ -707,6 +731,7 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 trait_id: TraitId::Builtin(trait_id),
                 trait_args: trait_args.to_vec(),
+                trait_const_args: Vec::new(),
             }),
             TraitResolution::Intrinsic(_)
         )
@@ -736,6 +761,7 @@ impl<'a> ModuleLowerer<'a> {
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
+            const_expr_value: None,
             impl_is_visible: None,
         };
         let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
@@ -743,6 +769,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),
             trait_args: key.trait_args.clone(),
+            trait_const_args: Vec::new(),
         });
         if assumptions.is_empty() {
             self.trait_context

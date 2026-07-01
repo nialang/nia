@@ -73,6 +73,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: inner_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(target)
@@ -91,6 +92,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(output)
@@ -109,6 +111,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(output)
@@ -414,6 +417,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Slice),
                     trait_args: vec![range_ty],
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
                 return self.normalize_projection(output);
@@ -440,6 +444,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty: lhs_ty,
                 trait_id: TraitId::Builtin(BuiltinTrait::SliceMut),
                 trait_args: vec![range_ty],
+                trait_const_args: Vec::new(),
                 name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
             return self.normalize_projection(output);
@@ -488,6 +493,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: lhs_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
             trait_args,
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
@@ -523,6 +529,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: lhs_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
             trait_args,
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
@@ -566,7 +573,7 @@ impl<'a> BodyChecker<'a> {
         }
         let candidates = self.visible_trait_arg_candidates(lhs_ty, TraitId::Builtin(trait_id));
         let mut index_candidates = Vec::new();
-        for candidate in candidates {
+        for (candidate, _) in candidates {
             let [index_ty] = candidate.as_slice() else {
                 continue;
             };
@@ -641,6 +648,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Deref),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(target)
@@ -687,6 +695,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(target)

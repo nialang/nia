@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crate::{
     ComptimeKey, ComptimeValueType, TypedComptimeValue,
-    analyzer::{Analyzer, ComptimeCallFrame},
+    analyzer::{Analyzer, ComptimeCallFrame, ComptimeGenericInstantiation},
     support::{
         cast_comptime_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
         is_float_primitive, primitive_integer_layout, validate_assignment_shape,
@@ -159,7 +161,12 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         module_id: ModuleId,
         function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
+        const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
+        let resolved_const_substitutions = const_substitutions
+            .into_iter()
+            .map(|(name, arg)| (name, self.resolve_comptime_const_generic_arg(arg)))
+            .collect::<Vec<_>>();
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ComptimeError {
                 span,
@@ -169,6 +176,9 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         frame.module_id = Some(module_id);
         frame.function_id = function_id;
         frame.type_substitutions.extend(substitutions);
+        frame
+            .const_substitutions
+            .extend(resolved_const_substitutions);
         Ok(())
     }
 }
@@ -229,6 +239,16 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                         .to_string(),
                 })
             }
+            ComptimeNameResolution::GenericParam(name) => self
+                .call_locals
+                .iter()
+                .rev()
+                .find_map(|frame| frame.const_substitutions.get(&name))
+                .and_then(comptime_value_from_const_generic_arg)
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime generic parameter `{name}`"),
+                }),
             ComptimeNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
                 let Some(value) = kind.value(primitive, self.input.target.pointer_width) else {
@@ -314,10 +334,13 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let type_substitutions = if let Some(substitutions) =
+        let instantiation = if let Some(substitutions) =
             self.resolved_call_type_substitutions.get(&span).cloned()
         {
-            substitutions
+            ComptimeGenericInstantiation {
+                type_substitutions: substitutions,
+                const_substitutions: HashMap::new(),
+            }
         } else {
             self.instantiate_resolved_function_generics(
                 span,
@@ -337,7 +360,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
             .substitute_ty_into_current_module(
                 function_id.module_id,
                 signature.return_type,
-                &type_substitutions,
+                &instantiation.type_substitutions,
             )
             .ok_or_else(|| ComptimeError {
                 span,
@@ -354,7 +377,8 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
             function_id,
             function_id.module_id,
             &function,
-            type_substitutions.into_iter().collect(),
+            instantiation.type_substitutions.into_iter().collect(),
+            instantiation.const_substitutions.into_iter().collect(),
             args,
             self,
         )?;
@@ -413,6 +437,37 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 self.assign_local_value(span, *local_id, name, value)
             }
         }
+    }
+}
+
+fn comptime_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Option<ComptimeValue> {
+    match arg.value {
+        nia_ty::ConstGenericValue::Int(value) => Some(ComptimeValue::Int(value)),
+        nia_ty::ConstGenericValue::Bool(value) => Some(ComptimeValue::Bool(value)),
+        nia_ty::ConstGenericValue::Char(value) => Some(ComptimeValue::Int(
+            nia_ty::IntConst::unsigned(value as u32 as u128),
+        )),
+        nia_ty::ConstGenericValue::GenericParam(_) | nia_ty::ConstGenericValue::ConstExpr(_) => {
+            None
+        }
+    }
+}
+
+impl Analyzer<'_> {
+    fn resolve_comptime_const_generic_arg(
+        &self,
+        mut arg: nia_ty::ConstGenericArg,
+    ) -> nia_ty::ConstGenericArg {
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
+            && let Some(resolved) = self
+                .call_locals
+                .iter()
+                .rev()
+                .find_map(|frame| frame.const_substitutions.get(name))
+        {
+            arg = resolved.clone();
+        }
+        arg
     }
 }
 

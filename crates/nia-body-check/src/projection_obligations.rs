@@ -9,6 +9,7 @@ use nia_item_signatures::{
 };
 use nia_span::Span;
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
+use nia_ty::ConstGenericArg;
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -16,6 +17,7 @@ pub(crate) struct TraitObligation {
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
     associated_type_bindings: Vec<TraitObligationAssociatedTypeBinding>,
 }
 
@@ -28,7 +30,7 @@ struct TraitObligationAssociatedTypeBinding {
 #[derive(Debug, Clone)]
 struct MethodTraitImplContext {
     target_ty: InternedTyId,
-    trait_ref: Option<(TraitId, Vec<InternedTyId>)>,
+    trait_ref: Option<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)>,
     where_predicates: Vec<WherePredicateSignature>,
     associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
 }
@@ -39,6 +41,7 @@ impl From<TraitObligation> for TraitGoal {
             self_ty: obligation.self_ty,
             trait_id: obligation.trait_id,
             trait_args: obligation.trait_args,
+            trait_const_args: obligation.trait_const_args,
         }
     }
 }
@@ -50,9 +53,29 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> bool {
+        self.current_context_proves_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args,
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn current_context_proves_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+    ) -> bool {
         self.profile_stage("body_check.profile.trait_obligation.proves", |this| {
             matches!(
-                this.current_context_resolve_trait_obligation(self_ty, trait_id, trait_args),
+                this.current_context_resolve_trait_obligation_with_const_args(
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                ),
                 TraitResolution::Intrinsic(_)
                     | TraitResolution::User(_)
                     | TraitResolution::Assumed(_)
@@ -66,12 +89,28 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> TraitResolution {
+        self.current_context_resolve_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args,
+            Vec::new(),
+        )
+    }
+
+    pub(crate) fn current_context_resolve_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+    ) -> TraitResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let key = crate::TraitObligationResolutionKey {
             current_def_id: self.current_def_id,
             self_ty,
             trait_id,
             trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
         };
         if let Some(resolution) = self.trait_obligation_resolution_cache.get(&key) {
             return resolution.clone();
@@ -81,6 +120,7 @@ impl<'a> BodyChecker<'a> {
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings: Vec::new(),
         };
         let resolution = self.resolve_trait_obligation(&obligations, &required);
@@ -217,11 +257,23 @@ impl<'a> BodyChecker<'a> {
         let target_ty = self.normalization.normalize(impl_context.target_ty);
         let owner_ty = self.normalization.normalize(owner_ty);
         let mut substitutions = HashMap::new();
-        self.match_type_pattern(target_ty, owner_ty, &mut substitutions);
+        let mut const_substitutions = HashMap::new();
+        self.match_type_pattern_with_consts(
+            target_ty,
+            owner_ty,
+            &mut substitutions,
+            &mut const_substitutions,
+        );
         impl_context
             .where_predicates
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .map(|predicate| {
+                self.substitute_where_predicate_with_consts(
+                    predicate,
+                    &substitutions,
+                    &const_substitutions,
+                )
+            })
             .collect()
     }
 
@@ -231,7 +283,11 @@ impl<'a> BodyChecker<'a> {
         owner_ty: InternedTyId,
     ) {
         let owner_ty = self.normalization.normalize(owner_ty);
-        let Some(TyKind::Nominal { def_id, args, .. }) = self.interner.get(owner_ty).cloned()
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.interner.get(owner_ty).cloned()
         else {
             return;
         };
@@ -259,39 +315,54 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        let substitutions = predicates
-            .0
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect::<std::collections::HashMap<_, _>>();
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
         let predicates = predicates
             .1
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .map(|predicate| {
+                self.substitute_where_predicate_with_consts(
+                    predicate,
+                    &substitutions,
+                    &const_substitutions,
+                )
+            })
             .collect::<Vec<_>>();
         self.push_where_predicate_obligations(obligations, &predicates);
     }
 
-    pub(crate) fn substitute_where_predicate(
+    pub(crate) fn substitute_where_predicate_with_consts(
         &mut self,
         predicate: &WherePredicateSignature,
         substitutions: &std::collections::HashMap<String, InternedTyId>,
+        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
     ) -> WherePredicateSignature {
         WherePredicateSignature {
-            ty: self.substitute_ty(predicate.ty, substitutions),
+            ty: self.substitute_generics_and_consts(
+                predicate.ty,
+                substitutions,
+                const_substitutions,
+            ),
             bounds: predicate
                 .bounds
                 .iter()
                 .map(|bound| nia_item_signatures::WhereBoundSignature {
-                    trait_ty: self.substitute_ty(bound.trait_ty, substitutions),
+                    trait_ty: self.substitute_generics_and_consts(
+                        bound.trait_ty,
+                        substitutions,
+                        const_substitutions,
+                    ),
                     associated_type_bindings: bound
                         .associated_type_bindings
                         .iter()
                         .map(
                             |binding| nia_item_signatures::AssociatedTypeBindingSignature {
                                 name: binding.name.clone(),
-                                ty: self.substitute_ty(binding.ty, substitutions),
+                                ty: self.substitute_generics_and_consts(
+                                    binding.ty,
+                                    substitutions,
+                                    const_substitutions,
+                                ),
                                 span: binding.span,
                             },
                         )
@@ -307,21 +378,31 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         predicates: &[WherePredicateSignature],
         substitutions: &std::collections::HashMap<String, InternedTyId>,
+        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
         span: Span,
     ) {
         let predicates = predicates
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
+            .map(|predicate| {
+                self.substitute_where_predicate_with_consts(
+                    predicate,
+                    substitutions,
+                    const_substitutions,
+                )
+            })
             .collect::<Vec<_>>();
         for predicate in predicates {
             for bound in predicate.bounds {
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
+                else {
                     continue;
                 };
-                if !self.current_context_proves_trait_obligation(
+                if !self.current_context_proves_trait_obligation_with_const_args(
                     predicate.ty,
                     trait_id,
                     trait_args.clone(),
+                    trait_const_args.clone(),
                 ) {
                     self.diagnostics
                         .push(nia_diagnostic::Diagnostic::user_error_at(
@@ -348,13 +429,15 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         for bound in bounds {
             let bound_ty = self.substitute_ty(bound.trait_ty, substitutions);
-            let Some((trait_id, trait_args)) = self.trait_id_and_args(bound_ty) else {
+            let Some((trait_id, trait_args, trait_const_args)) = self.trait_id_and_args(bound_ty)
+            else {
                 continue;
             };
             self.push_where_predicate_trait_impl_candidates(
                 self_ty,
                 trait_id,
                 &trait_args,
+                &trait_const_args,
                 substitutions,
                 &mut candidates,
             );
@@ -367,6 +450,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
         substitutions: &HashMap<String, InternedTyId>,
         candidates: &mut Vec<HashMap<String, InternedTyId>>,
     ) {
@@ -390,6 +474,23 @@ impl<'a> BodyChecker<'a> {
                 if !self.match_where_candidate_type(*required_arg, impl_arg, &mut candidate) {
                     ok = false;
                     break;
+                }
+            }
+            if ok && trait_const_args.len() != impl_signature.trait_const_args.len() {
+                ok = false;
+            }
+            if ok {
+                for (required_arg, impl_arg) in trait_const_args
+                    .iter()
+                    .zip(&impl_signature.trait_const_args)
+                {
+                    let mut impl_arg = impl_arg.clone();
+                    impl_arg.ty = self.import_type_from(&impl_signature.interner, impl_arg.ty);
+                    impl_arg.ty = self.substitute_generics(impl_arg.ty, &impl_substitutions);
+                    if required_arg != &impl_arg {
+                        ok = false;
+                        break;
+                    }
                 }
             }
             if ok {
@@ -582,11 +683,20 @@ impl<'a> BodyChecker<'a> {
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -596,6 +706,14 @@ impl<'a> BodyChecker<'a> {
                             .trait_args
                             .into_iter()
                             .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg
+                            })
                             .collect(),
                         name: binding.name,
                         ty: self.substitute_ty(binding.ty, substitutions),
@@ -605,17 +723,27 @@ impl<'a> BodyChecker<'a> {
                     is_readonly,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
             Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -626,6 +754,14 @@ impl<'a> BodyChecker<'a> {
                             .into_iter()
                             .map(|arg| self.substitute_ty(arg, substitutions))
                             .collect(),
+                        trait_const_args: binding
+                            .trait_const_args
+                            .into_iter()
+                            .map(|mut arg| {
+                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg
+                            })
+                            .collect(),
                         name: binding.name,
                         ty: self.substitute_ty(binding.ty, substitutions),
                     })
@@ -633,6 +769,7 @@ impl<'a> BodyChecker<'a> {
                 self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
                 })
             }
@@ -640,17 +777,27 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
+                ..
             }) => {
                 let self_ty = self.substitute_ty(self_ty, substitutions);
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
                     .collect();
+                let trait_const_args = trait_const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     name,
                 })
             }
@@ -682,11 +829,8 @@ impl<'a> BodyChecker<'a> {
                     def_id: method.parent?,
                 };
                 let trait_signature = self.resolved_trait_signature(trait_id)?;
-                let trait_args = trait_signature
-                    .generics
-                    .iter()
-                    .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
-                    .collect();
+                let (trait_args, trait_const_args) =
+                    self.generic_param_args_for_trait_obligation(trait_id);
                 let trait_id = trait_signature
                     .builtin
                     .map(TraitId::Builtin)
@@ -697,6 +841,7 @@ impl<'a> BodyChecker<'a> {
                         .intern(TyKind::GenericParam("Self".to_string())),
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings: Vec::new(),
                 })
             }
@@ -704,7 +849,9 @@ impl<'a> BodyChecker<'a> {
                 if let Some(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings,
+                    ..
                 }) = self
                     .method_owner_trait_object_type(def_id)
                     .and_then(|ty| self.interner.get(self.normalization.normalize(ty)).cloned())
@@ -715,6 +862,7 @@ impl<'a> BodyChecker<'a> {
                             .intern(TyKind::GenericParam("Self".to_string())),
                         trait_id,
                         trait_args,
+                        trait_const_args,
                         associated_type_bindings: associated_type_bindings
                             .iter()
                             .map(|binding| TraitObligationAssociatedTypeBinding {
@@ -727,11 +875,12 @@ impl<'a> BodyChecker<'a> {
                 let method_id = self.global_def_id(def_id);
                 let target_ty = self.method_owner_type(def_id)?;
                 let impl_context = self.trait_impl_context_for_method(method_id)?;
-                let (trait_id, trait_args) = impl_context.trait_ref?;
+                let (trait_id, trait_args, trait_const_args) = impl_context.trait_ref?;
                 Some(TraitObligation {
                     self_ty: target_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings: impl_context
                         .associated_types
                         .iter()
@@ -744,6 +893,36 @@ impl<'a> BodyChecker<'a> {
             }
             _ => None,
         }
+    }
+
+    fn generic_param_args_for_trait_obligation(
+        &mut self,
+        trait_id: GlobalDefId,
+    ) -> (Vec<InternedTyId>, Vec<ConstGenericArg>) {
+        let Some(defs) = self.defs_for_module(trait_id.module_id) else {
+            return (Vec::new(), Vec::new());
+        };
+        let Some(def) = defs.as_ref().defs.get(trait_id.def_id) else {
+            return (Vec::new(), Vec::new());
+        };
+        let params = def.generic_params.clone();
+        let mut type_args = Vec::new();
+        let mut const_args = Vec::new();
+        for param in params {
+            match param.kind {
+                nia_ast::GenericParamKind::Type => {
+                    type_args.push(self.interner.intern(TyKind::GenericParam(param.name)));
+                }
+                nia_ast::GenericParamKind::Comptime { ty } => {
+                    let ty = self.ty_for_type(&ty);
+                    const_args.push(ConstGenericArg {
+                        ty,
+                        value: nia_ty::ConstGenericValue::GenericParam(param.name),
+                    });
+                }
+            }
+        }
+        (type_args, const_args)
     }
 
     fn trait_impl_context_for_method(
@@ -819,6 +998,14 @@ impl<'a> BodyChecker<'a> {
                     .iter()
                     .map(|arg| self.import_type_from(&source, *arg))
                     .collect(),
+                signature
+                    .trait_const_args
+                    .iter()
+                    .map(|arg| nia_ty::ConstGenericArg {
+                        ty: self.import_type_from(&source, arg.ty),
+                        value: arg.value.clone(),
+                    })
+                    .collect(),
             )),
             where_predicates: self
                 .import_where_predicates_from(&source, &signature.where_predicates),
@@ -851,7 +1038,7 @@ impl<'a> BodyChecker<'a> {
         bound: &nia_item_signatures::WhereBoundSignature,
     ) {
         let bound_ty = self.normalization.normalize(bound.trait_ty);
-        let Some((trait_id, args)) = self.trait_id_and_args(bound_ty) else {
+        let Some((trait_id, args, const_args)) = self.trait_id_and_args(bound_ty) else {
             return;
         };
         self.push_trait_obligation_with_supertraits(
@@ -860,6 +1047,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args: args,
+                trait_const_args: const_args,
                 associated_type_bindings: bound
                     .associated_type_bindings
                     .iter()
@@ -894,9 +1082,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         obligations: &mut Vec<TraitObligation>,
         obligation: TraitObligation,
-        visited: &mut HashSet<(TraitId, Vec<InternedTyId>)>,
+        visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)>,
     ) {
-        let key = (obligation.trait_id, obligation.trait_args.clone());
+        let key = (
+            obligation.trait_id,
+            obligation.trait_args.clone(),
+            obligation.trait_const_args.clone(),
+        );
         if !visited.insert(key) {
             return;
         }
@@ -920,6 +1112,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty: obligation.self_ty,
                             trait_id: TraitId::Builtin(supertrait.trait_id),
                             trait_args,
+                            trait_const_args: Vec::new(),
                             associated_type_bindings: Vec::new(),
                         },
                         visited,
@@ -930,23 +1123,22 @@ impl<'a> BodyChecker<'a> {
                 let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
                     return;
                 };
-                let substitutions =
-                    self.generic_substitutions(&trait_signature.generics, &obligation.trait_args);
+                let (substitutions, const_substitutions) = self
+                    .generic_substitutions_and_consts_for_def(
+                        source_trait_id,
+                        &obligation.trait_args,
+                        &obligation.trait_const_args,
+                    );
                 for supertrait in &trait_signature.supertraits {
-                    let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
+                    let supertrait = self.substitute_generics_and_consts(
+                        supertrait.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
                     let supertrait = self.normalization.normalize(supertrait);
-                    let Some((trait_id, trait_args)) = (match self.interner.get(supertrait).cloned()
-                    {
-                        Some(TyKind::Nominal {
-                            def_id: supertrait_id,
-                            args: supertrait_args,
-                            ..
-                        }) => Some((TraitId::Source(supertrait_id), supertrait_args)),
-                        Some(TyKind::BuiltinTrait { trait_id, args }) => {
-                            Some((TraitId::Builtin(trait_id), args))
-                        }
-                        _ => None,
-                    }) else {
+                    let Some((trait_id, trait_args, trait_const_args)) =
+                        self.trait_id_and_args(supertrait)
+                    else {
                         continue;
                     };
                     self.push_trait_obligation_with_supertraits_inner(
@@ -955,6 +1147,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty: obligation.self_ty,
                             trait_id,
                             trait_args,
+                            trait_const_args,
                             associated_type_bindings: Vec::new(),
                         },
                         visited,
@@ -968,7 +1161,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
-    ) -> Vec<Vec<InternedTyId>> {
+    ) -> Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         let mut candidates = Vec::new();
         let obligations = self
             .current_def_id
@@ -988,7 +1181,11 @@ impl<'a> BodyChecker<'a> {
             if obligation.trait_id == trait_id
                 && self.types_equivalent_without_projection_resolution(obligation.self_ty, self_ty)
             {
-                self.push_unique_trait_arg_candidate(&mut candidates, obligation.trait_args);
+                self.push_unique_trait_arg_candidate(
+                    &mut candidates,
+                    obligation.trait_args,
+                    obligation.trait_const_args,
+                );
             }
         }
 
@@ -1001,14 +1198,24 @@ impl<'a> BodyChecker<'a> {
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let target_ty = self.normalization.normalize(target_ty);
             let mut substitutions = HashMap::new();
-            if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
+            let mut const_substitutions = HashMap::new();
+            if !self.match_type_pattern_with_consts(
+                target_ty,
+                self_ty,
+                &mut substitutions,
+                &mut const_substitutions,
+            ) {
                 continue;
             }
             let where_predicates = self.import_where_predicates_from(
                 &impl_signature.interner,
                 &impl_signature.where_predicates,
             );
-            if !self.where_predicates_can_hold(&where_predicates, &substitutions) {
+            if !self.where_predicates_can_hold_with_consts(
+                &where_predicates,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 continue;
             }
             let trait_args = impl_signature
@@ -1016,11 +1223,34 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .map(|arg| {
                     let arg = self.import_type_from(&impl_signature.interner, *arg);
-                    let arg = self.substitute_generics(arg, &substitutions);
+                    let arg = self.substitute_generics_and_consts(
+                        arg,
+                        &substitutions,
+                        &const_substitutions,
+                    );
                     self.normalization.normalize(arg)
                 })
                 .collect::<Vec<_>>();
-            self.push_unique_trait_arg_candidate(&mut candidates, trait_args);
+            let trait_const_args = impl_signature
+                .trait_const_args
+                .iter()
+                .map(|arg| {
+                    let mut arg = arg.clone();
+                    arg.ty = self.import_type_from(&impl_signature.interner, arg.ty);
+                    arg.ty = self.substitute_generics_and_consts(
+                        arg.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
+                    match &arg.value {
+                        nia_ty::ConstGenericValue::GenericParam(name) => {
+                            const_substitutions.get(name).cloned().unwrap_or(arg)
+                        }
+                        _ => arg,
+                    }
+                })
+                .collect::<Vec<_>>();
+            self.push_unique_trait_arg_candidate(&mut candidates, trait_args, trait_const_args);
         }
         candidates
     }
@@ -1043,18 +1273,23 @@ impl<'a> BodyChecker<'a> {
 
     fn push_unique_trait_arg_candidate(
         &mut self,
-        candidates: &mut Vec<Vec<InternedTyId>>,
+        candidates: &mut Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>)>,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
     ) {
-        if candidates.iter().any(|candidate| {
-            candidate.len() == trait_args.len()
-                && candidate.iter().zip(&trait_args).all(|(left, right)| {
-                    self.types_equivalent_without_projection_resolution(*left, *right)
-                })
-        }) {
+        if candidates
+            .iter()
+            .any(|(candidate_args, candidate_const_args)| {
+                candidate_const_args == &trait_const_args
+                    && candidate_args.len() == trait_args.len()
+                    && candidate_args.iter().zip(&trait_args).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, *right)
+                    })
+            })
+        {
             return;
         }
-        candidates.push(trait_args);
+        candidates.push((trait_args, trait_const_args));
     }
 
     fn trait_impl_signature_is_visible(
@@ -1073,21 +1308,45 @@ impl<'a> BodyChecker<'a> {
         predicates: &[WherePredicateSignature],
         substitutions: &HashMap<String, InternedTyId>,
     ) -> bool {
+        self.where_predicates_can_hold_with_consts(predicates, substitutions, &HashMap::new())
+    }
+
+    pub(crate) fn where_predicates_can_hold_with_consts(
+        &mut self,
+        predicates: &[WherePredicateSignature],
+        substitutions: &HashMap<String, InternedTyId>,
+        const_substitutions: &HashMap<String, ConstGenericArg>,
+    ) -> bool {
         self.profile_stage("body_check.profile.where_predicates.can_hold", |this| {
             predicates.iter().all(|predicate| {
-                let predicate = this.substitute_where_predicate(predicate, substitutions);
+                let predicate = this.substitute_where_predicate_with_consts(
+                    predicate,
+                    substitutions,
+                    const_substitutions,
+                );
                 if this.type_contains_generic_param(predicate.ty) {
                     return true;
                 }
                 predicate.bounds.iter().all(|bound| {
-                    let bound_ty = this.substitute_generics(bound.trait_ty, substitutions);
+                    let bound_ty = this.substitute_generics_and_consts(
+                        bound.trait_ty,
+                        substitutions,
+                        const_substitutions,
+                    );
                     if this.type_contains_generic_param(bound_ty) {
                         return true;
                     }
-                    let Some((trait_id, trait_args)) = this.trait_id_and_args(bound_ty) else {
+                    let Some((trait_id, trait_args, trait_const_args)) =
+                        this.trait_id_and_args(bound_ty)
+                    else {
                         return false;
                     };
-                    this.current_context_proves_trait_obligation(predicate.ty, trait_id, trait_args)
+                    this.current_context_proves_trait_obligation_with_const_args(
+                        predicate.ty,
+                        trait_id,
+                        trait_args,
+                        trait_const_args,
+                    )
                 })
             })
         })
@@ -1134,11 +1393,18 @@ impl<'a> BodyChecker<'a> {
                 self.check_type_projection_obligations(span, error, obligations);
                 self.check_type_projection_obligations(span, value, obligations);
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 for arg in &args {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
-                self.check_nominal_where_obligations(span, def_id, &args, obligations);
+                for arg in &const_args {
+                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                }
+                self.check_nominal_where_obligations(span, def_id, &args, &const_args, obligations);
             }
             Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
@@ -1148,23 +1414,38 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::TraitObject {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
+                ..
             }) => {
                 for arg in &trait_args {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
+                for arg in &trait_const_args {
+                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                }
                 if let TraitId::Source(def_id) = trait_id {
-                    self.check_nominal_where_obligations(span, def_id, &trait_args, obligations);
+                    self.check_nominal_where_obligations(
+                        span,
+                        def_id,
+                        &trait_args,
+                        &trait_const_args,
+                        obligations,
+                    );
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.check_type_projection_obligations(span, arg, obligations);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.check_type_projection_obligations(span, arg.ty, obligations);
                     }
                     self.check_type_projection_obligations(span, binding.ty, obligations);
                 }
@@ -1173,16 +1454,21 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.check_type_projection_obligations(span, self_ty, obligations);
                 for arg in &trait_args {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
+                for arg in &trait_const_args {
+                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                }
                 let required = TraitObligation {
                     self_ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings: Vec::new(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
@@ -1214,49 +1500,47 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
         obligations: &[TraitObligation],
     ) {
-        let Some((generics, predicates)) = self
+        let Some(predicates) = self
             .resolved_struct_signature(def_id)
-            .map(|resolved| {
-                (
-                    resolved.signature.generics,
-                    resolved.signature.where_predicates,
-                )
-            })
+            .map(|resolved| resolved.signature.where_predicates)
             .or_else(|| {
-                self.resolved_union_signature(def_id).map(|resolved| {
-                    (
-                        resolved.signature.generics,
-                        resolved.signature.where_predicates,
-                    )
-                })
+                self.resolved_union_signature(def_id)
+                    .map(|resolved| resolved.signature.where_predicates)
             })
             .or_else(|| {
                 self.resolved_trait_signature(def_id)
-                    .map(|signature| (signature.generics, signature.where_predicates))
+                    .map(|signature| signature.where_predicates)
             })
         else {
             return;
         };
-        let substitutions = generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect::<std::collections::HashMap<_, _>>();
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
         let predicates = predicates
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .map(|predicate| {
+                self.substitute_where_predicate_with_consts(
+                    predicate,
+                    &substitutions,
+                    &const_substitutions,
+                )
+            })
             .collect::<Vec<_>>();
         for predicate in predicates {
             for bound in predicate.bounds {
-                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
+                else {
                     continue;
                 };
                 let required = TraitObligation {
                     self_ty: predicate.ty,
                     trait_id,
                     trait_args,
+                    trait_const_args,
                     associated_type_bindings: Vec::new(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
@@ -1294,6 +1578,16 @@ impl<'a> BodyChecker<'a> {
         let assumptions = self.trait_goals_for_obligations(obligations);
         let associated_type_assumptions =
             self.associated_type_assumptions_for_obligations(obligations);
+        let module_id = self.defs.module_id;
+        let local_array_lengths = self.comptime.array_lengths;
+        let program_array_lengths = self.program_comptime_array_lengths;
+        let const_expr_value = move |id: nia_ids::GlobalConstExprId| {
+            if id.module_id == module_id {
+                return local_array_lengths.get(&id).copied();
+            }
+            program_array_lengths(id.module_id)
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        };
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -1301,6 +1595,7 @@ impl<'a> BodyChecker<'a> {
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
+            const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
                     || self.extensions.has_trait_witness_impl(module_id, impl_id)
@@ -1315,6 +1610,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: required.self_ty,
             trait_id: required.trait_id,
             trait_args: required.trait_args.clone(),
+            trait_const_args: required.trait_const_args.clone(),
         })
     }
 
@@ -1335,6 +1631,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty: obligation.self_ty,
                             trait_id: obligation.trait_id,
                             trait_args: obligation.trait_args.clone(),
+                            trait_const_args: obligation.trait_const_args.clone(),
                         },
                         name: binding.name.clone(),
                         ty: binding.ty,
@@ -1501,12 +1798,14 @@ impl<'a> BodyChecker<'a> {
                     trait_id: left_trait,
                     trait_args: left_args,
                     name: left_name,
+                    ..
                 }),
                 Some(TyKind::Projection {
                     self_ty: right_self,
                     trait_id: right_trait,
                     trait_args: right_args,
                     name: right_name,
+                    ..
                 }),
             ) => {
                 left_trait == right_trait

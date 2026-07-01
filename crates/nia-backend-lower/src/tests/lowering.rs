@@ -320,7 +320,17 @@ fn main() i32 {
     else {
         panic!("expected repeat array initializer");
     };
-    assert_eq!(*count, 1048576);
+    let nia_ty::ArrayLenTy::ConstExpr(id) = count else {
+        panic!("expected const expr repeat count, got {count:?}");
+    };
+    assert_eq!(
+        lowering.program.modules[0]
+            .comptime
+            .array_lengths
+            .get(id)
+            .copied(),
+        Some(1048576)
+    );
 }
 
 #[test]

@@ -29,8 +29,8 @@ use nia_ids::{
     InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
-    FunctionAttribute, FunctionSignature, ItemSignatures, ProgramEnumSignature,
-    WherePredicateSignature,
+    FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
+    ProgramEnumSignature, WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
 use nia_sema::{
@@ -43,7 +43,8 @@ use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{
-    ArrayLenTy, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind, import_type_into,
+    ArrayLenTy, ConstGenericArg, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
+    import_type_into,
 };
 use nia_value_resolve::ValueResolution;
 
@@ -61,6 +62,7 @@ pub struct TypedComptimeFrame {
     pub function_id: Option<GlobalDefId>,
     pub local_types: HashMap<LocalId, ComptimeValueType>,
     pub type_substitutions: HashMap<String, InternedTyId>,
+    pub const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,6 +83,12 @@ pub struct TypedComptimeQueryInput<'a> {
     pub frames: &'a [TypedComptimeFrame],
 }
 
+#[derive(Debug, Clone)]
+pub struct ComptimeGenericInstantiation {
+    pub type_substitutions: HashMap<String, InternedTyId>,
+    pub const_substitutions: HashMap<String, ConstGenericArg>,
+}
+
 pub fn instantiate_resolved_comptime_function_generics(
     input: TypedComptimeQueryInput<'_>,
     span: Span,
@@ -89,7 +97,7 @@ pub fn instantiate_resolved_comptime_function_generics(
     type_args: &[ResolvedComptimeTypeArg],
     arg_exprs: &[ResolvedComptimeExpr],
     expected_return: Option<InternedTyId>,
-) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+) -> Result<ComptimeGenericInstantiation, ComptimeError> {
     let mut analyzer = Analyzer::for_typed_query(input);
     analyzer.instantiate_resolved_function_generics(
         span,
@@ -279,6 +287,7 @@ pub(crate) struct ComptimeCallFrame {
     local_types: HashMap<LocalId, ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
     type_substitutions: HashMap<String, InternedTyId>,
+    const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
 impl From<TypedComptimeFrame> for ComptimeCallFrame {
@@ -290,6 +299,7 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
             local_types: frame.local_types,
             mutable_locals: HashSet::new(),
             type_substitutions: frame.type_substitutions,
+            const_substitutions: frame.const_substitutions,
         }
     }
 }

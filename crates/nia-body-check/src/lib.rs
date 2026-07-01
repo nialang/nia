@@ -53,7 +53,7 @@ use nia_sema_ir::{
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -964,6 +964,7 @@ struct TraitObligationResolutionKey {
     self_ty: InternedTyId,
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Default)]
@@ -1018,6 +1019,7 @@ struct ComptimeCallFrame {
     local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
     type_substitutions: HashMap<String, InternedTyId>,
+    const_substitutions: HashMap<String, ConstGenericArg>,
 }
 
 struct FunctionItemRef<'a> {
@@ -1030,6 +1032,7 @@ struct FunctionItemRef<'a> {
 struct ReceiverBase {
     def_id: GlobalDefId,
     args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
     from_pointer: bool,
     has_readonly_pointer: bool,
 }
@@ -1569,11 +1572,13 @@ impl<'a> BodyChecker<'a> {
         time_body_stage(timing, "body_check.extends", module_id, || {
             for item in &active_item_tree.items {
                 if let ItemTreeNodeKind::Extend(extend) = &item.kind {
-                    for associated_value in &extend.associated_values {
-                        self.check_reachable_comptime_binding(
-                            associated_value.span,
-                            &associated_value.binding,
-                        );
+                    if extend.generics.is_empty() {
+                        for associated_value in &extend.associated_values {
+                            self.check_reachable_comptime_binding(
+                                associated_value.span,
+                                &associated_value.binding,
+                            );
+                        }
                     }
                 }
             }
@@ -2272,6 +2277,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: iterable_ty,
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(item)
@@ -2282,6 +2288,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: iterable_ty,
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: nia_ty::BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(iter)
@@ -2292,6 +2299,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: iter_ty,
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(item)

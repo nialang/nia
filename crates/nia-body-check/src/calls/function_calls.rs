@@ -727,7 +727,12 @@ impl<'a> BodyChecker<'a> {
                 self.substitute_generics_and_consts(*param, substitutions, const_substitutions)
             })
             .collect();
-        self.check_where_predicates_hold(&signature.where_predicates, substitutions, span);
+        self.check_where_predicates_hold(
+            &signature.where_predicates,
+            substitutions,
+            const_substitutions,
+            span,
+        );
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
                 let actual = self.check_expr_with_expected(arg, Some(expected));
@@ -987,17 +992,20 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => {
                 if let Some(TyKind::TraitObject {
                     is_readonly: actual_const,
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 }) = self.interner.get(actual).cloned()
                     && pattern_const == actual_const
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
+                    && pattern_const_args == actual_const_args
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
@@ -1025,15 +1033,18 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::TraitObjectPointee {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
             }) => {
                 if let Some(TyKind::TraitObjectPointee {
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
+                    && pattern_const_args == actual_const_args
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
@@ -1063,12 +1074,14 @@ impl<'a> BodyChecker<'a> {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 name: pattern_name,
+                ..
             }) => {
                 if let Some(TyKind::Projection {
                     self_ty: actual_self,
                     trait_id: actual_trait,
                     trait_args: actual_args,
                     name: actual_name,
+                    ..
                 }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_name == actual_name

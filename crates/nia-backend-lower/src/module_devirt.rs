@@ -240,6 +240,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
+            | FunctionExprKind::ConstGeneric(_)
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::GlobalInstance { .. }

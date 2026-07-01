@@ -306,6 +306,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
+        | FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::EnumVariant(_)

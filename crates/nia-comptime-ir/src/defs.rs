@@ -231,8 +231,8 @@ impl ResolvedComptimeExpr {
     }
 
     pub fn name_resolution(&self) -> Option<ComptimeNameResolution> {
-        match self.kind {
-            ResolvedComptimeExprKind::Name(resolution) => Some(resolution),
+        match &self.kind {
+            ResolvedComptimeExprKind::Name(resolution) => Some(resolution.clone()),
             _ => None,
         }
     }
@@ -1266,7 +1266,7 @@ impl EarlyComptimeName {
     pub fn resolution(&self) -> Option<ComptimeNameResolution> {
         match self {
             Self::Unresolved(_) => None,
-            Self::Resolved { resolution, .. } => Some(*resolution),
+            Self::Resolved { resolution, .. } => Some(resolution.clone()),
         }
     }
 
@@ -1448,10 +1448,11 @@ pub enum EarlyComptimeArrayElements {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComptimeNameResolution {
     Local(LocalId),
     Global(GlobalDefId),
+    GenericParam(String),
     BuiltinAssociatedValue(BuiltinAssociatedValue),
 }
 

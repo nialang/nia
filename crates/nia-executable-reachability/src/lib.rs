@@ -1570,6 +1570,7 @@ fn collect_typed_expr_refs(
         | TypedExprKind::ByteChar(_)
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
+        | TypedExprKind::ConstGeneric(_)
         | TypedExprKind::Local(_) => {}
         TypedExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
@@ -2654,11 +2655,19 @@ fn substitute_ty(
             is_readonly,
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         } => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty(interner, arg.ty, substitutions)?;
+                    Some(arg)
+                })
                 .collect::<Option<Vec<_>>>()?;
             let associated_type_bindings = substitute_associated_type_bindings(
                 interner,
@@ -2669,17 +2678,26 @@ fn substitute_ty(
                 is_readonly,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }))
         }
         TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         } => {
             let trait_args = trait_args
                 .into_iter()
                 .map(|arg| substitute_ty(interner, arg, substitutions))
+                .collect::<Option<Vec<_>>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty(interner, arg.ty, substitutions)?;
+                    Some(arg)
+                })
                 .collect::<Option<Vec<_>>>()?;
             let associated_type_bindings = substitute_associated_type_bindings(
                 interner,
@@ -2689,6 +2707,7 @@ fn substitute_ty(
             Some(interner.intern(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
             }))
         }
@@ -2696,6 +2715,7 @@ fn substitute_ty(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             name,
         } => {
             let self_ty = substitute_ty(interner, self_ty, substitutions)?;
@@ -2703,10 +2723,18 @@ fn substitute_ty(
                 .into_iter()
                 .map(|arg| substitute_ty(interner, arg, substitutions))
                 .collect::<Option<Vec<_>>>()?;
+            let trait_const_args = trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty(interner, arg.ty, substitutions)?;
+                    Some(arg)
+                })
+                .collect::<Option<Vec<_>>>()?;
             Some(interner.intern(TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
             }))
         }
@@ -2729,10 +2757,19 @@ fn substitute_associated_type_bindings(
                 .into_iter()
                 .map(|arg| substitute_ty(interner, arg, substitutions))
                 .collect::<Option<Vec<_>>>()?;
+            let trait_const_args = binding
+                .trait_const_args
+                .into_iter()
+                .map(|mut arg| {
+                    arg.ty = substitute_ty(interner, arg.ty, substitutions)?;
+                    Some(arg)
+                })
+                .collect::<Option<Vec<_>>>()?;
             let ty = substitute_ty(interner, binding.ty, substitutions)?;
             Some(AssociatedTypeBindingTy {
                 trait_id: binding.trait_id,
                 trait_args,
+                trait_const_args,
                 name: binding.name,
                 ty,
             })
@@ -3148,16 +3185,19 @@ fn collect_ty_owner_modules<'a>(
         TyKind::TraitObject {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         }
         | TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             associated_type_bindings,
         } => {
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
             push_tys(type_ids, trait_args.iter().copied());
+            push_tys(type_ids, trait_const_args.iter().map(|arg| arg.ty));
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
                 type_ids,
@@ -3170,11 +3210,13 @@ fn collect_ty_owner_modules<'a>(
             self_ty,
             trait_id,
             trait_args,
+            trait_const_args,
             ..
         } => {
             push_ty(type_ids, *self_ty);
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
             push_tys(type_ids, trait_args.iter().copied());
+            push_tys(type_ids, trait_const_args.iter().map(|arg| arg.ty));
         }
         TyKind::BuiltinTrait { args, .. } => push_tys(type_ids, args.iter().copied()),
         TyKind::Error
@@ -3259,6 +3301,7 @@ fn collect_associated_binding_owner_modules<'a>(
             collect_trait_id_owner_module(trait_id, type_modules, traits);
         }
         push_tys(type_ids, binding.trait_args.iter().copied());
+        push_tys(type_ids, binding.trait_const_args.iter().map(|arg| arg.ty));
         push_ty(type_ids, binding.ty);
     }
 }

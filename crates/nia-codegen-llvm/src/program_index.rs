@@ -380,6 +380,7 @@ mod tests {
             is_readonly: true,
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![i32_ty],
+            trait_const_args: Vec::new(),
             associated_type_bindings: Vec::new(),
         });
         let struct_key = BackendStructInstanceKey {

@@ -493,7 +493,7 @@ impl<'a> BodyChecker<'a> {
         let [candidate] = candidates.as_slice() else {
             return None;
         };
-        let [arg] = candidate.as_slice() else {
+        let [arg] = candidate.0.as_slice() else {
             return None;
         };
         Some(*arg)
@@ -518,6 +518,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id: TraitId::Builtin(trait_id),
                 trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
                 name: BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
             });
             return self.normalize_projection(iter);
@@ -534,6 +535,7 @@ impl<'a> BodyChecker<'a> {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args,
+            trait_const_args: Vec::new(),
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
@@ -551,6 +553,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args,
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
                 self.normalize_projection(output)
@@ -560,6 +563,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
                 let target = self.normalize_projection(target);
@@ -573,6 +577,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     name: BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
                 });
                 let item = self.normalize_projection(item);

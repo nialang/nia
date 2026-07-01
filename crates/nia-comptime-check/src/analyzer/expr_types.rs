@@ -323,7 +323,7 @@ impl Analyzer<'_> {
             .functions
             .get(&function_id.def_id)?
             .clone();
-        let substitutions = self
+        let instantiation = self
             .instantiate_resolved_function_generics(
                 span,
                 function_id.module_id,
@@ -334,7 +334,7 @@ impl Analyzer<'_> {
             )
             .ok()?;
         self.resolved_call_type_substitutions
-            .insert(span, substitutions.clone());
+            .insert(span, instantiation.type_substitutions.clone());
         if let Some(return_ty) = self.builtin_function_call_return_type(&signature, args, expected)
         {
             return Some(return_ty);
@@ -342,7 +342,7 @@ impl Analyzer<'_> {
         self.substitute_ty_into_current_module(
             function_id.module_id,
             signature.return_type,
-            &substitutions,
+            &instantiation.type_substitutions,
         )
     }
 
