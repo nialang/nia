@@ -2743,7 +2743,7 @@ pub(crate) fn visible_extensions_for_module(
         associated_values,
     };
     let visible_modules = declared_module_closure(&visibility_context);
-    let witness_modules = declared_witness_module_closure(&visibility_context);
+    let witness_modules = &visible_modules;
     let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
@@ -2957,37 +2957,6 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
             continue;
         }
         if let Some(using_scope) = context.using_scopes.get(&visible) {
-            enqueue_using_scope_modules(using_scope, &mut queue);
-            enqueue_public_inherent_extension_providers_for_using_scope(
-                context,
-                using_scope,
-                &mut queue,
-            );
-        }
-    }
-
-    let mut modules = seen.into_iter().collect::<Vec<_>>();
-    modules.sort();
-    modules
-}
-
-fn declared_witness_module_closure(
-    context: &VisibilityClosureContext<'_>,
-) -> Vec<nia_ids::ModuleId> {
-    let mut seen = HashSet::new();
-    let mut queue = VecDeque::new();
-    enqueue_using_scope_modules(context.using_scope, &mut queue);
-    enqueue_public_inherent_extension_providers_for_using_scope(
-        context,
-        context.using_scope,
-        &mut queue,
-    );
-
-    while let Some(module_id) = queue.pop_front() {
-        if module_id == context.module_id || !seen.insert(module_id) {
-            continue;
-        }
-        if let Some(using_scope) = context.using_scopes.get(&module_id) {
             enqueue_using_scope_modules(using_scope, &mut queue);
             enqueue_public_inherent_extension_providers_for_using_scope(
                 context,
