@@ -17,6 +17,7 @@ nia-comptime-check.workspace = true
 nia-comptime-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
+nia-executable-facts.workspace = true
 nia-executable-reachability.workspace = true
 nia-flow-check.workspace = true
 nia-function-ir.workspace = true

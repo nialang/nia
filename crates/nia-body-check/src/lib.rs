@@ -67,6 +67,7 @@ use crate::projection_obligations::TraitObligation;
 pub struct BodyCheck {
     pub ir: BodyIr,
     pub facts: SemanticFacts,
+    pub checked_functions: HashSet<GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -854,6 +855,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
         },
+        checked_functions: checker.checked_functions,
         diagnostics: checker.diagnostics,
     })
 }

@@ -53,6 +53,7 @@ mod base;
 mod checked;
 mod checks;
 mod diagnostics;
+mod executable;
 mod program;
 mod providers;
 mod resolve;
@@ -63,6 +64,7 @@ use base::*;
 use checked::*;
 use checks::*;
 use diagnostics::*;
+use executable::*;
 use program::*;
 use providers::*;
 use resolve::*;
@@ -3014,6 +3016,49 @@ fn main() i32 {
     }
 
     #[test]
+    fn executable_body_check_follows_same_module_call_closure() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+fn f3() i32 {
+    3
+}
+
+fn f2() i32 {
+    f3()
+}
+
+fn f1() i32 {
+    f2()
+}
+
+fn main() i32 {
+    f1()
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+        assert_eq!(
+            module.body_ir.function_bodies.len(),
+            4,
+            "same-module executable body check should retain the whole call closure"
+        );
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "same-module executable call closure should check without diagnostics: {:?}",
+            module.body_diagnostics
+        );
+    }
+
+    #[test]
     fn executable_filtered_comptime_resolves_forwarded_array_len_values() {
         let main = loaded_module(
             ModuleId(0),
@@ -4603,6 +4648,70 @@ pub fn unused_bad() i32 {
                 .iter()
                 .filter(|query| query.frame.name == "executable_body_check")
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_only() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module helper;
+using entry::helper;
+
+fn main() i32 {
+    helper::id[i32](1)
+}
+"#,
+        );
+        let helper = loaded_module(
+            ModuleId(1),
+            "helper.nia",
+            r#"
+pub fn id[T](value: T) T {
+    value
+}
+
+fn unused_bad() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(main, "helper", helper);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let helper_module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("called generic function owner should be executable-reachable");
+        let unused_bad = helper_module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::Function && def.name == "unused_bad").then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(1),
+                        def_id,
+                    },
+                )
+            })
+            .expect("unused function");
+
+        assert!(
+            helper_module.body_diagnostics.is_empty(),
+            "unused function in a generic callee module should not be body-checked: {:?}",
+            helper_module.body_diagnostics
+        );
+        assert!(
+            !helper_module
+                .body_ir
+                .function_bodies
+                .contains_key(&unused_bad),
+            "reachable generic metadata should not retain unrelated function bodies"
         );
     }
 
