@@ -496,6 +496,7 @@ pub(crate) struct ModuleLowerer<'a> {
     def_names: HashMap<GlobalDefId, String>,
     function_sources: HashMap<GlobalDefId, BackendFunctionSource<'a>>,
     aggregate_sources: HashMap<GlobalDefId, BackendAggregateSource<'a>>,
+    planned_function_instance_symbols: Option<HashMap<function_instances::InstanceKey, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -909,6 +910,7 @@ impl<'a> ModuleLowerer<'a> {
             def_names: HashMap::new(),
             function_sources: HashMap::new(),
             aggregate_sources: HashMap::new(),
+            planned_function_instance_symbols: None,
         }
     }
 
