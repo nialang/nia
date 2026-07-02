@@ -2746,6 +2746,100 @@ pub struct ArgsIter {}
     }
 
     #[test]
+    fn visible_extensions_do_not_expand_using_type_modules_as_provider_modules() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module facade;
+using entry::facade;
+
+fn main(value: facade::Used) i32 {
+    value.len()
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(1),
+            "facade.nia",
+            r#"
+module impls;
+module types;
+
+pub using self::types::{Unused, Used};
+"#,
+        );
+        let impls = loaded_module(
+            ModuleId(2),
+            "facade/impls.nia",
+            r#"
+using entry::facade::types::Used;
+
+extend Used {
+    pub fn len(&self) i32 {
+        1
+    }
+}
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(3),
+            "facade/types.nia",
+            r#"
+pub struct Unused {}
+pub struct Used {}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "facade",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern facade module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "impls",
+                nia_ids::Visibility::Private,
+                Span::default(),
+            )
+            .expect("intern impls module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "types",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern types module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, facade, impls, types],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let checked = db.query(CodegenProgramQuery);
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let trace = db.query_trace();
+        assert!(
+            !trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == "visible_extensions"
+                    && dependency.from.description.contains("ModuleId(0)")
+                    && dependency.to.description.contains("ModuleId(3)")
+                    && dependency.to.name == "signature_type_normalization"
+            }),
+            "visible extensions should not normalize every module that merely defines a using-imported type"
+        );
+    }
+
+    #[test]
     fn executable_reachability_keeps_matched_trait_impl_method_bodies() {
         let main = loaded_module(
             ModuleId(0),

@@ -2976,7 +2976,6 @@ fn enqueue_using_scope_modules(
     queue: &mut VecDeque<nia_ids::ModuleId>,
 ) {
     queue.extend(using_scope.modules.values().copied());
-    queue.extend(using_scope.types.values().map(|entry| entry.target_module));
 }
 
 struct VisibilityClosureContext<'a> {
