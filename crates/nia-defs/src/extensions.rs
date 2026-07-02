@@ -30,6 +30,7 @@ pub struct AssociatedTypeBindingSignature {
 pub struct ExtensionMethods {
     by_module: HashMap<ModuleId, Vec<ExtensionMethod>>,
     by_nominal_target: HashMap<GlobalDefId, Vec<ExtensionMethod>>,
+    by_name: HashMap<String, Vec<ExtensionMethod>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +99,10 @@ pub struct VisibleExtensionTarget {
 
 impl ExtensionMethods {
     pub fn insert(&mut self, module_id: ModuleId, method: ExtensionMethod) {
+        self.by_name
+            .entry(method.name.clone())
+            .or_default()
+            .push(method.clone());
         self.by_module.entry(module_id).or_default().push(method);
     }
 
@@ -168,6 +173,13 @@ impl ExtensionMethods {
 
     pub fn all_methods(&self) -> impl Iterator<Item = &ExtensionMethod> {
         self.by_module.values().flat_map(|methods| methods.iter())
+    }
+
+    pub fn methods_named(&self, name: &str) -> impl Iterator<Item = &ExtensionMethod> {
+        self.by_name
+            .get(name)
+            .into_iter()
+            .flat_map(|methods| methods.iter())
     }
 
     pub fn methods_for_nominal_target(
