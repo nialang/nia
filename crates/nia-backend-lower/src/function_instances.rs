@@ -14,7 +14,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
 use nia_ty::{ConstGenericArg, TyKind};
 
-type InstanceKey = (
+pub(crate) type InstanceKey = (
     GlobalDefId,
     ModuleId,
     Vec<InternedTyId>,
@@ -90,23 +90,6 @@ impl<'a> ModuleLowerer<'a> {
             enqueue_function_instance_ref(&mut pending, &mut queued, instance);
         }
 
-        let mut planned_symbols = self
-            .monomorphization
-            .instances
-            .iter()
-            .map(|instance| {
-                (
-                    (
-                        instance.def_id,
-                        instance.arg_module_id,
-                        self.canonicalize_instance_args(&instance.args),
-                        instance.const_args.clone(),
-                    ),
-                    instance.symbol.clone(),
-                )
-            })
-            .collect::<HashMap<_, _>>();
-
         while let Some(instance) = pending.pop_front() {
             if instance.def_id.module_id != self.input.module_id {
                 self.foreign_function_instance_refs
@@ -146,7 +129,7 @@ impl<'a> ModuleLowerer<'a> {
                 );
                 continue;
             }
-            let symbol = if let Some(symbol) = planned_symbols.get(&(
+            let symbol = if let Some(symbol) = self.planned_function_instance_symbols().get(&(
                 instance.def_id,
                 instance.arg_module_id,
                 args.clone(),
@@ -161,15 +144,6 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 let symbol =
                     self.mangle_instance_symbol(instance.def_id, &name, &args, &const_args);
-                planned_symbols.insert(
-                    (
-                        instance.def_id,
-                        instance.arg_module_id,
-                        args.clone(),
-                        const_args.clone(),
-                    ),
-                    symbol.clone(),
-                );
                 symbol
             };
             let Some(body) = self.lower_planned_function_instance(
@@ -217,6 +191,27 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         instances
+    }
+
+    fn planned_function_instance_symbols(&mut self) -> &HashMap<InstanceKey, String> {
+        if self.planned_function_instance_symbols.is_none() {
+            let mut symbols = HashMap::new();
+            for instance in self.monomorphization.instances.clone() {
+                symbols.insert(
+                    (
+                        instance.def_id,
+                        instance.arg_module_id,
+                        self.canonicalize_instance_args(&instance.args),
+                        instance.const_args,
+                    ),
+                    instance.symbol,
+                );
+            }
+            self.planned_function_instance_symbols = Some(symbols);
+        }
+        self.planned_function_instance_symbols
+            .as_ref()
+            .expect("planned function instance symbols should be initialized")
     }
 
     fn report_backend_instance_limit(
