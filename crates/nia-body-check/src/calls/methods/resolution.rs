@@ -400,6 +400,30 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> Vec<TraitMethodCandidate> {
         let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && name == "format";
+        let mut candidates = self.assumed_trait_method_candidates_for_receiver(receiver_ty, name);
+        if debug {
+            eprintln!("  candidates from goals={}", candidates.len());
+        }
+        if !candidates.is_empty() {
+            return candidates;
+        }
+        let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
+            return Vec::new();
+        };
+        let self_ty = self.import_type_for_method_resolution(self_ty);
+        self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
+        if debug {
+            eprintln!("  candidates from visible impls={}", candidates.len());
+        }
+        candidates
+    }
+
+    pub(in crate::calls::methods) fn assumed_trait_method_candidates_for_receiver(
+        &mut self,
+        receiver_ty: InternedTyId,
+        name: &str,
+    ) -> Vec<TraitMethodCandidate> {
+        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && name == "format";
         let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
             return Vec::new();
         };
@@ -450,16 +474,6 @@ impl<'a> BodyChecker<'a> {
                 &trait_signature,
                 true,
             );
-        }
-        if debug {
-            eprintln!("  candidates from goals={}", candidates.len());
-        }
-        if !candidates.is_empty() {
-            return candidates;
-        }
-        self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
-        if debug {
-            eprintln!("  candidates from visible impls={}", candidates.len());
         }
         candidates
     }

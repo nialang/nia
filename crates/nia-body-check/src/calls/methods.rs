@@ -87,11 +87,22 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates_searched = true;
-        let trait_candidates = self
-            .profile_stage("body_check.profile.method.trait_candidates", |this| {
-                this.trait_method_candidates_for_receiver(receiver_ty, name)
-            });
+        let (trait_candidates, trait_candidates_searched) = if candidates.is_empty() {
+            (
+                self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+                    this.trait_method_candidates_for_receiver(receiver_ty, name)
+                }),
+                true,
+            )
+        } else {
+            (
+                self.profile_stage(
+                    "body_check.profile.method.assumed_trait_candidates",
+                    |this| this.assumed_trait_method_candidates_for_receiver(receiver_ty, name),
+                ),
+                false,
+            )
+        };
         let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
         let dynamic_candidates = dynamic_receiver_ty
             .map(|object_ty| {
@@ -142,11 +153,22 @@ impl<'a> BodyChecker<'a> {
         let candidates = self.profile_stage("body_check.profile.method.candidates", |this| {
             this.method_candidates_for_receiver(receiver_ty, name)
         });
-        let trait_candidates_searched = true;
-        let trait_candidates = self
-            .profile_stage("body_check.profile.method.trait_candidates", |this| {
-                this.trait_method_candidates_for_receiver(receiver_ty, name)
-            });
+        let (trait_candidates, trait_candidates_searched) = if candidates.is_empty() {
+            (
+                self.profile_stage("body_check.profile.method.trait_candidates", |this| {
+                    this.trait_method_candidates_for_receiver(receiver_ty, name)
+                }),
+                true,
+            )
+        } else {
+            (
+                self.profile_stage(
+                    "body_check.profile.method.assumed_trait_candidates",
+                    |this| this.assumed_trait_method_candidates_for_receiver(receiver_ty, name),
+                ),
+                false,
+            )
+        };
         let dynamic_receiver_ty = self.dynamic_trait_object_receiver_ty(receiver_ty);
         let dynamic_candidates = dynamic_receiver_ty
             .map(|object_ty| {
