@@ -10,7 +10,10 @@ use nia_ast::{
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{BuiltinType, InternedTyId, ReceiverKind, TraitImplId, Visibility};
+use nia_ids::{
+    BuiltinComptime, BuiltinType, BuiltinTypeAnchor, InternedTyId, ReceiverKind, TraitImplId,
+    Visibility,
+};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -389,7 +392,45 @@ pub struct GlobalSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeSignature {
     pub explicit_type: Option<InternedTyId>,
+    pub builtin: Option<BuiltinComptime>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinTypeDeclaration {
+    Opaque(BuiltinType),
+    Primitive(BuiltinTypeAnchor),
+}
+
+impl BuiltinTypeDeclaration {
+    fn from_name(name: &str) -> Option<Self> {
+        BuiltinType::from_name(name)
+            .map(Self::Opaque)
+            .or_else(|| BuiltinTypeAnchor::from_name(name).map(Self::Primitive))
+    }
+}
+
+fn builtin_type_anchor_primitive(anchor: BuiltinTypeAnchor) -> PrimitiveTy {
+    match anchor {
+        BuiltinTypeAnchor::I8 => PrimitiveTy::I8,
+        BuiltinTypeAnchor::I16 => PrimitiveTy::I16,
+        BuiltinTypeAnchor::I32 => PrimitiveTy::I32,
+        BuiltinTypeAnchor::I64 => PrimitiveTy::I64,
+        BuiltinTypeAnchor::I128 => PrimitiveTy::I128,
+        BuiltinTypeAnchor::Isize => PrimitiveTy::Isize,
+        BuiltinTypeAnchor::U8 => PrimitiveTy::U8,
+        BuiltinTypeAnchor::U16 => PrimitiveTy::U16,
+        BuiltinTypeAnchor::U32 => PrimitiveTy::U32,
+        BuiltinTypeAnchor::U64 => PrimitiveTy::U64,
+        BuiltinTypeAnchor::U128 => PrimitiveTy::U128,
+        BuiltinTypeAnchor::Usize => PrimitiveTy::Usize,
+        BuiltinTypeAnchor::F32 => PrimitiveTy::F32,
+        BuiltinTypeAnchor::F64 => PrimitiveTy::F64,
+        BuiltinTypeAnchor::Bool => PrimitiveTy::Bool,
+        BuiltinTypeAnchor::Char => PrimitiveTy::Char,
+        BuiltinTypeAnchor::Void => PrimitiveTy::Void,
+        BuiltinTypeAnchor::Never => PrimitiveTy::Never,
+    }
 }
 
 pub fn collect_item_signatures(
@@ -802,7 +843,12 @@ impl<'a> SignatureCollector<'a> {
             );
             return self.error();
         };
-        self.lowered.interner.builtin_type(builtin)
+        match builtin {
+            BuiltinTypeDeclaration::Opaque(builtin) => self.lowered.interner.builtin_type(builtin),
+            BuiltinTypeDeclaration::Primitive(anchor) => {
+                self.primitive(builtin_type_anchor_primitive(anchor))
+            }
+        }
     }
 
     fn collect_function(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
@@ -906,6 +952,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             ComptimeSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
+                builtin: self.builtin_comptime_attribute(&item.attributes, binding),
                 span: item.span,
             },
         );
@@ -926,10 +973,73 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             ComptimeSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
+                builtin: None,
                 span: associated_value.span,
             },
         );
         Some(def_id)
+    }
+
+    fn builtin_comptime_attribute(
+        &mut self,
+        attributes: &[Attribute],
+        binding: &BindingItem,
+    ) -> Option<BuiltinComptime> {
+        let mut out = None;
+        for attribute in attributes {
+            let AttributeKind::Meta(meta) = &attribute.kind else {
+                continue;
+            };
+            match meta.path.as_slice() {
+                [name] if name == "builtin" => {
+                    let builtin_name =
+                        self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
+                    if let Some(builtin_name) = builtin_name {
+                        if let Some(builtin) = BuiltinComptime::from_name(builtin_name) {
+                            if out.replace(builtin).is_some() {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::ITEM_SIGNATURE,
+                                    attribute.span,
+                                    "duplicate `@[builtin]` comptime attribute",
+                                ));
+                            }
+                            if builtin.item_name() != binding.name {
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::ITEM_SIGNATURE,
+                                    attribute.span,
+                                    format!(
+                                        "builtin comptime source item `{}` must match descriptor item `{}`",
+                                        binding.name,
+                                        builtin.item_name()
+                                    ),
+                                ));
+                            }
+                        } else {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::ITEM_SIGNATURE,
+                                attribute.span,
+                                format!("unknown builtin comptime `{builtin_name}`"),
+                            ));
+                        }
+                    }
+                    if binding.is_extern || binding.value.is_some() || binding.ty.is_none() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            attribute.span,
+                            "`@[builtin]` is only valid on bodyless non-extern comptime declarations with an explicit type",
+                        ));
+                    }
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        attribute.span,
+                        format!("unknown comptime attribute `@[{}]`", meta.path.join(".")),
+                    ));
+                }
+            }
+        }
+        out
     }
 
     fn function_signature(&mut self, function: &FunctionItem) -> FunctionSignature {
@@ -1129,7 +1239,10 @@ impl<'a> SignatureCollector<'a> {
         out
     }
 
-    fn builtin_type_attribute(&mut self, attributes: &[Attribute]) -> Option<BuiltinType> {
+    fn builtin_type_attribute(
+        &mut self,
+        attributes: &[Attribute],
+    ) -> Option<BuiltinTypeDeclaration> {
         let mut out = None;
         for attribute in attributes {
             let AttributeKind::Meta(meta) = &attribute.kind else {
@@ -1140,7 +1253,7 @@ impl<'a> SignatureCollector<'a> {
                     let builtin_name =
                         self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinType::from_name(builtin_name) {
+                        if let Some(builtin) = BuiltinTypeDeclaration::from_name(builtin_name) {
                             if out.replace(builtin).is_some() {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
@@ -1667,6 +1780,28 @@ extend[T, N: usize] [N]T : Len {
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_types, expected_types);
 
+        let expected_type_anchors = BuiltinTypeAnchor::ALL
+            .iter()
+            .map(|builtin| builtin.name())
+            .collect::<BTreeSet<_>>();
+        let actual_type_anchors = declarations
+            .type_anchors
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_type_anchors, expected_type_anchors);
+
+        let expected_comptimes = BuiltinComptime::ALL
+            .iter()
+            .map(|builtin| builtin.name())
+            .collect::<BTreeSet<_>>();
+        let actual_comptimes = declarations
+            .comptimes
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual_comptimes, expected_comptimes);
+
         let expected_extends = [
             "i8",
             "i16",
@@ -1827,6 +1962,8 @@ extend[T, N: usize] [N]T : Len {
     struct SourceBuiltinDeclarations {
         functions: Vec<String>,
         types: Vec<String>,
+        type_anchors: Vec<String>,
+        comptimes: Vec<String>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
         extends: BTreeMap<String, Vec<String>>,
     }
@@ -1888,26 +2025,41 @@ extend[T, N: usize] [N]T : Len {
                     }
                     nia_ast::ItemKind::TypeAlias(alias) => {
                         if let Some(name) = builtin_attribute(&item.attributes) {
+                            let is_opaque = BuiltinType::from_name(&name).is_some();
+                            let is_anchor = BuiltinTypeAnchor::from_name(&name).is_some();
                             assert!(
-                                BuiltinType::from_name(&name).is_some(),
+                                is_opaque || is_anchor,
                                 "unknown builtin type `{name}` in {}",
                                 path.display()
                             );
-                            assert_eq!(
-                                alias.name, name,
-                                "builtin type source item name must match `@[builtin]` name"
-                            );
+                            if is_opaque {
+                                assert_eq!(
+                                    alias.name, name,
+                                    "builtin type source item name must match `@[builtin]` name"
+                                );
+                            } else {
+                                assert_eq!(
+                                    alias.name,
+                                    BuiltinTypeAnchor::from_name(&name).unwrap().name(),
+                                    "builtin type anchor source item name must match descriptor item name"
+                                );
+                            }
                             assert!(
                                 alias.ty.is_none(),
                                 "builtin type declaration `{name}` in {} must be bodyless",
                                 path.display()
                             );
+                            let declarations = if is_opaque {
+                                &mut out.types
+                            } else {
+                                &mut out.type_anchors
+                            };
                             assert!(
-                                !out.types.contains(&name),
+                                !declarations.contains(&name),
                                 "duplicate builtin type declaration `{name}` in {}",
                                 path.display()
                             );
-                            out.types.push(name);
+                            declarations.push(name);
                         }
                     }
                     nia_ast::ItemKind::Trait(item_trait) => {
@@ -1925,6 +2077,33 @@ extend[T, N: usize] [N]T : Len {
                                 "duplicate builtin trait declaration in {}",
                                 path.display()
                             );
+                        }
+                    }
+                    nia_ast::ItemKind::Binding(binding) => {
+                        if let Some(name) = builtin_attribute(&item.attributes) {
+                            assert!(
+                                BuiltinComptime::from_name(&name).is_some(),
+                                "unknown builtin comptime `{name}` in {}",
+                                path.display()
+                            );
+                            assert_eq!(
+                                binding.name,
+                                BuiltinComptime::from_name(&name).unwrap().item_name(),
+                                "builtin comptime source item name must match descriptor item name"
+                            );
+                            assert!(
+                                binding.is_comptime
+                                    && binding.value.is_none()
+                                    && binding.ty.is_some(),
+                                "builtin comptime declaration `{name}` in {} must be bodyless with an explicit type",
+                                path.display()
+                            );
+                            assert!(
+                                !out.comptimes.contains(&name),
+                                "duplicate builtin comptime declaration `{name}` in {}",
+                                path.display()
+                            );
+                            out.comptimes.push(name);
                         }
                     }
                     nia_ast::ItemKind::Extend(extend) => {

@@ -1,8 +1,8 @@
 use crate::lower::{ComptimeLowerContext, lower_type_id, unresolved_error};
 use crate::*;
 use nia_ids::{
-    BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
-    ValueBuiltin,
+    BuiltinComptime, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
+    LayoutBuiltin, LocalId, ValueBuiltin,
 };
 use nia_sema_ir::{AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticValueUse};
 use nia_span::Span;
@@ -188,7 +188,7 @@ impl ResolvedComptimeExpr {
         resolve_expr(expr)
     }
 
-    pub(crate) fn from_parts(span: Span, kind: ResolvedComptimeExprKind) -> Self {
+    pub fn from_parts(span: Span, kind: ResolvedComptimeExprKind) -> Self {
         Self { span, kind }
     }
 
@@ -870,6 +870,7 @@ pub enum ResolvedComptimeExprKind {
     CompileError {
         message: Box<ResolvedComptimeExpr>,
     },
+    BuiltinComptime(BuiltinComptime),
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,
@@ -1333,6 +1334,7 @@ pub enum EarlyComptimeExprKind {
     CompileError {
         message: Box<EarlyComptimeExpr>,
     },
+    BuiltinComptime(BuiltinComptime),
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,

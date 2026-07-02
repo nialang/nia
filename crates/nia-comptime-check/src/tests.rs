@@ -47,6 +47,7 @@ fn check_source(source: &str) -> CheckedFixture {
     let comptime_module = lower_module_comptime(ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
+        signatures: &signatures,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
@@ -268,6 +269,7 @@ y
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_names = resolve_module_types(&module, &defs);
     let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+    let signatures = collect_item_signatures(&module, &defs, &lowered);
     let values = resolve_module_values(&module, &defs);
     let mut locals = resolve_module_locals(&module, &defs, &values);
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {
@@ -309,6 +311,7 @@ y
     let comptime_module = lower_module_comptime(ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
+        signatures: &signatures,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,

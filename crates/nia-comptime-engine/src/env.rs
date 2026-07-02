@@ -5,7 +5,7 @@ use nia_comptime_ir::{
     EarlyComptimeName, EarlyComptimeParam, EarlyComptimeTypeArg, ResolvedComptimeAssignTarget,
     ResolvedComptimeBinding, ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
+use nia_ids::{BuiltinComptime, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
 use nia_ty::ConstGenericArg;
 
@@ -16,6 +16,20 @@ pub struct ComptimeError {
 }
 
 pub trait ComptimeCommonEnv {
+    fn resolve_builtin_comptime(
+        &mut self,
+        span: Span,
+        builtin: BuiltinComptime,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: format!(
+                "unsupported builtin comptime in comptime expression: {}",
+                builtin.name()
+            ),
+        })
+    }
+
     fn resolve_builtin_value(
         &mut self,
         span: Span,

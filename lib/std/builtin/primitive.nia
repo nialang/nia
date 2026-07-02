@@ -1,4 +1,58 @@
-// Builtin declarations for primitive scalar associated values.
+// Builtin declarations for primitive scalar types and associated values.
+
+@[builtin("i8")]
+pub type i8;
+
+@[builtin("i16")]
+pub type i16;
+
+@[builtin("i32")]
+pub type i32;
+
+@[builtin("i64")]
+pub type i64;
+
+@[builtin("i128")]
+pub type i128;
+
+@[builtin("isize")]
+pub type isize;
+
+@[builtin("u8")]
+pub type u8;
+
+@[builtin("u16")]
+pub type u16;
+
+@[builtin("u32")]
+pub type u32;
+
+@[builtin("u64")]
+pub type u64;
+
+@[builtin("u128")]
+pub type u128;
+
+@[builtin("usize")]
+pub type usize;
+
+@[builtin("f32")]
+pub type f32;
+
+@[builtin("f64")]
+pub type f64;
+
+@[builtin("bool")]
+pub type bool;
+
+@[builtin("char")]
+pub type char;
+
+@[builtin("void")]
+pub type void;
+
+@[builtin("never")]
+pub type never;
 
 @[builtin("i8")]
 extend i8 {

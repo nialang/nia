@@ -15,6 +15,7 @@ pub module ops;
 pub module place;
 pub module primitive;
 pub module simd;
+pub module target;
 
 using pkg::builtin::atomic;
 using pkg::builtin::bits;
@@ -27,6 +28,7 @@ using pkg::builtin::ops;
 using pkg::builtin::place;
 using pkg::builtin::primitive;
 using pkg::builtin::simd;
+using pkg::builtin::target;
 
 pub using atomic::{
     atomic_load,

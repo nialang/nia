@@ -1755,6 +1755,14 @@ impl<'a> BodyChecker<'a> {
             return;
         };
         let Some(value) = &binding.value else {
+            if self
+                .signatures
+                .comptimes
+                .get(&def_id)
+                .is_some_and(|signature| signature.builtin.is_some())
+            {
+                return;
+            }
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 item_span,

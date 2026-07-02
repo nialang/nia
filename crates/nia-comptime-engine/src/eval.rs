@@ -257,6 +257,9 @@ fn eval_resolved_comptime_expr_flow(
             };
             env.resolve_resolved_field_offset_builtin(span, type_arg, &field)?
         }
+        ResolvedComptimeExprKind::BuiltinComptime(builtin) => {
+            env.resolve_builtin_comptime(span, *builtin)?
+        }
         ResolvedComptimeExprKind::BuiltinValue(builtin) => {
             env.resolve_builtin_value(span, *builtin)?
         }
@@ -511,6 +514,9 @@ fn eval_comptime_expr_flow(
                 });
             };
             env.resolve_field_offset_builtin(expr.span, type_arg, &field)?
+        }
+        EarlyComptimeExprKind::BuiltinComptime(builtin) => {
+            env.resolve_builtin_comptime(expr.span, *builtin)?
         }
         EarlyComptimeExprKind::BuiltinValue(builtin) => {
             env.resolve_builtin_value(expr.span, *builtin)?

@@ -2,17 +2,18 @@
 
 ## Status
 
-The first builtin-source pass is mostly complete:
+The first builtin-source pass is complete for the current builtin surface:
 
 - `std::builtin` is the canonical public home for compiler-backed operations.
 - Builtin traits and functions have source declarations under `lib/std/builtin`.
 - Builtin modules are split by semantic area and re-exported from
   `std::builtin`.
-- `@[builtin]` is accepted on `extend` declarations, bodyless builtin methods are
-  accepted, and builtin impl declarations are skipped as ordinary user impls.
+- `@[builtin]` is accepted on `extend`, bodyless `fn`, bodyless `type`, and
+  bodyless top-level `comptime` declarations. Builtin impl declarations are
+  skipped as ordinary user impls.
 - Descriptor/source consistency tests guard builtin functions, builtin traits,
-  builtin associated types/comptimes, and the currently declared builtin impl
-  markers.
+  builtin associated types/comptimes, builtin top-level comptimes, primitive
+  type anchors, and the currently declared builtin impl markers.
 - `memcpy`, `memmove`, and `memset` now have source-level signatures instead of
   `void` argument placeholders.
 - Trait associated comptime requirements are parsed, signed, checked on impls,
@@ -23,11 +24,18 @@ The first builtin-source pass is mostly complete:
 - Primitive integer associated values such as `i32::MIN` and `usize::MAX` are
   declared as bodyless builtin inherent associated comptimes in
   `std::builtin::primitive`.
+- Primitive scalar types have source-visible builtin type anchors in
+  `std::builtin::primitive`; the anchors lower to the real primitive types, not
+  to separate opaque builtin types.
+- Target configuration values are source-visible bodyless builtin comptimes in
+  `std::builtin::target`; the old generated top-level `builtin` package root is
+  removed.
 - `std::builtin::AsmConfig` is a source-visible bodyless builtin type, and
   `std::builtin::asm` now takes `AsmConfig` rather than a `void` placeholder.
 
-This draft now tracks the remaining design holes rather than the completed
-module split.
+The main remaining architecture question is whether Rust-side builtin
+descriptors should eventually be generated from `lib/std/builtin` rather than
+guarded by consistency tests.
 
 ## Completed: SIMD Source Shape
 
@@ -88,10 +96,9 @@ Implemented projection syntax:
 [V as Simd]::Lanes
 ```
 
-This mirrors associated type projection. The type checker currently gives
-builtin associated comptime projections their declared type. Lowering concrete
-`[u8x16 as Simd]::Lanes` to a comptime value remains separate future work,
-needed before lane-count constraints can be expressed in source signatures.
+This mirrors associated type projection. Concrete native vector projections
+such as `[u8x16 as Simd]::Lanes` now evaluate to comptime `usize` values and can
+drive array lengths.
 
 ## Completed: Inline Assembly Config
 
@@ -110,10 +117,20 @@ pub fn asm(config: AsmConfig) void;
 runtime layout and should not reach backend IR except through the dedicated
 inline-asm expression lowering path.
 
-## Completed: Primitive Associated Values
+## Completed: Primitive Type Anchors And Values
 
-Primitive scalar types remain language primitives, but integer associated values
-are now source-visible declarations:
+Primitive scalar types remain language primitives, but they now have
+source-visible type anchors:
+
+```nia
+@[builtin("i32")]
+pub type i32;
+```
+
+These anchors lower to the existing primitive type. They do not introduce a
+second `BuiltinType::I32` semantic type.
+
+Integer associated values are also source-visible declarations:
 
 ```nia
 @[builtin("i32")]
@@ -126,3 +143,18 @@ extend i32 {
 The actual values remain target-aware compiler semantics, especially for
 `usize` and `isize`; the std declarations provide the source shape and
 documentation anchor.
+
+## Completed: Target Values
+
+Target configuration values live under `std::builtin::target`:
+
+```nia
+@[builtin("target.os")]
+pub comptime os: &[char];
+
+@[builtin("target.pointer_width")]
+pub comptime pointer_width: usize;
+```
+
+The compiler evaluates these bodyless builtin comptimes from the active target
+configuration. The generated top-level `builtin` package root has been removed.

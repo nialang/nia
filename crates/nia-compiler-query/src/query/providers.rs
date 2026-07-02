@@ -1934,10 +1934,12 @@ pub(super) fn provide_comptime_module(
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let signatures = db.query(ItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
+        signatures: &signatures,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
@@ -2501,6 +2503,7 @@ fn filtered_comptime_global_initializer_for_body_check(
         || db.query(TypeLoweringQuery(global_id.module_id)),
     );
     let type_resolution = db.query(TypeResolutionQuery(global_id.module_id));
+    let signatures = db.query(ItemSignaturesQuery(global_id.module_id));
     let needed_const_exprs = time_module_provider(
         db,
         "executable_body_check.comptime.global_initializer.needed_const_exprs",
@@ -2571,6 +2574,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                     active_item_tree: &filtered_active_item_tree,
                     defs: &defs,
+                    signatures: &signatures,
                     values: &values,
                     locals: &locals,
                     semantic_uses: &semantic_uses,
@@ -2664,6 +2668,7 @@ fn comptime_inputs_for_body_check(
             nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                 active_item_tree: &inputs.active_item_tree,
                 defs,
+                signatures,
                 values: &inputs.values,
                 locals: &inputs.locals,
                 semantic_uses: &inputs.semantic_uses,

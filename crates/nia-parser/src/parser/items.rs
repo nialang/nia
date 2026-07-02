@@ -48,7 +48,9 @@ impl Parser {
         } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
             ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
         } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Static) {
-            ItemKind::Binding(self.parse_binding(false)?)
+            ItemKind::Binding(
+                self.parse_binding_with_options(false, !item_has_builtin_attribute(&attributes))?,
+            )
         } else if self.at(TokenKind::Let) {
             self.error_here("top-level storage declarations use `static`; `let` is local-only");
             return None;
@@ -645,7 +647,17 @@ impl Parser {
     fn parse_type_alias(&mut self, is_builtin_type: bool) -> Option<TypeAliasItem> {
         let start = self.peek().span.start;
         self.expect(TokenKind::Type, "expected `type`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected type alias name")?;
+        let name = if is_builtin_type
+            && matches!(
+                self.peek().kind,
+                TokenKind::Bool | TokenKind::Char | TokenKind::Never | TokenKind::Void
+            ) {
+            let name = self.token_text(self.peek()).to_string();
+            self.bump();
+            name
+        } else {
+            self.expect_text(TokenKind::Ident, "expected type alias name")?
+        };
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
         let ty = if self.eat(TokenKind::Eq).is_some() {

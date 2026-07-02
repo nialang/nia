@@ -199,6 +199,7 @@ pub struct ComptimeModuleLowering {
 pub struct ComptimeModuleInput<'a> {
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
+    pub signatures: &'a ItemSignatures,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,

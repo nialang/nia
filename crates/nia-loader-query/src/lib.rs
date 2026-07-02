@@ -171,12 +171,7 @@ fn load_program_trace(
 fn effective_module_map(entry_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
     module_map
         .with_entry(entry_path.clone())
-        .with_builtin_root(builtin_module_path())
         .with_default_std(default_std_module_path())
-}
-
-fn builtin_module_path() -> SourcePath {
-    SourcePath::new("<nia:builtin>")
 }
 
 fn default_std_module_path() -> SourcePath {
@@ -248,7 +243,6 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let mut graph = ModuleGraph::new(db.context().entry_path.clone());
         inject_entry_runtime(db, &mut graph);
-        inject_std_prelude(db, &mut graph);
         let mut index = 0;
         while index < graph.modules().count() {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -506,37 +500,6 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
     }
 }
 
-fn inject_std_prelude(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
-    let Some(std_path) = db
-        .context()
-        .module_map
-        .get(nia_imports::STD_MODULE_MAP_NAME)
-    else {
-        return;
-    };
-    if std_path.as_str() != default_std_module_path().as_str() {
-        return;
-    }
-    let std_root = graph
-        .package_root(nia_imports::STD_MODULE_MAP_NAME)
-        .or_else(|| {
-            Some(graph.intern_package_root(nia_imports::STD_MODULE_MAP_NAME, std_path.clone()))
-        });
-    let Some(std_root) = std_root else { return };
-    if let Err(diagnostic) = graph.intern_declared_child(
-        std_root,
-        "prelude",
-        nia_imports::Visibility::Public,
-        Span::default(),
-    ) {
-        let path = graph
-            .get(std_root)
-            .map(|node| node.path.clone())
-            .unwrap_or_else(default_std_module_path);
-        graph.push_diagnostic(path, diagnostic);
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct LoadDiagnosticsQuery;
 
@@ -709,16 +672,6 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        if self.0 == builtin_module_path() {
-            return SourceText {
-                file: Some(
-                    db.context()
-                        .sources
-                        .set_source(self.0.clone(), builtin_module_source(&db.context().target)),
-                ),
-                diagnostic: None,
-            };
-        }
         match db.context().sources.read_source(&self.0) {
             Ok(file) => SourceText {
                 file: Some(file),
@@ -737,48 +690,6 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
             },
         }
     }
-}
-
-fn builtin_module_source(target: &TargetConfig) -> String {
-    let fields = [
-        ("arch", target.arch.as_str()),
-        ("vendor", target.vendor.as_str()),
-        ("os", target.os.as_str()),
-        ("env", target.env.as_str()),
-        ("abi", target.abi.as_str()),
-        ("endian", target.endian.as_str()),
-    ];
-    let mut source = String::new();
-    for (name, value) in fields {
-        source.push_str(&format!(
-            "pub comptime {name}: [{}]char = {};\n",
-            value.chars().count(),
-            nia_string_literal(value)
-        ));
-    }
-    source.push_str(&format!(
-        "pub comptime pointer_width: usize = {}usize;\n",
-        target.pointer_width
-    ));
-    source
-}
-
-fn nia_string_literal(value: &str) -> String {
-    let mut literal = String::from("\"");
-    for ch in value.chars() {
-        match ch {
-            '"' => literal.push_str("\\\""),
-            '\\' => literal.push_str("\\\\"),
-            '\n' => literal.push_str("\\n"),
-            '\r' => literal.push_str("\\r"),
-            '\t' => literal.push_str("\\t"),
-            '\0' => literal.push_str("\\0"),
-            ch if ch.is_control() => literal.push_str(&format!("\\u{{{:x}}}", ch as u32)),
-            ch => literal.push(ch),
-        }
-    }
-    literal.push('"');
-    literal
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1429,30 +1340,21 @@ module present;
     }
 
     #[test]
-    fn query_loader_injects_builtin_module_map() {
-        let root = temp_dir("query_loader_injects_builtin_module_map");
+    fn query_loader_loads_std_builtin_target_module() {
+        let root = temp_dir("query_loader_loads_std_builtin_target_module");
         let main_path = root.join("main.nia");
-        write(&main_path, "using builtin;");
+        write(&main_path, "using std::builtin::target;");
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        let builtin_module = program
-            .graph
-            .get(
-                program
-                    .graph
-                    .package_root(nia_imports::BUILTIN_MODULE_MAP_NAME)
-                    .expect("builtin package root"),
-            )
-            .expect("builtin module");
-        assert_eq!(builtin_module.path.as_str(), builtin_module_path().as_str());
-        let builtin_loaded = program
+        assert!(program.graph.package_root("builtin").is_none());
+        let target_loaded = program
             .modules
             .iter()
-            .find(|module| module.path.as_str() == builtin_module_path().as_str())
-            .expect("loaded builtin module");
-        assert!(builtin_loaded.item_tree.items.iter().any(|item| {
+            .find(|module| module.path.as_str().ends_with("lib/std/builtin/target.nia"))
+            .expect("loaded std::builtin::target module");
+        assert!(target_loaded.item_tree.items.iter().any(|item| {
             matches!(
                 &item.kind,
                 ItemTreeNodeKind::Binding(binding)
@@ -1614,7 +1516,6 @@ fn main(value: std::fmt::Value) void {
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(!program.graph.package_facade_active("std"));
         assert!(program.graph.package_root("std").is_some());
-        assert_module_loaded(&program, "lib/std/prelude.nia");
         assert_module_loaded(&program, "lib/std/builtin.nia");
         assert_module_not_loaded(&program, "lib/std/fmt.nia");
     }

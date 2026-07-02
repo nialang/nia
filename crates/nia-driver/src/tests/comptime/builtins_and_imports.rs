@@ -83,13 +83,15 @@ fn main() i32 {
 }
 
 #[test]
-fn std_prelude_exposes_builtin_functions() {
-    let root = temp_dir("std_prelude_exposes_builtin_functions");
+fn builtin_functions_require_explicit_std_builtin_path_or_using() {
+    let root = temp_dir("builtin_functions_require_explicit_std_builtin_path_or_using");
     std::fs::create_dir_all(root.join("assets")).expect("create assets dir");
     std::fs::write(root.join("assets/payload.bin"), [b'n', b'i', b'a']).expect("write payload");
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::{align, embed, offset, size};
+
 struct Pair {
     tag: u8,
     value: u32,
@@ -112,11 +114,13 @@ fn main() usize {
 }
 
 #[test]
-fn std_prelude_exposes_builtin_traits() {
-    let root = temp_dir("std_prelude_exposes_builtin_traits");
+fn builtin_traits_require_explicit_std_builtin_using() {
+    let root = temp_dir("builtin_traits_require_explicit_std_builtin_using");
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Iterator;
+
 struct Counter {
     next_value: usize,
     end: usize,
@@ -163,8 +167,8 @@ fn main() usize {
 }
 
 #[test]
-fn local_type_alias_shadows_prelude_builtin_trait_names() {
-    let root = temp_dir("local_type_alias_shadows_prelude_builtin_trait_names");
+fn local_type_alias_can_use_builtin_trait_names_without_ambient_conflict() {
+    let root = temp_dir("local_type_alias_can_use_builtin_trait_names_without_ambient_conflict");
     write(
         &root.join("main.nia"),
         r#"
