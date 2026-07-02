@@ -835,7 +835,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -874,7 +874,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -900,7 +900,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -923,7 +923,7 @@ fn main() i64 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -946,7 +946,7 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -977,7 +977,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1001,7 +1001,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1020,7 +1020,7 @@ fn main() void {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -1046,7 +1046,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1066,7 +1066,7 @@ fn main() void {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1084,7 +1084,7 @@ fn main() void {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1103,7 +1103,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1122,7 +1122,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -1148,7 +1148,7 @@ fn main() usize {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -1188,7 +1188,7 @@ fn main() void {}
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -1211,7 +1211,7 @@ fn main() void {}
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
