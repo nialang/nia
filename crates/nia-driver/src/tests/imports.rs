@@ -372,11 +372,11 @@ fn builtin_module_exposes_target_comptime_values() {
     write(
         &root.join("main.nia"),
         r#"
-using builtin;
+using std::builtin::target;
 
 fn main() usize {
-    if builtin::pointer_width == 64usize or builtin::pointer_width == 32usize {
-        builtin::os.len()
+    if target::pointer_width == 64usize or target::pointer_width == 32usize {
+        target::os.len()
     } else {
         0usize
     }
@@ -388,9 +388,9 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
         checked
-            .graph
-            .package_root(nia_imports::BUILTIN_MODULE_MAP_NAME)
-            .is_some()
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().ends_with("lib/std/builtin/target.nia"))
     );
 }
 

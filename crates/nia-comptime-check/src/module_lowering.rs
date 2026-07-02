@@ -4,7 +4,7 @@ use crate::{ComptimeModuleInput, ComptimeModuleLowering};
 use nia_ast::Expr;
 use nia_comptime_ir::{
     ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
-    ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
+    ResolvedComptimeExprKind, ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
 };
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -123,6 +123,21 @@ impl ComptimeModuleLowerer<'_> {
         };
         let value = binding.value.as_ref();
         let Some(value) = value else {
+            if let Some(builtin) = self
+                .input
+                .signatures
+                .comptimes
+                .get(&def_id)
+                .and_then(|signature| signature.builtin)
+            {
+                self.module.insert_global_initializer(
+                    self.global_def_id(def_id),
+                    ResolvedComptimeExpr::from_parts(
+                        item_span,
+                        ResolvedComptimeExprKind::BuiltinComptime(builtin),
+                    ),
+                );
+            }
             return;
         };
         if let Some(value) = self.lower_expr(value) {

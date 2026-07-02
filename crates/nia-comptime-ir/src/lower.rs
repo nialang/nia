@@ -911,6 +911,9 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
         EarlyComptimeExprKind::CompileError { message } => ResolvedComptimeExprKind::CompileError {
             message: Box::new(resolve_expr(*message)?),
         },
+        EarlyComptimeExprKind::BuiltinComptime(builtin) => {
+            ResolvedComptimeExprKind::BuiltinComptime(builtin)
+        }
         EarlyComptimeExprKind::BuiltinValue(builtin) => {
             ResolvedComptimeExprKind::BuiltinValue(builtin)
         }

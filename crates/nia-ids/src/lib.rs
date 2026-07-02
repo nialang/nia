@@ -102,6 +102,28 @@ pub enum BuiltinType {
     AsmConfig,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinTypeAnchor {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
+    Bool,
+    Char,
+    Void,
+    Never,
+}
+
 impl BuiltinType {
     pub const ALL: [Self; 1] = [Self::AsmConfig];
 
@@ -115,6 +137,76 @@ impl BuiltinType {
     pub fn name(self) -> &'static str {
         match self {
             Self::AsmConfig => "AsmConfig",
+        }
+    }
+}
+
+impl BuiltinTypeAnchor {
+    pub const ALL: [Self; 18] = [
+        Self::I8,
+        Self::I16,
+        Self::I32,
+        Self::I64,
+        Self::I128,
+        Self::Isize,
+        Self::U8,
+        Self::U16,
+        Self::U32,
+        Self::U64,
+        Self::U128,
+        Self::Usize,
+        Self::F32,
+        Self::F64,
+        Self::Bool,
+        Self::Char,
+        Self::Void,
+        Self::Never,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "i8" => Some(Self::I8),
+            "i16" => Some(Self::I16),
+            "i32" => Some(Self::I32),
+            "i64" => Some(Self::I64),
+            "i128" => Some(Self::I128),
+            "isize" => Some(Self::Isize),
+            "u8" => Some(Self::U8),
+            "u16" => Some(Self::U16),
+            "u32" => Some(Self::U32),
+            "u64" => Some(Self::U64),
+            "u128" => Some(Self::U128),
+            "usize" => Some(Self::Usize),
+            "f32" => Some(Self::F32),
+            "f64" => Some(Self::F64),
+            "bool" => Some(Self::Bool),
+            "char" => Some(Self::Char),
+            "void" => Some(Self::Void),
+            "never" => Some(Self::Never),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+            Self::Bool => "bool",
+            Self::Char => "char",
+            Self::Void => "void",
+            Self::Never => "never",
         }
     }
 }
@@ -159,6 +251,17 @@ pub enum BuiltinTrait {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueBuiltin {
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinComptime {
+    TargetArch,
+    TargetVendor,
+    TargetOs,
+    TargetEnv,
+    TargetAbi,
+    TargetEndian,
+    TargetPointerWidth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -288,6 +391,55 @@ impl ValueBuiltin {
     pub fn name(self) -> &'static str {
         match self {
             Self::Error => "error",
+        }
+    }
+}
+
+impl BuiltinComptime {
+    pub const ALL: [Self; 7] = [
+        Self::TargetArch,
+        Self::TargetVendor,
+        Self::TargetOs,
+        Self::TargetEnv,
+        Self::TargetAbi,
+        Self::TargetEndian,
+        Self::TargetPointerWidth,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "target.arch" => Some(Self::TargetArch),
+            "target.vendor" => Some(Self::TargetVendor),
+            "target.os" => Some(Self::TargetOs),
+            "target.env" => Some(Self::TargetEnv),
+            "target.abi" => Some(Self::TargetAbi),
+            "target.endian" => Some(Self::TargetEndian),
+            "target.pointer_width" => Some(Self::TargetPointerWidth),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::TargetArch => "target.arch",
+            Self::TargetVendor => "target.vendor",
+            Self::TargetOs => "target.os",
+            Self::TargetEnv => "target.env",
+            Self::TargetAbi => "target.abi",
+            Self::TargetEndian => "target.endian",
+            Self::TargetPointerWidth => "target.pointer_width",
+        }
+    }
+
+    pub fn item_name(self) -> &'static str {
+        match self {
+            Self::TargetArch => "arch",
+            Self::TargetVendor => "vendor",
+            Self::TargetOs => "os",
+            Self::TargetEnv => "env",
+            Self::TargetAbi => "abi",
+            Self::TargetEndian => "endian",
+            Self::TargetPointerWidth => "pointer_width",
         }
     }
 }

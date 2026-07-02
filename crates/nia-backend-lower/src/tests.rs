@@ -247,6 +247,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
             active_item_tree: &active_item_tree,
             defs: &defs,
+            signatures: &signatures,
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,

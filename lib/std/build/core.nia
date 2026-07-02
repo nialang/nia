@@ -659,7 +659,7 @@ fn is_valid_module_import_name(name: string::StringView) bool {
         return false;
     }
     let text = name.text();
-    if mem::equal[char](text, &"entry") or mem::equal[char](text, &"pkg") or mem::equal[char](text, &"builtin") {
+    if mem::equal[char](text, &"entry") or mem::equal[char](text, &"pkg") {
         return false;
     }
     for &ch in text.iter() {

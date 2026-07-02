@@ -463,6 +463,9 @@ impl Analyzer<'_> {
             ResolvedComptimeExprKind::Block(block) => {
                 self.resolved_comptime_block_tail_type(block, expected)
             }
+            ResolvedComptimeExprKind::BuiltinComptime(_) => {
+                expected.map(ComptimeValueType::Runtime)
+            }
             ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Error) => None,
             ResolvedComptimeExprKind::CompileError { message } => {
                 let _ = self.resolved_comptime_expr_type(message, None);

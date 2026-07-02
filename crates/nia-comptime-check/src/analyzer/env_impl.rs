@@ -15,7 +15,8 @@ use nia_comptime_ir::{
 };
 use nia_defs::DefKind;
 use nia_ids::{
-    BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+    BuiltinComptime, BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId,
+    ValueBuiltin,
 };
 use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalKind;
@@ -25,6 +26,38 @@ use nia_ty::{IntConst, TyKind};
 use std::path::{Path, PathBuf};
 
 impl ComptimeCommonEnv for Analyzer<'_> {
+    fn resolve_builtin_comptime(
+        &mut self,
+        span: Span,
+        builtin: BuiltinComptime,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let value = match builtin {
+            BuiltinComptime::TargetArch => {
+                ComptimeValue::String(self.input.target.arch.as_str().to_string())
+            }
+            BuiltinComptime::TargetVendor => {
+                ComptimeValue::String(self.input.target.vendor.as_str().to_string())
+            }
+            BuiltinComptime::TargetOs => {
+                ComptimeValue::String(self.input.target.os.as_str().to_string())
+            }
+            BuiltinComptime::TargetEnv => {
+                ComptimeValue::String(self.input.target.env.as_str().to_string())
+            }
+            BuiltinComptime::TargetAbi => {
+                ComptimeValue::String(self.input.target.abi.as_str().to_string())
+            }
+            BuiltinComptime::TargetEndian => {
+                ComptimeValue::String(self.input.target.endian.as_str().to_string())
+            }
+            BuiltinComptime::TargetPointerWidth => ComptimeValue::Int(IntConst::unsigned(
+                u128::from(self.input.target.pointer_width),
+            )),
+        };
+        let _ = span;
+        Ok(value)
+    }
+
     fn resolve_builtin_value(
         &mut self,
         span: Span,

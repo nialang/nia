@@ -1607,6 +1607,7 @@ mod tests {
         let comptime_module = lower_module_comptime(ComptimeModuleInput {
             active_item_tree: &active_item_tree,
             defs,
+            signatures,
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,

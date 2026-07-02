@@ -11,7 +11,6 @@ use nia_span::Span;
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
 pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
 pub const STD_MODULE_MAP_NAME: &str = "std";
-pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleMap {
@@ -31,13 +30,6 @@ impl ModuleMap {
         let mut map = self.clone();
         map.entries
             .insert(ENTRY_MODULE_MAP_NAME.to_string(), entry_path);
-        map
-    }
-
-    pub fn with_builtin_root(&self, builtin_path: SourcePath) -> Self {
-        let mut map = self.clone();
-        map.entries
-            .insert(BUILTIN_MODULE_MAP_NAME.to_string(), builtin_path);
         map
     }
 

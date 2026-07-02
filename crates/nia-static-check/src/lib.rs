@@ -689,6 +689,7 @@ mod tests {
             nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                 active_item_tree: &active_item_tree,
                 defs: &defs,
+                signatures: &signatures,
                 values: &values,
                 locals: &locals,
                 semantic_uses: &semantic_uses,

@@ -1350,6 +1350,10 @@ fn lanes() usize {
     [u8x16 as Simd]::Lanes
 }
 
+fn lane_array(values: [[u8x16 as Simd]::Lanes]u8) u8 {
+    values[15]
+}
+
 fn generic[V](value: [V as Simd]::Lane) void
 where V: Simd
 {
