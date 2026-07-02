@@ -31,7 +31,7 @@ impl<'a> BodyChecker<'a> {
             .collect::<Vec<_>>();
         let program_methods = self
             .program_extension_methods
-            .all_methods()
+            .methods_named(name)
             .filter(|method| method.trait_id.is_none() && method.name == name)
             .cloned()
             .collect::<Vec<_>>();
