@@ -1,18 +1,17 @@
 [package]
-name = "nia-executable-reachability"
+name = "nia-executable-facts"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-body-ir.workspace = true
 nia-defs.workspace = true
-nia-executable-facts.workspace = true
 nia-ids.workspace = true
-nia-imports.workspace = true
-nia-item-signatures.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
+nia-static-ir.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
