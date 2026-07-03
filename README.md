@@ -234,8 +234,12 @@ Before opening or merging compiler changes, run the local release gate:
 ```sh
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
+NIA_COMPILER_CHECK_LIMIT=1 cargo test --workspace -- --test-threads 2
 ```
+
+Some CLI integration tests compile and run Nia programs. They inherit
+`NIA_TEST_COMMAND_TIMEOUT_SECS` when a slower machine needs a larger per-command
+timeout.
 
 Do not add lint suppressions just to pass Clippy. Fix the code instead, or
 document and review a narrow exception.

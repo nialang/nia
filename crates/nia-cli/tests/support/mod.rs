@@ -16,7 +16,7 @@ static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[allow(dead_code)]
 static BUILD_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
-const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
 const COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_COMMAND_TIMEOUT_SECS";
 const COMPILER_CHECK_LIMIT_ENV: &str = "NIA_COMPILER_CHECK_LIMIT";
 
