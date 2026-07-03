@@ -579,6 +579,7 @@ dependencies = [
  "nia-item-tree",
  "nia-node-id",
  "nia-parser",
+ "nia-provider-summary",
  "nia-query",
  "nia-source",
  "nia-span",
@@ -657,6 +658,15 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-syntax",
+]
+
+[[package]]
+name = "nia-provider-summary"
+version = "0.4.3"
+dependencies = [
+ "nia-ast",
+ "nia-item-tree",
+ "nia-parser",
 ]
 
 [[package]]
