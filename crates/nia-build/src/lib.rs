@@ -667,9 +667,6 @@ fn restore_build_runner_fingerprint(
     if snapshot.runner_source_hash != content_hash(&runner.source) {
         return Ok(None);
     }
-    if !build_manifest_input_set_matches(plan, runner, &snapshot)? {
-        return Ok(None);
-    }
     if !std_manifest_input_set_matches(&snapshot)? {
         return Ok(None);
     }
@@ -691,19 +688,6 @@ fn restore_build_runner_fingerprint(
     } else {
         Ok(None)
     }
-}
-
-fn build_manifest_input_set_matches(
-    plan: &BuildPlan,
-    runner: &BuildRunnerSource,
-    snapshot: &BuildRunnerFingerprintSnapshot,
-) -> Result<bool, BuildError> {
-    let current = build_runner_relative_input_paths(
-        &plan.package_root,
-        loaded_build_runner_module_files(plan, runner)?,
-    )?;
-    let stored = stored_manifest_relative_input_paths(snapshot, BuildRunnerFingerprintRoot::Build);
-    Ok(current == stored)
 }
 
 fn std_manifest_input_set_matches(
@@ -1643,6 +1627,36 @@ mod tests {
 
         std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 2 }\n")
             .expect("edit helper");
+
+        assert_eq!(
+            restore_build_runner_fingerprint(&plan, &runner).expect("restore manifest"),
+            None
+        );
+    }
+
+    #[test]
+    fn build_runner_manifest_rejects_added_declared_build_graph_input() {
+        let root = temp_root("build_runner_manifest_rejects_added_declared_build_graph_input");
+        std::fs::create_dir_all(root.join("build")).expect("create build module dir");
+        std::fs::write(
+            root.join("build.nia"),
+            "module helper;\nusing std::build;\n",
+        )
+        .expect("write build script");
+        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 1 }\n")
+            .expect("write helper");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let snapshot = build_runner_fingerprint(&plan, &runner).expect("fingerprint");
+        save_build_runner_manifest(&plan, &snapshot).expect("save manifest");
+
+        std::fs::write(
+            root.join("build.nia"),
+            "module helper;\nmodule extra;\nusing std::build;\n",
+        )
+        .expect("declare extra build module");
+        std::fs::write(root.join("build/extra.nia"), "pub fn value() i32 { 2 }\n")
+            .expect("write extra");
 
         assert_eq!(
             restore_build_runner_fingerprint(&plan, &runner).expect("restore manifest"),
