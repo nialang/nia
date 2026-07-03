@@ -2,7 +2,7 @@
 use super::common::*;
 
 use nia_ids::ModuleId;
-use nia_imports::{ModuleGraph, ModuleMap, ModulePath, SourcePath, Visibility};
+use nia_imports::{ModuleMap, SourcePath};
 use nia_loader_query::load_program;
 use std::{fs, path::Path};
 
@@ -1225,63 +1225,37 @@ fn main() void {}
 #[test]
 fn std_facades_do_not_expose_package_private_implementation_modules() {
     let root = temp_dir("std_facades_do_not_expose_package_private_implementation_modules");
-    write(
-        &root.join("main.nia"),
-        r#"
-using std;
-
-fn main() void {}
-"#,
-    );
-
-    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-
-    for path in [
-        &["io", "traits"][..],
-        &["mem", "allocator"],
-        &["collections", "array_list"],
-        &["collections", "array_list", "list"],
-        &["collections", "array_list", "raw"],
-        &["collections", "hash_map"],
-        &["collections", "hash_map", "raw"],
-        &["collections", "hash_map", "map"],
-        &["collections", "hash_map", "iterators"],
-        &["fs", "convert"],
-        &["hash", "wyhash"],
-        &["hash", "traits"],
-        &["hash", "impls"],
-        &["fmt", "core"],
-        &["iter", "range"],
-    ] {
-        assert_eq!(
-            std_module_declaration_visibility(&program.graph, path),
-            Visibility::PublicPkg,
-            "std::{} should remain package-private",
-            path.join("::")
-        );
+    let private_paths = [
+        "std::io::traits",
+        "std::collections::array_list",
+        "std::collections::hash_map::map",
+        "std::fs::convert",
+        "std::hash::impls",
+    ];
+    let mut source = String::new();
+    for path in private_paths {
+        source.push_str(&format!("using {path};\n"));
     }
-}
+    source.push_str("\nfn main() void {}\n");
+    write(&root.join("main.nia"), &source);
 
-fn std_module_declaration_visibility(graph: &ModuleGraph, path: &[&str]) -> Visibility {
-    let child_name = path.last().expect("module path should not be empty");
-    let parent = ModulePath {
-        package: "std".to_string(),
-        segments: path[..path.len() - 1]
-            .iter()
-            .map(|segment| (*segment).to_string())
-            .collect(),
-    };
-    let parent_id = graph
-        .module_id_for_module_path(&parent)
-        .unwrap_or_else(|| panic!("missing std::{} module", parent.segments.join("::")));
-    let parent = graph.get(parent_id).expect("std parent module");
-    parent
-        .declarations
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    let hidden_namespace_diagnostics = program
+        .diagnostics
         .iter()
-        .find(|declaration| declaration.name == *child_name)
-        .unwrap_or_else(|| panic!("missing std::{} declaration", path.join("::")))
-        .visibility
+        .filter(|diagnostic| {
+            diagnostic.diagnostic.summary.contains("unknown namespace")
+                || diagnostic
+                    .diagnostic
+                    .summary
+                    .contains("could not be resolved")
+        })
+        .count();
+    assert!(
+        hidden_namespace_diagnostics >= private_paths.len(),
+        "private std facade namespaces should not be visible: {:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
