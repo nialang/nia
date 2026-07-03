@@ -514,6 +514,36 @@ pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderNominalIndexQueryValue {
+    pub(super) providers_by_nominal:
+        HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderNominalModuleQueryValue {
+    pub(super) providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalModuleQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionProviderNominalModuleQuery {
+    type Value = ExtensionProviderNominalModuleValue;
+
+    fn name() -> &'static str {
+        "extension_provider_nominal_module"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_provider_nominal_module({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_nominal_module)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExtensionProviderModuleFactsQuery(pub(super) ModuleId);
 
@@ -530,6 +560,21 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_module_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalIndexQuery;
+
+impl QueryKey<CompilerContext> for ExtensionProviderNominalIndexQuery {
+    type Value = Arc<ExtensionProviderNominalIndexQueryValue>;
+
+    fn name() -> &'static str {
+        "extension_provider_nominal_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_nominal_index)(db)
     }
 }
 

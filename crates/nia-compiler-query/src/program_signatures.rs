@@ -29,6 +29,15 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
 type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
+pub(crate) type NominalExtensionProviderResolver<'a> =
+    &'a dyn Fn(GlobalDefId) -> Vec<nia_ids::ModuleId>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NominalExtensionProviderEntry {
+    pub(crate) target: GlobalDefId,
+    pub(crate) module_id: nia_ids::ModuleId,
+    pub(crate) visibility: Visibility,
+}
 
 pub(crate) struct ModuleSignatureInput<'a> {
     pub(crate) module_id: nia_ids::ModuleId,
@@ -568,6 +577,57 @@ pub(crate) fn collect_valid_trait_impls_for_extension_index_module(
         ))
     })
     .collect()
+}
+
+pub(crate) fn collect_nominal_extension_providers_for_module(
+    module: &ExtensionMethodIndexModuleInput<'_>,
+    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+) -> Vec<NominalExtensionProviderEntry> {
+    let mut providers = Vec::new();
+    for impl_signature in &module.signatures.trait_impls {
+        let target_ty = module.normalization.normalize(impl_signature.target_ty);
+        if !is_extendable_target(&module.lowering.interner, target_ty) {
+            continue;
+        }
+        let Some(target) = nominal_target_def_id(&module.normalization.interner, target_ty) else {
+            continue;
+        };
+        let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
+        if trait_id.is_none() {
+            providers.extend(impl_signature.methods.iter().map(|method| {
+                NominalExtensionProviderEntry {
+                    target,
+                    module_id: module.module_id,
+                    visibility: method.visibility,
+                }
+            }));
+        }
+        providers.extend(impl_signature.associated_values.iter().map(|value| {
+            NominalExtensionProviderEntry {
+                target,
+                module_id: module.module_id,
+                visibility: value.visibility,
+            }
+        }));
+    }
+    providers.sort_by_key(|provider| {
+        (
+            provider.target,
+            provider.module_id,
+            visibility_rank(provider.visibility),
+        )
+    });
+    providers.dedup();
+    providers
+}
+
+fn visibility_rank(visibility: Visibility) -> u8 {
+    match visibility {
+        Visibility::Private => 0,
+        Visibility::PublicSuper => 1,
+        Visibility::PublicPkg => 2,
+        Visibility::Public => 3,
+    }
 }
 
 fn extension_method_effective_generics(
@@ -2695,6 +2755,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub extensions: &'a ExtensionMethods,
     pub associated_values: &'a ExtensionAssociatedValues,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2757,6 +2818,7 @@ pub(crate) fn visible_extensions_for_module(
         extensions,
         associated_values,
         trait_impls,
+        nominal_extension_providers,
     } = input;
     let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
     let visibility_context = VisibilityClosureContext {
@@ -2767,8 +2829,7 @@ pub(crate) fn visible_extensions_for_module(
         defs,
         normalizations,
         visible_type_signatures,
-        extensions,
-        associated_values,
+        nominal_extension_providers,
     };
     let visible_modules = declared_module_closure(&visibility_context);
     let witness_modules = &visible_modules;
@@ -2900,6 +2961,33 @@ pub(crate) fn visible_extensions_for_module(
     }
 }
 
+pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
+    pub module_id: nia_ids::ModuleId,
+    pub graph: &'a nia_imports::ModuleGraph,
+    pub using_scope: &'a nia_defs::ModuleUsingScope,
+    pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
+    pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    pub normalizations: TypeNormalizationResolver<'a>,
+    pub visible_type_signatures: VisibleTypeSignatures<'a>,
+    pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
+}
+
+pub(crate) fn visible_extension_provider_modules(
+    input: VisibleExtensionProviderModulesInput<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    let context = VisibilityClosureContext {
+        module_id: input.module_id,
+        graph: input.graph,
+        using_scope: input.using_scope,
+        using_scopes: input.using_scopes,
+        defs: input.defs,
+        normalizations: input.normalizations,
+        visible_type_signatures: input.visible_type_signatures,
+        nominal_extension_providers: input.nominal_extension_providers,
+    };
+    declared_module_closure(&context)
+}
+
 fn trait_id_is_visible(
     current_module: nia_ids::ModuleId,
     imported_modules: &[nia_ids::ModuleId],
@@ -3014,8 +3102,7 @@ struct VisibilityClosureContext<'a> {
     defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
     normalizations: TypeNormalizationResolver<'a>,
     visible_type_signatures: VisibleTypeSignatures<'a>,
-    extensions: &'a ExtensionMethods,
-    associated_values: &'a ExtensionAssociatedValues,
+    nominal_extension_providers: NominalExtensionProviderResolver<'a>,
 }
 
 fn enqueue_public_inherent_extension_providers_for_using_scope(
@@ -3039,18 +3126,18 @@ fn enqueue_public_inherent_extension_providers_for_using_scope(
             )
         })
     {
-        queue.extend(public_inherent_method_providers_for_nominal(
-            context.module_id,
-            context.graph,
-            type_def_id,
-            context.extensions,
-        ));
-        queue.extend(public_associated_value_providers_for_nominal(
-            context.module_id,
-            context.graph,
-            type_def_id,
-            context.associated_values,
-        ));
+        queue.extend(
+            (context.nominal_extension_providers)(type_def_id)
+                .into_iter()
+                .filter(|provider| {
+                    nia_imports::visibility_allows(
+                        Visibility::Public,
+                        context.graph,
+                        *provider,
+                        context.module_id,
+                    )
+                }),
+        );
     }
 }
 
@@ -3078,50 +3165,6 @@ fn nominal_def_id_for_public_type(
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
         _ => None,
     }
-}
-
-fn public_inherent_method_providers_for_nominal(
-    module_id: nia_ids::ModuleId,
-    graph: &nia_imports::ModuleGraph,
-    target_def_id: GlobalDefId,
-    extensions: &ExtensionMethods,
-) -> Vec<nia_ids::ModuleId> {
-    let mut providers = Vec::new();
-    for method in extensions.methods_for_nominal_target(target_def_id) {
-        if method.trait_id.is_some()
-            || !nia_imports::visibility_allows(
-                method.visibility,
-                graph,
-                method.def_id.module_id,
-                module_id,
-            )
-        {
-            continue;
-        }
-        providers.push(method.def_id.module_id);
-    }
-    providers
-}
-
-fn public_associated_value_providers_for_nominal(
-    module_id: nia_ids::ModuleId,
-    graph: &nia_imports::ModuleGraph,
-    target_def_id: GlobalDefId,
-    associated_values: &ExtensionAssociatedValues,
-) -> Vec<nia_ids::ModuleId> {
-    let mut providers = Vec::new();
-    for value in associated_values.values_for_nominal_target(target_def_id) {
-        if !nia_imports::visibility_allows(
-            value.visibility,
-            graph,
-            value.def_id.module_id,
-            module_id,
-        ) {
-            continue;
-        }
-        providers.push(value.def_id.module_id);
-    }
-    providers
 }
 
 fn nominal_target_def_id(interner: &TyInterner, ty: InternedTyId) -> Option<GlobalDefId> {
