@@ -9,7 +9,7 @@ use nia_defs::{
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
-    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
+    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME,
     module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
@@ -28,10 +28,6 @@ pub(crate) fn compute_public_surfaces(
         .iter()
         .map(|defs| (defs.module_id, defs))
         .collect::<HashMap<_, _>>();
-    let inactive_std_root = graph
-        .package_root(STD_MODULE_MAP_NAME)
-        .filter(|_| !graph.package_facade_active(STD_MODULE_MAP_NAME));
-
     let mut surfaces = PublicSurfaces::new();
     for defs in defs_by_module {
         let mut surface = ModulePublicSurface::new(defs.module_id);
@@ -85,9 +81,6 @@ pub(crate) fn compute_public_surfaces(
                 if using.visibility != Visibility::Public {
                     continue;
                 }
-                if inactive_std_root == Some(defs.module_id) {
-                    continue;
-                }
                 let context = UsingExpansionContext {
                     defs_by_module: &defs_by_id,
                     graph,
@@ -126,9 +119,7 @@ pub(crate) fn compute_public_surfaces(
                     UsingExpansion::Unresolved => {
                         iteration_unresolved += 1;
                     }
-                    UsingExpansion::HardError(diag) => {
-                        diagnostics.push((defs.module_id, diag));
-                    }
+                    UsingExpansion::HardError(_) => {}
                 }
             }
         }
@@ -145,13 +136,13 @@ pub(crate) fn compute_public_surfaces(
 
     // Final pass: any still-unresolved pub using is a missing item or cycle.
     for defs in defs_by_module {
+        let process_used_paths = graph
+            .get(defs.module_id)
+            .is_some_and(|node| node.process_used_paths);
         let local_modules =
             collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
         for using in &defs.module_usings {
             if using.visibility != Visibility::Public {
-                continue;
-            }
-            if inactive_std_root == Some(defs.module_id) {
                 continue;
             }
             let context = UsingExpansionContext {
@@ -163,7 +154,7 @@ pub(crate) fn compute_public_surfaces(
             };
             match expand_using(&context, defs, using, &local_modules) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
-                UsingExpansion::Unresolved => {
+                UsingExpansion::Unresolved if process_used_paths => {
                     diagnostics.push((
                         defs.module_id,
                         Diagnostic::user_error_at(codes::NAME_RESOLUTION,
@@ -175,6 +166,7 @@ pub(crate) fn compute_public_surfaces(
                         ),
                     ));
                 }
+                UsingExpansion::Unresolved => {}
             }
         }
     }
@@ -182,11 +174,11 @@ pub(crate) fn compute_public_surfaces(
     // Now compute per-module using scopes (both pub and non-pub directives).
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
     for defs in defs_by_module {
+        let process_used_paths = graph
+            .get(defs.module_id)
+            .is_some_and(|node| node.process_used_paths);
         let mut scope = ModuleUsingScope::default();
         for using in &defs.module_usings {
-            if inactive_std_root == Some(defs.module_id) && using.visibility == Visibility::Public {
-                continue;
-            }
             let mode = if using.visibility == Visibility::Public {
                 UsingLookupMode::PublicOnly
             } else {
@@ -203,7 +195,7 @@ pub(crate) fn compute_public_surfaces(
                 UsingExpansion::Resolved(entries) => entries,
                 UsingExpansion::Unresolved => {
                     record_unresolved_using_names(&mut scope, using);
-                    if using.visibility != Visibility::Public {
+                    if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((
                             defs.module_id,
                             Diagnostic::user_error_at(
@@ -224,7 +216,7 @@ pub(crate) fn compute_public_surfaces(
                 }
                 UsingExpansion::HardError(diag) => {
                     record_unresolved_using_names(&mut scope, using);
-                    if using.visibility != Visibility::Public {
+                    if process_used_paths && using.visibility != Visibility::Public {
                         diagnostics.push((defs.module_id, diag));
                     }
                     continue;

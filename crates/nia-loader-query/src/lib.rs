@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    Expr, ExprKind, Stmt, StmtKind, TypeKind, TypeRef, UsingGroupItem, UsingItem, UsingSelector,
+    Expr, ExprKind, Item, ItemKind, Stmt, StmtKind, TypeKind, TypeRef, UsingGroupItem, UsingItem,
+    UsingSelector,
 };
-use nia_ast_walk::{Visitor, walk_expr, walk_module, walk_stmt, walk_type};
+use nia_ast_walk::{Visitor, walk_expr, walk_item, walk_module, walk_stmt, walk_type};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -14,6 +15,7 @@ use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::{TargetConfig, prune_module_for_target};
+use std::collections::HashMap;
 use std::path::Path;
 
 pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
@@ -275,8 +277,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 }
 
 fn should_eager_add_declarations(node: &ModuleNode) -> bool {
-    node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
-        || !node.module_path.is_package_root()
+    node.process_declared_children
         || (node.module_path.package == nia_imports::STD_MODULE_MAP_NAME
             && node
                 .module_path
@@ -286,9 +287,10 @@ fn should_eager_add_declarations(node: &ModuleNode) -> bool {
 }
 
 fn should_process_used_module_paths(graph: &ModuleGraph, node: &ModuleNode) -> bool {
-    node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
-        || !node.module_path.is_package_root()
-        || graph.package_facade_active(nia_imports::STD_MODULE_MAP_NAME)
+    node.process_used_paths
+        && (node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
+            || !node.module_path.is_package_root()
+            || graph.package_facade_active(nia_imports::STD_MODULE_MAP_NAME))
 }
 
 fn add_used_module_path(
@@ -304,21 +306,64 @@ fn add_used_module_path(
         activate_package_facade(db, graph, package)?;
     }
     if let UsedModulePath::Package {
-        package,
+        package: _,
         segments,
         include_declared_children,
         ..
     } = path
         && let Some((first, rest)) = segments.split_first()
     {
-        let Some(first_module) =
-            add_visible_declared_module_child_if_present(db, graph, current_module, start, first)?
+        let Some(first_module) = add_visible_declared_module_child_if_present(
+            db,
+            graph,
+            current_module,
+            start,
+            first,
+            if rest.is_empty() {
+                path.process_used_paths()
+            } else {
+                false
+            },
+        )?
         else {
-            activate_package_facade(db, graph, package)?;
+            let Some(reexport_source) = add_public_reexport_source_module(db, graph, start, first)?
+            else {
+                return Ok(());
+            };
+            let Some(module_id) = add_visible_declared_module_path(
+                db,
+                graph,
+                current_module,
+                reexport_source,
+                rest,
+                path.processing(),
+            )?
+            else {
+                return Ok(());
+            };
+            if let Some(associated_name) = rest.first() {
+                add_public_reexport_extension_provider_modules(
+                    db,
+                    graph,
+                    start,
+                    first,
+                    first,
+                    associated_name,
+                )?;
+            }
+            if *include_declared_children {
+                add_declared_module_children(db, graph, module_id)?;
+            }
             return Ok(());
         };
-        let Some(module_id) =
-            add_visible_declared_module_path(db, graph, current_module, first_module, rest)?
+        let Some(module_id) = add_visible_declared_module_path(
+            db,
+            graph,
+            current_module,
+            first_module,
+            rest,
+            path.processing(),
+        )?
         else {
             return Ok(());
         };
@@ -327,8 +372,14 @@ fn add_used_module_path(
         }
         return Ok(());
     }
-    let Some(module_id) =
-        add_visible_declared_module_path(db, graph, current_module, start, path.segments())?
+    let Some(module_id) = add_visible_declared_module_path(
+        db,
+        graph,
+        current_module,
+        start,
+        path.segments(),
+        path.processing(),
+    )?
     else {
         return Ok(());
     };
@@ -378,28 +429,695 @@ fn used_path_start(
     }
 }
 
+fn mark_process_used_paths_and_process(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+) -> Result<(), Diagnostic> {
+    if !graph.mark_process_used_paths(module_id) {
+        return Ok(());
+    }
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.query(module_declarations_query(db, node.path));
+    for package in declarations.package_roots {
+        if graph.package_root(&package).is_none()
+            && let Some(path) = db.context().module_map.get(&package)
+        {
+            graph.intern_package_root(&package, path.clone());
+        }
+    }
+    for path in declarations.used_module_paths {
+        add_used_module_path(db, graph, module_id, &path)?;
+    }
+    Ok(())
+}
+
 fn add_visible_declared_module_path(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
     start: nia_imports::ModuleId,
     segments: &[String],
+    processing: UsedModulePathProcessing,
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
     let mut current = start;
-    for segment in segments {
+    if processing == UsedModulePathProcessing::Always && segments.is_empty() {
+        mark_process_used_paths_and_process(db, graph, current)?;
+    }
+    if processing == UsedModulePathProcessing::IfProvidesExtensions
+        && segments.is_empty()
+        && module_defines_extensions(db, graph, current)
+    {
+        mark_process_used_paths_and_process(db, graph, current)?;
+    }
+    if segments.is_empty() {
+        process_provider_request(db, graph, current, &processing)?;
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        let is_terminal = index + 1 == segments.len();
+        let process_segment_used_paths =
+            processing == UsedModulePathProcessing::Always && is_terminal;
         let Some(next) = add_visible_declared_module_child_if_present(
             db,
             graph,
             accessing_module,
             current,
             segment,
+            process_segment_used_paths,
         )?
         else {
-            return Ok(None);
+            let reexport_facade = current;
+            let Some(reexport_source) =
+                add_public_reexport_source_module(db, graph, current, segment)?
+            else {
+                if processing == UsedModulePathProcessing::IfSelectedItem
+                    && !is_terminal
+                    && let Some(associated_name) = segments.get(index + 1)
+                    && let Some(parent_facade) = graph.get(current).and_then(|node| node.parent)
+                {
+                    add_public_reexport_extension_provider_modules(
+                        db,
+                        graph,
+                        parent_facade,
+                        segment,
+                        segment,
+                        associated_name,
+                    )?;
+                }
+                if processing.should_process_module() {
+                    mark_process_used_paths_and_process(db, graph, current)?;
+                }
+                return Ok(Some(current));
+            };
+            if processing == UsedModulePathProcessing::Always && !is_terminal {
+                mark_process_used_paths_and_process(db, graph, current)?;
+            }
+            if processing == UsedModulePathProcessing::IfSelectedItem
+                && !is_terminal
+                && let Some(associated_name) = segments.get(index + 1)
+            {
+                add_public_reexport_extension_provider_modules(
+                    db,
+                    graph,
+                    reexport_facade,
+                    segment,
+                    segment,
+                    associated_name,
+                )?;
+            }
+            process_reexport_provider_request(db, graph, reexport_facade, segment, &processing)?;
+            current = reexport_source;
+            if processing == UsedModulePathProcessing::IfSelectedItem && is_terminal {
+                mark_process_used_paths_and_process(db, graph, current)?;
+            }
+            continue;
         };
         current = next;
+        if processing == UsedModulePathProcessing::IfSelectedItem
+            && is_terminal
+            && module_defines_extensions(db, graph, current)
+        {
+            mark_process_used_paths_and_process(db, graph, current)?;
+        }
+        if processing == UsedModulePathProcessing::IfProvidesExtensions
+            && is_terminal
+            && module_defines_extensions(db, graph, current)
+        {
+            mark_process_used_paths_and_process(db, graph, current)?;
+        }
+        if is_terminal {
+            process_provider_request(db, graph, current, &processing)?;
+        }
     }
     Ok(Some(current))
+}
+
+fn process_reexport_provider_request(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    exported_name: &str,
+    processing: &UsedModulePathProcessing,
+) -> Result<(), Diagnostic> {
+    match processing {
+        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
+            if trait_name == exported_name =>
+        {
+            add_public_reexport_trait_impl_provider_modules(db, graph, facade_module, trait_name)
+        }
+        UsedModulePathProcessing::IfProvidesTraitMethod { associated_name } => {
+            add_public_reexport_trait_method_provider_modules(
+                db,
+                graph,
+                facade_module,
+                associated_name,
+            )
+        }
+        UsedModulePathProcessing::IfProvidesInherentAssociated {
+            target_type_name,
+            associated_name,
+        } => add_public_reexport_extension_provider_modules(
+            db,
+            graph,
+            facade_module,
+            exported_name,
+            target_type_name,
+            associated_name,
+        ),
+        _ => Ok(()),
+    }
+}
+
+fn process_provider_request(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    processing: &UsedModulePathProcessing,
+) -> Result<(), Diagnostic> {
+    match processing {
+        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
+            add_public_reexport_trait_impl_provider_modules(db, graph, module_id, trait_name)
+        }
+        UsedModulePathProcessing::IfProvidesTraitMethod { associated_name } => {
+            add_public_reexport_trait_method_provider_modules(db, graph, module_id, associated_name)
+        }
+        UsedModulePathProcessing::IfProvidesInherentAssociated {
+            target_type_name,
+            associated_name,
+        } => add_public_reexport_extension_provider_modules(
+            db,
+            graph,
+            module_id,
+            target_type_name,
+            target_type_name,
+            associated_name,
+        ),
+        UsedModulePathProcessing::Never
+        | UsedModulePathProcessing::Always
+        | UsedModulePathProcessing::IfSelectedItem
+        | UsedModulePathProcessing::IfProvidesExtensions => Ok(()),
+    }
+}
+
+fn add_public_reexport_source_module(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    name: &str,
+) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(None);
+    };
+    let parsed = db.query(parsed_module_query(db, node.path));
+    let local_module_names = parsed
+        .active_item_tree
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let aliases = module_using_aliases(
+        &parsed.active_item_tree,
+        &db.context().module_map,
+        &local_module_names,
+    );
+    for item in &parsed.active_item_tree.items {
+        if item.visibility != nia_imports::Visibility::Public {
+            continue;
+        }
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        let Some(host_path) = using_host_path(
+            &using.host,
+            &db.context().module_map,
+            &local_module_names,
+            &aliases,
+        ) else {
+            continue;
+        };
+        let Some(source_path) =
+            reexport_source_path_for_selector(&host_path, &using.selector, name)
+        else {
+            continue;
+        };
+        let Some(start) = used_path_start(graph, module_id, &source_path) else {
+            continue;
+        };
+        return add_visible_declared_module_path(
+            db,
+            graph,
+            module_id,
+            start,
+            source_path.segments(),
+            source_path.processing(),
+        );
+    }
+    Ok(None)
+}
+
+fn add_public_reexport_extension_provider_modules(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    exported_name: &str,
+    target_type_name: &str,
+    associated_name: &str,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(facade_module).cloned() else {
+        return Ok(());
+    };
+    let parsed = db.query(parsed_module_query(db, node.path));
+    if !public_reexport_exposes_name(&parsed.active_item_tree, exported_name) {
+        return Ok(());
+    }
+    let local_module_names = parsed
+        .active_item_tree
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let aliases = module_using_aliases(
+        &parsed.active_item_tree,
+        &db.context().module_map,
+        &local_module_names,
+    );
+    for item in &parsed.active_item_tree.items {
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        let Some(host_path) = using_host_path(
+            &using.host,
+            &db.context().module_map,
+            &local_module_names,
+            &aliases,
+        ) else {
+            continue;
+        };
+        for source_path in provider_source_paths_for_selector(&host_path, &using.selector) {
+            let Some(candidate_path) =
+                resolve_used_module_path_source(db, graph, facade_module, &source_path)
+            else {
+                continue;
+            };
+            if !source_defines_inherent_associated_item(
+                db,
+                candidate_path,
+                target_type_name,
+                associated_name,
+            ) {
+                continue;
+            }
+            let Some(start) = used_path_start(graph, facade_module, &source_path) else {
+                continue;
+            };
+            let Some(provider_module) = add_visible_declared_module_path(
+                db,
+                graph,
+                facade_module,
+                start,
+                source_path.segments(),
+                UsedModulePathProcessing::Never,
+            )?
+            else {
+                continue;
+            };
+            mark_process_used_paths_and_process(db, graph, provider_module)?;
+        }
+    }
+    Ok(())
+}
+
+fn add_public_reexport_trait_impl_provider_modules(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    trait_name: &str,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(facade_module).cloned() else {
+        return Ok(());
+    };
+    let parsed = db.query(parsed_module_query(db, node.path));
+    if !public_type_exposes_name(&parsed.active_item_tree, trait_name) {
+        return Ok(());
+    }
+    add_trait_provider_modules_matching(
+        db,
+        graph,
+        facade_module,
+        &parsed.active_item_tree,
+        |db, path| source_defines_trait_impl(db, path, trait_name, None),
+    )
+}
+
+fn add_public_reexport_trait_method_provider_modules(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    associated_name: &str,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(facade_module).cloned() else {
+        return Ok(());
+    };
+    let parsed = db.query(parsed_module_query(db, node.path));
+    add_trait_provider_modules_matching(
+        db,
+        graph,
+        facade_module,
+        &parsed.active_item_tree,
+        |db, path| {
+            source_defines_trait_method_for_public_type(
+                db,
+                path,
+                &parsed.active_item_tree,
+                associated_name,
+            )
+        },
+    )
+}
+
+fn add_trait_provider_modules_matching(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
+) -> Result<(), Diagnostic> {
+    let local_module_names = item_tree
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let aliases = module_using_aliases(item_tree, &db.context().module_map, &local_module_names);
+    for item in &item_tree.items {
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        let Some(host_path) = using_host_path(
+            &using.host,
+            &db.context().module_map,
+            &local_module_names,
+            &aliases,
+        ) else {
+            continue;
+        };
+        for source_path in provider_source_paths_for_selector(&host_path, &using.selector) {
+            let Some(candidate_path) =
+                resolve_used_module_path_source(db, graph, facade_module, &source_path)
+            else {
+                continue;
+            };
+            if !matches_provider(db, candidate_path) {
+                continue;
+            }
+            let Some(start) = used_path_start(graph, facade_module, &source_path) else {
+                continue;
+            };
+            let Some(provider_module) = add_visible_declared_module_path(
+                db,
+                graph,
+                facade_module,
+                start,
+                source_path.segments(),
+                UsedModulePathProcessing::Never,
+            )?
+            else {
+                continue;
+            };
+            mark_process_used_paths_and_process(db, graph, provider_module)?;
+        }
+    }
+    Ok(())
+}
+
+fn resolve_used_module_path_source(
+    db: &QueryDb<LoaderContext>,
+    graph: &ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> Option<SourcePath> {
+    let start = used_path_start(graph, current_module, path)?;
+    let start_node = graph.get(start)?;
+    resolve_child_source_path(
+        graph,
+        start_node.path.clone(),
+        start_node.module_path.clone(),
+        path.segments(),
+    )
+    .or_else(|| {
+        let existing = add_existing_module_path_source(graph, start, path.segments())?;
+        Some(existing)
+    })
+    .or_else(|| {
+        let _ = db;
+        None
+    })
+}
+
+fn resolve_child_source_path(
+    graph: &ModuleGraph,
+    start_path: SourcePath,
+    start_module_path: nia_imports::ModulePath,
+    segments: &[String],
+) -> Option<SourcePath> {
+    let mut path = start_path;
+    let mut module_path = start_module_path;
+    for segment in segments {
+        path = if let Some(existing) = graph
+            .module_id_for_module_path(&module_path.child(segment))
+            .and_then(|module_id| graph.get(module_id))
+            .map(|node| node.path.clone())
+        {
+            existing
+        } else {
+            nia_imports::declared_child_source_path_for(&path, &module_path, segment)
+        };
+        module_path = module_path.child(segment);
+    }
+    Some(path)
+}
+
+fn add_existing_module_path_source(
+    graph: &ModuleGraph,
+    start: nia_imports::ModuleId,
+    segments: &[String],
+) -> Option<SourcePath> {
+    let mut current = start;
+    for segment in segments {
+        current = graph.get(current)?.children.get(segment).copied()?;
+    }
+    graph.get(current).map(|node| node.path.clone())
+}
+
+fn public_reexport_exposes_name(item_tree: &ActiveModuleItemTree, name: &str) -> bool {
+    item_tree.items.iter().any(|item| {
+        item.visibility == nia_imports::Visibility::Public
+            && matches!(
+                &item.kind,
+                ItemTreeNodeKind::Using(using)
+                    if selector_exposes_name(&using.selector, name)
+            )
+    })
+}
+
+fn public_type_exposes_name(item_tree: &ActiveModuleItemTree, name: &str) -> bool {
+    item_tree.items.iter().any(|item| {
+        if item.visibility != nia_imports::Visibility::Public {
+            return false;
+        }
+        match &item.kind {
+            ItemTreeNodeKind::Struct(item) => item.name == name,
+            ItemTreeNodeKind::Union(item) => item.name == name,
+            ItemTreeNodeKind::Trait(item) => item.name == name,
+            ItemTreeNodeKind::Enum(item) => item.name == name,
+            ItemTreeNodeKind::TypeAlias(item) => item.name == name,
+            ItemTreeNodeKind::Using(using) => selector_exposes_name(&using.selector, name),
+            _ => false,
+        }
+    })
+}
+
+fn selector_exposes_name(selector: &UsingSelector, name: &str) -> bool {
+    match selector {
+        UsingSelector::SelfName => false,
+        UsingSelector::Wildcard { .. } => true,
+        UsingSelector::Single(using_name) => using_name_exposes_name(using_name, name),
+        UsingSelector::Group(items) => items.iter().any(|item| match item {
+            UsingGroupItem::Name(using_name) => using_name_exposes_name(using_name, name),
+            UsingGroupItem::Nested { selector, .. } => selector_exposes_name(selector, name),
+        }),
+    }
+}
+
+fn provider_source_paths_for_selector(
+    host_path: &UsedModulePath,
+    selector: &UsingSelector,
+) -> Vec<UsedModulePath> {
+    let mut paths = Vec::new();
+    match selector {
+        UsingSelector::SelfName | UsingSelector::Wildcard { .. } => {
+            paths.push(host_path.with_declared_children_and_processing(false, false));
+        }
+        UsingSelector::Single(name) => {
+            paths.push(host_path.with_appended_segments_with_processing(
+                std::slice::from_ref(&name.name),
+                false,
+                false,
+            ));
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                provider_source_paths_for_group_item(host_path, item, &mut paths);
+            }
+        }
+    }
+    paths
+}
+
+fn provider_source_paths_for_group_item(
+    host_path: &UsedModulePath,
+    item: &UsingGroupItem,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            paths.push(host_path.with_appended_segments_with_processing(
+                std::slice::from_ref(&name.name),
+                false,
+                false,
+            ));
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested = host_path.with_appended_segments_with_processing(
+                &host_segments(host),
+                false,
+                false,
+            );
+            paths.extend(provider_source_paths_for_selector(&nested, selector));
+        }
+    }
+}
+
+fn source_defines_inherent_associated_item(
+    db: &QueryDb<LoaderContext>,
+    path: SourcePath,
+    target_type_name: &str,
+    associated_name: &str,
+) -> bool {
+    let parsed = db.query(parsed_module_query(db, path));
+    parsed.active_item_tree.items.iter().any(|item| {
+        let ItemTreeNodeKind::Extend(extend) = &item.kind else {
+            return false;
+        };
+        if extend.trait_ref.is_some() || !type_ref_ends_with_name(&extend.target, target_type_name)
+        {
+            return false;
+        }
+        extend
+            .methods
+            .iter()
+            .any(|method| method.function.name == associated_name)
+            || extend
+                .associated_values
+                .iter()
+                .any(|value| value.binding.name == associated_name)
+    })
+}
+
+fn source_defines_trait_impl(
+    db: &QueryDb<LoaderContext>,
+    path: SourcePath,
+    trait_name: &str,
+    associated_name: Option<&str>,
+) -> bool {
+    let parsed = db.query(parsed_module_query(db, path));
+    parsed.active_item_tree.items.iter().any(|item| {
+        let ItemTreeNodeKind::Extend(extend) = &item.kind else {
+            return false;
+        };
+        let Some(trait_ref) = &extend.trait_ref else {
+            return false;
+        };
+        if !type_ref_ends_with_name(trait_ref, trait_name) {
+            return false;
+        }
+        associated_name.is_none_or(|associated_name| {
+            extend
+                .methods
+                .iter()
+                .any(|method| method.function.name == associated_name)
+                || extend
+                    .associated_values
+                    .iter()
+                    .any(|value| value.binding.name == associated_name)
+        })
+    })
+}
+
+fn source_defines_trait_method_for_public_type(
+    db: &QueryDb<LoaderContext>,
+    path: SourcePath,
+    facade_item_tree: &ActiveModuleItemTree,
+    associated_name: &str,
+) -> bool {
+    let parsed = db.query(parsed_module_query(db, path));
+    parsed.active_item_tree.items.iter().any(|item| {
+        let ItemTreeNodeKind::Extend(extend) = &item.kind else {
+            return false;
+        };
+        let Some(trait_ref) = &extend.trait_ref else {
+            return false;
+        };
+        let Some(trait_name) = type_ref_last_name(trait_ref) else {
+            return false;
+        };
+        public_type_exposes_name(facade_item_tree, trait_name)
+            && (extend
+                .methods
+                .iter()
+                .any(|method| method.function.name == associated_name)
+                || extend
+                    .associated_values
+                    .iter()
+                    .any(|value| value.binding.name == associated_name))
+    })
+}
+
+fn module_defines_extensions(
+    db: &QueryDb<LoaderContext>,
+    graph: &ModuleGraph,
+    module_id: nia_imports::ModuleId,
+) -> bool {
+    let Some(node) = graph.get(module_id).cloned() else {
+        return false;
+    };
+    let parsed = db.query(parsed_module_query(db, node.path));
+    parsed
+        .active_item_tree
+        .items
+        .iter()
+        .any(|item| matches!(item.kind, ItemTreeNodeKind::Extend(_)))
+}
+
+fn type_ref_ends_with_name(ty: &TypeRef, name: &str) -> bool {
+    type_ref_last_name(ty).is_some_and(|last| last == name)
+}
+
+fn type_ref_last_name(ty: &TypeRef) -> Option<&str> {
+    match &ty.kind {
+        TypeKind::Path { segments } => segments.last().map(|segment| segment.name.as_str()),
+        _ => None,
+    }
 }
 
 fn add_declared_module_children(
@@ -423,11 +1141,15 @@ fn add_visible_declared_module_child_if_present(
     accessing_module: nia_imports::ModuleId,
     module_id: nia_imports::ModuleId,
     name: &str,
+    process_used_paths: bool,
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(name).copied())
     {
+        if process_used_paths {
+            mark_process_used_paths_and_process(db, graph, existing)?;
+        }
         return Ok(Some(existing));
     }
     let Some(node) = graph.get(module_id).cloned() else {
@@ -445,26 +1167,53 @@ fn add_visible_declared_module_child_if_present(
     }) else {
         return Ok(None);
     };
-    add_declared_module_child(db, graph, module_id, declaration).map(Some)
+    add_declared_module_child_with_processing(
+        db,
+        graph,
+        module_id,
+        declaration,
+        process_used_paths,
+        false,
+    )
+    .map(Some)
 }
 
 fn add_declared_module_child(
-    _db: &QueryDb<LoaderContext>,
+    db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     declaration: ResolvedModuleDeclaration,
+) -> Result<nia_imports::ModuleId, Diagnostic> {
+    add_declared_module_child_with_processing(db, graph, module_id, declaration, true, true)
+}
+
+fn add_declared_module_child_with_processing(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    declaration: ResolvedModuleDeclaration,
+    process_used_paths: bool,
+    process_declared_children: bool,
 ) -> Result<nia_imports::ModuleId, Diagnostic> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(&declaration.name).copied())
     {
+        if process_used_paths {
+            mark_process_used_paths_and_process(db, graph, existing)?;
+        }
+        if process_declared_children {
+            graph.mark_process_declared_children(existing);
+        }
         return Ok(existing);
     }
-    graph.intern_declared_child(
+    graph.intern_declared_child_with_processing(
         module_id,
         &declaration.name,
         declaration.visibility,
         declaration.span,
+        process_used_paths,
+        process_declared_children,
     )
 }
 
@@ -762,6 +1511,7 @@ fn collect_used_modules(
             _ => None,
         })
         .collect::<Vec<_>>();
+    let using_aliases = module_using_aliases(item_tree, module_map, &local_module_names);
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
@@ -771,6 +1521,7 @@ fn collect_used_modules(
             &using.selector,
             module_map,
             &local_module_names,
+            &using_aliases,
             &mut packages,
             &mut paths,
         );
@@ -779,6 +1530,7 @@ fn collect_used_modules(
     let mut collector = QualifiedPathModuleCollector {
         module_map,
         local_module_names: &local_module_names,
+        using_aliases: &using_aliases,
         packages: &mut packages,
         paths: &mut paths,
     };
@@ -787,12 +1539,20 @@ fn collect_used_modules(
     packages.dedup();
     paths.sort();
     paths.dedup();
+    for path in &paths {
+        if let UsedModulePath::Package { package, .. } = path {
+            packages.push(package.clone());
+        }
+    }
+    packages.sort();
+    packages.dedup();
     (packages, paths)
 }
 
 struct QualifiedPathModuleCollector<'a> {
     module_map: &'a ModuleMap,
     local_module_names: &'a [String],
+    using_aliases: &'a HashMap<String, UsedModulePath>,
     packages: &'a mut Vec<String>,
     paths: &'a mut Vec<UsedModulePath>,
 }
@@ -804,19 +1564,41 @@ impl QualifiedPathModuleCollector<'_> {
             &using.selector,
             self.module_map,
             self.local_module_names,
+            self.using_aliases,
             self.packages,
             self.paths,
         );
     }
 
     fn collect_path_segments(&mut self, segments: Vec<String>) {
+        self.collect_path_segments_with_processing(
+            segments,
+            UsedModulePathProcessing::IfSelectedItem,
+        );
+    }
+
+    fn collect_path_segments_with_processing(
+        &mut self,
+        segments: Vec<String>,
+        processing: UsedModulePathProcessing,
+    ) {
         let Some((first, rest)) = segments.split_first() else {
             return;
         };
+        if let Some(alias) = self.using_aliases.get(first) {
+            self.paths
+                .push(alias.with_appended_segments_with_processing_mode(rest, false, processing));
+            return;
+        }
         if first == nia_imports::PACKAGE_MODULE_MAP_NAME {
             self.paths.push(UsedModulePath::PackageRelative {
                 segments: rest.to_vec(),
                 include_declared_children: false,
+                processing: if processing == UsedModulePathProcessing::IfSelectedItem {
+                    UsedModulePathProcessing::Always
+                } else {
+                    processing
+                },
             });
             return;
         }
@@ -829,12 +1611,132 @@ impl QualifiedPathModuleCollector<'_> {
                 package: first.clone(),
                 segments: rest.to_vec(),
                 include_declared_children: false,
+                processing: if processing == UsedModulePathProcessing::IfSelectedItem {
+                    UsedModulePathProcessing::Always
+                } else {
+                    processing
+                },
             });
         }
     }
+
+    fn collect_trait_provider_for_type(&mut self, ty: &TypeRef) {
+        let TypeKind::Path { segments } = &ty.kind else {
+            return;
+        };
+        let Some(last) = segments.last() else {
+            return;
+        };
+        self.collect_path_segments_with_processing(
+            segments
+                .iter()
+                .map(|segment| segment.name.clone())
+                .collect(),
+            UsedModulePathProcessing::IfProvidesTraitImpl {
+                trait_name: last.name.clone(),
+            },
+        );
+    }
+
+    fn collect_trait_method_provider(&mut self, name: &str) {
+        for alias in self.using_aliases.values() {
+            self.paths
+                .push(alias.with_appended_segments_with_processing_mode(
+                    &[],
+                    false,
+                    UsedModulePathProcessing::IfProvidesTraitMethod {
+                        associated_name: name.to_string(),
+                    },
+                ));
+        }
+    }
+
+    fn collect_inherent_provider_for_type(&mut self, target: &TypeRef, associated_name: &str) {
+        let TypeKind::Path { segments } = &target.kind else {
+            return;
+        };
+        let Some(last) = segments.last() else {
+            return;
+        };
+        self.collect_path_segments_with_processing(
+            segments
+                .iter()
+                .map(|segment| segment.name.clone())
+                .collect(),
+            UsedModulePathProcessing::IfProvidesInherentAssociated {
+                target_type_name: last.name.clone(),
+                associated_name: associated_name.to_string(),
+            },
+        );
+    }
+}
+
+fn module_using_aliases(
+    item_tree: &ActiveModuleItemTree,
+    module_map: &ModuleMap,
+    local_module_names: &[String],
+) -> HashMap<String, UsedModulePath> {
+    let mut aliases: HashMap<String, UsedModulePath> = HashMap::new();
+    let mut packages = Vec::new();
+    for item in &item_tree.items {
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        if !using.host.is_empty()
+            && let Some((first, rest)) = using.host.split_first()
+            && let Some(alias) = aliases.get(&first.name).cloned()
+        {
+            let root =
+                alias.with_appended_segments_with_processing(&host_segments(rest), false, false);
+            collect_selector_aliases_from_path(root, &using.selector, &mut aliases);
+            continue;
+        }
+        collect_using_aliases(
+            &using.host,
+            &using.selector,
+            module_map,
+            local_module_names,
+            &mut packages,
+            &mut aliases,
+        );
+    }
+    aliases
 }
 
 impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
+    fn visit_item(&mut self, item: &'ast Item) {
+        let ItemKind::Extend(extend) = &item.kind else {
+            walk_item(self, item);
+            return;
+        };
+        self.visit_type(&extend.target);
+        if let Some(trait_ref) = &extend.trait_ref {
+            self.visit_type(trait_ref);
+        }
+        nia_ast_walk::walk_where_clause(self, &extend.where_clause);
+        for associated_type in &extend.associated_types {
+            self.visit_type(&associated_type.ty);
+        }
+        for associated_value in &extend.associated_values {
+            if let Some(ty) = &associated_value.binding.ty {
+                self.visit_type(ty);
+            }
+            if let Some(value) = &associated_value.binding.value {
+                self.visit_expr(value);
+            }
+        }
+        for method in &extend.methods {
+            self.visit_function_signature_without_body(&method.function);
+            if let Some(body) = &method.function.body {
+                let mut collector = ExtendSelfMethodCollector {
+                    target: &extend.target,
+                    module_collector: self,
+                };
+                collector.visit_block(body);
+            }
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         if let StmtKind::Using(using) = &stmt.kind {
             self.collect_using(using);
@@ -843,8 +1745,12 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
+        if let ExprKind::Field { name, .. } = &expr.kind {
+            self.collect_trait_method_provider(name);
+        }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.collect_path_segments(segments);
+            return;
         }
         walk_expr(self, expr);
     }
@@ -857,8 +1763,69 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
                     .map(|segment| segment.name.clone())
                     .collect::<Vec<_>>(),
             );
+            for segment in segments {
+                for arg in &segment.args {
+                    match arg {
+                        nia_ast::TypeArg::Type(ty)
+                        | nia_ast::TypeArg::AssocBinding { ty, .. }
+                        | nia_ast::TypeArg::TypeOrConst { ty, .. } => {
+                            self.collect_trait_provider_for_type(ty);
+                        }
+                        nia_ast::TypeArg::Const(_) => {}
+                    }
+                }
+            }
         }
         walk_type(self, ty);
+    }
+}
+
+impl QualifiedPathModuleCollector<'_> {
+    fn visit_function_signature_without_body(&mut self, function: &nia_ast::FunctionItem) {
+        nia_ast_walk::walk_where_clause(self, &function.where_clause);
+        for param in &function.params {
+            if let Some(ty) = &param.ty {
+                self.visit_type(ty);
+            }
+        }
+        if let Some(return_type) = &function.return_type {
+            self.visit_type(return_type);
+        }
+    }
+}
+
+struct ExtendSelfMethodCollector<'a, 'b> {
+    target: &'a TypeRef,
+    module_collector: &'a mut QualifiedPathModuleCollector<'b>,
+}
+
+impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if let ExprKind::Field { lhs, name } = &expr.kind
+            && matches!(&lhs.kind, ExprKind::Ident(lhs_name) if lhs_name == "self")
+        {
+            self.module_collector
+                .collect_inherent_provider_for_type(self.target, name);
+        }
+        if let ExprKind::Field { name, .. } = &expr.kind {
+            self.module_collector.collect_trait_method_provider(name);
+        }
+        if let Some(segments) = expr_qualified_segments(expr) {
+            self.module_collector.collect_path_segments(segments);
+            return;
+        }
+        walk_expr(self, expr);
+    }
+
+    fn visit_type(&mut self, ty: &'ast TypeRef) {
+        self.module_collector.visit_type(ty);
+    }
+
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if let StmtKind::Using(using) = &stmt.kind {
+            self.module_collector.collect_using(using);
+        }
+        walk_stmt(self, stmt);
     }
 }
 
@@ -888,6 +1855,7 @@ fn collect_using_modules(
     selector: &UsingSelector,
     module_map: &ModuleMap,
     local_module_names: &[String],
+    aliases: &HashMap<String, UsedModulePath>,
     packages: &mut Vec<String>,
     paths: &mut Vec<UsedModulePath>,
 ) {
@@ -895,11 +1863,212 @@ fn collect_using_modules(
         collect_root_group_modules(selector, module_map, local_module_names, packages, paths);
         return;
     }
+    if let Some((first, rest)) = host.split_first()
+        && let Some(alias) = aliases.get(&first.name)
+    {
+        let host_path =
+            alias.with_appended_segments_with_processing(&host_segments(rest), false, false);
+        collect_selector_modules_from_path(host_path, selector, paths);
+        return;
+    }
     let Some(root) = UsedModuleRoot::from_host(host, module_map, local_module_names, packages)
     else {
         return;
     };
     collect_selector_modules(root, selector, paths);
+}
+
+fn collect_using_aliases(
+    host: &[nia_ast::UsingHostSegment],
+    selector: &UsingSelector,
+    module_map: &ModuleMap,
+    local_module_names: &[String],
+    packages: &mut Vec<String>,
+    aliases: &mut HashMap<String, UsedModulePath>,
+) {
+    if host.is_empty() {
+        return;
+    }
+    let Some(root) = UsedModuleRoot::from_host(host, module_map, local_module_names, packages)
+    else {
+        return;
+    };
+    collect_selector_aliases(root, selector, aliases);
+}
+
+fn collect_selector_aliases(
+    used_root: UsedModuleRoot,
+    selector: &UsingSelector,
+    aliases: &mut HashMap<String, UsedModulePath>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            if let Some(name) = used_root.last_segment_name() {
+                insert_using_alias(aliases, name, used_root.path(&[], false, false));
+            }
+        }
+        UsingSelector::Wildcard { .. } => {}
+        UsingSelector::Single(name) => {
+            insert_using_alias(
+                aliases,
+                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                used_root.path(std::slice::from_ref(&name.name), false, false),
+            );
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_group_item_aliases(&used_root, item, aliases);
+            }
+        }
+    }
+}
+
+fn collect_selector_aliases_from_path(
+    host_path: UsedModulePath,
+    selector: &UsingSelector,
+    aliases: &mut HashMap<String, UsedModulePath>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            if let Some(name) = host_path.last_segment_name() {
+                insert_using_alias(aliases, name.to_string(), host_path);
+            }
+        }
+        UsingSelector::Wildcard { .. } => {}
+        UsingSelector::Single(name) => {
+            insert_using_alias(
+                aliases,
+                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                host_path.with_appended_segments_with_processing(
+                    std::slice::from_ref(&name.name),
+                    false,
+                    false,
+                ),
+            );
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_group_item_aliases_from_path(&host_path, item, aliases);
+            }
+        }
+    }
+}
+
+fn collect_group_item_aliases(
+    root: &UsedModuleRoot,
+    item: &UsingGroupItem,
+    aliases: &mut HashMap<String, UsedModulePath>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            insert_using_alias(
+                aliases,
+                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                root.path(std::slice::from_ref(&name.name), false, false),
+            );
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested_root = root_with_extra(root, &host_segments(host));
+            collect_selector_aliases(nested_root, selector, aliases);
+        }
+    }
+}
+
+fn collect_group_item_aliases_from_path(
+    root: &UsedModulePath,
+    item: &UsingGroupItem,
+    aliases: &mut HashMap<String, UsedModulePath>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            insert_using_alias(
+                aliases,
+                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                root.with_appended_segments_with_processing(
+                    std::slice::from_ref(&name.name),
+                    false,
+                    false,
+                ),
+            );
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested =
+                root.with_appended_segments_with_processing(&host_segments(host), false, false);
+            collect_selector_aliases_from_path(nested, selector, aliases);
+        }
+    }
+}
+
+fn insert_using_alias(
+    aliases: &mut HashMap<String, UsedModulePath>,
+    name: String,
+    path: UsedModulePath,
+) {
+    aliases.entry(name).or_insert(path);
+}
+
+fn using_host_path(
+    host: &[nia_ast::UsingHostSegment],
+    module_map: &ModuleMap,
+    local_module_names: &[String],
+    aliases: &HashMap<String, UsedModulePath>,
+) -> Option<UsedModulePath> {
+    let first = host.first()?;
+    if let Some(alias) = aliases.get(&first.name) {
+        return Some(alias.with_appended_segments_with_processing_mode(
+            &host_segments(&host[1..]),
+            false,
+            UsedModulePathProcessing::IfSelectedItem,
+        ));
+    }
+    let mut packages = Vec::new();
+    let root = UsedModuleRoot::from_host(host, module_map, local_module_names, &mut packages)?;
+    Some(root.path(&[], false, true))
+}
+
+fn reexport_source_path_for_selector(
+    host_path: &UsedModulePath,
+    selector: &UsingSelector,
+    name: &str,
+) -> Option<UsedModulePath> {
+    match selector {
+        UsingSelector::SelfName => host_path
+            .last_segment_name()
+            .filter(|last| *last == name)
+            .map(|_| host_path.clone()),
+        UsingSelector::Wildcard { .. } => Some(host_path.clone()),
+        UsingSelector::Single(using_name) => {
+            using_name_exposes_name(using_name, name).then(|| host_path.clone())
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                if let Some(path) = reexport_source_path_for_group_item(host_path, item, name) {
+                    return Some(path);
+                }
+            }
+            None
+        }
+    }
+}
+
+fn reexport_source_path_for_group_item(
+    host_path: &UsedModulePath,
+    item: &UsingGroupItem,
+    name: &str,
+) -> Option<UsedModulePath> {
+    match item {
+        UsingGroupItem::Name(using_name) => {
+            using_name_exposes_name(using_name, name).then(|| host_path.clone())
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested = host_path.with_appended_segments(&host_segments(host), false);
+            reexport_source_path_for_selector(&nested, selector, name)
+        }
+    }
+}
+
+fn using_name_exposes_name(using_name: &nia_ast::UsingName, name: &str) -> bool {
+    using_name.alias.as_deref().unwrap_or(&using_name.name) == name
 }
 
 fn collect_root_group_modules(
@@ -924,7 +2093,8 @@ fn collect_root_group_modules(
                     paths.push(UsedModulePath::Package {
                         package: name.name.clone(),
                         segments: Vec::new(),
-                        include_declared_children: true,
+                        include_declared_children: false,
+                        processing: UsedModulePathProcessing::Never,
                     });
                 }
             }
@@ -934,6 +2104,7 @@ fn collect_root_group_modules(
                     selector,
                     module_map,
                     local_module_names,
+                    &HashMap::new(),
                     packages,
                     paths,
                 );
@@ -956,18 +2127,78 @@ enum UsedModulePath {
         package: String,
         segments: Vec<String>,
         include_declared_children: bool,
+        processing: UsedModulePathProcessing,
     },
     PackageRelative {
         segments: Vec<String>,
         include_declared_children: bool,
+        processing: UsedModulePathProcessing,
     },
     Local {
         segments: Vec<String>,
         include_declared_children: bool,
+        processing: UsedModulePathProcessing,
     },
 }
 
 impl UsedModulePath {
+    fn with_appended_segments(&self, extra: &[String], include_declared_children: bool) -> Self {
+        self.with_appended_segments_with_processing(extra, include_declared_children, true)
+    }
+
+    fn with_appended_segments_with_processing(
+        &self,
+        extra: &[String],
+        include_declared_children: bool,
+        process_used_paths: bool,
+    ) -> Self {
+        self.with_appended_segments_with_processing_mode(
+            extra,
+            include_declared_children,
+            UsedModulePathProcessing::from_bool(process_used_paths),
+        )
+    }
+
+    fn with_appended_segments_with_processing_mode(
+        &self,
+        extra: &[String],
+        include_declared_children: bool,
+        processing: UsedModulePathProcessing,
+    ) -> Self {
+        match self {
+            UsedModulePath::Package {
+                package, segments, ..
+            } => UsedModulePath::Package {
+                package: package.clone(),
+                segments: joined_segments(segments, extra),
+                include_declared_children,
+                processing,
+            },
+            UsedModulePath::PackageRelative { segments, .. } => UsedModulePath::PackageRelative {
+                segments: joined_segments(segments, extra),
+                include_declared_children,
+                processing,
+            },
+            UsedModulePath::Local { segments, .. } => UsedModulePath::Local {
+                segments: joined_segments(segments, extra),
+                include_declared_children,
+                processing,
+            },
+        }
+    }
+
+    fn with_declared_children_and_processing(
+        &self,
+        include_declared_children: bool,
+        process_used_paths: bool,
+    ) -> Self {
+        self.with_appended_segments_with_processing(
+            &[],
+            include_declared_children,
+            process_used_paths,
+        )
+    }
+
     fn segments(&self) -> &[String] {
         match self {
             UsedModulePath::Package { segments, .. }
@@ -993,15 +2224,72 @@ impl UsedModulePath {
         }
     }
 
+    fn process_used_paths(&self) -> bool {
+        self.processing() == UsedModulePathProcessing::Always
+    }
+
+    fn processing(&self) -> UsedModulePathProcessing {
+        match self {
+            UsedModulePath::Package { processing, .. }
+            | UsedModulePath::PackageRelative { processing, .. }
+            | UsedModulePath::Local { processing, .. } => processing.clone(),
+        }
+    }
+
+    fn last_segment_name(&self) -> Option<&str> {
+        match self {
+            UsedModulePath::Package {
+                package, segments, ..
+            } => segments
+                .last()
+                .map_or(Some(package.as_str()), |segment| Some(segment.as_str())),
+            UsedModulePath::PackageRelative { segments, .. }
+            | UsedModulePath::Local { segments, .. } => segments.last().map(String::as_str),
+        }
+    }
+
     fn activates_package_facade(&self) -> Option<&str> {
         match self {
             UsedModulePath::Package {
                 package,
                 segments,
                 include_declared_children,
+                ..
             } if segments.is_empty() && *include_declared_children => Some(package),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum UsedModulePathProcessing {
+    Never,
+    Always,
+    IfSelectedItem,
+    IfProvidesExtensions,
+    IfProvidesTraitImpl {
+        trait_name: String,
+    },
+    IfProvidesTraitMethod {
+        associated_name: String,
+    },
+    IfProvidesInherentAssociated {
+        target_type_name: String,
+        associated_name: String,
+    },
+}
+
+impl UsedModulePathProcessing {
+    fn from_bool(process_used_paths: bool) -> Self {
+        if process_used_paths {
+            Self::Always
+        } else {
+            Self::Never
+        }
+    }
+
+    fn should_process_module(self) -> bool {
+        matches!(self, Self::Always | Self::IfSelectedItem)
     }
 }
 
@@ -1021,7 +2309,10 @@ impl UsedModuleRoot {
     ) -> Option<Self> {
         let first = host.first()?;
         if first.name == nia_imports::ENTRY_MODULE_MAP_NAME {
-            return None;
+            return Some(Self::Package {
+                package: nia_imports::ENTRY_MODULE_MAP_NAME.to_string(),
+                base: host_segments(&host[1..]),
+            });
         }
         if first.name == nia_imports::PACKAGE_MODULE_MAP_NAME {
             return Some(Self::PackageRelative {
@@ -1045,21 +2336,53 @@ impl UsedModuleRoot {
         })
     }
 
-    fn path(&self, extra: &[String], include_declared_children: bool) -> UsedModulePath {
+    fn path(
+        &self,
+        extra: &[String],
+        include_declared_children: bool,
+        process_used_paths: bool,
+    ) -> UsedModulePath {
+        self.path_with_processing_mode(
+            extra,
+            include_declared_children,
+            UsedModulePathProcessing::from_bool(process_used_paths),
+        )
+    }
+
+    fn path_with_processing_mode(
+        &self,
+        extra: &[String],
+        include_declared_children: bool,
+        processing: UsedModulePathProcessing,
+    ) -> UsedModulePath {
         match self {
             UsedModuleRoot::Package { package, base } => UsedModulePath::Package {
                 package: package.clone(),
                 segments: joined_segments(base, extra),
                 include_declared_children,
+                processing,
             },
             UsedModuleRoot::PackageRelative { base } => UsedModulePath::PackageRelative {
                 segments: joined_segments(base, extra),
                 include_declared_children,
+                processing,
             },
             UsedModuleRoot::Local { base } => UsedModulePath::Local {
                 segments: joined_segments(base, extra),
                 include_declared_children,
+                processing,
             },
+        }
+    }
+
+    fn last_segment_name(&self) -> Option<String> {
+        match self {
+            UsedModuleRoot::Package { package, base } => {
+                Some(base.last().cloned().unwrap_or_else(|| package.clone()))
+            }
+            UsedModuleRoot::PackageRelative { base } | UsedModuleRoot::Local { base } => {
+                base.last().cloned()
+            }
         }
     }
 }
@@ -1071,27 +2394,56 @@ fn collect_selector_modules(
 ) {
     match selector {
         UsingSelector::SelfName => {
-            let include_children = matches!(
-                &used_root,
-                UsedModuleRoot::Package { base, .. } if base.is_empty()
-            );
-            paths.push(used_root.path(&[], include_children));
+            paths.push(used_root.path_with_processing_mode(
+                &[],
+                false,
+                UsedModulePathProcessing::IfProvidesExtensions,
+            ));
         }
         UsingSelector::Wildcard { .. } => {
-            paths.push(used_root.path(&[], true));
+            paths.push(used_root.path(&[], true, true));
         }
         UsingSelector::Single(name) => {
-            paths.push(used_root.path(&[], false));
-            paths.push(used_root.path(std::slice::from_ref(&name.name), false));
+            paths.push(used_root.path_with_processing_mode(
+                std::slice::from_ref(&name.name),
+                false,
+                UsedModulePathProcessing::IfSelectedItem,
+            ));
         }
         UsingSelector::Group(items) => {
-            let include_children = matches!(
-                &used_root,
-                UsedModuleRoot::Package { base, .. } if base.is_empty()
-            );
-            paths.push(used_root.path(&[], include_children));
             for item in items {
                 collect_group_item_modules(&used_root, item, paths);
+            }
+        }
+    }
+}
+
+fn collect_selector_modules_from_path(
+    host_path: UsedModulePath,
+    selector: &UsingSelector,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            paths.push(host_path.with_appended_segments_with_processing_mode(
+                &[],
+                false,
+                UsedModulePathProcessing::IfProvidesExtensions,
+            ));
+        }
+        UsingSelector::Wildcard { .. } => {
+            paths.push(host_path.with_declared_children_and_processing(true, true));
+        }
+        UsingSelector::Single(name) => {
+            paths.push(host_path.with_appended_segments_with_processing_mode(
+                std::slice::from_ref(&name.name),
+                false,
+                UsedModulePathProcessing::IfSelectedItem,
+            ));
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_group_item_modules_from_path(&host_path, item, paths);
             }
         }
     }
@@ -1104,11 +2456,36 @@ fn collect_group_item_modules(
 ) {
     match item {
         UsingGroupItem::Name(name) => {
-            paths.push(root.path(std::slice::from_ref(&name.name), false));
+            paths.push(root.path_with_processing_mode(
+                std::slice::from_ref(&name.name),
+                false,
+                UsedModulePathProcessing::IfSelectedItem,
+            ));
         }
         UsingGroupItem::Nested { host, selector } => {
             let nested_root = root_with_extra(root, &host_segments(host));
             collect_selector_modules(nested_root, selector, paths);
+        }
+    }
+}
+
+fn collect_group_item_modules_from_path(
+    root: &UsedModulePath,
+    item: &UsingGroupItem,
+    paths: &mut Vec<UsedModulePath>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            paths.push(root.with_appended_segments_with_processing_mode(
+                std::slice::from_ref(&name.name),
+                false,
+                UsedModulePathProcessing::IfSelectedItem,
+            ));
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested =
+                root.with_appended_segments_with_processing(&host_segments(host), false, false);
+            collect_selector_modules_from_path(nested, selector, paths);
         }
     }
 }
@@ -1319,24 +2696,9 @@ module present;
             .get(program.graph.package_root("std").expect("std package root"))
             .expect("std module");
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
-        for relative in [
-            "lib/std/atomic.nia",
-            "lib/std/build.nia",
-            "lib/std/collections.nia",
-            "lib/std/hash.nia",
-            "lib/std/iter.nia",
-            "lib/std/iter/range.nia",
-            "lib/std/slice.nia",
-        ] {
-            assert!(
-                program
-                    .modules
-                    .iter()
-                    .any(|module| module.path.as_str().ends_with(relative)),
-                "missing std facade dependency {relative}: {:?}",
-                program.modules
-            );
-        }
+        assert!(!program.graph.package_facade_active("std"));
+        assert_module_not_loaded(&program, "lib/std/build.nia");
+        assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
     #[test]
@@ -1361,6 +2723,107 @@ module present;
                     if binding.is_comptime && binding.name == "pointer_width"
             )
         }));
+    }
+
+    #[test]
+    fn query_loader_loads_facade_reexport_sources_by_used_name() {
+        let root = temp_dir("query_loader_loads_facade_reexport_sources_by_used_name");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::collections;
+
+fn main(values: collections::ArrayList[i32]) void {
+    _ = values;
+}
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(&program, "lib/std/collections.nia");
+        let collections_node = program
+            .graph
+            .modules()
+            .find(|module| module.path.as_str().ends_with("lib/std/collections.nia"))
+            .expect("std collections node");
+        assert!(
+            !collections_node.process_used_paths,
+            "collections facade should stay shallow: {collections_node:?}"
+        );
+        assert_module_loaded(&program, "lib/std/collections/array_list.nia");
+        assert_module_loaded(&program, "lib/std/collections/array_list/list.nia");
+        assert_module_not_loaded(&program, "lib/std/collections/hash_map.nia");
+        assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
+    }
+
+    #[test]
+    fn query_loader_keeps_facade_used_paths_shallow_for_reexported_value() {
+        let root = temp_dir("query_loader_keeps_facade_used_paths_shallow_for_reexported_value");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::builtin::size;
+
+comptime word_size: usize = size[usize]();
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        let builtin = module_by_suffix(&program, "lib/std/builtin.nia");
+        let layout = module_by_suffix(&program, "lib/std/builtin/layout.nia");
+        assert!(!builtin.process_used_paths);
+        assert!(layout.process_used_paths);
+        assert_module_not_loaded(&program, "lib/std/builtin/atomic.nia");
+        assert_module_not_loaded(&program, "lib/std/builtin/ops.nia");
+    }
+
+    #[test]
+    fn query_loader_loads_reexported_std_type_module_dependencies() {
+        let root = temp_dir("query_loader_loads_reexported_std_type_module_dependencies");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::CStringView;
+
+fn main() void {
+    _ = CStringView::from_ptr(&0u8);
+}
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        let cstring = module_by_suffix(&program, "lib/std/cstring.nia");
+        let std_root = program.graph.package_root("std").expect("std package root");
+        let std_root = program.graph.get(std_root).expect("std root module");
+        let fmt = module_by_suffix(&program, "lib/std/fmt.nia");
+        let fmt_core = module_by_suffix(&program, "lib/std/fmt/core.nia");
+        assert!(cstring.process_used_paths);
+        assert!(
+            std_root
+                .declarations
+                .iter()
+                .any(|declaration| declaration.name == "fmt"),
+            "std root should record the fmt module declaration: {std_root:?}"
+        );
+        assert!(
+            !fmt.process_used_paths,
+            "fmt facade should stay shallow while selected exports load their source modules: {fmt:?}"
+        );
+        assert!(fmt_core.process_used_paths);
+        assert_module_loaded(&program, "lib/std/cstring.nia");
+        assert_module_loaded(&program, "lib/std/fmt.nia");
+        assert_module_loaded(&program, "lib/std/fmt/core.nia");
+        assert_module_not_loaded(&program, "lib/std/build.nia");
+        assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
     #[test]
@@ -1441,7 +2904,35 @@ module present;
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(!program.graph.package_facade_active("std"));
-        assert_module_loaded(&program, "lib/std/process.nia");
+        let process = module_by_suffix(&program, "lib/std/process.nia");
+        assert!(
+            !process.process_used_paths,
+            "process facade should stay shallow while selected exports load their source modules: {process:?}"
+        );
+        assert!(
+            process
+                .declarations
+                .iter()
+                .any(|declaration| declaration.name == "types"),
+            "process should record the selected types child: {process:?}"
+        );
+        let process_types = module_by_suffix(&program, "lib/std/process/types.nia");
+        let process_init = module_by_suffix(&program, "lib/std/process/init.nia");
+        let process_args = module_by_suffix(&program, "lib/std/process/args.nia");
+        let process_env = module_by_suffix(&program, "lib/std/process/env.nia");
+        let slice = module_by_suffix(&program, "lib/std/slice.nia");
+        let iter = module_by_suffix(&program, "lib/std/iter.nia");
+        assert!(process_types.process_used_paths);
+        assert!(process_init.process_used_paths);
+        assert!(process_args.process_used_paths);
+        assert!(process_env.process_used_paths);
+        assert!(slice.process_used_paths);
+        assert!(iter.process_used_paths);
+        assert_module_loaded(&program, "lib/std/process/init.nia");
+        assert_module_loaded(&program, "lib/std/process/args.nia");
+        assert_module_loaded(&program, "lib/std/process/env.nia");
+        assert_module_loaded(&program, "lib/std/process/types.nia");
+        assert_module_not_loaded(&program, "lib/std/process/command.nia");
         assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
         assert_module_not_loaded(&program, "lib/std/build/core.nia");
         assert_module_not_loaded(&program, "lib/std/atomic.nia");
@@ -1449,36 +2940,86 @@ module present;
     }
 
     #[test]
-    fn query_loader_activates_std_facade_for_root_reexport_import() {
-        let root = temp_dir("query_loader_activates_std_facade_for_root_reexport_import");
+    fn query_loader_loads_facade_trait_impl_provider_for_used_trait_method() {
+        let root = temp_dir("query_loader_loads_facade_trait_impl_provider_for_used_trait_method");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::hash;
+
+fn main() u64 {
+    let mut hasher = hash::Wyhash::init(1u64);
+    42usize.hash(&mut hasher);
+    hasher.finish()
+}
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(&program, "lib/std/hash.nia");
+        assert_module_loaded(&program, "lib/std/hash/impls.nia");
+        assert_module_loaded(&program, "lib/std/hash/wyhash.nia");
+    }
+
+    #[test]
+    fn query_loader_loads_reexported_type_inherent_provider_chain() {
+        let root = temp_dir("query_loader_loads_reexported_type_inherent_provider_chain");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::fs;
+using std::io;
+using std::os;
+
+fn main(file: fs::File, state: &mut io::Io[Error = os::Error], buffer: &mut [u8]) fs::Error!io::FileWriter {
+    file.writer(state, buffer)
+}
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
+        assert_module_loaded(&program, "lib/std/fs/file.nia");
+        assert_module_loaded(&program, "lib/std/fs/types.nia");
+    }
+
+    #[test]
+    fn query_loader_resolves_std_root_reexport_import_shallowly() {
+        let root = temp_dir("query_loader_resolves_std_root_reexport_import_shallowly");
         let main_path = root.join("main.nia");
         write(&main_path, "using std::CStringView; fn main() void {}");
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert!(program.graph.package_facade_active("std"));
+        assert!(!program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
     #[test]
-    fn query_loader_activates_std_facade_for_single_value_reexport_import() {
-        let root = temp_dir("query_loader_activates_std_facade_for_single_value_reexport_import");
+    fn query_loader_resolves_std_single_value_reexport_import_shallowly() {
+        let root = temp_dir("query_loader_resolves_std_single_value_reexport_import_shallowly");
         let main_path = root.join("main.nia");
         write(&main_path, "using std::CStringView; fn main() void {}");
 
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert!(program.graph.package_facade_active("std"));
+        assert!(!program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
 
     #[test]
-    fn query_loader_activates_std_facade_for_qualified_root_reexport() {
-        let root = temp_dir("query_loader_activates_std_facade_for_qualified_root_reexport");
+    fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
+        let root = temp_dir("query_loader_resolves_std_qualified_root_reexport_shallowly");
         let main_path = root.join("main.nia");
         write(
             &main_path,
@@ -1488,7 +3029,7 @@ module present;
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert!(program.graph.package_facade_active("std"));
+        assert!(!program.graph.package_facade_active("std"));
         assert_module_loaded(&program, "lib/std/cstring.nia");
         assert_module_not_loaded(&program, "lib/std/process.nia");
     }
@@ -1758,6 +3299,23 @@ fn main(value: std::fmt::Value) void {
                 .map(|module| module.path.as_str())
                 .collect::<Vec<_>>()
         );
+    }
+
+    fn module_by_suffix<'a>(program: &'a LoadedProgram, suffix: &str) -> &'a ModuleNode {
+        program
+            .graph
+            .modules()
+            .find(|module| module.path.as_str().ends_with(suffix))
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing module {suffix}: {:?}",
+                    program
+                        .modules
+                        .iter()
+                        .map(|module| module.path.as_str())
+                        .collect::<Vec<_>>()
+                )
+            })
     }
 
     fn assert_module_not_loaded(program: &LoadedProgram, suffix: &str) {

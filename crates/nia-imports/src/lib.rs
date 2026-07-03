@@ -117,6 +117,8 @@ impl ModuleGraph {
                 parent: None,
                 children: HashMap::new(),
                 declarations: Vec::new(),
+                process_used_paths: true,
+                process_declared_children: true,
             }],
             by_source_identity,
             by_module_path,
@@ -179,12 +181,28 @@ impl ModuleGraph {
         self.diagnostics.push((path, diagnostic));
     }
 
+    pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {
+        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+            let was_enabled = module.process_used_paths;
+            module.process_used_paths = true;
+            !was_enabled
+        } else {
+            false
+        }
+    }
+
+    pub fn mark_process_declared_children(&mut self, module_id: ModuleId) {
+        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+            module.process_declared_children = true;
+        }
+    }
+
     pub fn intern_package_root(&mut self, name: &str, path: SourcePath) -> ModuleId {
         if let Some(id) = self.package_roots.get(name).copied() {
             return id;
         }
         let module_path = ModulePath::root(name);
-        self.intern_module(path, module_path, None)
+        self.intern_module(path, module_path, None, false, false)
     }
 
     pub fn intern_declared_child(
@@ -193,6 +211,18 @@ impl ModuleGraph {
         name: &str,
         visibility: Visibility,
         span: Span,
+    ) -> Result<ModuleId, Diagnostic> {
+        self.intern_declared_child_with_processing(parent_id, name, visibility, span, true, true)
+    }
+
+    pub fn intern_declared_child_with_processing(
+        &mut self,
+        parent_id: ModuleId,
+        name: &str,
+        visibility: Visibility,
+        span: Span,
+        process_used_paths: bool,
+        process_declared_children: bool,
     ) -> Result<ModuleId, Diagnostic> {
         let Some(parent) = self.get(parent_id).cloned() else {
             return Err(Diagnostic::internal_error(
@@ -203,8 +233,14 @@ impl ModuleGraph {
             .finish());
         };
         let child_module_path = parent.module_path.child(name);
-        let child_path = child_source_path(&parent, name);
-        let child_id = self.intern_module(child_path.clone(), child_module_path, Some(parent_id));
+        let child_path = declared_child_source_path(&parent, name);
+        let child_id = self.intern_module(
+            child_path.clone(),
+            child_module_path,
+            Some(parent_id),
+            process_used_paths,
+            process_declared_children,
+        );
         let parent = self.modules.get_mut(parent_id.0 as usize).ok_or_else(|| {
             Diagnostic::internal_error(
                 codes::MODULE_GRAPH_RECORDING,
@@ -244,13 +280,27 @@ impl ModuleGraph {
         path: SourcePath,
         module_path: ModulePath,
         parent: Option<ModuleId>,
+        process_used_paths: bool,
+        process_declared_children: bool,
     ) -> ModuleId {
         if let Some(id) = self.by_module_path.get(&module_path).copied() {
+            if process_used_paths {
+                self.mark_process_used_paths(id);
+            }
+            if process_declared_children {
+                self.mark_process_declared_children(id);
+            }
             return id;
         }
         let identity = path.identity();
         if let Some(id) = self.by_source_identity.get(&identity).copied() {
             self.by_module_path.insert(module_path, id);
+            if process_used_paths {
+                self.mark_process_used_paths(id);
+            }
+            if process_declared_children {
+                self.mark_process_declared_children(id);
+            }
             return id;
         }
         let id = ModuleId(self.modules.len() as u32);
@@ -266,6 +316,8 @@ impl ModuleGraph {
             parent,
             children: HashMap::new(),
             declarations: Vec::new(),
+            process_used_paths,
+            process_declared_children,
         });
         id
     }
@@ -279,6 +331,8 @@ pub struct ModuleNode {
     pub parent: Option<ModuleId>,
     pub children: HashMap<String, ModuleId>,
     pub declarations: Vec<ModuleDeclaration>,
+    pub process_used_paths: bool,
+    pub process_declared_children: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -394,10 +448,18 @@ fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: Module
     false
 }
 
-fn child_source_path(parent: &ModuleNode, child: &str) -> SourcePath {
-    let parent_path = parent.path.as_str();
-    let base = if parent.module_path.package == ENTRY_MODULE_MAP_NAME
-        && parent.module_path.is_package_root()
+pub fn declared_child_source_path(parent: &ModuleNode, child: &str) -> SourcePath {
+    declared_child_source_path_for(&parent.path, &parent.module_path, child)
+}
+
+pub fn declared_child_source_path_for(
+    parent_path: &SourcePath,
+    parent_module_path: &ModulePath,
+    child: &str,
+) -> SourcePath {
+    let parent_path = parent_path.as_str();
+    let base = if parent_module_path.package == ENTRY_MODULE_MAP_NAME
+        && parent_module_path.is_package_root()
     {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
     } else {
