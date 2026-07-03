@@ -603,7 +603,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
         let (raw_module, parse_errors, origins) =
             nia_parser::parse_module_syntax_with_origins(&syntax);
         let item_tree = ModuleItemTree::from_module(&raw_module);
-        let prune_result = prune_module_for_target(raw_module.clone(), &db.context().target);
+        let prune_result = prune_module_for_target(raw_module, &db.context().target);
         ParsedModule {
             source: source
                 .file
