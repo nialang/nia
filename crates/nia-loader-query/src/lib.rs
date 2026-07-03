@@ -567,14 +567,16 @@ fn process_reexport_provider_request(
         {
             add_public_reexport_trait_impl_provider_modules(db, graph, facade_module, trait_name)
         }
-        UsedModulePathProcessing::IfProvidesTraitMethod { associated_name } => {
-            add_public_reexport_trait_method_provider_modules(
-                db,
-                graph,
-                facade_module,
-                associated_name,
-            )
-        }
+        UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name,
+            associated_name,
+        } => add_public_reexport_trait_method_provider_modules(
+            db,
+            graph,
+            facade_module,
+            target_type_name.as_deref(),
+            associated_name,
+        ),
         UsedModulePathProcessing::IfProvidesInherentAssociated {
             target_type_name,
             associated_name,
@@ -600,9 +602,16 @@ fn process_provider_request(
         UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
             add_public_reexport_trait_impl_provider_modules(db, graph, module_id, trait_name)
         }
-        UsedModulePathProcessing::IfProvidesTraitMethod { associated_name } => {
-            add_public_reexport_trait_method_provider_modules(db, graph, module_id, associated_name)
-        }
+        UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name,
+            associated_name,
+        } => add_public_reexport_trait_method_provider_modules(
+            db,
+            graph,
+            module_id,
+            target_type_name.as_deref(),
+            associated_name,
+        ),
         UsedModulePathProcessing::IfProvidesInherentAssociated {
             target_type_name,
             associated_name,
@@ -752,7 +761,26 @@ fn add_public_reexport_extension_provider_modules(
             mark_process_used_paths_and_process(db, graph, provider_module)?;
         }
     }
+    add_declared_child_extension_provider_modules(
+        db,
+        graph,
+        facade_module,
+        target_type_name,
+        associated_name,
+    )?;
     Ok(())
+}
+
+fn add_declared_child_extension_provider_modules(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    target_type_name: &str,
+    associated_name: &str,
+) -> Result<(), Diagnostic> {
+    add_declared_child_provider_modules_matching(db, graph, facade_module, |db, path| {
+        source_defines_inherent_associated_item(db, path, target_type_name, associated_name)
+    })
 }
 
 fn add_public_reexport_trait_impl_provider_modules(
@@ -781,6 +809,7 @@ fn add_public_reexport_trait_method_provider_modules(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
+    target_type_name: Option<&str>,
     associated_name: &str,
 ) -> Result<(), Diagnostic> {
     let Some(node) = graph.get(facade_module).cloned() else {
@@ -793,10 +822,11 @@ fn add_public_reexport_trait_method_provider_modules(
         facade_module,
         &parsed.active_item_tree,
         |db, path| {
-            source_defines_trait_method_for_public_type(
+            source_defines_public_extension_method_for_facade(
                 db,
                 path,
                 &parsed.active_item_tree,
+                target_type_name,
                 associated_name,
             )
         },
@@ -856,6 +886,41 @@ fn add_trait_provider_modules_matching(
             };
             mark_process_used_paths_and_process(db, graph, provider_module)?;
         }
+    }
+    add_declared_child_provider_modules_matching(db, graph, facade_module, matches_provider)
+}
+
+fn add_declared_child_provider_modules_matching(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(facade_module).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.query(module_declarations_query(db, node.path.clone()));
+    for declaration in declarations.declarations {
+        let child_path = nia_imports::declared_child_source_path_for(
+            &node.path,
+            &node.module_path,
+            &declaration.name,
+        );
+        if !matches_provider(db, child_path.clone()) {
+            continue;
+        }
+        let Some(provider_module) = add_visible_declared_module_child_if_present(
+            db,
+            graph,
+            facade_module,
+            facade_module,
+            &declaration.name,
+            false,
+        )?
+        else {
+            continue;
+        };
+        mark_process_used_paths_and_process(db, graph, provider_module)?;
     }
     Ok(())
 }
@@ -1064,10 +1129,11 @@ fn source_defines_trait_impl(
     })
 }
 
-fn source_defines_trait_method_for_public_type(
+fn source_defines_public_extension_method_for_facade(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
     facade_item_tree: &ActiveModuleItemTree,
+    target_type_name: Option<&str>,
     associated_name: &str,
 ) -> bool {
     let parsed = db.query(parsed_module_query(db, path));
@@ -1075,22 +1141,50 @@ fn source_defines_trait_method_for_public_type(
         let ItemTreeNodeKind::Extend(extend) = &item.kind else {
             return false;
         };
-        let Some(trait_ref) = &extend.trait_ref else {
+        if let Some(target_type_name) = target_type_name {
+            if !type_ref_ends_with_name(&extend.target, target_type_name) {
+                return false;
+            }
+        } else if extend.trait_ref.is_none()
+            && !type_ref_is_generic_or_structural_provider_target(&extend.target)
+        {
             return false;
-        };
-        let Some(trait_name) = type_ref_last_name(trait_ref) else {
-            return false;
-        };
-        public_type_exposes_name(facade_item_tree, trait_name)
-            && (extend
-                .methods
+        }
+        if let Some(trait_ref) = &extend.trait_ref {
+            let Some(trait_name) = type_ref_last_name(trait_ref) else {
+                return false;
+            };
+            if !public_type_exposes_name(facade_item_tree, trait_name) {
+                return false;
+            }
+        }
+        extend
+            .methods
+            .iter()
+            .any(|method| method.function.name == associated_name)
+            || extend
+                .associated_values
                 .iter()
-                .any(|method| method.function.name == associated_name)
-                || extend
-                    .associated_values
-                    .iter()
-                    .any(|value| value.binding.name == associated_name))
+                .any(|value| value.binding.name == associated_name)
     })
+}
+
+fn type_ref_is_generic_or_structural_provider_target(ty: &TypeRef) -> bool {
+    match &ty.kind {
+        TypeKind::Path { segments } => segments.len() == 1 && segments[0].args.is_empty(),
+        TypeKind::Pointer { .. }
+        | TypeKind::VolatilePointer { .. }
+        | TypeKind::Slice { .. }
+        | TypeKind::SlicePointee { .. }
+        | TypeKind::Array { .. }
+        | TypeKind::Range { .. }
+        | TypeKind::FunctionPointer { .. }
+        | TypeKind::Optional { .. }
+        | TypeKind::ErrorUnion { .. }
+        | TypeKind::SelfType
+        | TypeKind::Infer => true,
+        TypeKind::Error | TypeKind::Projection { .. } | TypeKind::Void | TypeKind::Never => false,
+    }
 }
 
 fn module_defines_extensions(
@@ -1533,6 +1627,7 @@ fn collect_used_modules(
         using_aliases: &using_aliases,
         packages: &mut packages,
         paths: &mut paths,
+        locals: Vec::new(),
     };
     walk_module(&mut collector, &module);
     packages.sort();
@@ -1555,6 +1650,7 @@ struct QualifiedPathModuleCollector<'a> {
     using_aliases: &'a HashMap<String, UsedModulePath>,
     packages: &'a mut Vec<String>,
     paths: &'a mut Vec<UsedModulePath>,
+    locals: Vec<HashMap<String, String>>,
 }
 
 impl QualifiedPathModuleCollector<'_> {
@@ -1638,13 +1734,14 @@ impl QualifiedPathModuleCollector<'_> {
         );
     }
 
-    fn collect_trait_method_provider(&mut self, name: &str) {
+    fn collect_trait_method_provider(&mut self, target_type_name: Option<&str>, name: &str) {
         for alias in self.using_aliases.values() {
             self.paths
                 .push(alias.with_appended_segments_with_processing_mode(
                     &[],
                     false,
                     UsedModulePathProcessing::IfProvidesTraitMethod {
+                        target_type_name: target_type_name.map(ToString::to_string),
                         associated_name: name.to_string(),
                     },
                 ));
@@ -1704,6 +1801,16 @@ fn module_using_aliases(
 }
 
 impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
+    fn visit_function(&mut self, function: &'ast nia_ast::FunctionItem) {
+        self.visit_function_with_optional_body(function, true);
+    }
+
+    fn visit_block(&mut self, block: &'ast nia_ast::Block) {
+        self.locals.push(HashMap::new());
+        nia_ast_walk::walk_block(self, block);
+        self.locals.pop();
+    }
+
     fn visit_item(&mut self, item: &'ast Item) {
         let ItemKind::Extend(extend) = &item.kind else {
             walk_item(self, item);
@@ -1726,14 +1833,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             }
         }
         for method in &extend.methods {
-            self.visit_function_signature_without_body(&method.function);
-            if let Some(body) = &method.function.body {
-                let mut collector = ExtendSelfMethodCollector {
-                    target: &extend.target,
-                    module_collector: self,
-                };
-                collector.visit_block(body);
-            }
+            self.visit_extend_method(extend, &method.function);
         }
     }
 
@@ -1741,12 +1841,26 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         if let StmtKind::Using(using) = &stmt.kind {
             self.collect_using(using);
         }
+        if let StmtKind::Binding(binding) = &stmt.kind {
+            if let Some(ty) = &binding.ty {
+                self.visit_type(ty);
+                self.record_pattern_type(&binding.pattern, ty);
+            }
+            if let Some(value) = &binding.value {
+                self.visit_expr(value);
+            }
+            return;
+        }
         walk_stmt(self, stmt);
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let ExprKind::Field { name, .. } = &expr.kind {
-            self.collect_trait_method_provider(name);
+        if let ExprKind::Call { callee, .. } = &expr.kind
+            && let ExprKind::Field { name, .. } = &callee.kind
+        {
+            let target_type_name = method_receiver_local_type_name(callee)
+                .and_then(|local_name| self.local_type_name(local_name));
+            self.collect_trait_method_provider(target_type_name.as_deref(), name);
         }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.collect_path_segments(segments);
@@ -1781,16 +1895,81 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
 }
 
 impl QualifiedPathModuleCollector<'_> {
-    fn visit_function_signature_without_body(&mut self, function: &nia_ast::FunctionItem) {
+    fn visit_function_with_optional_body(
+        &mut self,
+        function: &nia_ast::FunctionItem,
+        visit_body: bool,
+    ) {
+        self.locals.push(HashMap::new());
+        self.visit_function_signature(function);
+        if visit_body && let Some(body) = &function.body {
+            self.visit_block(body);
+        }
+        self.locals.pop();
+    }
+
+    fn visit_extend_method(
+        &mut self,
+        extend: &nia_ast::ExtendItem,
+        function: &nia_ast::FunctionItem,
+    ) {
+        self.locals.push(HashMap::new());
+        self.visit_function_signature(function);
+        if let Some(body) = &function.body {
+            let mut collector = ExtendSelfMethodCollector {
+                target: &extend.target,
+                module_collector: self,
+            };
+            collector.visit_block(body);
+        }
+        self.locals.pop();
+    }
+
+    fn visit_function_signature(&mut self, function: &nia_ast::FunctionItem) {
         nia_ast_walk::walk_where_clause(self, &function.where_clause);
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.visit_type(ty);
+                if let Some(name) = &param.name {
+                    self.record_local_type(name, ty);
+                }
             }
         }
         if let Some(return_type) = &function.return_type {
             self.visit_type(return_type);
         }
+    }
+
+    fn record_pattern_type(&mut self, pattern: &nia_ast::Pattern, ty: &TypeRef) {
+        if let nia_ast::PatternKind::Bind { name, .. } = &pattern.kind {
+            self.record_local_type(name, ty);
+        }
+    }
+
+    fn record_local_type(&mut self, name: &str, ty: &TypeRef) {
+        let Some(type_name) = type_ref_last_name(ty) else {
+            return;
+        };
+        if let Some(scope) = self.locals.last_mut() {
+            scope.insert(name.to_string(), type_name.to_string());
+        }
+    }
+
+    fn local_type_name(&self, name: &str) -> Option<String> {
+        self.locals
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).cloned())
+    }
+}
+
+fn method_receiver_local_type_name(callee: &Expr) -> Option<&str> {
+    let ExprKind::Field { lhs, .. } = &callee.kind else {
+        return None;
+    };
+    match &lhs.kind {
+        ExprKind::Ident(name) => Some(name.as_str()),
+        _ => None,
     }
 }
 
@@ -1800,6 +1979,12 @@ struct ExtendSelfMethodCollector<'a, 'b> {
 }
 
 impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
+    fn visit_block(&mut self, block: &'ast nia_ast::Block) {
+        self.module_collector.locals.push(HashMap::new());
+        nia_ast_walk::walk_block(self, block);
+        self.module_collector.locals.pop();
+    }
+
     fn visit_expr(&mut self, expr: &'ast Expr) {
         if let ExprKind::Field { lhs, name } = &expr.kind
             && matches!(&lhs.kind, ExprKind::Ident(lhs_name) if lhs_name == "self")
@@ -1807,8 +1992,20 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
             self.module_collector
                 .collect_inherent_provider_for_type(self.target, name);
         }
-        if let ExprKind::Field { name, .. } = &expr.kind {
-            self.module_collector.collect_trait_method_provider(name);
+        if let ExprKind::Call { callee, .. } = &expr.kind
+            && let ExprKind::Field { name, .. } = &callee.kind
+        {
+            let target_type_name = if matches!(
+                method_receiver_local_type_name(callee),
+                Some(local_name) if local_name == "self"
+            ) {
+                type_ref_last_name(self.target).map(ToString::to_string)
+            } else {
+                method_receiver_local_type_name(callee)
+                    .and_then(|local_name| self.module_collector.local_type_name(local_name))
+            };
+            self.module_collector
+                .collect_trait_method_provider(target_type_name.as_deref(), name);
         }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.module_collector.collect_path_segments(segments);
@@ -1824,6 +2021,17 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         if let StmtKind::Using(using) = &stmt.kind {
             self.module_collector.collect_using(using);
+        }
+        if let StmtKind::Binding(binding) = &stmt.kind {
+            if let Some(ty) = &binding.ty {
+                self.module_collector.visit_type(ty);
+                self.module_collector
+                    .record_pattern_type(&binding.pattern, ty);
+            }
+            if let Some(value) = &binding.value {
+                self.visit_expr(value);
+            }
+            return;
         }
         walk_stmt(self, stmt);
     }
@@ -2271,6 +2479,7 @@ enum UsedModulePathProcessing {
         trait_name: String,
     },
     IfProvidesTraitMethod {
+        target_type_name: Option<String>,
         associated_name: String,
     },
     IfProvidesInherentAssociated {
@@ -2987,6 +3196,101 @@ fn main(file: fs::File, state: &mut io::Io[Error = os::Error], buffer: &mut [u8]
         assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
         assert_module_loaded(&program, "lib/std/fs/file.nia");
         assert_module_loaded(&program, "lib/std/fs/types.nia");
+    }
+
+    #[test]
+    fn query_loader_loads_package_private_provider_for_reexported_build_type() {
+        let root =
+            temp_dir("query_loader_loads_package_private_provider_for_reexported_build_type");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            r#"
+using std::build;
+using std::fs;
+using std::mem;
+using std::process;
+
+fn main(init: process::Init, allocator: &mut mem::Allocator) build::Build {
+    let path = fs::PathView::init(&"");
+    build::Build::init(init, allocator, path, path, path, path, 1usize)
+}
+"#,
+        );
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(&program, "lib/std/build.nia");
+        assert_module_loaded(&program, "lib/std/build/core.nia");
+        assert_module_loaded(&program, "lib/std/build/types.nia");
+        assert_module_loaded(&program, "lib/std/fmt/template.nia");
+        assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
+    }
+
+    #[test]
+    fn query_loader_loads_package_private_provider_for_custom_reexported_type() {
+        let root =
+            temp_dir("query_loader_loads_package_private_provider_for_custom_reexported_type");
+        let main_path = root.join("main.nia");
+        let pkg_root = root.join("pkg.nia");
+        write(
+            &main_path,
+            r#"
+using dep::facade;
+
+fn main(value: facade::Widget) i32 {
+    value.score()
+}
+"#,
+        );
+        write(&pkg_root, "pub module facade;");
+        fs::create_dir_all(root.join("pkg").join("facade")).expect("create package dir");
+        write(
+            &root.join("pkg/facade.nia"),
+            r#"
+pub(pkg) module providers;
+pub(pkg) module types;
+
+pub using types::Widget;
+"#,
+        );
+        write(
+            &root.join("pkg/facade/types.nia"),
+            r#"pub struct Widget { value: i32 }"#,
+        );
+        write(
+            &root.join("pkg/facade/providers.nia"),
+            r#"
+using self::types;
+
+extend types::Widget {
+    pub fn score(&self) i32 {
+        self.value
+    }
+}
+"#,
+        );
+        let mut module_map = ModuleMap::new();
+        module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
+
+        let program = load_program_with_map(main_path.to_string_lossy().into_owned(), module_map);
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_module_loaded(
+            &program,
+            root.join("pkg/facade.nia").to_string_lossy().as_ref(),
+        );
+        assert_module_loaded(
+            &program,
+            root.join("pkg/facade/types.nia").to_string_lossy().as_ref(),
+        );
+        assert_module_loaded(
+            &program,
+            root.join("pkg/facade/providers.nia")
+                .to_string_lossy()
+                .as_ref(),
+        );
     }
 
     #[test]
