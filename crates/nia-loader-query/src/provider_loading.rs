@@ -3,7 +3,7 @@ use crate::graph::{
     add_visible_declared_module_child_if_present, add_visible_declared_module_path,
     mark_process_used_paths_and_process, used_path_start,
 };
-use crate::queries::{module_declarations_query, parsed_module_query};
+use crate::queries::{module_declarations_query, parsed_module_query, provider_summary_query};
 use crate::used_paths::{
     UsedModulePath, UsedModulePathProcessing, host_segments, module_using_aliases,
     reexport_source_path_for_selector, using_host_path, using_name_exposes_name,
@@ -12,7 +12,6 @@ use nia_ast::{UsingGroupItem, UsingSelector};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleGraph;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
-use nia_provider_summary::ProviderSummary;
 use nia_query::QueryDb;
 use nia_source::SourcePath;
 
@@ -541,9 +540,8 @@ fn provider_candidate_has_inherent_associated_item(
     target_type_name: &str,
     associated_name: &str,
 ) -> bool {
-    let parsed = db.query(parsed_module_query(db, path));
-    ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
-        .defines_inherent_associated_item(target_type_name, associated_name)
+    let summary = db.query(provider_summary_query(db, path));
+    summary.defines_inherent_associated_item(target_type_name, associated_name)
 }
 
 fn provider_candidate_has_trait_impl(
@@ -552,9 +550,8 @@ fn provider_candidate_has_trait_impl(
     trait_name: &str,
     associated_name: Option<&str>,
 ) -> bool {
-    let parsed = db.query(parsed_module_query(db, path));
-    ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
-        .defines_trait_impl(trait_name, associated_name)
+    let summary = db.query(provider_summary_query(db, path));
+    summary.defines_trait_impl(trait_name, associated_name)
 }
 
 fn provider_candidate_has_public_extension_method_for_facade(
@@ -564,13 +561,12 @@ fn provider_candidate_has_public_extension_method_for_facade(
     target_type_name: Option<&str>,
     associated_name: &str,
 ) -> bool {
-    let parsed = db.query(parsed_module_query(db, path));
-    ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
-        .defines_public_extension_method_for_facade(
-            |trait_name| public_type_exposes_name(facade_item_tree, trait_name),
-            target_type_name,
-            associated_name,
-        )
+    let summary = db.query(provider_summary_query(db, path));
+    summary.defines_public_extension_method_for_facade(
+        |trait_name| public_type_exposes_name(facade_item_tree, trait_name),
+        target_type_name,
+        associated_name,
+    )
 }
 
 pub(crate) fn module_defines_extensions(
@@ -581,6 +577,6 @@ pub(crate) fn module_defines_extensions(
     let Some(node) = graph.get(module_id).cloned() else {
         return false;
     };
-    let parsed = db.query(parsed_module_query(db, node.path));
-    ProviderSummary::from_active_item_tree(&parsed.active_item_tree).has_providers()
+    db.query(provider_summary_query(db, node.path))
+        .has_providers()
 }

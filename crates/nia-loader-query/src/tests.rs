@@ -1,5 +1,5 @@
 use super::*;
-use crate::queries::LoadedModuleQuery;
+use crate::queries::{LoadedModuleQuery, provider_summary_query};
 use nia_compiler_query::RuntimeModel;
 use nia_imports::ModuleNode;
 use nia_item_tree::ItemTreeNodeKind;
@@ -702,6 +702,47 @@ fn query_trace_records_source_frontend_dependencies() {
                 .description
                 .starts_with(&format!("parsed_module({main_path})@"))
     }));
+}
+
+#[test]
+fn provider_summary_is_cached_per_module_source_version() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    sources.set_source(
+        provider.clone(),
+        r#"
+struct Widget { value: i32 }
+
+extend Widget {
+    pub fn score(&self) i32 {
+        self.value
+    }
+}
+"#,
+    );
+    let db = QueryDb::new(LoaderContext {
+        entry_path: main.clone(),
+        module_map: effective_module_map(&main, ModuleMap::default()),
+        sources,
+        target: TargetConfig::host(),
+        entry_runtime: EntryRuntime::None,
+        package_root_used_paths: false,
+    });
+    let first = db.query(provider_summary_query(&db, provider.clone()));
+    let second = db.query(provider_summary_query(&db, provider.clone()));
+    assert!(first.defines_inherent_associated_item("Widget", "score"));
+    assert_eq!(first, second);
+
+    let trace = db.query_trace();
+    let query = trace
+        .queries
+        .iter()
+        .find(|query| query.frame.name == "provider_summary")
+        .expect("provider summary query should be recorded");
+    assert_eq!(query.stats.executions, 1, "{query:?}");
+    assert_eq!(query.stats.cache_hits, 1, "{query:?}");
 }
 
 #[test]

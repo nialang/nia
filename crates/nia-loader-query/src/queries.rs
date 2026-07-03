@@ -5,6 +5,7 @@ use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, Runtime
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::resolve_module_declarations_from_active_item_tree;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
+use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceFile, SourcePath, SourceVersion};
 use nia_target_config::prune_module_for_target;
@@ -291,6 +292,36 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ProviderSummaryQuery {
+    path: SourcePath,
+    version: SourceVersion,
+}
+
+impl QueryKey<LoaderContext> for ProviderSummaryQuery {
+    type Value = ProviderSummary;
+
+    fn name() -> &'static str {
+        "provider_summary"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "provider_summary({})@{:?}",
+            self.path.as_str(),
+            self.version
+        )
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let parsed = db.query(ParsedModuleQuery {
+            path: self.path.clone(),
+            version: self.version,
+        });
+        ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
+    }
+}
+
 pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
@@ -315,6 +346,19 @@ pub(crate) fn module_declarations_query(
         .map(SourceFile::version)
         .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
     ModuleDeclarationsQuery { path, version }
+}
+
+pub(crate) fn provider_summary_query(
+    db: &QueryDb<LoaderContext>,
+    path: SourcePath,
+) -> ProviderSummaryQuery {
+    let source = db.query(SourceTextQuery(path.clone()));
+    let version = source
+        .file
+        .as_ref()
+        .map(SourceFile::version)
+        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
+    ProviderSummaryQuery { path, version }
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {
