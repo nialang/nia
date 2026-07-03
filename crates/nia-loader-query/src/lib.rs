@@ -62,6 +62,7 @@ impl LoaderDatabase {
             sources: sources.clone(),
             target: request.target,
             entry_runtime: request.entry_runtime,
+            package_root_used_paths: request.package_root_used_paths,
         });
         Self { db, sources }
     }
@@ -98,6 +99,7 @@ pub struct LoadRequest {
     pub sources: SourceDatabase,
     pub target: TargetConfig,
     pub entry_runtime: EntryRuntime,
+    pub package_root_used_paths: bool,
 }
 
 impl LoadRequest {
@@ -108,6 +110,7 @@ impl LoadRequest {
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
+            package_root_used_paths: false,
         }
     }
 
@@ -128,6 +131,11 @@ impl LoadRequest {
 
     pub fn with_entry_runtime(mut self, entry_runtime: EntryRuntime) -> Self {
         self.entry_runtime = entry_runtime;
+        self
+    }
+
+    pub fn with_package_root_used_paths(mut self, package_root_used_paths: bool) -> Self {
+        self.package_root_used_paths = package_root_used_paths;
         self
     }
 }
@@ -196,6 +204,7 @@ struct LoaderContext {
     sources: SourceDatabase,
     target: TargetConfig,
     entry_runtime: EntryRuntime,
+    package_root_used_paths: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -258,12 +267,12 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                     graph.intern_package_root(&package, path.clone());
                 }
             }
-            if should_eager_add_declarations(&node)
+            if should_eager_add_declarations(db.context(), &node)
                 && let Err(diagnostic) = add_declared_module_children(db, &mut graph, node.id)
             {
                 graph.push_diagnostic(node.path.clone(), diagnostic);
             }
-            if should_process_used_module_paths(&graph, &node) {
+            if should_process_used_module_paths(db.context(), &graph, &node) {
                 for path in declarations.used_module_paths {
                     if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, &path) {
                         graph.push_diagnostic(node.path.clone(), diagnostic);
@@ -276,8 +285,9 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 }
 
-fn should_eager_add_declarations(node: &ModuleNode) -> bool {
+fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
     node.process_declared_children
+        || (context.package_root_used_paths && node.module_path.is_package_root())
         || (node.module_path.package == nia_imports::STD_MODULE_MAP_NAME
             && node
                 .module_path
@@ -286,10 +296,15 @@ fn should_eager_add_declarations(node: &ModuleNode) -> bool {
                 .is_some_and(|segment| segment == "start"))
 }
 
-fn should_process_used_module_paths(graph: &ModuleGraph, node: &ModuleNode) -> bool {
+fn should_process_used_module_paths(
+    context: &LoaderContext,
+    graph: &ModuleGraph,
+    node: &ModuleNode,
+) -> bool {
     node.process_used_paths
-        && (node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
-            || !node.module_path.is_package_root()
+        && (!node.module_path.is_package_root()
+            || context.package_root_used_paths
+            || node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
             || graph.package_facade_active(nia_imports::STD_MODULE_MAP_NAME))
 }
 
@@ -3475,6 +3490,7 @@ fn main(value: std::fmt::Value) void {
             sources: sources.clone(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
+            package_root_used_paths: false,
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -3532,6 +3548,7 @@ fn main(value: std::fmt::Value) void {
             sources: sources.clone(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
+            package_root_used_paths: false,
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -3560,6 +3577,7 @@ fn main(value: std::fmt::Value) void {
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
+            package_root_used_paths: false,
         });
 
         let err = db

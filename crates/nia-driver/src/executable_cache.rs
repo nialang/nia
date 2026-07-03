@@ -278,14 +278,15 @@ fn loaded_executable_module_inputs(
             .with_module_map(request.module_map.clone())
             .with_sources(request.sources.clone())
             .with_target(request.target.clone())
-            .with_entry_runtime(entry_runtime(request.runtime)),
+            .with_entry_runtime(entry_runtime(request.runtime))
+            .with_package_root_used_paths(true),
     );
     if !loaded.diagnostics.is_empty() {
         return Ok(None);
     }
     let mut modules = loaded
-        .modules
-        .iter()
+        .graph
+        .modules()
         .map(|module| module.path.as_str().to_string())
         .collect::<Vec<_>>();
     modules.sort();
