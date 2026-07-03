@@ -149,16 +149,22 @@ impl SyntaxTokenCursor {
     }
 
     pub fn token_at_or_after(&self, offset: usize) -> Option<&SyntaxToken> {
-        self.tokens
+        let index = self
+            .tokens
+            .partition_point(|token| token.kind != TokenKind::Eof && token.span.end <= offset);
+        self.tokens[index..]
             .iter()
-            .find(|token| token.kind != TokenKind::Eof && token.span.end > offset)
+            .find(|token| token.kind != TokenKind::Eof)
     }
 
     pub fn token_before_or_at(&self, offset: usize) -> Option<&SyntaxToken> {
-        self.tokens
+        let index = self
+            .tokens
+            .partition_point(|token| token.kind != TokenKind::Eof && token.span.start < offset);
+        self.tokens[..index]
             .iter()
             .rev()
-            .find(|token| token.kind != TokenKind::Eof && token.span.start < offset)
+            .find(|token| token.kind != TokenKind::Eof)
     }
 
     pub fn previous_end(&self) -> usize {
@@ -751,6 +757,38 @@ mod tests {
             tokens[1].node_key().map(|key| key.source_version()),
             Some(version)
         );
+    }
+
+    #[test]
+    fn token_cursor_finds_tokens_around_offsets_by_span() {
+        let version = SourceVersion {
+            id: SourceId(7),
+            revision: SourceRevision(1),
+        };
+        let tree = parse_source("fn  main() {}\n", Some(version));
+        let cursor = SyntaxTokenCursor::new(&tree);
+
+        assert_eq!(
+            cursor.token_at_or_after(0).map(|token| token.kind.clone()),
+            Some(TokenKind::Fn)
+        );
+        assert_eq!(
+            cursor.token_at_or_after(2).map(|token| token.kind.clone()),
+            Some(TokenKind::Ident)
+        );
+        assert_eq!(
+            cursor.token_before_or_at(2).map(|token| token.kind.clone()),
+            Some(TokenKind::Fn)
+        );
+        assert_eq!(
+            cursor.token_before_or_at(4).map(|token| token.kind.clone()),
+            Some(TokenKind::Fn)
+        );
+        assert_eq!(
+            cursor.token_before_or_at(8).map(|token| token.kind.clone()),
+            Some(TokenKind::Ident)
+        );
+        assert!(cursor.token_at_or_after(tree.full_text().len()).is_none());
     }
 
     #[test]
