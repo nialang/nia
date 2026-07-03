@@ -1515,8 +1515,14 @@ fn main(value: std::fmt::Value) void {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(!program.graph.package_facade_active("std"));
-        assert!(program.graph.package_root("std").is_some());
-        assert_module_loaded(&program, "lib/std/builtin.nia");
+        assert!(program.graph.package_root("std").is_none());
+        assert!(
+            program
+                .modules
+                .iter()
+                .any(|module| module.path.as_str() == root.join("std/fmt.nia").to_string_lossy())
+        );
+        assert_module_not_loaded(&program, "lib/std/builtin.nia");
         assert_module_not_loaded(&program, "lib/std/fmt.nia");
     }
 
