@@ -493,50 +493,81 @@ pub(crate) fn collect_extension_methods(
     (extensions, diagnostics)
 }
 
-pub(crate) fn collect_extension_method_index(
-    modules: &[ExtensionMethodIndexModuleInput<'_>],
+pub(crate) fn collect_extension_method_index_for_module(
+    module: &ExtensionMethodIndexModuleInput<'_>,
+    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
 ) -> ExtensionMethods {
     let mut extensions = ExtensionMethods::default();
-    let defs_by_module = modules
-        .iter()
-        .map(|module| (module.module_id, module.defs))
-        .collect::<HashMap<_, _>>();
-    for module in modules {
-        for impl_signature in &module.signatures.trait_impls {
-            let target_ty = module.normalization.normalize(impl_signature.target_ty);
-            if !is_extendable_target(&module.lowering.interner, target_ty) {
-                continue;
-            }
-            let trait_id = impl_trait_id_for_index(module, impl_signature, &defs_by_module);
-            let trait_args =
-                impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
-            let where_predicates =
-                normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
-            for method in &impl_signature.methods {
-                let effective_generics =
-                    extension_method_effective_generics(module, impl_signature, method, target_ty);
-                extensions.insert_with_nominal_target(
-                    module.module_id,
-                    ExtensionMethod {
-                        name: method.name.clone(),
-                        def_id: GlobalDefId {
-                            module_id: module.module_id,
-                            def_id: method.def_id,
-                        },
-                        impl_id: impl_signature.impl_id,
-                        effective_generics,
-                        target_ty,
-                        trait_id,
-                        trait_args: trait_args.clone(),
-                        where_predicates: where_predicates.clone(),
-                        visibility: method.visibility,
+    for impl_signature in &module.signatures.trait_impls {
+        let target_ty = module.normalization.normalize(impl_signature.target_ty);
+        if !is_extendable_target(&module.lowering.interner, target_ty) {
+            continue;
+        }
+        let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
+        let trait_args =
+            impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
+        let where_predicates =
+            normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
+        for method in &impl_signature.methods {
+            let effective_generics =
+                extension_method_effective_generics(module, impl_signature, method, target_ty);
+            extensions.insert_with_nominal_target(
+                module.module_id,
+                ExtensionMethod {
+                    name: method.name.clone(),
+                    def_id: GlobalDefId {
+                        module_id: module.module_id,
+                        def_id: method.def_id,
                     },
-                    nominal_target_def_id(&module.normalization.interner, target_ty),
-                );
-            }
+                    impl_id: impl_signature.impl_id,
+                    effective_generics,
+                    target_ty,
+                    trait_id,
+                    trait_args: trait_args.clone(),
+                    where_predicates: where_predicates.clone(),
+                    visibility: method.visibility,
+                },
+                nominal_target_def_id(&module.normalization.interner, target_ty),
+            );
         }
     }
     extensions
+}
+
+pub(crate) fn collect_valid_trait_impls_for_extension_index_module(
+    module: &ExtensionMethodIndexModuleInput<'_>,
+) -> Vec<ProgramTraitImplSignature> {
+    let extension_module = ExtensionModuleInput {
+        module_id: module.module_id,
+        defs: module.defs,
+        lowering: module.lowering,
+        signatures: module.signatures,
+        function_signatures: module.signatures,
+        type_signatures: module.signatures,
+        normalization: module.normalization,
+    };
+    collect_program_trait_impls(&[ModuleSignatureInput {
+        module_id: module.module_id,
+        defs: module.defs,
+        lowering: module.lowering,
+        signatures: module.signatures,
+    }])
+    .into_iter()
+    .filter(|impl_signature| {
+        let Some(module_impl_signature) =
+            trait_impl_signature_by_id(module.signatures, impl_signature.impl_id)
+        else {
+            return false;
+        };
+        !matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
+        if builtin_trait_impl_overlaps_intrinsic(
+            &extension_module,
+            impl_signature.target_ty,
+            trait_id,
+            module_impl_signature,
+        ))
+    })
+    .collect()
 }
 
 fn extension_method_effective_generics(
@@ -614,38 +645,36 @@ fn normalize_where_predicates(
         .collect()
 }
 
-pub(crate) fn collect_extension_associated_value_index(
-    modules: &[ExtensionMethodIndexModuleInput<'_>],
+pub(crate) fn collect_extension_associated_value_index_for_module(
+    module: &ExtensionMethodIndexModuleInput<'_>,
 ) -> (ExtensionAssociatedValues, Vec<Diagnostic>) {
     let mut values = ExtensionAssociatedValues::default();
     let mut diagnostics = Vec::new();
-    for module in modules {
-        for impl_signature in &module.signatures.trait_impls {
-            let target_ty = module.normalization.normalize(impl_signature.target_ty);
-            if !is_extendable_target(&module.lowering.interner, target_ty) {
-                diagnostics.push(Diagnostic::user_error_at(
-                    codes::NAME_RESOLUTION,
-                    impl_signature.span,
-                    "extend target must be an extendable value type",
-                ));
-                continue;
-            }
-            for associated_value in &impl_signature.associated_values {
-                values.insert_with_nominal_target(
-                    module.module_id,
-                    ExtensionAssociatedValue {
-                        name: associated_value.name.clone(),
-                        def_id: GlobalDefId {
-                            module_id: module.module_id,
-                            def_id: associated_value.def_id,
-                        },
-                        impl_id: impl_signature.impl_id,
-                        target_ty,
-                        visibility: associated_value.visibility,
+    for impl_signature in &module.signatures.trait_impls {
+        let target_ty = module.normalization.normalize(impl_signature.target_ty);
+        if !is_extendable_target(&module.lowering.interner, target_ty) {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                "extend target must be an extendable value type",
+            ));
+            continue;
+        }
+        for associated_value in &impl_signature.associated_values {
+            values.insert_with_nominal_target(
+                module.module_id,
+                ExtensionAssociatedValue {
+                    name: associated_value.name.clone(),
+                    def_id: GlobalDefId {
+                        module_id: module.module_id,
+                        def_id: associated_value.def_id,
                     },
-                    nominal_target_def_id(&module.normalization.interner, target_ty),
-                );
-            }
+                    impl_id: impl_signature.impl_id,
+                    target_ty,
+                    visibility: associated_value.visibility,
+                },
+                nominal_target_def_id(&module.normalization.interner, target_ty),
+            );
         }
     }
     (values, diagnostics)
@@ -692,22 +721,21 @@ fn impl_trait_id(
     }
 }
 
-fn impl_trait_id_for_index(
+fn impl_trait_id_for_index_with_defs(
     module: &ExtensionMethodIndexModuleInput<'_>,
     impl_signature: &TraitImplSignature,
-    defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
+    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
 ) -> Option<TraitId> {
     let trait_ty = impl_signature.trait_ty?;
     let ty = module.normalization.normalize(trait_ty);
     match module.lowering.interner.get(ty).cloned() {
-        Some(TyKind::Nominal { def_id, .. }) => matches!(
-            defs_by_module
-                .get(&def_id.module_id)
-                .and_then(|defs| defs.defs.get(def_id.def_id))
-                .map(|def| def.kind),
-            Some(nia_defs::DefKind::Trait)
-        )
-        .then_some(TraitId::Source(def_id)),
+        Some(TyKind::Nominal { def_id, .. }) => defs(def_id.module_id).and_then(|defs| {
+            matches!(
+                defs.defs.get(def_id.def_id).map(|def| def.kind),
+                Some(nia_defs::DefKind::Trait)
+            )
+            .then_some(TraitId::Source(def_id))
+        }),
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
         _ => None,
     }

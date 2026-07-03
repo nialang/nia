@@ -65,6 +65,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
+    pub(super) extension_provider_module_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
     pub(super) extension_associated_values:
@@ -135,6 +137,7 @@ impl Default for CompilerQueryProviders {
             program_visible_type_signatures: provide_program_visible_type_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
+            extension_provider_module_facts: provide_extension_provider_module_facts,
             extension_method_index: provide_extension_method_index,
             extension_method_set: provide_extension_method_set,
             extension_associated_values: provide_extension_associated_values,
@@ -709,35 +712,6 @@ impl ExtensionSignatureInputs {
     }
 }
 
-struct ExtensionMethodIndexInputs {
-    trait_inputs: ProgramSignatureInputs,
-    normalizations: Vec<TypeNormalization>,
-}
-
-impl ExtensionMethodIndexInputs {
-    fn modules(&self) -> Vec<ExtensionMethodIndexModuleInput<'_>> {
-        self.trait_inputs
-            .module_ids
-            .iter()
-            .zip(self.trait_inputs.defs.iter())
-            .zip(self.trait_inputs.type_lowerings.iter())
-            .zip(self.trait_inputs.item_signatures.iter())
-            .zip(self.normalizations.iter())
-            .map(
-                |((((module_id, defs), lowering), signatures), normalization)| {
-                    ExtensionMethodIndexModuleInput {
-                        module_id: *module_id,
-                        defs,
-                        lowering,
-                        signatures,
-                        normalization,
-                    }
-                },
-            )
-            .collect()
-    }
-}
-
 fn module_signature_inputs_for(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
@@ -864,32 +838,21 @@ fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatu
     }
 }
 
-fn extension_method_index_inputs(db: &QueryDb<CompilerContext>) -> ExtensionMethodIndexInputs {
+fn extension_provider_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     let timings = db.query(CompilerTimingsQuery);
-    let trait_inputs = time_provider(timings, "extension_method_index.inputs.traits", || {
-        trait_signature_inputs_for_extensions(db)
-    });
-    let normalizations = time_provider(
-        timings,
-        "extension_method_index.inputs.trait_normalizations",
-        || {
-            trait_inputs
-                .module_ids
-                .iter()
-                .copied()
-                .map(|module_id| {
-                    db.query(SignatureTypeNormalizationQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Traits,
-                    ))
-                })
-                .collect::<Vec<_>>()
-        },
-    );
-    ExtensionMethodIndexInputs {
-        trait_inputs,
-        normalizations,
-    }
+    let parse_ok = db.query(ParseOkModuleIdsQuery);
+    time_provider(timings, "extension_provider_module_ids.filter", || {
+        parse_ok
+            .into_iter()
+            .filter(|module_id| {
+                let tree = db.query(SignatureItemTreeQuery(
+                    *module_id,
+                    nia_item_tree::SignatureItemSet::Traits,
+                ));
+                signature_tree_has_trait_or_extend(&tree)
+            })
+            .collect()
+    })
 }
 
 pub(super) fn provide_program_trait_solving_signatures(
@@ -1102,6 +1065,58 @@ pub(super) fn provide_extension_method_set(
     )
 }
 
+pub(super) fn provide_extension_provider_module_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ExtensionProviderModuleFactsValue {
+    time_module_provider(db, "extension_provider_module_facts", module_id, || {
+        let tree = db.query(SignatureItemTreeQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        if !signature_tree_has_trait_or_extend(&tree) {
+            return Arc::new(ExtensionProviderModuleFactsQueryValue {
+                methods: nia_defs::ExtensionMethods::default(),
+                associated_values: nia_defs::ExtensionAssociatedValues::default(),
+                associated_value_diagnostics: Vec::new(),
+                trait_impls: Vec::new(),
+            });
+        }
+
+        let defs = db.query(ModuleDefsQuery(module_id));
+        let lowering = db.query(SignatureTypeLoweringQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let signatures = db.query(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let normalization = db.query(SignatureTypeNormalizationQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
+        let module = ExtensionMethodIndexModuleInput {
+            module_id,
+            defs: &defs,
+            lowering: &lowering,
+            signatures: &signatures,
+            normalization: &normalization,
+        };
+        let module_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let methods = collect_extension_method_index_for_module(&module, &module_defs);
+        let (associated_values, associated_value_diagnostics) =
+            collect_extension_associated_value_index_for_module(&module);
+        let trait_impls = collect_valid_trait_impls_for_extension_index_module(&module);
+        Arc::new(ExtensionProviderModuleFactsQueryValue {
+            methods,
+            associated_values,
+            associated_value_diagnostics,
+            trait_impls,
+        })
+    })
+}
+
 pub(super) fn provide_extension_method_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodIndexValue {
@@ -1110,30 +1125,25 @@ pub(super) fn provide_extension_method_index(
         "extension_method_index",
         || {
             let timings = db.query(CompilerTimingsQuery);
-            let inputs = time_provider(timings, "extension_method_index.inputs", || {
-                extension_method_index_inputs(db)
-            });
-            let inputs = time_provider(timings, "extension_method_index.input_modules", || {
-                inputs.modules()
+            let module_ids = extension_provider_module_ids(db);
+            let facts = time_provider(timings, "extension_method_index.module_facts", || {
+                module_ids
+                    .into_iter()
+                    .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
+                    .collect::<Vec<_>>()
             });
             let trait_impls = time_provider(timings, "extension_method_index.trait_impls", || {
-                crate::program_signatures::collect_valid_program_trait_impls(
-                    &inputs
-                        .iter()
-                        .map(|module| ExtensionModuleInput {
-                            module_id: module.module_id,
-                            defs: module.defs,
-                            lowering: module.lowering,
-                            signatures: module.signatures,
-                            function_signatures: module.signatures,
-                            type_signatures: module.signatures,
-                            normalization: module.normalization,
-                        })
-                        .collect::<Vec<_>>(),
-                )
+                facts
+                    .iter()
+                    .flat_map(|facts| facts.trait_impls.iter().cloned())
+                    .collect()
             });
             let methods = time_provider(timings, "extension_method_index.collect", || {
-                collect_extension_method_index(&inputs)
+                let mut methods = nia_defs::ExtensionMethods::default();
+                for facts in &facts {
+                    methods.extend(facts.methods.clone());
+                }
+                methods
             });
             Arc::new(ExtensionMethodIndexQueryValue {
                 methods,
@@ -1150,9 +1160,17 @@ pub(super) fn provide_extension_associated_values(
         db.query(CompilerTimingsQuery),
         "extension_associated_values",
         || {
-            let inputs = extension_method_index_inputs(db);
-            let inputs = inputs.modules();
-            let (values, diagnostics) = collect_extension_associated_value_index(&inputs);
+            let module_ids = extension_provider_module_ids(db);
+            let facts = module_ids
+                .into_iter()
+                .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
+                .collect::<Vec<_>>();
+            let mut values = nia_defs::ExtensionAssociatedValues::default();
+            let mut diagnostics = Vec::new();
+            for facts in facts {
+                values.extend(facts.associated_values.clone());
+                diagnostics.extend(facts.associated_value_diagnostics.iter().cloned());
+            }
             Arc::new(ExtensionAssociatedValuesQueryValue {
                 values,
                 diagnostics,
