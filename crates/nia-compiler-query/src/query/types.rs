@@ -506,6 +506,33 @@ pub(super) struct ExtensionMethodIndexQueryValue {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderModuleFactsQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
+    pub(super) associated_value_diagnostics: Vec<Diagnostic>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderModuleFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
+    type Value = ExtensionProviderModuleFactsValue;
+
+    fn name() -> &'static str {
+        "extension_provider_module_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_provider_module_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_module_facts)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExtensionMethodIndexQuery;
 

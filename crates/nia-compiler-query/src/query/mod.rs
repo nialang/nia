@@ -5,11 +5,12 @@ use crate::{
     program_signatures::{
         ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleSignatureInput,
         VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
-        collect_extension_associated_value_index, collect_extension_method_index,
-        collect_extension_methods, collect_program_comptimes, collect_program_enums,
-        collect_program_functions_excluding, collect_program_globals, collect_program_structs,
-        collect_program_trait_impls, collect_program_traits, collect_program_type_aliases,
-        collect_program_unions, visible_extensions_for_module,
+        collect_extension_associated_value_index_for_module,
+        collect_extension_method_index_for_module, collect_extension_methods,
+        collect_program_comptimes, collect_program_enums, collect_program_functions_excluding,
+        collect_program_globals, collect_program_structs, collect_program_trait_impls,
+        collect_program_traits, collect_program_type_aliases, collect_program_unions,
+        collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -71,6 +72,7 @@ use resolve::*;
 use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
+type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
@@ -2243,12 +2245,35 @@ fn main() i32 {
                 dependency.from.name == query && dependency.to.name == "program_type_normalizations"
             }));
         }
+        for query in ["extension_method_index", "extension_associated_values"] {
+            assert!(trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query
+                    && dependency.to.name == "extension_provider_module_facts"
+            }));
+            assert!(!trace.dependencies.iter().any(|dependency| {
+                dependency.from.name == query
+                    && matches!(
+                        dependency.to.name,
+                        "signature_item_signatures"
+                            | "signature_type_lowering"
+                            | "signature_type_normalization"
+                    )
+            }));
+        }
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_method_index"
+            dependency.from.name == "extension_provider_module_facts"
+                && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_module_facts"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_method_index"
+            dependency.from.name == "extension_provider_module_facts"
+                && dependency.to.name == "signature_type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_module_facts"
                 && dependency.to.name == "signature_type_normalization"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2257,14 +2282,6 @@ fn main() i32 {
                     dependency.to.name,
                     "item_signatures" | "declaration_type_lowering"
                 )
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_associated_values"
-                && dependency.to.name == "signature_item_signatures"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_associated_values"
-                && dependency.to.name == "signature_type_normalization"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_associated_values"
@@ -2288,6 +2305,53 @@ fn main() i32 {
             dependency.from.name == "declaration_type_lowering"
                 && dependency.to.name == "program_full_defs_by_id"
         }));
+    }
+
+    #[test]
+    fn extension_provider_module_facts_are_cached_across_body_updates() {
+        let database = CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(
+            vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+            )],
+        )));
+
+        let _ = database.db.query(ExtensionMethodIndexQuery);
+        let before_update = database.query_trace();
+        assert!(
+            query_executions(&before_update, "extension_provider_module_facts") > 0,
+            "{before_update:?}"
+        );
+
+        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                ModuleId(0),
+                "main.nia",
+                "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; { value: next } } }",
+                SourceRevision(1),
+            ),
+        ])));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(
+            !invalidated.contains(&"extension_provider_module_facts"),
+            "{invalidated:?}"
+        );
+        let before_second_query = database.query_trace();
+
+        let _ = database.db.query(ExtensionMethodIndexQuery);
+        let after_second_query = database.query_trace();
+
+        assert_query_executions_unchanged(
+            &before_second_query,
+            &after_second_query,
+            "extension_provider_module_facts",
+        );
     }
 
     #[test]

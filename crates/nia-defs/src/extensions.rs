@@ -98,6 +98,21 @@ pub struct VisibleExtensionTarget {
 }
 
 impl ExtensionMethods {
+    pub fn extend(&mut self, other: Self) {
+        for (module_id, methods) in other.by_module {
+            self.by_module.entry(module_id).or_default().extend(methods);
+        }
+        for (target, methods) in other.by_nominal_target {
+            self.by_nominal_target
+                .entry(target)
+                .or_default()
+                .extend(methods);
+        }
+        for (name, methods) in other.by_name {
+            self.by_name.entry(name).or_default().extend(methods);
+        }
+    }
+
     pub fn insert(&mut self, module_id: ModuleId, method: ExtensionMethod) {
         self.by_name
             .entry(method.name.clone())
@@ -194,6 +209,18 @@ impl ExtensionMethods {
 }
 
 impl ExtensionAssociatedValues {
+    pub fn extend(&mut self, other: Self) {
+        for (module_id, values) in other.by_module {
+            self.by_module.entry(module_id).or_default().extend(values);
+        }
+        for (target, values) in other.by_nominal_target {
+            self.by_nominal_target
+                .entry(target)
+                .or_default()
+                .extend(values);
+        }
+    }
+
     pub fn insert(&mut self, module_id: ModuleId, value: ExtensionAssociatedValue) {
         self.by_module.entry(module_id).or_default().push(value);
     }
