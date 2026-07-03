@@ -194,6 +194,15 @@ impl SourceDatabase {
             .filter(|file| file.revision == version.revision)
     }
 
+    pub fn source_files(&self) -> Vec<SourceFile> {
+        self.files
+            .lock()
+            .expect("source database lock poisoned")
+            .values()
+            .cloned()
+            .collect()
+    }
+
     pub fn set_source(&self, path: SourcePath, text: impl Into<String>) -> SourceFile {
         let id = self.id_for_path(&path);
         // Holding this lock covers both revision selection and replacement; a
