@@ -7,9 +7,10 @@ use crate::{
         VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
         collect_extension_associated_value_index_for_module,
         collect_extension_method_index_for_module, collect_extension_methods,
-        collect_program_comptimes, collect_program_enums, collect_program_functions_excluding,
-        collect_program_globals, collect_program_structs, collect_program_trait_impls,
-        collect_program_traits, collect_program_type_aliases, collect_program_unions,
+        collect_nominal_extension_providers_for_module, collect_program_comptimes,
+        collect_program_enums, collect_program_functions_excluding, collect_program_globals,
+        collect_program_structs, collect_program_trait_impls, collect_program_traits,
+        collect_program_type_aliases, collect_program_unions,
         collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
@@ -73,6 +74,8 @@ use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
+type ExtensionProviderNominalModuleValue = Arc<ExtensionProviderNominalModuleQueryValue>;
+type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
@@ -2535,6 +2538,29 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "signature_type_normalization"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "extension_provider_nominal_index"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_index"
+                && dependency.to.name == "extension_provider_nominal_module"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_index"
+                && dependency.to.name == "extension_provider_module_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "extension_provider_module_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && matches!(
+                    dependency.to.name,
+                    "extension_method_index" | "extension_associated_values"
+                )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
