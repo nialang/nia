@@ -529,7 +529,7 @@ fn build_runner_fingerprint_inputs(
     runner: &BuildRunnerSource,
 ) -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
     let mut inputs = Vec::new();
-    inputs.extend(loaded_build_runner_module_inputs(plan, runner)?);
+    inputs.extend(build_runner_build_package_inputs(plan, runner)?);
     inputs.extend(std_build_runner_inputs()?);
     inputs.sort_by(|lhs, rhs| {
         lhs.root
@@ -538,6 +538,24 @@ fn build_runner_fingerprint_inputs(
             .then_with(|| lhs.relative_path.cmp(&rhs.relative_path))
     });
     inputs.dedup_by(|lhs, rhs| lhs.root == rhs.root && lhs.relative_path == rhs.relative_path);
+    Ok(inputs)
+}
+
+fn build_runner_build_package_inputs(
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+) -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
+    let mut files = loaded_build_runner_module_files(plan, runner)?;
+    files.sort();
+    files.dedup();
+    let mut inputs = Vec::with_capacity(files.len());
+    for file in files {
+        inputs.push(build_runner_fingerprint_input(
+            BuildRunnerFingerprintRoot::Build,
+            &plan.package_root,
+            &file,
+        )?);
+    }
     Ok(inputs)
 }
 
@@ -597,17 +615,18 @@ fn safe_relative_build_runner_input_path(root: &Path, file: &Path) -> Option<Pat
     Some(relative.to_path_buf())
 }
 
-fn loaded_build_runner_module_inputs(
+fn loaded_build_runner_module_files(
     plan: &BuildPlan,
     runner: &BuildRunnerSource,
-) -> Result<Vec<BuildRunnerFingerprintInput>, BuildError> {
+) -> Result<Vec<PathBuf>, BuildError> {
     let mut module_map = ModuleMap::new();
     module_map.insert(
         "build_script",
         SourcePath::new(plan.build_script.to_string_lossy().into_owned()),
     );
     let sources = nia_source::SourceDatabase::new();
-    sources.set_source(SourcePath::new(runner.path.clone()), runner.source.clone());
+    let fingerprint_source = build_runner_fingerprint_source(runner);
+    sources.set_source(SourcePath::new(runner.path.clone()), fingerprint_source);
     let loaded = nia_loader_query::load_program_request(
         nia_loader_query::LoadRequest::new(runner.path.clone())
             .with_module_map(module_map)
@@ -625,16 +644,13 @@ fn loaded_build_runner_module_inputs(
         .collect::<Vec<_>>();
     paths.sort();
     paths.dedup();
+    Ok(paths)
+}
 
-    let mut inputs = Vec::new();
-    for path in paths {
-        inputs.push(build_runner_fingerprint_input(
-            BuildRunnerFingerprintRoot::Build,
-            &plan.package_root,
-            &path,
-        )?);
-    }
-    Ok(inputs)
+fn build_runner_fingerprint_source(runner: &BuildRunnerSource) -> String {
+    let mut source = runner.source.clone();
+    source.push_str("\nusing build_script::*;\n");
+    source
 }
 
 fn build_runner_cache_valid(runner: &Path) -> bool {
@@ -649,6 +665,9 @@ fn restore_build_runner_fingerprint(
         return Ok(None);
     };
     if snapshot.runner_source_hash != content_hash(&runner.source) {
+        return Ok(None);
+    }
+    if !build_manifest_input_set_matches(plan, runner, &snapshot)? {
         return Ok(None);
     }
     if !std_manifest_input_set_matches(&snapshot)? {
@@ -674,35 +693,65 @@ fn restore_build_runner_fingerprint(
     }
 }
 
+fn build_manifest_input_set_matches(
+    plan: &BuildPlan,
+    runner: &BuildRunnerSource,
+    snapshot: &BuildRunnerFingerprintSnapshot,
+) -> Result<bool, BuildError> {
+    let current = build_runner_relative_input_paths(
+        &plan.package_root,
+        loaded_build_runner_module_files(plan, runner)?,
+    )?;
+    let stored = stored_manifest_relative_input_paths(snapshot, BuildRunnerFingerprintRoot::Build);
+    Ok(current == stored)
+}
+
 fn std_manifest_input_set_matches(
     snapshot: &BuildRunnerFingerprintSnapshot,
 ) -> Result<bool, BuildError> {
     let root = workspace_std_root();
     let mut current = Vec::new();
     collect_nia_files(&root, &mut current)?;
-    let mut current = current
+    let current = build_runner_relative_input_paths(&root, current)?;
+    let stored = stored_manifest_relative_input_paths(snapshot, BuildRunnerFingerprintRoot::Std);
+
+    Ok(current == stored)
+}
+
+fn build_runner_relative_input_paths(
+    root: &Path,
+    files: Vec<PathBuf>,
+) -> Result<Vec<PathBuf>, BuildError> {
+    let mut relative = files
         .into_iter()
-        .map(|path| safe_relative_build_runner_input_path(&root, &path))
+        .map(|path| safe_relative_build_runner_input_path(root, &path))
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| BuildError::BuildRunnerFingerprint {
-            path: root.clone(),
+            path: root.to_path_buf(),
             operation: "relativize",
             error: io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "input path is outside fingerprint root",
             ),
         })?;
-    current.sort();
+    relative.sort();
+    relative.dedup();
+    Ok(relative)
+}
 
+fn stored_manifest_relative_input_paths(
+    snapshot: &BuildRunnerFingerprintSnapshot,
+    root: BuildRunnerFingerprintRoot,
+) -> Vec<PathBuf> {
     let mut stored = snapshot
         .inputs
         .iter()
-        .filter(|input| input.root == BuildRunnerFingerprintRoot::Std)
+        .filter(|input| input.root == root)
         .map(|input| input.relative_path.clone())
         .collect::<Vec<_>>();
     stored.sort();
-
-    Ok(current == stored)
+    stored.dedup();
+    stored
 }
 
 fn current_build_runner_input(
@@ -1500,6 +1549,32 @@ mod tests {
 
         std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 2 }\n")
             .expect("edit helper");
+        let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
+
+        assert_ne!(before.fingerprint, after.fingerprint);
+    }
+
+    #[test]
+    fn build_runner_fingerprint_tracks_nested_declared_build_modules() {
+        let root = temp_root("build_runner_fingerprint_tracks_nested_declared_build_modules");
+        std::fs::create_dir_all(root.join("build").join("helper"))
+            .expect("create build module dir");
+        std::fs::write(root.join("build.nia"), "module helper;\n").expect("write build script");
+        std::fs::write(root.join("build/helper.nia"), "module nested;\n").expect("write helper");
+        std::fs::write(
+            root.join("build/helper/nested.nia"),
+            "pub fn value() i32 { 1 }\n",
+        )
+        .expect("write nested helper");
+        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
+        let runner = build_runner_source(&plan).expect("build runner source");
+        let before = build_runner_fingerprint(&plan, &runner).expect("fingerprint before");
+
+        std::fs::write(
+            root.join("build/helper/nested.nia"),
+            "pub fn value() i32 { 2 }\n",
+        )
+        .expect("edit nested helper");
         let after = build_runner_fingerprint(&plan, &runner).expect("fingerprint after");
 
         assert_ne!(before.fingerprint, after.fingerprint);
