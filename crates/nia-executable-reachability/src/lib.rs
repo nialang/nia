@@ -566,20 +566,22 @@ fn extend_reachability_from_unscanned_items(
     program_signatures: ExecutableSignatureIndex<'_>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    let present_functions = module
-        .body_ir
-        .function_bodies
-        .keys()
+    let present_functions = state
+        .reachability
+        .functions
+        .iter()
         .copied()
-        .filter(|def_id| state.reachability.functions.contains(def_id))
+        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| module.body_ir.function_bodies.contains_key(def_id))
         .filter(|def_id| !state.scanned_functions.contains(def_id))
         .collect::<HashSet<_>>();
-    let present_globals = module
-        .body_ir
-        .global_inits
-        .keys()
+    let present_globals = state
+        .reachability
+        .globals
+        .iter()
         .copied()
-        .filter(|def_id| state.reachability.globals.contains(def_id))
+        .filter(|def_id| def_id.module_id == module.module_id)
+        .filter(|def_id| module.body_ir.global_inits.contains_key(def_id))
         .filter(|def_id| !state.scanned_globals.contains(def_id))
         .collect::<HashSet<_>>();
     if present_functions.is_empty() && present_globals.is_empty() {
