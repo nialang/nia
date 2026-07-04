@@ -56,6 +56,8 @@ pub(super) struct CompilerQueryProviders {
         ModuleId,
         nia_item_tree::SignatureItemSet,
     ) -> ModuleProgramSignatureFactsValue,
+    pub(super) module_abi_signature_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleAbiSignatureFactsValue,
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) extension_provider_module_eligibility:
         fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
@@ -152,6 +154,7 @@ impl Default for CompilerQueryProviders {
             signature_type_normalization: provide_signature_type_normalization,
             program_signature_module_ids: provide_program_signature_module_ids,
             module_program_signature_facts: provide_module_program_signature_facts,
+            module_abi_signature_facts: provide_module_abi_signature_facts,
             extension_provider_module_ids: provide_extension_provider_module_ids,
             extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
@@ -690,6 +693,33 @@ pub(super) fn provide_module_program_signature_facts(
     )
 }
 
+pub(super) fn provide_module_abi_signature_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ModuleAbiSignatureFactsValue {
+    let signatures = db.query(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Types,
+    ));
+    Arc::new(ModuleAbiSignatureFactsQueryValue {
+        structs: signatures
+            .structs
+            .into_iter()
+            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .collect(),
+        unions: signatures
+            .unions
+            .into_iter()
+            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .collect(),
+        enums: signatures
+            .enums
+            .into_iter()
+            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .collect(),
+    })
+}
+
 pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<ModuleId> {
@@ -1046,31 +1076,34 @@ pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramAbiSignaturesValue> {
     time_provider(db.context().timings(), "program_abi_signatures", || {
+        let facts = db.query_many(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Types,
+            ))
+            .into_iter()
+            .map(ModuleAbiSignatureFactsQuery),
+        );
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums = HashMap::new();
-        for module_id in db.query(SemanticModuleIdsQuery) {
-            let signatures = db.query(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ));
+        for facts in facts {
             structs.extend(
-                signatures
+                facts
                     .structs
-                    .into_iter()
-                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                    .iter()
+                    .map(|(def_id, signature)| (*def_id, signature.clone())),
             );
             unions.extend(
-                signatures
+                facts
                     .unions
-                    .into_iter()
-                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                    .iter()
+                    .map(|(def_id, signature)| (*def_id, signature.clone())),
             );
             enums.extend(
-                signatures
+                facts
                     .enums
-                    .into_iter()
-                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+                    .iter()
+                    .map(|(def_id, signature)| (*def_id, signature.clone())),
             );
         }
         Arc::new(ProgramAbiSignaturesValue {

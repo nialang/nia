@@ -82,6 +82,7 @@ type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
 type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
 type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
+type ModuleAbiSignatureFactsValue = Arc<ModuleAbiSignatureFactsQueryValue>;
 
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
@@ -2306,14 +2307,23 @@ pub fn expensive_or_invalid() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_abi_signatures"
+                && dependency.to.name == "module_abi_signature_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_abi_signature_facts"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "abi_check" && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            matches!(dependency.from.name, "abi_check" | "program_abi_signatures")
-                && matches!(dependency.to.name, "item_signatures" | "type_normalization")
+            matches!(
+                dependency.from.name,
+                "program_abi_signatures" | "module_abi_signature_facts"
+            ) && matches!(
+                dependency.to.name,
+                "item_signatures" | "type_normalization" | "signature_type_lowering"
+            )
         }));
         assert!(!depends_on_body_signature_query(&trace, "abi_check"));
     }

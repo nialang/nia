@@ -269,6 +269,13 @@ pub(super) struct ExtensionTraitSolvingModuleFactsQueryValue {
     pub(super) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ModuleAbiSignatureFactsQueryValue {
+    pub(super) structs: HashMap<GlobalDefId, StructSignature>,
+    pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
+    pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramSignatureModuleIdsQuery(pub(super) nia_item_tree::SignatureItemSet);
 
@@ -307,6 +314,25 @@ impl QueryKey<CompilerContext> for ModuleProgramSignatureFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_program_signature_facts)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleAbiSignatureFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
+    type Value = ModuleAbiSignatureFactsValue;
+
+    fn name() -> &'static str {
+        "module_abi_signature_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("module_abi_signature_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.module_abi_signature_facts)(db, self.0)
     }
 }
 
