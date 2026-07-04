@@ -172,7 +172,7 @@ impl Default for CompilerQueryProviders {
 }
 
 pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
-    time_provider(db.query(CompilerTimingsQuery), "checked_program", || {
+    time_provider(db.context().timings(), "checked_program", || {
         let graph = db.query(ModuleGraphQuery);
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
@@ -188,27 +188,23 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
 }
 
 pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "entry_checked_program",
-        || {
-            let graph = db.query(ModuleGraphQuery);
-            let optimization = db.query(CompilerOptimizationQuery);
-            let mut diagnostics = early_program_diagnostics(db);
-            let diagnostic_modules = db.query(ExecutableCheckedModulesQuery);
-            diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
-            CheckedProgram {
-                graph,
-                optimization,
-                modules: diagnostic_modules,
-                diagnostics,
-            }
-        },
-    )
+    time_provider(db.context().timings(), "entry_checked_program", || {
+        let graph = db.query(ModuleGraphQuery);
+        let optimization = db.query(CompilerOptimizationQuery);
+        let mut diagnostics = early_program_diagnostics(db);
+        let diagnostic_modules = db.query(ExecutableCheckedModulesQuery);
+        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
+        CheckedProgram {
+            graph,
+            optimization,
+            modules: diagnostic_modules,
+            diagnostics,
+        }
+    })
 }
 
 pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
-    time_provider(db.query(CompilerTimingsQuery), "codegen_program", || {
+    time_provider(db.context().timings(), "codegen_program", || {
         let graph = db.query(ModuleGraphQuery);
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
@@ -290,7 +286,7 @@ fn time_module_provider<T>(
     module_id: ModuleId,
     f: impl FnOnce() -> T,
 ) -> T {
-    let timings = db.query(CompilerTimingsQuery);
+    let timings = db.context().timings();
     if !timings.detail() {
         return f();
     }
@@ -374,7 +370,7 @@ pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCo
 }
 
 pub(super) fn provide_public_surface(db: &QueryDb<CompilerContext>) -> PublicSurfaceQueryValue {
-    time_provider(db.query(CompilerTimingsQuery), "public_surface", || {
+    time_provider(db.context().timings(), "public_surface", || {
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
         let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &graph);
@@ -575,7 +571,7 @@ pub(super) fn provide_program_body_function_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyFunctionSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_body_function_signatures",
         || {
             let inputs =
@@ -596,7 +592,7 @@ pub(super) fn provide_program_body_value_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyValueSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_body_value_signatures",
         || {
             let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
@@ -613,7 +609,7 @@ pub(super) fn provide_program_body_type_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyTypeSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_body_type_signatures",
         || {
             let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
@@ -632,7 +628,7 @@ pub(super) fn provide_program_body_trait_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyTraitSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_body_trait_signatures",
         || {
             let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
@@ -726,7 +722,7 @@ fn module_signature_inputs_for(
 }
 
 fn trait_signature_inputs_for_extensions(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputs {
-    let timings = db.query(CompilerTimingsQuery);
+    let timings = db.context().timings();
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     let module_ids = time_provider(
         timings,
@@ -785,7 +781,7 @@ fn signature_tree_has_trait_or_extend(tree: &ActiveModuleItemTree) -> bool {
 }
 
 fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
-    let timings = db.query(CompilerTimingsQuery);
+    let timings = db.context().timings();
     let trait_inputs = time_provider(timings, "extension_signature_inputs.traits", || {
         trait_signature_inputs_for_extensions(db)
     });
@@ -845,7 +841,7 @@ fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatu
 }
 
 fn extension_provider_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-    let timings = db.query(CompilerTimingsQuery);
+    let timings = db.context().timings();
     let parse_ok = db.query(ParseOkModuleIdsQuery);
     time_provider(timings, "extension_provider_module_ids.filter", || {
         parse_ok
@@ -865,7 +861,7 @@ pub(super) fn provide_program_trait_solving_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramTraitSolvingSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_trait_solving_signatures",
         || {
             let inputs = extension_signature_inputs(db);
@@ -890,7 +886,7 @@ pub(super) fn provide_program_visible_type_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramVisibleTypeSignatures> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "program_visible_type_signatures",
         || {
             let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
@@ -928,7 +924,7 @@ fn executable_program_trait_impls(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_program_trait_impls",
         || db.query(ExtensionMethodIndexQuery).trait_impls.clone(),
     )
@@ -971,104 +967,89 @@ fn executable_program_functions_for_modules(
 pub(super) fn provide_program_backend_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBackendSignatures> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_backend_signatures",
-        || {
-            let function_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
-            let function_modules = function_inputs.modules();
-            let type_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
-            let type_modules = type_inputs.modules();
-            let trait_inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
-            let trait_modules = trait_inputs.modules();
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            Arc::new(ProgramBackendSignatures {
-                functions: collect_program_functions_excluding(
-                    &function_modules,
-                    &trait_solving.invalid_trait_impl_method_ids,
-                ),
-                structs: collect_program_structs(&type_modules),
-                unions: collect_program_unions(&type_modules),
-                enums: trait_solving.enums.clone(),
-                traits: collect_program_traits(&trait_modules),
-                type_aliases: collect_program_type_aliases(&type_modules),
-                trait_impls: trait_solving.trait_impls.clone(),
-            })
-        },
-    )
+    time_provider(db.context().timings(), "program_backend_signatures", || {
+        let function_inputs =
+            module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+        let function_modules = function_inputs.modules();
+        let type_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+        let type_modules = type_inputs.modules();
+        let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+        let trait_modules = trait_inputs.modules();
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        Arc::new(ProgramBackendSignatures {
+            functions: collect_program_functions_excluding(
+                &function_modules,
+                &trait_solving.invalid_trait_impl_method_ids,
+            ),
+            structs: collect_program_structs(&type_modules),
+            unions: collect_program_unions(&type_modules),
+            enums: trait_solving.enums.clone(),
+            traits: collect_program_traits(&trait_modules),
+            type_aliases: collect_program_type_aliases(&type_modules),
+            trait_impls: trait_solving.trait_impls.clone(),
+        })
+    })
 }
 
 pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramAbiSignaturesValue> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "program_abi_signatures",
-        || {
-            let mut structs = HashMap::new();
-            let mut unions = HashMap::new();
-            let mut enums = HashMap::new();
-            for module_id in db.query(ParseOkModuleIdsQuery) {
-                let signatures = db.query(SignatureItemSignaturesQuery(
-                    module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ));
-                structs.extend(
-                    signatures
-                        .structs
-                        .into_iter()
-                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
-                );
-                unions.extend(
-                    signatures
-                        .unions
-                        .into_iter()
-                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
-                );
-                enums.extend(
-                    signatures
-                        .enums
-                        .into_iter()
-                        .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
-                );
-            }
-            Arc::new(ProgramAbiSignaturesValue {
-                structs,
-                unions,
-                enums,
-            })
-        },
-    )
+    time_provider(db.context().timings(), "program_abi_signatures", || {
+        let mut structs = HashMap::new();
+        let mut unions = HashMap::new();
+        let mut enums = HashMap::new();
+        for module_id in db.query(ParseOkModuleIdsQuery) {
+            let signatures = db.query(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ));
+            structs.extend(
+                signatures
+                    .structs
+                    .into_iter()
+                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+            );
+            unions.extend(
+                signatures
+                    .unions
+                    .into_iter()
+                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+            );
+            enums.extend(
+                signatures
+                    .enums
+                    .into_iter()
+                    .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature)),
+            );
+        }
+        Arc::new(ProgramAbiSignaturesValue {
+            structs,
+            unions,
+            enums,
+        })
+    })
 }
 
 pub(super) fn provide_extension_method_set(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodSetValue {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "extension_method_set",
-        || {
-            let timings = db.query(CompilerTimingsQuery);
-            let inputs = time_provider(timings, "extension_method_set.inputs", || {
-                extension_signature_inputs(db)
-            });
-            let inputs = time_provider(timings, "extension_method_set.input_modules", || {
-                inputs.extension_modules()
-            });
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            let (methods, diagnostics) =
-                time_provider(timings, "extension_method_set.collect", || {
-                    collect_extension_methods(&inputs, &trait_solving.trait_impls)
-                });
-            Arc::new(ExtensionMethodSetQueryValue {
-                methods,
-                diagnostics,
-            })
-        },
-    )
+    time_provider(db.context().timings(), "extension_method_set", || {
+        let timings = db.context().timings();
+        let inputs = time_provider(timings, "extension_method_set.inputs", || {
+            extension_signature_inputs(db)
+        });
+        let inputs = time_provider(timings, "extension_method_set.input_modules", || {
+            inputs.extension_modules()
+        });
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let (methods, diagnostics) = time_provider(timings, "extension_method_set.collect", || {
+            collect_extension_methods(&inputs, &trait_solving.trait_impls)
+        });
+        Arc::new(ExtensionMethodSetQueryValue {
+            methods,
+            diagnostics,
+        })
+    })
 }
 
 pub(super) fn provide_extension_provider_module_facts(
@@ -1169,7 +1150,7 @@ pub(super) fn provide_extension_provider_nominal_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionProviderNominalIndexValue {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "extension_provider_nominal_index",
         || {
             let mut providers_by_nominal: HashMap<
@@ -1210,44 +1191,40 @@ pub(super) fn provide_extension_provider_nominal_index(
 pub(super) fn provide_extension_method_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodIndexValue {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "extension_method_index",
-        || {
-            let timings = db.query(CompilerTimingsQuery);
-            let module_ids = extension_provider_module_ids(db);
-            let facts = time_provider(timings, "extension_method_index.module_facts", || {
-                module_ids
-                    .into_iter()
-                    .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
-                    .collect::<Vec<_>>()
-            });
-            let trait_impls = time_provider(timings, "extension_method_index.trait_impls", || {
-                facts
-                    .iter()
-                    .flat_map(|facts| facts.trait_impls.iter().cloned())
-                    .collect()
-            });
-            let methods = time_provider(timings, "extension_method_index.collect", || {
-                let mut methods = nia_defs::ExtensionMethods::default();
-                for facts in &facts {
-                    methods.extend(facts.methods.clone());
-                }
-                methods
-            });
-            Arc::new(ExtensionMethodIndexQueryValue {
-                methods,
-                trait_impls,
-            })
-        },
-    )
+    time_provider(db.context().timings(), "extension_method_index", || {
+        let timings = db.context().timings();
+        let module_ids = extension_provider_module_ids(db);
+        let facts = time_provider(timings, "extension_method_index.module_facts", || {
+            module_ids
+                .into_iter()
+                .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
+                .collect::<Vec<_>>()
+        });
+        let trait_impls = time_provider(timings, "extension_method_index.trait_impls", || {
+            facts
+                .iter()
+                .flat_map(|facts| facts.trait_impls.iter().cloned())
+                .collect()
+        });
+        let methods = time_provider(timings, "extension_method_index.collect", || {
+            let mut methods = nia_defs::ExtensionMethods::default();
+            for facts in &facts {
+                methods.extend(facts.methods.clone());
+            }
+            methods
+        });
+        Arc::new(ExtensionMethodIndexQueryValue {
+            methods,
+            trait_impls,
+        })
+    })
 }
 
 pub(super) fn provide_extension_associated_values(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionAssociatedValuesValue {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "extension_associated_values",
         || {
             let module_ids = extension_provider_module_ids(db);
@@ -1270,7 +1247,7 @@ pub(super) fn provide_extension_associated_values(
 }
 
 pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
-    time_provider(db.query(CompilerTimingsQuery), "extension_methods", || {
+    time_provider(db.context().timings(), "extension_methods", || {
         let method_set = db.query(ExtensionMethodSetQuery);
         let associated_values = db.query(ExtensionAssociatedValuesQuery);
         let mut diagnostics = method_set.diagnostics.clone();
@@ -3300,7 +3277,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 },
                 filter,
             },
-            body_timing_mode(db.query(CompilerTimingsQuery)),
+            body_timing_mode(db.context().timings()),
         )
     };
     let body_check = run_body_check(inputs, body_comptime, comptime_module, filter);
@@ -4623,9 +4600,9 @@ fn collect_active_item_tree_node_keys(
 }
 
 pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    time_provider(db.query(CompilerTimingsQuery), "checked_modules", || {
+    time_provider(db.context().timings(), "checked_modules", || {
         time_provider(
-            db.query(CompilerTimingsQuery),
+            db.context().timings(),
             "checked_modules.shared_inputs",
             || {
                 let _ = db.query(ProgramBodyFunctionSignaturesQuery);
@@ -4646,20 +4623,16 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
 pub(super) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<CheckedModule> {
-    time_provider(
-        db.query(CompilerTimingsQuery),
-        "executable_checked_modules",
-        || {
-            time_provider(
-                db.query(CompilerTimingsQuery),
-                "executable_checked_modules.shared_inputs",
-                || {
-                    let _ = db.query(ExtensionMethodIndexQuery);
-                },
-            );
-            executable_checked_modules_inner(db)
-        },
-    )
+    time_provider(db.context().timings(), "executable_checked_modules", || {
+        time_provider(
+            db.context().timings(),
+            "executable_checked_modules.shared_inputs",
+            || {
+                let _ = db.query(ExtensionMethodIndexQuery);
+            },
+        );
+        executable_checked_modules_inner(db)
+    })
 }
 
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
@@ -4806,12 +4779,12 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let program_trait_impls = executable_program_trait_impls(db);
     let reachability = loop {
         let reachable_inputs = time_provider(
-            db.query(CompilerTimingsQuery),
+            db.context().timings(),
             "executable_checked_modules.inputs",
             || reachable_module_inputs(&checked_by_id),
         );
         let mut reachability = time_provider(
-            db.query(CompilerTimingsQuery),
+            db.context().timings(),
             "executable_checked_modules.reachability_compute",
             || {
                 compute_executable_reachability_incremental(
@@ -4836,7 +4809,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             },
         );
         let mut stale = time_provider(
-            db.query(CompilerTimingsQuery),
+            db.context().timings(),
             "executable_checked_modules.stale_select",
             || stale_executable_modules(&parse_ok, &reachability, &checked_by_id),
         );
@@ -4907,7 +4880,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 already_checked_globals: already_checked_globals,
             };
             let program_signatures = time_provider(
-                db.query(CompilerTimingsQuery),
+                db.context().timings(),
                 "executable_checked_modules.program_signatures",
                 || {
                     program_signatures
@@ -5061,7 +5034,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
 
     let parse_ok_modules = parse_ok;
     let mut codegen_modules = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.codegen_modules",
         || {
             parse_ok_modules
@@ -5074,7 +5047,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         },
     );
     let codegen_layout_cache = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.layout_cache",
         || {
             RefCell::new(
@@ -5086,7 +5059,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         },
     );
     let program_signatures = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.program_signatures",
         || {
             program_signatures
@@ -5102,7 +5075,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         Some(&*program_signatures),
     );
     let type_only_modules = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.type_only_modules",
         || {
             parse_ok_modules
@@ -5120,7 +5093,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     );
     codegen_modules.extend(type_only_modules);
     let codegen_array_lengths = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.array_lengths",
         || {
             codegen_modules
@@ -5142,7 +5115,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             })
     };
     codegen_modules = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.filter_codegen",
         || {
             codegen_modules
@@ -5161,7 +5134,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         },
     );
     let aggregate_roots = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.aggregate_roots",
         || {
             executable_reachable_aggregate_roots(
@@ -5172,7 +5145,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
         },
     );
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "executable_checked_modules.final.store_aggregate_roots",
         || {
             for module in &mut codegen_modules {
@@ -5301,7 +5274,7 @@ fn executable_flow_check(
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
-    time_provider(db.query(CompilerTimingsQuery), "monomorphization", || {
+    time_provider(db.context().timings(), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
         let runtime = db.query(CompilerRuntimeQuery);
         let executable_signatures;
@@ -5379,7 +5352,7 @@ fn function_bodies_from_checked_modules(
     checked_modules: &[CheckedModule],
 ) -> Vec<LoweredFunctionBodies> {
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "function_bodies_from_checked_modules",
         || {
             checked_modules
@@ -5411,7 +5384,7 @@ fn function_bodies_from_checked_modules(
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
-    time_provider(db.query(CompilerTimingsQuery), "backend_lowering", || {
+    time_provider(db.context().timings(), "backend_lowering", || {
         provide_backend_lowering_inner(db)
     })
 }
@@ -5431,87 +5404,83 @@ fn provide_backend_lowering_inner(
         visible_extensions,
         extension_methods,
         function_bodies,
-    ) = time_provider(
-        db.query(CompilerTimingsQuery),
-        "backend_lowering.inputs",
-        || {
-            let timings = db.query(CompilerTimingsQuery);
-            let all_visible_extensions = time_provider(
-                timings,
-                "backend_lowering.inputs.all_visible_extensions",
-                || {
-                    checked_modules
-                        .iter()
-                        .map(|module| (module.id, db.query(VisibleExtensionsQuery(module.id))))
-                        .collect::<Vec<_>>()
-                },
-            );
-            let active_item_trees =
-                time_provider(timings, "backend_lowering.inputs.active_item_trees", || {
-                    checked_modules
-                        .iter()
-                        .map(|checked_module| {
-                            db.query(FullActiveModuleItemTreeQuery(checked_module.id))
-                        })
-                        .collect::<Vec<_>>()
-                });
-            let item_signatures =
-                time_provider(timings, "backend_lowering.inputs.item_signatures", || {
-                    checked_modules
-                        .iter()
-                        .map(|checked_module| {
-                            body_local_item_signatures(
-                                db,
-                                checked_module.id,
-                                &checked_module.type_lowering,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                });
-            let comptime_array_lengths = checked_modules
-                .iter()
-                .map(|checked_module| nia_comptime_check::ComptimeArrayLengths {
-                    interner: checked_module.comptime.interner.clone(),
-                    values: checked_module.comptime.array_lengths.clone(),
-                    diagnostics: checked_module.comptime.diagnostics.clone(),
-                })
-                .collect::<Vec<_>>();
-            let comptime_enum_values = checked_modules
-                .iter()
-                .map(|checked_module| nia_comptime_check::ComptimeEnumValues {
-                    interner: checked_module.comptime.interner.clone(),
-                    values: checked_module.comptime.enum_values.clone(),
-                    typed_values: checked_module.comptime.typed_enum_values.clone(),
-                    diagnostics: checked_module.comptime.diagnostics.clone(),
-                })
-                .collect::<Vec<_>>();
-            let visible_extensions = time_provider(
-                timings,
-                "backend_lowering.inputs.visible_extensions",
-                || {
-                    checked_modules
-                        .iter()
-                        .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
-                        .collect::<Vec<_>>()
-                },
-            );
-            let extension_methods =
-                time_provider(timings, "backend_lowering.inputs.extension_methods", || {
-                    db.query(ExtensionMethodIndexQuery)
-                });
-            let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
-            (
-                all_visible_extensions,
-                active_item_trees,
-                item_signatures,
-                comptime_array_lengths,
-                comptime_enum_values,
-                visible_extensions,
-                extension_methods,
-                function_bodies,
-            )
-        },
-    );
+    ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
+        let timings = db.context().timings();
+        let all_visible_extensions = time_provider(
+            timings,
+            "backend_lowering.inputs.all_visible_extensions",
+            || {
+                checked_modules
+                    .iter()
+                    .map(|module| (module.id, db.query(VisibleExtensionsQuery(module.id))))
+                    .collect::<Vec<_>>()
+            },
+        );
+        let active_item_trees =
+            time_provider(timings, "backend_lowering.inputs.active_item_trees", || {
+                checked_modules
+                    .iter()
+                    .map(|checked_module| {
+                        db.query(FullActiveModuleItemTreeQuery(checked_module.id))
+                    })
+                    .collect::<Vec<_>>()
+            });
+        let item_signatures =
+            time_provider(timings, "backend_lowering.inputs.item_signatures", || {
+                checked_modules
+                    .iter()
+                    .map(|checked_module| {
+                        body_local_item_signatures(
+                            db,
+                            checked_module.id,
+                            &checked_module.type_lowering,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            });
+        let comptime_array_lengths = checked_modules
+            .iter()
+            .map(|checked_module| nia_comptime_check::ComptimeArrayLengths {
+                interner: checked_module.comptime.interner.clone(),
+                values: checked_module.comptime.array_lengths.clone(),
+                diagnostics: checked_module.comptime.diagnostics.clone(),
+            })
+            .collect::<Vec<_>>();
+        let comptime_enum_values = checked_modules
+            .iter()
+            .map(|checked_module| nia_comptime_check::ComptimeEnumValues {
+                interner: checked_module.comptime.interner.clone(),
+                values: checked_module.comptime.enum_values.clone(),
+                typed_values: checked_module.comptime.typed_enum_values.clone(),
+                diagnostics: checked_module.comptime.diagnostics.clone(),
+            })
+            .collect::<Vec<_>>();
+        let visible_extensions = time_provider(
+            timings,
+            "backend_lowering.inputs.visible_extensions",
+            || {
+                checked_modules
+                    .iter()
+                    .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
+                    .collect::<Vec<_>>()
+            },
+        );
+        let extension_methods =
+            time_provider(timings, "backend_lowering.inputs.extension_methods", || {
+                db.query(ExtensionMethodIndexQuery)
+            });
+        let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
+        (
+            all_visible_extensions,
+            active_item_trees,
+            item_signatures,
+            comptime_array_lengths,
+            comptime_enum_values,
+            visible_extensions,
+            extension_methods,
+            function_bodies,
+        )
+    });
     let function_lowering_diagnostics =
         function_lowering_diagnostics(&checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
@@ -5523,18 +5492,14 @@ fn provide_backend_lowering_inner(
             ..empty_backend_lowering(db.query(CompilerOptimizationQuery))
         };
     }
-    let indexes = time_provider(
-        db.query(CompilerTimingsQuery),
-        "backend_lowering.indexes",
-        || {
-            build_backend_lowering_indexes(
-                &all_visible_extensions,
-                &checked_modules,
-                &comptime_array_lengths,
-                &function_bodies,
-            )
-        },
-    );
+    let indexes = time_provider(db.context().timings(), "backend_lowering.indexes", || {
+        build_backend_lowering_indexes(
+            &all_visible_extensions,
+            &checked_modules,
+            &comptime_array_lengths,
+            &function_bodies,
+        )
+    });
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
     let mut executable_program_signatures;
     let executable_program_functions;
@@ -5553,7 +5518,7 @@ fn provide_backend_lowering_inner(
             backend_program_signatures.codegen_maps()
         };
     let inputs = time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "backend_lowering.module_inputs",
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
@@ -5573,14 +5538,14 @@ fn provide_backend_lowering_inner(
         },
     );
     time_provider(
-        db.query(CompilerTimingsQuery),
+        db.context().timings(),
         "backend_lowering.lower_backend_program",
         || {
             nia_backend_lower::lower_backend_program_with_timings(
                 &inputs,
                 &monomorphization,
                 db.query(CompilerOptimizationQuery),
-                backend_timing_mode(db.query(CompilerTimingsQuery)),
+                backend_timing_mode(db.context().timings()),
             )
         },
     )
