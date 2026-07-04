@@ -30,7 +30,7 @@ use nia_ids::{
 };
 use nia_item_signatures::{
     FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
-    WherePredicateSignature,
+    ProgramTraitImplSignature, WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
 use nia_sema::{
@@ -275,6 +275,7 @@ pub(crate) struct Analyzer<'a> {
     program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     program_value_type_normalizations:
         RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     resolved_call_type_substitutions: HashMap<Span, HashMap<String, InternedTyId>>,
@@ -322,6 +323,7 @@ impl Analyzer<'_> {
             working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),
+            program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }
@@ -367,6 +369,7 @@ impl Analyzer<'_> {
             working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),
+            program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }

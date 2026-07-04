@@ -507,10 +507,15 @@ pub(super) fn provide_visible_extensions(
             nominal_extension_providers: &nominal_extension_providers,
         },
     );
+    let mut visible_modules = Vec::with_capacity(provider_modules.len() + 1);
+    visible_modules.push(module_id);
+    visible_modules.extend(provider_modules.iter().copied());
+    visible_modules.sort();
+    visible_modules.dedup();
     let mut extension_methods = nia_defs::ExtensionMethods::default();
     let mut associated_values = nia_defs::ExtensionAssociatedValues::default();
     let mut trait_impls = Vec::new();
-    for provider_module in std::iter::once(module_id).chain(provider_modules.iter().copied()) {
+    for provider_module in visible_modules.iter().copied() {
         let facts = db.query(ExtensionProviderModuleFactsQuery(provider_module));
         extension_methods.extend(facts.methods.clone());
         associated_values.extend(facts.associated_values.clone());
@@ -531,6 +536,6 @@ pub(super) fn provide_visible_extensions(
         associated_values: &associated_values,
         trait_impls: trait_impls.as_slice(),
         nominal_extension_providers: &nominal_extension_providers,
-        visible_modules: Some(provider_modules.as_slice()),
+        visible_modules: Some(visible_modules.as_slice()),
     }))
 }

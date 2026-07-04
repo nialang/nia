@@ -218,7 +218,8 @@ pub struct ComptimeProgramContext<'a> {
     pub comptime_values: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeValues>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
     pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
-    pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impls_for_module:
+        Option<&'a dyn Fn(ModuleId) -> Option<Vec<ProgramTraitImplSignature>>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
 }
 
@@ -238,7 +239,10 @@ impl fmt::Debug for ComptimeProgramContext<'_> {
             .field("comptime_values", &self.comptime_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
             .field("program_is_enum", &self.program_is_enum.is_some())
-            .field("trait_impls", &self.trait_impls.len())
+            .field(
+                "trait_impls_for_module",
+                &self.trait_impls_for_module.is_some(),
+            )
             .finish()
     }
 }
@@ -256,7 +260,7 @@ impl<'a> ComptimeProgramContext<'a> {
             comptime_values: None,
             global_initializer: None,
             program_is_enum: None,
-            trait_impls: &[],
+            trait_impls_for_module: None,
             visible_extensions: None,
         }
     }

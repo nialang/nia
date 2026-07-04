@@ -113,11 +113,11 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let Some(interner) = self.working_interners.get_mut(&module_id) else {
+        let Some(interner_snapshot) = self.working_interners.get(&module_id).cloned() else {
             return false;
         };
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner.clone(),
+            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };
@@ -126,6 +126,7 @@ impl Analyzer<'_> {
             .program
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
+        let trait_impls = self.trait_impls_for_solver_module(module_id);
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -134,9 +135,12 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
+        let Some(interner) = self.working_interners.get_mut(&module_id) else {
+            return false;
+        };
         let context = TraitSolverContext {
             normalization: &normalization,
-            trait_impls: self.input.program.trait_impls,
+            trait_impls: &trait_impls,
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
@@ -177,9 +181,9 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner = self.working_interners.get_mut(&module_id)?;
+        let interner_snapshot = self.working_interners.get(&module_id)?.clone();
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner.clone(),
+            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };
@@ -188,6 +192,7 @@ impl Analyzer<'_> {
             .program
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
+        let trait_impls = self.trait_impls_for_solver_module(module_id);
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -196,9 +201,10 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
+        let interner = self.working_interners.get_mut(&module_id)?;
         let context = TraitSolverContext {
             normalization: &normalization,
-            trait_impls: self.input.program.trait_impls,
+            trait_impls: &trait_impls,
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
@@ -249,9 +255,9 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner = self.working_interners.get_mut(&module_id)?;
+        let interner_snapshot = self.working_interners.get(&module_id)?.clone();
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner.clone(),
+            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };
@@ -260,6 +266,7 @@ impl Analyzer<'_> {
             .program
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
+        let trait_impls = self.trait_impls_for_solver_module(module_id);
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -268,9 +275,10 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
+        let interner = self.working_interners.get_mut(&module_id)?;
         let context = TraitSolverContext {
             normalization: &normalization,
-            trait_impls: self.input.program.trait_impls,
+            trait_impls: &trait_impls,
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,

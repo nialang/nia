@@ -525,6 +525,26 @@ impl Analyzer<'_> {
         }
     }
 
+    pub(super) fn trait_impls_for_solver_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
+        let Some(trait_impls_for_module) = self.input.program.trait_impls_for_module else {
+            return Vec::new();
+        };
+        if !self.program_trait_impls.borrow().contains_key(&module_id) {
+            let trait_impls = trait_impls_for_module(module_id).unwrap_or_default();
+            self.program_trait_impls
+                .borrow_mut()
+                .insert(module_id, trait_impls);
+        }
+        self.program_trait_impls
+            .borrow()
+            .get(&module_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub(super) fn resolve_layout_builtin_for_ty(
         &mut self,
         span: Span,

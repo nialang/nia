@@ -47,12 +47,15 @@ fn with_signature_comptime_input<T>(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_solving_signatures;
-    let trait_impls = if let Some(signatures) = program_signatures_override {
-        signatures.trait_impls.as_slice()
-    } else {
-        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        trait_solving_signatures.trait_impls.as_slice()
+    let trait_impls_for_module = |module_id| {
+        if let Some(signatures) = program_signatures_override {
+            return Some(signatures.trait_impls.clone());
+        }
+        Some(
+            db.query(VisibleExtensionsQuery(module_id))
+                .trait_impls
+                .clone(),
+        )
     };
     let program_is_enum = |def_id: GlobalDefId| {
         program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
@@ -103,7 +106,7 @@ fn with_signature_comptime_input<T>(
                 comptime_values: None,
                 global_initializer: None,
                 program_is_enum: Some(&program_is_enum),
-                trait_impls,
+                trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: Some(&visible_extensions_for_module),
             },
         },
