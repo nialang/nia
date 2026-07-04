@@ -72,7 +72,6 @@ use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
-type ExtensionProviderNominalModuleValue = Arc<ExtensionProviderNominalModuleQueryValue>;
 type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
@@ -2789,11 +2788,11 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_index"
-                && dependency.to.name == "extension_provider_nominal_module"
+                && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_index"
-                && dependency.to.name == "extension_provider_module_facts"
+                && dependency.to.name == "extension_provider_nominal_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"

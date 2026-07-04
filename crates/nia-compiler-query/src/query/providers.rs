@@ -79,8 +79,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
-    pub(super) extension_provider_nominal_module:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleValue,
     pub(super) extension_provider_nominal_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalIndexValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
@@ -164,7 +162,6 @@ impl Default for CompilerQueryProviders {
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
             extension_provider_module_facts: provide_extension_provider_module_facts,
-            extension_provider_nominal_module: provide_extension_provider_nominal_module,
             extension_provider_nominal_index: provide_extension_provider_nominal_index,
             extension_method_index: provide_extension_method_index,
             extension_trait_signature_index: provide_extension_trait_signature_index,
@@ -1113,6 +1110,7 @@ pub(super) fn provide_extension_provider_module_facts(
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
                 associated_value_diagnostics: Vec::new(),
                 trait_impls: Vec::new(),
+                nominal_providers: Vec::new(),
             });
         }
 
@@ -1141,53 +1139,14 @@ pub(super) fn provide_extension_provider_module_facts(
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_value_index_for_module(&module);
         let trait_impls = collect_valid_trait_impls_for_extension_index_module(&module);
+        let nominal_providers =
+            collect_nominal_extension_providers_for_module(&module, &module_defs);
         Arc::new(ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
             associated_value_diagnostics,
             trait_impls,
-        })
-    })
-}
-
-pub(super) fn provide_extension_provider_nominal_module(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> ExtensionProviderNominalModuleValue {
-    time_module_provider(db, "extension_provider_nominal_module", module_id, || {
-        let tree = db.query(SignatureItemTreeQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
-        if !signature_tree_has_trait_or_extend(&tree) {
-            return Arc::new(ExtensionProviderNominalModuleQueryValue {
-                providers: Vec::new(),
-            });
-        }
-
-        let defs = db.query(ModuleDefsQuery(module_id));
-        let lowering = db.query(SignatureTypeLoweringQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
-        let signatures = db.query(SignatureItemSignaturesQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
-        let normalization = db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
-        let module = ExtensionMethodIndexModuleInput {
-            module_id,
-            defs: &defs,
-            lowering: &lowering,
-            signatures: &signatures,
-            normalization: &normalization,
-        };
-        let module_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-        Arc::new(ExtensionProviderNominalModuleQueryValue {
-            providers: collect_nominal_extension_providers_for_module(&module, &module_defs),
+            nominal_providers,
         })
     })
 }
@@ -1204,8 +1163,8 @@ pub(super) fn provide_extension_provider_nominal_index(
                 Vec<crate::program_signatures::NominalExtensionProviderEntry>,
             > = HashMap::new();
             for module_id in db.query(ExtensionProviderModuleIdsQuery) {
-                let nominal = db.query(ExtensionProviderNominalModuleQuery(module_id));
-                for provider in &nominal.providers {
+                let facts = db.query(ExtensionProviderModuleFactsQuery(module_id));
+                for provider in &facts.nominal_providers {
                     providers_by_nominal
                         .entry(provider.target)
                         .or_default()
