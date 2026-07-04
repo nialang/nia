@@ -343,12 +343,12 @@ fn empty_local_resolution() -> LocalResolution {
     }
 }
 
-pub(super) fn executable_signature_layouts_for_types(
+pub(super) fn signature_layouts_for_types(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     program_signatures_override: Option<&ProgramExecutableSignatures>,
 ) -> nia_layout::Layouts {
-    time_module_provider(db, "executable_signature_layouts", module_id, || {
+    time_module_provider(db, "signature_layouts", module_id, || {
         let defs = db.query(ModuleDefsQuery(module_id));
         let active_item_tree = db.query(SignatureItemTreeQuery(
             module_id,
@@ -467,9 +467,9 @@ pub(super) fn executable_signature_layouts_for_types(
             .copied()
         };
         let (layout_interner, roots) =
-            time_module_provider(db, "executable_signature_layouts.roots", module_id, || {
+            time_module_provider(db, "signature_layouts.roots", module_id, || {
                 let mut layout_interner = type_normalization.interner.clone();
-                let roots = executable_signature_layout_roots(
+                let roots = signature_layout_roots(
                     &mut layout_interner,
                     &item_signatures,
                     &program_struct,
@@ -507,7 +507,7 @@ pub(super) fn executable_signature_layouts_for_types(
     })
 }
 
-fn executable_signature_layout_roots(
+fn signature_layout_roots(
     interner: &mut nia_ty::TyInterner,
     signatures: &ItemSignatures,
     program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,

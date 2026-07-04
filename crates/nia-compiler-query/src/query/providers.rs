@@ -18,9 +18,9 @@ mod signature_comptime;
 use self::extension_providers::*;
 use self::program_signatures::*;
 use self::signature_comptime::{
-    executable_signature_layouts_for_types, provide_signature_comptime_module,
-    signature_comptime_array_lengths, signature_comptime_module_lowering,
-    signature_comptime_values, with_type_signature_comptime_input,
+    provide_signature_comptime_module, signature_comptime_array_lengths,
+    signature_comptime_module_lowering, signature_comptime_values, signature_layouts_for_types,
+    with_type_signature_comptime_input,
 };
 
 #[derive(Clone)]
@@ -139,6 +139,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) comptime_typed_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeTypedFacts,
     pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) signature_layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
     pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
     pub(super) static_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
@@ -223,6 +224,7 @@ impl Default for CompilerQueryProviders {
             comptime_values: provide_comptime_values,
             comptime_typed_facts: provide_comptime_typed_facts,
             layouts: provide_layouts,
+            signature_layouts: provide_signature_layouts,
             abi_check: provide_abi_check,
             static_check: provide_static_check,
             flow_check: provide_flow_check,
@@ -1611,7 +1613,7 @@ pub(super) fn provide_layouts(
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
-        let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+        let layout_query = |module_id| Some(db.query(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
@@ -1631,6 +1633,13 @@ pub(super) fn provide_layouts(
             },
         )
     })
+}
+
+pub(super) fn provide_signature_layouts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_layout::Layouts {
+    signature_layouts_for_types(db, module_id, None)
 }
 
 pub(super) fn provide_abi_check(
@@ -2499,7 +2508,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let program_layouts = |module_id| {
         program_layouts_override
             .and_then(|program_layouts| program_layouts(module_id))
-            .or_else(|| Some(db.query(LayoutsQuery(module_id))))
+            .or_else(|| Some(db.query(SignatureLayoutsQuery(module_id))))
     };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let extension_methods = db.query(ExtensionMethodIndexQuery);
@@ -3088,7 +3097,7 @@ fn executable_program_layouts<'a>(
                 program_signatures_override,
             )
         } else {
-            executable_signature_layouts_for_types(db, module_id, program_signatures_override)
+            signature_layouts_for_types(db, module_id, program_signatures_override)
         };
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts)
@@ -4661,11 +4670,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .filter(|module_id| !reachability.modules.contains(module_id))
                 .map(|module_id| {
                     let layouts = executable_program_layouts(module_id).unwrap_or_else(|| {
-                        executable_signature_layouts_for_types(
-                            db,
-                            module_id,
-                            Some(&*program_signatures),
-                        )
+                        signature_layouts_for_types(db, module_id, Some(&*program_signatures))
                     });
                     executable_signature_checked_module(db, module_id, layouts, program_signatures)
                 })
