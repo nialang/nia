@@ -4533,9 +4533,6 @@ fn extend_module_functions_from_filtered_value_refs(
     mut module_functions: HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
-    full_value_resolution_cache: Option<
-        &RefCell<HashMap<ModuleId, std::sync::Arc<ValueResolution>>>,
-    >,
 ) -> HashSet<GlobalDefId> {
     let active_item_tree =
         time_module_provider(db, "extend_value_refs.active_item_tree", module_id, || {
@@ -4550,34 +4547,21 @@ fn extend_module_functions_from_filtered_value_refs(
             nia_item_tree::SignatureItemSet::Functions,
         ))
     });
-    let full_values = time_module_provider(
+    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let public = time_module_provider(db, "extend_value_refs.public_surface", module_id, || {
+        db.query(PublicSurfaceQuery)
+    });
+    let empty_using = ModuleUsingScope::default();
+    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+    let visible_extensions = time_module_provider(
         db,
-        "extend_value_refs.full_value_resolution",
+        "extend_value_refs.visible_extensions",
         module_id,
-        || match full_value_resolution_cache {
-            Some(cache) => {
-                if !cache.borrow().contains_key(&module_id) {
-                    cache.borrow_mut().insert(
-                        module_id,
-                        std::sync::Arc::new(db.query(ValueResolutionQuery(module_id))),
-                    );
-                }
-                std::sync::Arc::clone(
-                    cache
-                        .borrow()
-                        .get(&module_id)
-                        .expect("cached full value resolution must exist"),
-                )
-            }
-            None => std::sync::Arc::new(db.query(ValueResolutionQuery(module_id))),
-        },
+        || db.query(VisibleExtensionsQuery(module_id)),
     );
-    let local_refs = LocalExecutableValueRefs {
-        module_id,
-        defs: &defs,
-        values: &full_values,
-        signatures: &signatures.functions,
-    };
+    let graph = time_module_provider(db, "extend_value_refs.module_graph", module_id, || {
+        db.query(ModuleGraphQuery)
+    });
 
     loop {
         let filter = nia_body_check::BodyCheckFilter::ReachableItems {
@@ -4590,6 +4574,27 @@ fn extend_module_functions_from_filtered_value_refs(
             time_module_provider(db, "extend_value_refs.filter_item_tree", module_id, || {
                 active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter)
             });
+        let values =
+            time_module_provider(db, "extend_value_refs.value_resolution", module_id, || {
+                nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                    &filtered_active_item_tree,
+                    &defs,
+                    nia_value_resolve::ProgramDefsContext {
+                        defs: Some(&program_defs),
+                        graph: Some(&graph),
+                    },
+                    &public.surfaces,
+                    using_scope,
+                    &visible_extensions.methods,
+                    &visible_extensions.interner,
+                )
+            });
+        let local_refs = LocalExecutableValueRefs {
+            module_id,
+            defs: &defs,
+            values: &values,
+            signatures: &signatures.functions,
+        };
         let mut changed = false;
         time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
             changed |= extend_local_executable_functions_from_value_refs(
@@ -4970,7 +4975,6 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                         module_functions,
                         &module_globals,
                         already_checked_functions,
-                        Some(&caches.full_value_resolution),
                     )
                 },
             );

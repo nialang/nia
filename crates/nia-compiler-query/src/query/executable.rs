@@ -11,7 +11,6 @@ pub(super) struct ExecutableCheckCaches {
     pub(super) body_function_signatures: RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     pub(super) global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
-    pub(super) full_value_resolution: RefCell<HashMap<ModuleId, std::sync::Arc<ValueResolution>>>,
 }
 
 impl Default for ExecutableCheckCaches {
@@ -21,7 +20,6 @@ impl Default for ExecutableCheckCaches {
             reachability_function_signatures: RefCell::new(HashMap::new()),
             body_function_signatures: RefCell::new(HashMap::new()),
             global_initializers: RefCell::new(HashMap::new()),
-            full_value_resolution: RefCell::new(HashMap::new()),
         }
     }
 }
