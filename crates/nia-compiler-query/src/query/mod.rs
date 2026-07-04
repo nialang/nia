@@ -82,6 +82,7 @@ type ExtensionProviderValidationProgramFactsValue =
 type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
 type ExtensionProviderNominalCandidateIndexValue =
     Arc<ExtensionProviderNominalCandidateIndexQueryValue>;
+type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
 type ExtensionProviderNominalModulesValue = Arc<ExtensionProviderNominalModulesQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
@@ -3052,20 +3053,20 @@ extend Used {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "signature_type_normalization"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "visible_extensions"
-                && dependency.to.name == "extension_provider_nominal_index"
-        }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "extension_provider_nominal_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules"
+                && dependency.to.name == "extension_provider_nominal_index"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_index"
                 && dependency.to.name == "extension_provider_nominal_candidate_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_modules"
+            dependency.from.name == "extension_provider_nominal_index"
                 && dependency.to.name == "extension_provider_nominal_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
