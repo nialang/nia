@@ -107,6 +107,25 @@ impl QueryKey<CompilerContext> for LayoutsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureLayoutsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureLayoutsQuery {
+    type Value = nia_layout::Layouts;
+
+    fn name() -> &'static str {
+        "signature_layouts"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_layouts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_layouts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct AbiCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for AbiCheckQuery {

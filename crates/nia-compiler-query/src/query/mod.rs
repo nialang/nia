@@ -2406,6 +2406,40 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn layout_uses_signature_layouts_for_cross_module_types() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module module1; using self::module1::S; struct Holder { value: S }",
+            ),
+            loaded_module(
+                ModuleId(1),
+                "module1.nia",
+                "pub struct S { value: i32 } fn helper() i32 { 1 }",
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        let layouts = db.query(LayoutsQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts"
+                && dependency.from.description.contains("ModuleId(0)")
+                && dependency.to.name == "signature_layouts"
+                && dependency.to.description.contains("ModuleId(1)")
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "layouts"
+                && dependency.from.description.contains("ModuleId(0)")
+                && dependency.to.name == "layouts"
+                && dependency.to.description.contains("ModuleId(1)")
+        }));
+    }
+
+    #[test]
     fn abi_check_uses_abi_signature_index_not_body_signatures() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
