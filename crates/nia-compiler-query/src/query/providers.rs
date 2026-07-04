@@ -97,6 +97,66 @@ impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLook
     }
 }
 
+struct LazyAssociatedValueResolver<'a> {
+    visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
+    cache: RefCell<Option<VisibleExtensionsValue>>,
+}
+
+impl<'a> LazyAssociatedValueResolver<'a> {
+    fn new(visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue) -> Self {
+        Self {
+            visible_extensions,
+            cache: RefCell::new(None),
+        }
+    }
+
+    fn visible_extensions(&self) -> VisibleExtensionsValue {
+        if let Some(visible_extensions) = self.cache.borrow().as_ref() {
+            return visible_extensions.clone();
+        }
+        let visible_extensions = (self.visible_extensions)();
+        *self.cache.borrow_mut() = Some(visible_extensions.clone());
+        visible_extensions
+    }
+
+    fn target_ty(
+        visible_extensions: &VisibleExtensionsForModule,
+        target: nia_value_resolve::AssociatedValueTarget,
+    ) -> Option<InternedTyId> {
+        match target {
+            nia_value_resolve::AssociatedValueTarget::Primitive(primitive) => {
+                Some(visible_extensions.interner.primitive(primitive))
+            }
+            nia_value_resolve::AssociatedValueTarget::Nominal(type_id) => visible_extensions
+                .interner
+                .iter()
+                .find_map(|(ty, kind)| match kind {
+                    TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    } if *def_id == type_id && args.is_empty() && const_args.is_empty() => Some(ty),
+                    _ => None,
+                }),
+        }
+    }
+}
+
+impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<'_> {
+    fn associated_value(
+        &self,
+        target: nia_value_resolve::AssociatedValueTarget,
+        name: &str,
+    ) -> Option<GlobalDefId> {
+        let visible_extensions = self.visible_extensions();
+        let target_ty = Self::target_ty(&visible_extensions, target)?;
+        visible_extensions
+            .methods
+            .associated_value(target_ty, name)
+            .map(|value| value.def_id)
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
@@ -793,8 +853,9 @@ pub(super) fn provide_value_resolution(
         let public = db.query(PublicSurfaceQuery);
         let empty_using = ModuleUsingScope::default();
         let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-        let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -803,8 +864,7 @@ pub(super) fn provide_value_resolution(
             },
             &public.surfaces,
             using_scope,
-            &visible_extensions.methods,
-            &visible_extensions.interner,
+            Some(&associated_values),
         )
     })
 }
@@ -843,10 +903,11 @@ pub(super) fn provide_semantic_use_table(
         let public = db.query(PublicSurfaceQuery);
         let empty_using = ModuleUsingScope::default();
         let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-        let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
         Some(
-            nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
                 type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -857,8 +918,7 @@ pub(super) fn provide_semantic_use_table(
                 },
                 &public.surfaces,
                 using_scope,
-                &visible_extensions.methods,
-                &visible_extensions.interner,
+                Some(&associated_values),
             ),
         )
     };
@@ -1625,16 +1685,22 @@ fn with_comptime_input_and_program_signatures<T>(
         )))
     };
     let trait_solving_signatures;
-    let (program_enums, trait_impls) = if let Some(signatures) = program_signatures_override {
-        (&signatures.enums, signatures.trait_impls.as_slice())
+    let trait_impls = if let Some(signatures) = program_signatures_override {
+        signatures.trait_impls.as_slice()
     } else {
         trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        (
-            &trait_solving_signatures.enums,
-            trait_solving_signatures.trait_impls.as_slice(),
-        )
+        trait_solving_signatures.trait_impls.as_slice()
     };
-    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
+    let program_is_enum = |def_id: GlobalDefId| {
+        program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
+            || db
+                .query(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .enums
+                .contains_key(&def_id.def_id)
+    };
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let value_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
@@ -1881,18 +1947,21 @@ fn body_check_resolution_inputs_for_filter(
             );
             let empty_using = ModuleUsingScope::default();
             let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-            let visible_extensions = time_module_provider(
-                db,
-                "executable_body_check.visible_extensions",
-                module_id,
-                || db.query(VisibleExtensionsQuery(module_id)),
-            );
+            let visible_extensions = || {
+                time_module_provider(
+                    db,
+                    "executable_body_check.visible_extensions",
+                    module_id,
+                    || db.query(VisibleExtensionsQuery(module_id)),
+                )
+            };
+            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
             let filtered_values = time_module_provider(
                 db,
                 "executable_body_check.value_resolution",
                 module_id,
                 || {
-                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
                         &filtered_active_item_tree,
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
@@ -1901,8 +1970,7 @@ fn body_check_resolution_inputs_for_filter(
                         },
                         &public.surfaces,
                         using_scope,
-                        &visible_extensions.methods,
-                        &visible_extensions.interner,
+                        Some(&associated_values),
                     )
                 },
             );
@@ -1921,8 +1989,11 @@ fn body_check_resolution_inputs_for_filter(
                     )
                 },
             );
-            let filtered_semantic_uses =
-                time_module_provider(db, "executable_body_check.semantic_uses", module_id, || {
+            let filtered_semantic_uses = time_module_provider(
+                db,
+                "executable_body_check.semantic_uses",
+                module_id,
+                || {
                     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
                         &filtered_active_item_tree,
                         context.lowered,
@@ -1932,7 +2003,7 @@ fn body_check_resolution_inputs_for_filter(
                         "executable_body_check.const_expr_value_resolution",
                         module_id,
                         || {
-                            nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+                            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
                                 context.lowered.const_exprs.iter().filter_map(|(id, expr)| {
                                     needed_const_exprs.contains(id).then_some(expr.clone())
                                 }),
@@ -1943,8 +2014,7 @@ fn body_check_resolution_inputs_for_filter(
                                 },
                                 &public.surfaces,
                                 using_scope,
-                                &visible_extensions.methods,
-                                &visible_extensions.interner,
+                                Some(&associated_values),
                             )
                         },
                     );
@@ -1958,7 +2028,8 @@ fn body_check_resolution_inputs_for_filter(
                         context.type_resolution,
                         context.lowered,
                     )
-                });
+                },
+            );
             BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
                 values: filtered_values,
@@ -2126,8 +2197,9 @@ fn filtered_comptime_global_initializer_for_body_check(
         "executable_body_check.comptime.global_initializer.const_expr_value_resolution",
         global_id.module_id,
         || {
-            let visible_extensions = db.query(VisibleExtensionsQuery(global_id.module_id));
-            nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
+            let visible_extensions = || db.query(VisibleExtensionsQuery(global_id.module_id));
+            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -2138,8 +2210,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 },
                 &public.surfaces,
                 using_scope,
-                &visible_extensions.methods,
-                &visible_extensions.interner,
+                Some(&associated_values),
             )
         },
     );
@@ -2206,12 +2277,21 @@ fn filtered_comptime_global_initializer_for_body_check(
             })
             .cloned()
     };
-    let values_without_extensions = time_module_provider(
+    let values = time_module_provider(
         db,
         "executable_body_check.comptime.global_initializer.value_resolution",
         global_id.module_id,
         || {
-            nia_value_resolve::resolve_module_values_from_active_item_tree(
+            let visible_extensions = || {
+                time_module_provider(
+                    db,
+                    "executable_body_check.comptime.global_initializer.visible_extensions",
+                    global_id.module_id,
+                    || db.query(VisibleExtensionsQuery(global_id.module_id)),
+                )
+            };
+            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
                 &filtered_active_item_tree,
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
@@ -2220,34 +2300,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 },
                 &public.surfaces,
                 using_scope,
-            )
-        },
-    );
-    if let Some(initializer) = lower_with_values(values_without_extensions) {
-        return Some(initializer);
-    }
-    let visible_extensions = time_module_provider(
-        db,
-        "executable_body_check.comptime.global_initializer.visible_extensions",
-        global_id.module_id,
-        || db.query(VisibleExtensionsQuery(global_id.module_id)),
-    );
-    let values = time_module_provider(
-        db,
-        "executable_body_check.comptime.global_initializer.value_resolution_with_extensions",
-        global_id.module_id,
-        || {
-            nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
-                &filtered_active_item_tree,
-                &defs,
-                nia_value_resolve::ProgramDefsContext {
-                    defs: Some(&program_defs),
-                    graph: Some(&db.query(ModuleGraphQuery)),
-                },
-                &public.surfaces,
-                using_scope,
-                &visible_extensions.methods,
-                &visible_extensions.interner,
+                Some(&associated_values),
             )
         },
     );
@@ -2328,16 +2381,24 @@ fn comptime_inputs_for_body_check(
         )))
     };
     let trait_solving_signatures;
-    let (program_enums, trait_impls) = if let Some(signatures) = fact_mode.program_signatures {
-        (&signatures.enums, signatures.trait_impls.as_slice())
+    let trait_impls = if let Some(signatures) = fact_mode.program_signatures {
+        signatures.trait_impls.as_slice()
     } else {
         trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        (
-            &trait_solving_signatures.enums,
-            trait_solving_signatures.trait_impls.as_slice(),
-        )
+        trait_solving_signatures.trait_impls.as_slice()
     };
-    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
+    let program_is_enum = |def_id: GlobalDefId| {
+        fact_mode
+            .program_signatures
+            .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
+            || db
+                .query(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .enums
+                .contains_key(&def_id.def_id)
+    };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureItemSignaturesQuery(
@@ -5077,6 +5138,7 @@ pub(super) fn provide_monomorphization(
         let runtime = db.query(CompilerRuntimeQuery);
         let executable_signatures;
         let trait_solving_signatures;
+        let program_enums_storage;
         let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
             executable_signatures = executable_program_signatures_without_functions(db);
             (
@@ -5085,8 +5147,18 @@ pub(super) fn provide_monomorphization(
             )
         } else {
             trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+            let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
+            program_enums_storage = type_facts
+                .iter()
+                .flat_map(|facts| {
+                    facts
+                        .enums
+                        .iter()
+                        .map(|(def_id, signature)| (*def_id, signature.clone()))
+                })
+                .collect::<HashMap<_, _>>();
             (
-                &trait_solving_signatures.enums,
+                &program_enums_storage,
                 trait_solving_signatures.trait_impls.as_slice(),
             )
         };

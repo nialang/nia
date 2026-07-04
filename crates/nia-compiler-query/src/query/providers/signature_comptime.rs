@@ -48,16 +48,22 @@ fn with_signature_comptime_input<T>(
         )))
     };
     let trait_solving_signatures;
-    let (program_enums, trait_impls) = if let Some(signatures) = program_signatures_override {
-        (&signatures.enums, signatures.trait_impls.as_slice())
+    let trait_impls = if let Some(signatures) = program_signatures_override {
+        signatures.trait_impls.as_slice()
     } else {
         trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        (
-            &trait_solving_signatures.enums,
-            trait_solving_signatures.trait_impls.as_slice(),
-        )
+        trait_solving_signatures.trait_impls.as_slice()
     };
-    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
+    let program_is_enum = |def_id: GlobalDefId| {
+        program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
+            || db
+                .query(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .enums
+                .contains_key(&def_id.def_id)
+    };
     let item_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
             module_id,
@@ -222,35 +228,36 @@ fn signature_comptime_value_resolution(
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+    let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+    let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-    let mut values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
-        active_item_tree,
-        &defs,
-        nia_value_resolve::ProgramDefsContext {
-            defs: Some(&program_defs),
-            graph: Some(&db.query(ModuleGraphQuery)),
-        },
-        &public.surfaces,
-        using_scope,
-        &visible_extensions.methods,
-        &visible_extensions.interner,
-    );
+    let mut values =
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
+            active_item_tree,
+            &defs,
+            nia_value_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&db.query(ModuleGraphQuery)),
+            },
+            &public.surfaces,
+            using_scope,
+            Some(&associated_values),
+        );
     if exprs.is_empty() {
         return values;
     }
-    let const_expr_values = nia_value_resolve::resolve_module_values_from_exprs_with_extensions(
-        exprs,
-        &defs,
-        nia_value_resolve::ProgramDefsContext {
-            defs: Some(&program_defs),
-            graph: Some(&db.query(ModuleGraphQuery)),
-        },
-        &public.surfaces,
-        using_scope,
-        &visible_extensions.methods,
-        &visible_extensions.interner,
-    );
+    let const_expr_values =
+        nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
+            exprs,
+            &defs,
+            nia_value_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&db.query(ModuleGraphQuery)),
+            },
+            &public.surfaces,
+            using_scope,
+            Some(&associated_values),
+        );
     values.node_names.extend(const_expr_values.node_names);
     values
         .node_qualified_values

@@ -89,7 +89,6 @@ pub(super) fn provide_program_trait_solving_signatures(
                     .into_iter()
                     .map(ExtensionTraitSolvingModuleFactsQuery),
             );
-            let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
             let mut trait_impls = Vec::new();
             let mut invalid_trait_impl_method_ids = HashSet::new();
             for facts in &facts {
@@ -98,15 +97,6 @@ pub(super) fn provide_program_trait_solving_signatures(
                     .extend(facts.invalid_trait_impl_method_ids.iter().copied());
             }
             Arc::new(ProgramTraitSolvingSignatures {
-                enums: type_facts
-                    .iter()
-                    .flat_map(|facts| {
-                        facts
-                            .enums
-                            .iter()
-                            .map(|(def_id, signature)| (*def_id, signature.clone()))
-                    })
-                    .collect(),
                 trait_impls,
                 invalid_trait_impl_method_ids,
             })

@@ -316,7 +316,7 @@ pub(super) fn provide_program_backend_signatures(
             ),
             structs: collect_structs(&type_facts),
             unions: collect_unions(&type_facts),
-            enums: trait_solving.enums.clone(),
+            enums: collect_enums(&type_facts),
             traits,
             type_aliases: collect_type_aliases(&type_facts),
             trait_impls: trait_solving.trait_impls.clone(),
