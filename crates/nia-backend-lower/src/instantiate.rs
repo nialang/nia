@@ -730,13 +730,14 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
+        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_enums: Some(self.input.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };
@@ -757,13 +758,14 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
+        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_enums: Some(self.input.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };
@@ -1399,13 +1401,14 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<InternedTyId> {
         let associated_type_assumptions =
             self.current_associated_type_assumptions(substitutions, active_projections);
+        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_enums: Some(self.input.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };

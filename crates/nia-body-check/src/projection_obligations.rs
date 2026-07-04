@@ -376,8 +376,8 @@ impl<'a> BodyChecker<'a> {
         self.push_method_owner_trait_obligations(def_id, &mut obligations);
         if let Some(signature) = self.signatures.functions.get(&def_id).cloned() {
             if self
-                .function_signature_scope
-                .includes_function(&self.global_def_id(def_id))
+                .program_signature_scope
+                .includes_function(self.global_def_id(def_id))
             {
                 self.push_where_predicate_obligations(
                     &mut obligations,
@@ -1362,8 +1362,8 @@ impl<'a> BodyChecker<'a> {
             .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
             .and_then(|def_id| {
                 if !self
-                    .function_signature_scope
-                    .includes_function(&self.global_def_id(def_id))
+                    .program_signature_scope
+                    .includes_function(self.global_def_id(def_id))
                 {
                     return None;
                 }
@@ -1881,13 +1881,15 @@ impl<'a> BodyChecker<'a> {
             }
         }
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
+        let program_signature_scope = self.program_signature_scope;
+        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
-            program_enums: Some(self.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id

@@ -463,23 +463,6 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn program_enum_signatures(&self) -> HashMap<GlobalDefId, ProgramEnumSignature> {
-        let mut enums = self.input.program.program_enums.clone();
-        for (def_id, signature) in &self.input.signatures.enums {
-            enums.insert(
-                GlobalDefId {
-                    module_id: self.input.defs.module_id,
-                    def_id: *def_id,
-                },
-                ProgramEnumSignature {
-                    signature: signature.clone(),
-                    interner: self.input.interner.clone(),
-                },
-            );
-        }
-        enums
-    }
-
     pub(super) fn type_normalization_for_module(
         &self,
         module_id: ModuleId,

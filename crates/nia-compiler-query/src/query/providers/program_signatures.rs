@@ -1,57 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_program_body_value_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramBodyValueSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_body_value_signatures",
-        || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
-            Arc::new(ProgramBodyValueSignatures {
-                globals: collect_globals(&facts),
-                comptimes: collect_comptimes(&facts),
-            })
-        },
-    )
-}
-
-pub(super) fn provide_program_body_type_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramBodyTypeSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_body_type_signatures",
-        || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-            Arc::new(ProgramBodyTypeSignatures {
-                structs: collect_structs(&facts),
-                unions: collect_unions(&facts),
-                enums: collect_enums(&facts),
-                type_aliases: collect_type_aliases(&facts),
-            })
-        },
-    )
-}
-
-pub(super) fn provide_program_body_trait_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramBodyTraitSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_body_trait_signatures",
-        || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            Arc::new(ProgramBodyTraitSignatures {
-                traits: collect_traits(&facts),
-                trait_impls: trait_solving.trait_impls.clone(),
-            })
-        },
-    )
-}
-
 pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,

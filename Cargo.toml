@@ -31,6 +31,7 @@ members = [
     "crates/nia-ty",
     "crates/nia-type-lower",
     "crates/nia-item-signatures",
+    "crates/nia-program-signatures",
     "crates/nia-type-normalize",
     "crates/nia-trait-solve",
     "crates/nia-sema",
@@ -97,6 +98,7 @@ nia-local-resolve = { path = "crates/nia-local-resolve" }
 nia-ty = { path = "crates/nia-ty" }
 nia-type-lower = { path = "crates/nia-type-lower" }
 nia-item-signatures = { path = "crates/nia-item-signatures" }
+nia-program-signatures = { path = "crates/nia-program-signatures" }
 nia-type-normalize = { path = "crates/nia-type-normalize" }
 nia-trait-solve = { path = "crates/nia-trait-solve" }
 nia-sema = { path = "crates/nia-sema" }

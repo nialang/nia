@@ -15,6 +15,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
+use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_static_ir::StaticInit;
@@ -51,27 +52,84 @@ impl EmptyBodyProgramSignatures {
         }
     }
 
-    fn values(&self) -> nia_body_check::BodyProgramValueSignatures<'_> {
-        nia_body_check::BodyProgramValueSignatures {
-            globals: &self.globals,
-            comptimes: &self.comptimes,
-        }
-    }
-
-    fn types(&self) -> nia_body_check::BodyProgramTypeSignatures<'_> {
-        nia_body_check::BodyProgramTypeSignatures {
-            structs: &self.structs,
-            unions: &self.unions,
-            enums: &self.enums,
-            type_aliases: &self.type_aliases,
-        }
-    }
-
-    fn traits(&self) -> nia_body_check::BodyProgramTraitSignatures<'_> {
-        nia_body_check::BodyProgramTraitSignatures {
-            traits: &self.traits,
+    fn context(&self) -> ProgramSignatureContext<'_> {
+        ProgramSignatureContext {
+            lookup: self,
             trait_impls: &self.trait_impls,
         }
+    }
+}
+
+impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
+    fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature> {
+        self.functions.get(&def_id).cloned()
+    }
+
+    fn global(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramGlobalSignature> {
+        self.globals.get(&def_id).cloned()
+    }
+
+    fn comptime(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramComptimeSignature> {
+        self.comptimes.get(&def_id).cloned()
+    }
+
+    fn struct_(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramStructSignature> {
+        self.structs.get(&def_id).cloned()
+    }
+
+    fn union(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramUnionSignature> {
+        self.unions.get(&def_id).cloned()
+    }
+
+    fn enum_(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramEnumSignature> {
+        self.enums.get(&def_id).cloned()
+    }
+
+    fn trait_(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramTraitSignature> {
+        self.traits.get(&def_id).cloned()
+    }
+
+    fn type_alias(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramTypeAliasSignature> {
+        self.type_aliases.get(&def_id).cloned()
+    }
+
+    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+        self.traits
+            .iter()
+            .filter_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .any(|method| method.name == name)
+                    .then_some(*trait_id)
+            })
+            .collect()
+    }
+
+    fn trait_owning_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, nia_item_signatures::ProgramTraitSignature)> {
+        self.traits.iter().find_map(|(trait_id, signature)| {
+            signature
+                .signature
+                .methods
+                .iter()
+                .any(|method| {
+                    GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: method.def_id,
+                    } == method_id
+                })
+                .then(|| (*trait_id, signature.clone()))
+        })
     }
 }
 
@@ -328,11 +386,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: nia_body_check::BodyProgramContext::empty(),
-        program_functions: &program_signatures.functions,
-        program_function_signature: None,
-        program_values: program_signatures.values(),
-        program_types: program_signatures.types(),
-        program_traits: program_signatures.traits(),
+        program_signatures: program_signatures.context(),
         function_scope: nia_body_check::FunctionCheckScope::LocalModule,
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,

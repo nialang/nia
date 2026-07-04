@@ -5,7 +5,7 @@ use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, DefId, GlobalConstExprId, GlobalDefId, InternedTyId,
     ModuleId, TraitId, TraitImplId,
 };
-use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
+use nia_item_signatures::{EnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyInterner, TyKind,
@@ -100,7 +100,7 @@ pub struct TraitSolverContext<'a> {
     pub layouts: Option<&'a Layouts>,
     pub local_module_id: ModuleId,
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
-    pub program_enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+    pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     pub const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
@@ -176,8 +176,8 @@ impl<'a> TraitSolverContext<'a> {
         if def_id.module_id == self.local_module_id {
             return self.local_enums.contains_key(&def_id.def_id);
         }
-        self.program_enums
-            .is_some_and(|program_enums| program_enums.contains_key(def_id))
+        self.program_is_enum
+            .is_some_and(|program_is_enum| program_is_enum(*def_id))
     }
 }
 

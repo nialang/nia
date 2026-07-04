@@ -342,9 +342,8 @@ impl<'a> BodyChecker<'a> {
                     .get(&def_id.def_id)
                     .and_then(|signature| signature.explicit_type),
                 false => self
-                    .program_comptimes
-                    .get(&def_id)
-                    .cloned()
+                    .program_signature_scope
+                    .comptime(def_id)
                     .and_then(|signature| {
                         signature
                             .signature

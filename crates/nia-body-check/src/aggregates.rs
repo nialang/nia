@@ -559,7 +559,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(ty) = self.qualified_program_comptime_type(def_id) {
             return Some(ty);
         }
-        let program_signature = self.program_globals.get(&def_id)?.clone();
+        let program_signature = self.program_signature_scope.global(def_id)?;
         let ty = program_signature
             .signature
             .explicit_type
@@ -571,7 +571,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
-        let program_signature = self.program_comptimes.get(&def_id).cloned()?;
+        let program_signature = self.program_signature_scope.comptime(def_id)?;
         if let Some(ty) = program_signature.signature.explicit_type {
             return Some(self.import_type_from(&program_signature.interner, ty));
         }
@@ -612,7 +612,7 @@ impl<'a> BodyChecker<'a> {
             let signature = self.signatures.structs.get(&def_id.def_id)?.clone();
             return Some(ResolvedStructSignature { signature });
         }
-        let program_signature = self.program_structs.get(&def_id)?.clone();
+        let program_signature = self.program_signature_scope.struct_(def_id)?;
         let signature = StructSignature {
             generics: program_signature.signature.generics,
             where_predicates: self.import_where_predicates_from(
@@ -644,7 +644,7 @@ impl<'a> BodyChecker<'a> {
             let signature = self.signatures.unions.get(&def_id.def_id)?.clone();
             return Some(ResolvedUnionSignature { signature });
         }
-        let program_signature = self.program_unions.get(&def_id)?.clone();
+        let program_signature = self.program_signature_scope.union(def_id)?;
         let signature = nia_item_signatures::UnionSignature {
             generics: program_signature.signature.generics,
             where_predicates: self.import_where_predicates_from(
@@ -676,7 +676,7 @@ impl<'a> BodyChecker<'a> {
             let signature = self.signatures.enums.get(&def_id.def_id)?.clone();
             return Some(ResolvedEnumSignature { signature });
         }
-        let program_signature = self.program_enums.get(&def_id)?.clone();
+        let program_signature = self.program_signature_scope.enum_(def_id)?;
         let signature = EnumSignature {
             backing_type: self.import_type_from(
                 &program_signature.interner,
@@ -742,7 +742,7 @@ impl<'a> BodyChecker<'a> {
         if enum_id.module_id == self.defs.module_id {
             self.signatures.enums.contains_key(&enum_id.def_id)
         } else {
-            self.program_enums.contains_key(&enum_id)
+            self.program_signature_scope.has_enum(enum_id)
         }
     }
 
@@ -750,7 +750,7 @@ impl<'a> BodyChecker<'a> {
         if union_id.module_id == self.defs.module_id {
             self.signatures.unions.contains_key(&union_id.def_id)
         } else {
-            self.program_unions.contains_key(&union_id)
+            self.program_signature_scope.has_union(union_id)
         }
     }
 
@@ -1193,7 +1193,7 @@ impl<'a> BodyChecker<'a> {
                     value_signatures: self.program.signatures,
                     comptime_values: Some(self.program_comptime_values),
                     global_initializer: None,
-                    program_enums: self.program_enums,
+                    program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
                     trait_impls: self.program_trait_impls,
                     visible_extensions: self.program.visible_extensions,
                 },
@@ -1254,7 +1254,7 @@ impl<'a> BodyChecker<'a> {
                 value_signatures: self.program.signatures,
                 comptime_values: Some(self.program_comptime_values),
                 global_initializer: None,
-                program_enums: self.program_enums,
+                program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
                 trait_impls: self.program_trait_impls,
                 visible_extensions: self.program.visible_extensions,
             },

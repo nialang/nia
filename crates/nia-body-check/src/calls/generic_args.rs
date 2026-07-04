@@ -407,25 +407,21 @@ impl<'a> BodyChecker<'a> {
             generics.extend(def.generics.clone());
             return Some(generics);
         }
-        self.program_traits
-            .iter()
-            .find_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .find(|method| {
-                        GlobalDefId {
-                            module_id: trait_id.module_id,
-                            def_id: method.def_id,
-                        } == def_id
-                    })
-                    .map(|method| {
-                        let mut generics = vec!["Self".to_string()];
-                        generics.extend(signature.signature.generics.iter().cloned());
-                        generics.extend(method.signature.generics.iter().cloned());
-                        generics
-                    })
+        self.program_signature_scope
+            .trait_owning_method(def_id)
+            .and_then(|(trait_id, signature)| {
+                signature.signature.methods.iter().find_map(|method| {
+                    (GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: method.def_id,
+                    } == def_id)
+                        .then(|| {
+                            let mut generics = vec!["Self".to_string()];
+                            generics.extend(signature.signature.generics.iter().cloned());
+                            generics.extend(method.signature.generics.iter().cloned());
+                            generics
+                        })
+                })
             })
     }
 

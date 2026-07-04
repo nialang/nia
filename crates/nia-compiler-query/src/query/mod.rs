@@ -1355,12 +1355,7 @@ mod tests {
     }
 
     fn is_body_signature_query(name: &str) -> bool {
-        matches!(
-            name,
-            "program_body_value_signatures"
-                | "program_body_type_signatures"
-                | "program_body_trait_signatures"
-        )
+        matches!(name, "program_body_function_signatures")
     }
 
     fn trace_has_dependency(trace: &QueryTrace, from: &str, to: &str) -> bool {
@@ -1923,17 +1918,7 @@ pub fn expensive_or_invalid() i32 {
         assert_query_executions_unchanged(
             &before_second_check,
             &after_second_check,
-            "program_body_value_signatures",
-        );
-        assert_query_executions_unchanged(
-            &before_second_check,
-            &after_second_check,
-            "program_body_type_signatures",
-        );
-        assert_query_executions_unchanged(
-            &before_second_check,
-            &after_second_check,
-            "program_body_trait_signatures",
+            "program_trait_solving_signatures",
         );
     }
 
@@ -1971,18 +1956,6 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(
             invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"program_body_value_signatures"),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"program_body_type_signatures"),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"program_body_trait_signatures"),
             "{invalidated:?}"
         );
         assert!(
@@ -2164,68 +2137,43 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn program_body_signature_queries_use_precise_module_signature_queries() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "struct S { value: i32 } comptime WIDTH: usize = 4usize; trait T { fn get(self) i32; } fn helper() i32 { 1 }",
-        )]);
+    fn body_check_resolves_program_signatures_through_precise_signature_queries() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "using helper::{Alias, value}; fn main() Alias { value() }",
+            ),
+            loaded_module(
+                ModuleId(1),
+                "helper.nia",
+                "pub type Alias = i32; pub fn value() Alias { 1 }",
+            ),
+        ]);
         let db = query_db(loaded);
 
-        let _ = db.query(ProgramBodyValueSignaturesQuery);
-        let _ = db.query(ProgramBodyTypeSignaturesQuery);
-        let _ = db.query(ProgramBodyTraitSignaturesQuery);
+        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
         assert!(trace_has_dependency(
             &trace,
-            "program_body_value_signatures",
-            "program_signature_module_ids"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "program_body_type_signatures",
-            "program_signature_module_ids"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "program_body_value_signatures",
-            "module_program_signature_facts"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "program_body_type_signatures",
-            "module_program_signature_facts"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "module_program_signature_facts",
+            "body_check",
             "signature_item_signatures"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "module_program_signature_facts",
+            "body_check",
             "signature_type_lowering"
         ));
-        assert!(trace_has_dependency(
-            &trace,
-            "module_program_signature_facts",
-            "module_defs"
-        ));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_trait_signatures"
-                && dependency.to.name == "program_trait_solving_signatures"
-        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            is_body_signature_query(dependency.from.name)
+            dependency.from.name == "body_check"
                 && matches!(
                     dependency.to.name,
-                    "type_lowering" | "declaration_type_lowering" | "item_signatures"
+                    "program_body_value_signatures"
+                        | "program_body_type_signatures"
+                        | "program_body_trait_signatures"
                 )
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_type_signatures"
-                && dependency.to.name == "program_trait_solving_signatures"
         }));
     }
 
@@ -2911,13 +2859,14 @@ pub fn expensive_or_invalid() i32 {
                 && dependency.to.name == "program_body_function_signatures"
         }));
         for query in [
+            "program_body_function_signatures",
             "program_body_value_signatures",
             "program_body_type_signatures",
             "program_body_trait_signatures",
         ] {
             assert!(
-                trace_has_dependency(&trace, "body_check", query),
-                "body_check should still use {query}"
+                !trace_has_dependency(&trace, "body_check", query),
+                "body_check should not use {query}"
             );
         }
         assert!(!trace.dependencies.iter().any(|dependency| {

@@ -47,6 +47,7 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
+use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AssociatedComptimeProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
     FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
@@ -364,12 +365,7 @@ pub struct BodyCheckInput<'a> {
     pub program_extension_methods: &'a ExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
-    pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub program_function_signature:
-        Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>>,
-    pub program_values: BodyProgramValueSignatures<'a>,
-    pub program_types: BodyProgramTypeSignatures<'a>,
-    pub program_traits: BodyProgramTraitSignatures<'a>,
+    pub program_signatures: ProgramSignatureContext<'a>,
     pub function_scope: FunctionCheckScope,
     pub program_comptime: ProgramComptimeMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
@@ -404,26 +400,6 @@ impl<'a> BodyLocalSignatures<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BodyProgramValueSignatures<'a> {
-    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BodyProgramTypeSignatures<'a> {
-    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BodyProgramTraitSignatures<'a> {
-    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub trait_impls: &'a [ProgramTraitImplSignature],
-}
-
 #[derive(Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
@@ -443,12 +419,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
-    pub program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub program_function_signature:
-        Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>>,
-    pub program_values: BodyProgramValueSignatures<'a>,
-    pub program_types: BodyProgramTypeSignatures<'a>,
-    pub program_traits: BodyProgramTraitSignatures<'a>,
+    pub program_signatures: ProgramSignatureContext<'a>,
     pub function_scope: FunctionCheckScope,
 }
 
@@ -483,16 +454,7 @@ pub fn check_module_bodies(
         signatures,
         nia_layout::TargetDataLayout::LP64,
     );
-    let empty_functions = HashMap::new();
-    let empty_globals = HashMap::new();
-    let empty_comptimes = HashMap::new();
     let empty_comptime_module = ResolvedComptimeModule::default();
-    let empty_structs = HashMap::new();
-    let empty_unions = HashMap::new();
-    let empty_enums = HashMap::new();
-    let empty_traits = HashMap::new();
-    let empty_type_aliases = HashMap::new();
-    let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
     let empty_comptime_values = HashMap::new();
@@ -540,22 +502,7 @@ pub fn check_module_bodies(
         program_extension_methods: &empty_program_extension_methods,
         extension_interner: None,
         program: BodyProgramContext::empty(),
-        program_functions: &empty_functions,
-        program_function_signature: None,
-        program_values: BodyProgramValueSignatures {
-            globals: &empty_globals,
-            comptimes: &empty_comptimes,
-        },
-        program_types: BodyProgramTypeSignatures {
-            structs: &empty_structs,
-            unions: &empty_unions,
-            enums: &empty_enums,
-            type_aliases: &empty_type_aliases,
-        },
-        program_traits: BodyProgramTraitSignatures {
-            traits: &empty_traits,
-            trait_impls: &empty_trait_impls,
-        },
+        program_signatures: ProgramSignatureContext::empty(),
         program_comptime: ProgramComptimeMaps::empty(),
         function_scope: FunctionCheckScope::LocalModule,
         filter: BodyCheckFilter::All,
@@ -605,11 +552,7 @@ pub fn check_module_bodies_with_program_signatures(
         program_extension_methods: input.program_extension_methods,
         extension_interner: None,
         program: input.program,
-        program_functions: input.program_functions,
-        program_function_signature: input.program_function_signature,
-        program_values: input.program_values,
-        program_types: input.program_types,
-        program_traits: input.program_traits,
+        program_signatures: input.program_signatures,
         function_scope: input.function_scope,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
@@ -745,24 +688,13 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         layouts: input.layouts,
         extensions,
         program_extension_methods: input.program_extension_methods,
-        function_signature_scope: match input.function_scope {
-            FunctionCheckScope::LocalModule => FunctionSignatureScope::LocalModule,
+        program_signature_scope: match input.function_scope {
+            FunctionCheckScope::LocalModule => ProgramSignatureScope::LocalModule,
             FunctionCheckScope::ProgramSignatures => {
-                if let Some(program_function_signature) = input.program_function_signature {
-                    FunctionSignatureScope::Resolver(program_function_signature)
-                } else {
-                    FunctionSignatureScope::Program(input.program_functions)
-                }
+                ProgramSignatureScope::Program(input.program_signatures.lookup)
             }
         },
-        program_globals: input.program_values.globals,
-        program_comptimes: input.program_values.comptimes,
-        program_structs: input.program_types.structs,
-        program_unions: input.program_types.unions,
-        program_enums: input.program_types.enums,
-        program_traits: input.program_traits.traits,
-        program_type_aliases: input.program_types.type_aliases,
-        program_trait_impls: input.program_traits.trait_impls,
+        program_trait_impls: input.program_signatures.trait_impls,
         program_comptime_values: input.program_comptime.values,
         program_comptime_array_lengths: input.program_comptime.array_lengths,
         program_comptime_module: input.program_comptime.module,
@@ -897,14 +829,7 @@ struct BodyChecker<'a> {
     layouts: &'a Layouts,
     extensions: VisibleExtensionMethods,
     program_extension_methods: &'a ExtensionMethods,
-    function_signature_scope: FunctionSignatureScope<'a>,
-    program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    program_comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
-    program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    program_type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    program_signature_scope: ProgramSignatureScope<'a>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime_values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     program_comptime_array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
@@ -962,27 +887,110 @@ struct TraitObligationResolutionKey {
 }
 
 #[derive(Clone, Copy)]
-enum FunctionSignatureScope<'a> {
+enum ProgramSignatureScope<'a> {
     LocalModule,
-    Program(&'a HashMap<GlobalDefId, ProgramFunctionSignature>),
-    Resolver(&'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>),
+    Program(&'a dyn ProgramSignatureLookup),
 }
 
-impl<'a> FunctionSignatureScope<'a> {
-    fn program_signature(&self, def_id: &GlobalDefId) -> Option<ProgramFunctionSignature> {
+impl<'a> ProgramSignatureScope<'a> {
+    fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature> {
         match self {
-            FunctionSignatureScope::LocalModule => None,
-            FunctionSignatureScope::Program(functions) => functions.get(def_id).cloned(),
-            FunctionSignatureScope::Resolver(function) => function(*def_id),
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.function(def_id),
         }
     }
 
-    fn includes_function(&self, def_id: &GlobalDefId) -> bool {
+    fn includes_function(&self, def_id: GlobalDefId) -> bool {
         match self {
-            FunctionSignatureScope::LocalModule => true,
-            FunctionSignatureScope::Program(functions) => functions.contains_key(def_id),
-            FunctionSignatureScope::Resolver(function) => function(*def_id).is_some(),
+            ProgramSignatureScope::LocalModule => true,
+            ProgramSignatureScope::Program(program) => program.has_function(def_id),
         }
+    }
+
+    fn global(&self, def_id: GlobalDefId) -> Option<ProgramGlobalSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.global(def_id),
+        }
+    }
+
+    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.comptime(def_id),
+        }
+    }
+
+    fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.struct_(def_id),
+        }
+    }
+
+    fn union(&self, def_id: GlobalDefId) -> Option<ProgramUnionSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.union(def_id),
+        }
+    }
+
+    fn enum_(&self, def_id: GlobalDefId) -> Option<ProgramEnumSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.enum_(def_id),
+        }
+    }
+
+    fn trait_(&self, def_id: GlobalDefId) -> Option<ProgramTraitSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.trait_(def_id),
+        }
+    }
+
+    fn type_alias(&self, def_id: GlobalDefId) -> Option<ProgramTypeAliasSignature> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.type_alias(def_id),
+        }
+    }
+
+    fn has_enum(&self, def_id: GlobalDefId) -> bool {
+        match self {
+            ProgramSignatureScope::LocalModule => false,
+            ProgramSignatureScope::Program(program) => program.has_enum(def_id),
+        }
+    }
+
+    fn has_union(&self, def_id: GlobalDefId) -> bool {
+        match self {
+            ProgramSignatureScope::LocalModule => false,
+            ProgramSignatureScope::Program(program) => program.has_union(def_id),
+        }
+    }
+
+    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+        match self {
+            ProgramSignatureScope::LocalModule => Vec::new(),
+            ProgramSignatureScope::Program(program) => program.trait_ids_with_method_named(name),
+        }
+    }
+
+    fn trait_owning_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, ProgramTraitSignature)> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.trait_owning_method(method_id),
+        }
+    }
+}
+
+impl<'a> BodyChecker<'a> {
+    fn program_is_enum(&self, def_id: GlobalDefId) -> bool {
+        self.program_signature_scope.has_enum(def_id)
     }
 }
 
@@ -1922,16 +1930,13 @@ impl<'a> BodyChecker<'a> {
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
         let global_def_id = self.global_def_id(def_id);
         if !self
-            .function_signature_scope
-            .includes_function(&global_def_id)
+            .program_signature_scope
+            .includes_function(global_def_id)
         {
             return;
         }
         let signature = self.profile_stage("body_check.profile.function.signature", |this| {
-            if let Some(program_signature) = this
-                .function_signature_scope
-                .program_signature(&global_def_id)
-            {
+            if let Some(program_signature) = this.program_signature_scope.function(global_def_id) {
                 Some(this.import_program_function_signature(&program_signature))
             } else {
                 let raw_signature = this.signatures.functions.get(&def_id).cloned()?;

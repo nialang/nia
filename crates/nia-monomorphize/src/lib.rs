@@ -1055,6 +1055,7 @@ impl MonoCollector<'_> {
             .copied()
             .unwrap_or(&EMPTY_LOCAL_ENUMS);
         let layouts = self.layouts_by_module.get(&module_id).copied();
+        let program_is_enum = |def_id| self.program_enums.contains_key(&def_id);
         let interner = self.working_interners_by_module.get_mut(&module_id)?;
         let context = TraitSolverContext {
             normalization,
@@ -1062,7 +1063,7 @@ impl MonoCollector<'_> {
             layouts,
             local_module_id: module_id,
             local_enums,
-            program_enums: Some(self.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };

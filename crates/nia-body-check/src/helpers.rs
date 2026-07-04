@@ -382,7 +382,7 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(self.normalize_aliases_in_type(target));
         }
-        if let Some(alias) = self.program_type_aliases.get(&def_id).cloned() {
+        if let Some(alias) = self.program_signature_scope.type_alias(def_id) {
             if alias.signature.generics.len() != args.len() + const_args.len() {
                 return Some(self.error());
             }
