@@ -128,6 +128,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-target-config",
+ "nia-timing",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -162,6 +163,7 @@ dependencies = [
  "nia-static-ir",
  "nia-syntax",
  "nia-target-config",
+ "nia-timing",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -191,6 +193,7 @@ dependencies = [
  "nia-imports",
  "nia-loader-query",
  "nia-source",
+ "nia-timing",
 ]
 
 [[package]]
@@ -202,6 +205,7 @@ dependencies = [
  "nia-ice",
  "nia-linker",
  "nia-loader-query",
+ "nia-timing",
 ]
 
 [[package]]
@@ -268,6 +272,7 @@ dependencies = [
  "nia-static-check",
  "nia-syntax",
  "nia-target-config",
+ "nia-timing",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -759,6 +764,10 @@ dependencies = [
  "nia-parser",
  "nia-span",
 ]
+
+[[package]]
+name = "nia-timing"
+version = "0.4.3"
 
 [[package]]
 name = "nia-trait-solve"

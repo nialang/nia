@@ -29,25 +29,8 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
 pub use nia_backend_lower::BackendOptimizationChange;
+pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase, compiler_work_permit};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TimingMode {
-    #[default]
-    Off,
-    Summary,
-    Detail,
-}
-
-impl TimingMode {
-    pub fn enabled(self) -> bool {
-        !matches!(self, Self::Off)
-    }
-
-    pub fn detail(self) -> bool {
-        matches!(self, Self::Detail)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {

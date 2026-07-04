@@ -27,6 +27,7 @@ nia-opt.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
+nia-timing.workspace = true
 nia-trait-solve.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true

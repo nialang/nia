@@ -11,6 +11,7 @@ nia-driver.workspace = true
 nia-ice.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true
+nia-timing.workspace = true
 
 [[bin]]
 name = "nia"

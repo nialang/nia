@@ -10,7 +10,6 @@ use nia_executable_reachability::{
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
@@ -271,13 +270,7 @@ fn empty_backend_lowering(optimization: OptimizationPolicy) -> nia_backend_lower
 }
 
 fn time_provider<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
-    if !timings.detail() {
-        return f();
-    }
-    let start = Instant::now();
-    let result = f();
-    eprintln!("query timing {name}: {:.3}s", start.elapsed().as_secs_f64());
-    result
+    nia_timing::time_query(timings, name, f)
 }
 
 fn time_module_provider<T>(
@@ -291,14 +284,11 @@ fn time_module_provider<T>(
         return f();
     }
     let path = db.context().path_for_module(module_id);
-    let start = Instant::now();
-    let result = f();
-    eprintln!(
-        "query timing {name}[{module_id:?} {}]: {:.3}s",
-        path.as_str(),
-        start.elapsed().as_secs_f64()
-    );
-    result
+    nia_timing::time_query(
+        timings,
+        &format!("{name}[{module_id:?} {}]", path.as_str()),
+        f,
+    )
 }
 
 pub(super) fn provide_module_graph(db: &QueryDb<CompilerContext>) -> ModuleGraph {
@@ -3277,7 +3267,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 },
                 filter,
             },
-            body_timing_mode(db.context().timings()),
+            db.context().timings(),
         )
     };
     let body_check = run_body_check(inputs, body_comptime, comptime_module, filter);
@@ -4260,14 +4250,6 @@ struct CollectedLayoutRoots {
 struct CollectedGlobalLayoutRoots {
     structs: Vec<GlobalDefId>,
     unions: Vec<GlobalDefId>,
-}
-
-fn body_timing_mode(timings: TimingMode) -> nia_body_check::BodyTimingMode {
-    if timings.detail() {
-        nia_body_check::BodyTimingMode::Detail
-    } else {
-        nia_body_check::BodyTimingMode::Off
-    }
 }
 
 pub(super) fn provide_checked_module(
@@ -5545,18 +5527,10 @@ fn provide_backend_lowering_inner(
                 &inputs,
                 &monomorphization,
                 db.query(CompilerOptimizationQuery),
-                backend_timing_mode(db.context().timings()),
+                db.context().timings(),
             )
         },
     )
-}
-
-fn backend_timing_mode(timings: TimingMode) -> nia_backend_lower::BackendTimingMode {
-    if timings.detail() {
-        nia_backend_lower::BackendTimingMode::Detail
-    } else {
-        nia_backend_lower::BackendTimingMode::Off
-    }
 }
 
 fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {

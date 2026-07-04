@@ -8,6 +8,7 @@ members = [
     "crates/nia-ids",
     "crates/nia-diagnostic",
     "crates/nia-ice",
+    "crates/nia-timing",
     "crates/nia-ast",
     "crates/nia-ast-walk",
     "crates/nia-lexer",
@@ -73,6 +74,7 @@ nia-target-config = { path = "crates/nia-target-config" }
 nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
 nia-ice = { path = "crates/nia-ice" }
+nia-timing = { path = "crates/nia-timing" }
 nia-ast = { path = "crates/nia-ast" }
 nia-ast-walk = { path = "crates/nia-ast-walk" }
 nia-lexer = { path = "crates/nia-lexer" }
