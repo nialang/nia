@@ -85,13 +85,17 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
+    pub(super) extension_provider_program_facts:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderProgramFactsValue,
+    pub(super) extension_provider_validation_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderValidationFactsValue,
+    pub(super) extension_provider_validation_program_facts:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderValidationProgramFactsValue,
     pub(super) extension_provider_nominal_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalIndexValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
-    pub(super) extension_method_module_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionMethodModuleFactsValue,
     pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
     pub(super) extension_associated_values:
         fn(&QueryDb<CompilerContext>) -> ExtensionAssociatedValuesValue,
@@ -171,10 +175,13 @@ impl Default for CompilerQueryProviders {
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
             extension_provider_module_facts: provide_extension_provider_module_facts,
+            extension_provider_program_facts: provide_extension_provider_program_facts,
+            extension_provider_validation_facts: provide_extension_provider_validation_facts,
+            extension_provider_validation_program_facts:
+                provide_extension_provider_validation_program_facts,
             extension_provider_nominal_index: provide_extension_provider_nominal_index,
             extension_method_index: provide_extension_method_index,
             extension_trait_signature_index: provide_extension_trait_signature_index,
-            extension_method_module_facts: provide_extension_method_module_facts,
             extension_method_set: provide_extension_method_set,
             extension_associated_values: provide_extension_associated_values,
             extension_methods: provide_extension_methods,
@@ -1133,20 +1140,10 @@ pub(super) fn provide_extension_method_set(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodSetValue {
     time_provider(db.context().timings(), "extension_method_set", || {
-        let facts = db.query_many(
-            db.query(ExtensionProviderModuleIdsQuery)
-                .into_iter()
-                .map(ExtensionMethodModuleFactsQuery),
-        );
-        let mut methods = nia_defs::ExtensionMethods::default();
-        let mut diagnostics = Vec::new();
-        for facts in facts {
-            methods.extend(facts.methods.clone());
-            diagnostics.extend(facts.diagnostics.iter().cloned());
-        }
+        let facts = db.query(ExtensionProviderValidationProgramFactsQuery);
         Arc::new(ExtensionMethodSetQueryValue {
-            methods,
-            diagnostics,
+            methods: facts.methods.clone(),
+            diagnostics: facts.diagnostics.clone(),
         })
     })
 }
@@ -1207,6 +1204,91 @@ pub(super) fn provide_extension_provider_module_facts(
     })
 }
 
+pub(super) fn provide_extension_provider_validation_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ExtensionProviderValidationFactsValue {
+    time_module_provider(db, "extension_provider_validation_facts", module_id, || {
+        let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
+        let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let (methods, diagnostics) = collect_extension_methods_for_module(
+            &input.module(),
+            ExtensionMethodValidationInput {
+                trait_defs: &trait_index.trait_defs,
+                trait_signatures: &trait_index.trait_signatures,
+                trait_impls: &trait_solving.trait_impls,
+            },
+        );
+        Arc::new(ExtensionProviderValidationFactsQueryValue {
+            methods,
+            diagnostics,
+        })
+    })
+}
+
+pub(super) fn provide_extension_provider_program_facts(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionProviderProgramFactsValue {
+    time_provider(
+        db.context().timings(),
+        "extension_provider_program_facts",
+        || {
+            let facts = db.query_many(
+                db.query(ExtensionProviderModuleIdsQuery)
+                    .into_iter()
+                    .map(ExtensionProviderModuleFactsQuery),
+            );
+            let mut methods = nia_defs::ExtensionMethods::default();
+            let mut associated_values = nia_defs::ExtensionAssociatedValues::default();
+            let mut associated_value_diagnostics = Vec::new();
+            let mut trait_impls = Vec::new();
+            let mut nominal_providers = Vec::new();
+            for facts in facts {
+                methods.extend(facts.methods.clone());
+                associated_values.extend(facts.associated_values.clone());
+                associated_value_diagnostics
+                    .extend(facts.associated_value_diagnostics.iter().cloned());
+                trait_impls.extend(facts.trait_impls.iter().cloned());
+                nominal_providers.extend(facts.nominal_providers.iter().copied());
+            }
+            Arc::new(ExtensionProviderProgramFactsQueryValue {
+                methods,
+                associated_values,
+                associated_value_diagnostics,
+                trait_impls,
+                nominal_providers,
+            })
+        },
+    )
+}
+
+pub(super) fn provide_extension_provider_validation_program_facts(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionProviderValidationProgramFactsValue {
+    time_provider(
+        db.context().timings(),
+        "extension_provider_validation_program_facts",
+        || {
+            let facts = db.query_many(
+                db.query(ExtensionProviderModuleIdsQuery)
+                    .into_iter()
+                    .map(ExtensionProviderValidationFactsQuery),
+            );
+            let mut methods = nia_defs::ExtensionMethods::default();
+            let mut diagnostics = Vec::new();
+            for facts in facts {
+                methods.extend(facts.methods.clone());
+                diagnostics.extend(facts.diagnostics.iter().cloned());
+            }
+            Arc::new(ExtensionProviderValidationProgramFactsQueryValue {
+                methods,
+                diagnostics,
+            })
+        },
+    )
+}
+
 pub(super) fn provide_extension_provider_nominal_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionProviderNominalIndexValue {
@@ -1214,18 +1296,16 @@ pub(super) fn provide_extension_provider_nominal_index(
         db.context().timings(),
         "extension_provider_nominal_index",
         || {
+            let facts = db.query(ExtensionProviderProgramFactsQuery);
             let mut providers_by_nominal: HashMap<
                 GlobalDefId,
                 Vec<crate::program_signatures::NominalExtensionProviderEntry>,
             > = HashMap::new();
-            for module_id in db.query(ExtensionProviderModuleIdsQuery) {
-                let facts = db.query(ExtensionProviderModuleFactsQuery(module_id));
-                for provider in &facts.nominal_providers {
-                    providers_by_nominal
-                        .entry(provider.target)
-                        .or_default()
-                        .push(*provider);
-                }
+            for provider in &facts.nominal_providers {
+                providers_by_nominal
+                    .entry(provider.target)
+                    .or_default()
+                    .push(*provider);
             }
             for providers in providers_by_nominal.values_mut() {
                 providers.sort_by_key(|provider| {
@@ -1253,30 +1333,10 @@ pub(super) fn provide_extension_method_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodIndexValue {
     time_provider(db.context().timings(), "extension_method_index", || {
-        let timings = db.context().timings();
-        let module_ids = db.query(ExtensionProviderModuleIdsQuery);
-        let facts = time_provider(timings, "extension_method_index.module_facts", || {
-            module_ids
-                .into_iter()
-                .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
-                .collect::<Vec<_>>()
-        });
-        let trait_impls = time_provider(timings, "extension_method_index.trait_impls", || {
-            facts
-                .iter()
-                .flat_map(|facts| facts.trait_impls.iter().cloned())
-                .collect()
-        });
-        let methods = time_provider(timings, "extension_method_index.collect", || {
-            let mut methods = nia_defs::ExtensionMethods::default();
-            for facts in &facts {
-                methods.extend(facts.methods.clone());
-            }
-            methods
-        });
+        let facts = db.query(ExtensionProviderProgramFactsQuery);
         Arc::new(ExtensionMethodIndexQueryValue {
-            methods,
-            trait_impls,
+            methods: facts.methods.clone(),
+            trait_impls: facts.trait_impls.clone(),
         })
     })
 }
@@ -1308,29 +1368,6 @@ pub(super) fn provide_extension_trait_signature_index(
     )
 }
 
-pub(super) fn provide_extension_method_module_facts(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> ExtensionMethodModuleFactsValue {
-    time_module_provider(db, "extension_method_module_facts", module_id, || {
-        let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
-        let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
-        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-        let (methods, diagnostics) = collect_extension_methods_for_module(
-            &input.module(),
-            ExtensionMethodValidationInput {
-                trait_defs: &trait_index.trait_defs,
-                trait_signatures: &trait_index.trait_signatures,
-                trait_impls: &trait_solving.trait_impls,
-            },
-        );
-        Arc::new(ExtensionMethodModuleFactsQueryValue {
-            methods,
-            diagnostics,
-        })
-    })
-}
-
 pub(super) fn provide_extension_associated_values(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionAssociatedValuesValue {
@@ -1338,20 +1375,10 @@ pub(super) fn provide_extension_associated_values(
         db.context().timings(),
         "extension_associated_values",
         || {
-            let module_ids = db.query(ExtensionProviderModuleIdsQuery);
-            let facts = module_ids
-                .into_iter()
-                .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
-                .collect::<Vec<_>>();
-            let mut values = nia_defs::ExtensionAssociatedValues::default();
-            let mut diagnostics = Vec::new();
-            for facts in facts {
-                values.extend(facts.associated_values.clone());
-                diagnostics.extend(facts.associated_value_diagnostics.iter().cloned());
-            }
+            let facts = db.query(ExtensionProviderProgramFactsQuery);
             Arc::new(ExtensionAssociatedValuesQueryValue {
-                values,
-                diagnostics,
+                values: facts.associated_values.clone(),
+                diagnostics: facts.associated_value_diagnostics.clone(),
             })
         },
     )
