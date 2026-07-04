@@ -1,25 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_program_body_function_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramBodyFunctionSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_body_function_signatures",
-        || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Functions);
-            let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-            Arc::new(ProgramBodyFunctionSignatures {
-                functions: collect_functions_excluding(
-                    &facts,
-                    &trait_solving.invalid_trait_impl_method_ids,
-                ),
-            })
-        },
-    )
-}
-
 pub(super) fn provide_program_body_value_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBodyValueSignatures> {

@@ -94,11 +94,6 @@ impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramBodyFunctionSignatures {
-    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramBodyValueSignatures {
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
@@ -181,9 +176,6 @@ impl ProgramBodyValueSignatures {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramBodyFunctionSignaturesQuery;
-
 impl ProgramBodyTypeSignatures {
     pub(super) fn body_maps(&self) -> nia_body_check::BodyProgramTypeSignatures<'_> {
         nia_body_check::BodyProgramTypeSignatures {
@@ -229,18 +221,6 @@ impl ProgramBackendSignatures {
             type_aliases: &self.type_aliases,
             trait_impls: &self.trait_impls,
         }
-    }
-}
-
-impl QueryKey<CompilerContext> for ProgramBodyFunctionSignaturesQuery {
-    type Value = Arc<ProgramBodyFunctionSignatures>;
-
-    fn name() -> &'static str {
-        "program_body_function_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_body_function_signatures)(db)
     }
 }
 

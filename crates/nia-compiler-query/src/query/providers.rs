@@ -91,8 +91,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
     pub(super) extension_trait_solving_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
-    pub(super) program_body_function_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyFunctionSignatures>,
     pub(super) program_body_value_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyValueSignatures>,
     pub(super) program_body_type_signatures:
@@ -202,7 +200,6 @@ impl Default for CompilerQueryProviders {
             extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
-            program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
             program_body_type_signatures: provide_program_body_type_signatures,
             program_body_trait_signatures: provide_program_body_trait_signatures,
@@ -2577,7 +2574,6 @@ fn body_check_with_filter_and_layouts_with_inputs(
         })
     };
     let empty_program_functions = HashMap::new();
-    let program_function_signatures;
     let program_value_signatures;
     let program_type_signatures;
     let program_trait_signatures;
@@ -2601,12 +2597,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 },
             )
         } else {
-            program_function_signatures = db.query(ProgramBodyFunctionSignaturesQuery);
             program_value_signatures = db.query(ProgramBodyValueSignaturesQuery);
             program_type_signatures = db.query(ProgramBodyTypeSignaturesQuery);
             program_trait_signatures = db.query(ProgramBodyTraitSignaturesQuery);
             (
-                &program_function_signatures.functions,
+                &empty_program_functions,
                 program_value_signatures.body_maps(),
                 program_type_signatures.body_maps(),
                 program_trait_signatures.body_maps(),
@@ -4183,7 +4178,6 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             db.context().timings(),
             "checked_modules.shared_inputs",
             || {
-                let _ = db.query(ProgramBodyFunctionSignaturesQuery);
                 let _ = db.query(ProgramBodyValueSignaturesQuery);
                 let _ = db.query(ProgramBodyTypeSignaturesQuery);
                 let _ = db.query(ProgramBodyTraitSignaturesQuery);
