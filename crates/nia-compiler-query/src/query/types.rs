@@ -238,52 +238,38 @@ impl QueryKey<CompilerContext> for LayoutTypeNormalizationQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct SignatureModuleInputs {
-    pub(super) module_ids: Vec<ModuleId>,
-    pub(super) type_lowerings: Vec<TypeLowering>,
-    pub(super) item_signatures: Vec<ItemSignatures>,
-    pub(super) defs: Vec<DefCollection>,
+pub(super) struct ExtensionSignatureModuleInputQueryValue {
+    pub(super) module_id: ModuleId,
+    pub(super) lowering: TypeLowering,
+    pub(super) signatures: ItemSignatures,
+    pub(super) defs: DefCollection,
+    pub(super) function_signatures: ItemSignatures,
+    pub(super) type_signatures: ItemSignatures,
+    pub(super) normalization: TypeNormalization,
+}
+
+impl ExtensionSignatureModuleInputQueryValue {
+    pub(super) fn module(&self) -> ExtensionModuleInput<'_> {
+        ExtensionModuleInput {
+            module_id: self.module_id,
+            defs: &self.defs,
+            lowering: &self.lowering,
+            signatures: &self.signatures,
+            function_signatures: &self.function_signatures,
+            type_signatures: &self.type_signatures,
+            normalization: &self.normalization,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionSignatureInputsQueryValue {
-    pub(super) trait_inputs: SignatureModuleInputs,
-    pub(super) function_signatures: Vec<ItemSignatures>,
-    pub(super) type_signatures: Vec<ItemSignatures>,
-    pub(super) normalizations: Vec<TypeNormalization>,
+    pub(super) modules: Vec<ExtensionSignatureModuleInputValue>,
 }
 
 impl ExtensionSignatureInputsQueryValue {
     pub(super) fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
-        self.trait_inputs
-            .module_ids
-            .iter()
-            .zip(self.trait_inputs.defs.iter())
-            .zip(self.trait_inputs.type_lowerings.iter())
-            .zip(self.trait_inputs.item_signatures.iter())
-            .zip(self.function_signatures.iter())
-            .zip(self.type_signatures.iter())
-            .zip(self.normalizations.iter())
-            .map(
-                |(
-                    (
-                        ((((module_id, defs), lowering), signatures), function_signatures),
-                        type_signatures,
-                    ),
-                    normalization,
-                )| {
-                    ExtensionModuleInput {
-                        module_id: *module_id,
-                        defs,
-                        lowering,
-                        signatures,
-                        function_signatures,
-                        type_signatures,
-                        normalization,
-                    }
-                },
-            )
-            .collect()
+        self.modules.iter().map(|module| module.module()).collect()
     }
 }
 
@@ -325,6 +311,25 @@ impl QueryKey<CompilerContext> for ModuleProgramSignatureFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_program_signature_facts)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionSignatureModuleInputQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionSignatureModuleInputQuery {
+    type Value = ExtensionSignatureModuleInputValue;
+
+    fn name() -> &'static str {
+        "extension_signature_module_input"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_signature_module_input({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_signature_module_input)(db, self.0)
     }
 }
 
